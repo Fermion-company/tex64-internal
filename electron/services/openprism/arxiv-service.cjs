@@ -106,12 +106,18 @@ const extractArxivId = (input) => {
 
 /**
  * Search arXiv (all fields). Returns normalized entries, most relevant first.
+ * `query` is sent as one `all:` clause (arXiv treats its words as OR);
+ * `options.terms` instead ANDs each word: `all:w1 AND all:w2 …`.
  */
 const searchArxiv = async (query, options = {}) => {
+  const terms = Array.isArray(options.terms) ? options.terms.map(collapse).filter(Boolean) : [];
   const text = collapse(query);
-  if (!text) return [];
+  if (!text && terms.length === 0) return [];
   const max = Math.min(20, Math.max(1, Number(options.max) || 5));
-  const url = `${ARXIV_API}?search_query=all:${encodeURIComponent(text)}&start=0&max_results=${max}`;
+  const searchQuery = terms.length > 0
+    ? terms.map((term) => `all:${encodeURIComponent(term)}`).join("+AND+")
+    : `all:${encodeURIComponent(text)}`;
+  const url = `${ARXIV_API}?search_query=${searchQuery}&start=0&max_results=${max}`;
   const entries = await fetchFeedEntries(url, options.signal);
   return entries.map(normalizeEntry);
 };

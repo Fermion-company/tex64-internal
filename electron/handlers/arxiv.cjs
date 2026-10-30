@@ -11,6 +11,16 @@ const { appendBibEntry } = require("../services/bib-append.cjs");
 
 const MAX_QUERY_CHARS = 500;
 
+/** Give network, rate-limit and timeout failures a code the renderer can word. */
+const classify = (error) => {
+  const message = String(error?.message || error);
+  const cause = String(error?.cause?.code || error?.cause?.message || "");
+  if (error?.name === "TimeoutError" || /timeout|timed out/i.test(message)) error.code = "TIMEOUT";
+  else if (/\b429\b/.test(message)) error.code = "RATE_LIMIT";
+  else if (/fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|EAI_AGAIN|ENETUNREACH/i.test(`${message} ${cause}`)) error.code = "NETWORK";
+  return error;
+};
+
 /**
  * IPC "tex64:arxiv": the no-LLM path from the editor to arXiv.
  *   search { query, max }        → { papers }
@@ -20,6 +30,7 @@ const MAX_QUERY_CHARS = 500;
 const registerArxivHandlers = ({ ipcMain, workspace, isOwner }) => {
   let inflight = null;
 
+  // Words are ANDed. An empty result drops the last word once, no further.
   const search = async (payload) => {
     const query = typeof payload?.query === "string" ? payload.query.trim() : "";
     if (!query) return { papers: [] };
@@ -29,11 +40,17 @@ const registerArxivHandlers = ({ ipcMain, workspace, isOwner }) => {
     const controller = new AbortController();
     inflight = controller;
     try {
-      const papers = await searchArxiv(query, { max, signal: controller.signal });
-      return { papers };
+      const terms = query.split(/\s+/).filter(Boolean);
+      let papers = await searchArxiv(query, { max, terms, signal: controller.signal });
+      let relaxed = false;
+      if (papers.length === 0 && terms.length > 1) {
+        papers = await searchArxiv(query, { max, terms: terms.slice(0, -1), signal: controller.signal });
+        relaxed = true;
+      }
+      return { papers, relaxed };
     } catch (error) {
       if (controller.signal.aborted && inflight !== controller) return { papers: [], superseded: true };
-      throw error;
+      throw classify(error);
     } finally {
       if (inflight === controller) inflight = null;
     }
@@ -43,7 +60,12 @@ const registerArxivHandlers = ({ ipcMain, workspace, isOwner }) => {
     if (!workspace.getRootPath()) throw new Error("No workspace is open.");
     const arxivId = extractArxivId(payload?.arxivId);
     if (!arxivId || !/^[A-Za-z0-9.\-/]+$/.test(arxivId)) throw new Error("Invalid arXiv ID.");
-    const entry = await fetchArxivEntry(arxivId);
+    let entry;
+    try {
+      entry = await fetchArxivEntry(arxivId);
+    } catch (error) {
+      throw classify(error);
+    }
     if (!entry) throw new Error("No arXiv metadata found.");
     const key = buildArxivKey(entry);
     const bibtex = buildArxivBibtex(entry);

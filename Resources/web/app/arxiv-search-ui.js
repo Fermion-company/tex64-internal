@@ -1,24 +1,33 @@
 // "Find related papers on arXiv…": the editor's context-menu entry (.tex only)
 // and its dialog. Searching and citing go through the tex64Arxiv bridge; no
-// model call is involved.
+// model call is involved. The dialog follows the History dialog's grammar.
 import { uiText } from "./i18n.js";
-import { buildArxivQuery } from "./arxiv-query.js";
+import { buildArxivQuery, plainLatex } from "./arxiv-query.js";
 import { insertCitation } from "./citation-insert.js";
 const DEBOUNCE_MS = 3000;
 const RESULT_COUNT = 10;
 const CONTEXT_KEY = "tex64ArxivTexFile";
 const bridge = () => window.tex64Arxiv;
+class ArxivError extends Error {
+    constructor(message, code) { super(message); this.code = code; }
+}
 const call = async (action, payload) => {
     const result = await bridge().call(action, payload);
     if (!(result === null || result === void 0 ? void 0 : result.ok))
-        throw new Error((result === null || result === void 0 ? void 0 : result.error) || uiText("arXiv request failed.", "arXiv への要求に失敗しました。"));
+        throw new ArxivError((result === null || result === void 0 ? void 0 : result.error) || "arXiv request failed.", String((result === null || result === void 0 ? void 0 : result.code) || ""));
     return result;
 };
-const isTexModel = (editor) => {
-    var _a, _b, _c;
-    const uriPath = ((_c = (_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) === null || _b === void 0 ? void 0 : _b.uri) === null || _c === void 0 ? void 0 : _c.path) || "";
-    return /\.tex$/i.test(uriPath);
+const describe = (reason) => {
+    const code = reason instanceof ArxivError ? reason.code : "";
+    if (code === "NETWORK")
+        return uiText("Cannot reach arXiv. Check the connection and press Enter to retry.", "arXiv に接続できません。接続を確認して Enter で再試行してください。");
+    if (code === "RATE_LIMIT")
+        return uiText("arXiv is busy. Wait a moment and press Enter to retry.", "arXiv が混雑しています。しばらく待って Enter で再試行してください。");
+    if (code === "TIMEOUT")
+        return uiText("arXiv did not answer in time. Press Enter to retry.", "arXiv の応答がありません。Enter で再試行してください。");
+    return reason instanceof Error ? reason.message : String(reason);
 };
+const isTexModel = (editor) => { var _a, _b, _c; return /\.tex$/i.test(((_c = (_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) === null || _b === void 0 ? void 0 : _b.uri) === null || _c === void 0 ? void 0 : _c.path) || ""); };
 let modalOpen = false;
 export const attachArxivSearch = (editor, group) => {
     var _a, _b;
@@ -55,34 +64,33 @@ export const openArxivSearch = (editor, group) => {
         lines: model.getValue().split(/\r?\n/),
         cursorLine: Math.max(0, ((cursor === null || cursor === void 0 ? void 0 : cursor.lineNumber) || 1) - 1),
     });
-    const node = (tag, className = "", text = "") => {
-        const value = document.createElement(tag);
-        if (className)
-            value.className = className;
+    const el = (tag, className = "", text = "") => {
+        const node = document.createElement(tag);
+        node.className = className;
         if (text)
-            value.textContent = text;
-        return value;
+            node.textContent = text;
+        return node;
     };
-    const button = (text, fn, className = "") => {
-        const el = node("button", className, text);
-        el.type = "button";
-        el.addEventListener("click", (event) => { event.stopPropagation(); fn(); });
-        return el;
+    const button = (text, fn) => {
+        const node = el("button", "history-button", text);
+        node.type = "button";
+        node.addEventListener("click", (event) => { event.stopPropagation(); fn(); });
+        return node;
     };
-    const dialog = node("dialog", "snippets-dialog arxiv-dialog");
-    const heading = node("h2", "", uiText("Related papers on arXiv", "arXiv の関連文献"));
+    const dialog = el("dialog", "history-confirm arxiv-dialog");
+    const heading = el("h2", "", uiText("Related papers on arXiv", "arXiv の関連文献"));
     heading.id = "arxiv-search-title";
     dialog.setAttribute("aria-labelledby", heading.id);
-    const query = node("input");
-    query.type = "search";
+    const query = el("input", "history-name");
+    query.type = "text";
     query.value = initialQuery;
-    query.placeholder = uiText("Search arXiv", "arXiv を検索");
+    query.placeholder = uiText("Search arXiv (English words)", "arXiv を検索（英語の語）");
     query.setAttribute("aria-label", query.placeholder);
     query.spellcheck = false;
-    const status = node("p", "arxiv-status");
+    const status = el("div", "history-error arxiv-status");
     status.setAttribute("role", "status");
-    const results = node("div", "arxiv-results");
-    const actions = node("div", "snippets-actions");
+    const results = el("div", "arxiv-results");
+    const actions = el("div", "history-confirm-actions");
     actions.append(button(uiText("Close", "閉じる"), () => dialog.close()));
     dialog.append(heading, query, status, results, actions);
     let searchSeq = 0;
@@ -92,34 +100,36 @@ export const openArxivSearch = (editor, group) => {
     const cited = new Map();
     let papers = [];
     const setStatus = (text) => { status.textContent = text; };
+    const askForEnglish = () => {
+        setStatus(uiText("arXiv is searched in English. Enter English words.", "arXiv は英語で検索します。英語の語を入れてください。"));
+        query.focus();
+    };
     const renderRow = (paper) => {
-        const row = node("div", "arxiv-row");
-        const head = node("div", "arxiv-row-head");
-        const title = button(paper.title, () => { abstract.hidden = !abstract.hidden; title.setAttribute("aria-expanded", String(!abstract.hidden)); }, "arxiv-row-title");
+        const row = el("div", "arxiv-row");
+        const head = el("div", "arxiv-row-head");
+        const title = button(plainLatex(paper.title), () => {
+            abstract.hidden = !abstract.hidden;
+            title.setAttribute("aria-expanded", String(!abstract.hidden));
+        });
+        title.className = "arxiv-row-title";
         title.setAttribute("aria-expanded", "false");
-        const meta = node("p", "arxiv-row-meta", [authorsLabel(paper.authors), paper.year].filter(Boolean).join(" · "));
-        const text = node("div", "arxiv-row-text");
+        const meta = el("p", "arxiv-row-meta", [authorsLabel(paper.authors), paper.year].filter(Boolean).join(" · "));
+        const text = el("div", "arxiv-row-text");
         text.append(title, meta);
-        const side = node("div", "arxiv-row-side");
+        const side = el("div", "arxiv-row-side");
         head.append(text, side);
-        const abstract = node("p", "arxiv-abstract", paper.abstract);
+        const abstract = el("p", "arxiv-abstract", plainLatex(paper.abstract));
         abstract.hidden = true;
         row.append(head, abstract);
-        const showCited = (result) => {
-            side.replaceChildren();
-            const key = node("code", "arxiv-cited", `\\cite{${result.key}}`);
-            side.append(key);
-            const note = result.duplicate
-                ? uiText(`${result.key} was already in ${result.bibPath}.`, `${result.key} は ${result.bibPath} に既にありました。`)
-                : result.created
-                    ? uiText(`Created ${result.bibPath}.`, `${result.bibPath} を作成しました。`)
-                    : "";
-            if (note)
-                side.append(node("p", "arxiv-row-meta", note));
+        const showCited = (result, inserted) => {
+            side.replaceChildren(el("code", "arxiv-cited", inserted));
+            if (result.duplicate) {
+                side.append(el("p", "arxiv-row-meta", uiText(`${result.key} was already in ${result.bibPath}.`, `${result.key} は ${result.bibPath} に既にありました。`)));
+            }
         };
         const done = cited.get(paper.arxivId);
         if (done) {
-            showCited(done);
+            showCited(done.result, done.inserted);
             return row;
         }
         const cite = button(uiText("Cite", "引用する"), () => void (async () => {
@@ -131,27 +141,29 @@ export const openArxivSearch = (editor, group) => {
                 if (((_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== model || ((_b = model.isDisposed) === null || _b === void 0 ? void 0 : _b.call(model)) || ((_c = editor.getRawOptions) === null || _c === void 0 ? void 0 : _c.call(editor).readOnly)) {
                     throw new Error(uiText("The document changed. Close the dialog and place the cursor again.", "文書が変更されました。閉じてカーソル位置を選び直してください。"));
                 }
-                insertCitation(editor, result.key);
-                cited.set(paper.arxivId, result);
-                showCited(result);
+                const how = insertCitation(editor, result.key);
+                const inserted = how === "appended" ? `,${result.key}` : `\\cite{${result.key}}`;
+                cited.set(paper.arxivId, { result, inserted });
+                showCited(result, inserted);
+                if (result.created && result.suggestion) {
+                    setStatus(uiText(`Created ${result.bibPath}. Add ${result.suggestion} to the preamble.`, `${result.bibPath} を作成しました。プリアンブルに ${result.suggestion} を加えてください。`));
+                }
             }
             catch (reason) {
                 cite.disabled = false;
-                setStatus(reason instanceof Error ? reason.message : String(reason));
+                setStatus(describe(reason));
             }
-        })(), "is-primary");
+        })());
         side.append(cite);
         return row;
     };
-    const render = () => {
-        results.replaceChildren(...papers.map(renderRow));
-    };
+    const render = () => { results.replaceChildren(...papers.map(renderRow)); };
     const search = async (text) => {
         const trimmed = text.trim();
         if (!trimmed) {
             papers = [];
             render();
-            setStatus("");
+            askForEnglish();
             return;
         }
         if (inflight) {
@@ -171,7 +183,7 @@ export const openArxivSearch = (editor, group) => {
         }
         catch (reason) {
             if (seq === searchSeq)
-                setStatus(reason instanceof Error ? reason.message : String(reason));
+                setStatus(describe(reason));
         }
         finally {
             inflight = false;

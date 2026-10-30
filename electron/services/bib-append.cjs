@@ -3,8 +3,10 @@
  *
  * The target is the first file named by \addbibresource / \bibliography in
  * the main file (or in a file it \input/\include-s directly). Without one,
- * `references.bib` next to the main file is created; the preamble is left
- * alone. An entry whose key already exists is not appended.
+ * the workspace's only .bib is used; with none, `references.bib` next to the
+ * main file is created and the preamble line to add is returned as
+ * `suggestion` (the preamble itself is left alone). An entry whose key already
+ * exists is not appended.
  */
 
 "use strict";
@@ -42,6 +44,17 @@ const hasBibKey = (content, key) => {
 };
 
 const readOrNull = (workspace, relativePath) => workspace.readFile(relativePath).catch(() => null);
+
+const stripComments = (content) => String(content || "").split(/\r?\n/).map(stripComment).join("\n");
+
+const listBibFiles = async (workspace) => {
+  try {
+    const files = await workspace.listFiles();
+    return files.filter((file) => typeof file === "string" && /\.bib$/i.test(file)).map(normalizeRelative);
+  } catch {
+    return [];
+  }
+};
 
 /** The main file of the document that contains `activeFilePath`. */
 const resolveMainFile = async (workspace, activeFilePath) => {
@@ -86,8 +99,19 @@ const resolveBibTarget = async (workspace, activeFilePath) => {
       return { bibPath: candidates[0], exists: false, mainFile };
     }
   }
+  // No resource named: the workspace's only .bib, else a new references.bib
+  // next to the main file (created when the workspace has none).
+  const existing = await listBibFiles(workspace);
+  if (existing.length === 1) return { bibPath: existing[0], exists: true, mainFile };
   const fallback = inMainDir(DEFAULT_BIB);
-  return { bibPath: fallback, exists: (await readOrNull(workspace, fallback)) !== null, mainFile };
+  return {
+    bibPath: fallback,
+    exists: existing.includes(fallback),
+    mainFile,
+    suggestion: /\\usepackage\s*(?:\[[^\]]*\])?\s*\{[^}]*\bbiblatex\b/.test(stripComments(mainContent))
+      ? `\\addbibresource{${path.posix.basename(fallback)}}`
+      : `\\bibliography{${path.posix.basename(fallback, ".bib")}}`,
+  };
 };
 
 /**
@@ -108,7 +132,7 @@ const appendBibEntry = async (workspace, { activeFilePath, key, bibtex }) => {
   const next = head ? `${head}\n\n${entry}` : entry;
   if (created) await fsp.mkdir(path.dirname(workspace.resolvePath(target.bibPath)), { recursive: true });
   await workspace.writeFile(target.bibPath, next);
-  return { bibPath: target.bibPath, created, duplicate: false };
+  return { bibPath: target.bibPath, created, duplicate: false, ...(created && target.suggestion ? { suggestion: target.suggestion } : {}) };
 };
 
 module.exports = { appendBibEntry, resolveBibTarget, bibResourcesOf, hasBibKey };

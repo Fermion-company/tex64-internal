@@ -13,15 +13,6 @@ const EN_STOPWORDS = new Set(("a an the and or but nor so yet for of in on at to
     "show shows shown given let consider assume define denote note follow following first second " +
     "new well many much large small high low number result results paper work approach method " +
     "methods case cases example examples way ways").split(/\s+/));
-// Japanese particles, auxiliaries and function words that separate content
-// words. They are removed as separators, so what remains are content runs.
-const JA_FUNCTION_WORDS = [
-    "について", "において", "における", "によって", "により", "による", "として", "とともに", "に対して", "に対する",
-    "ただし", "しかし", "また", "および", "または", "ならびに", "すなわち", "つまり", "そして", "それ", "これ", "この", "その", "あの",
-    "である", "でない", "であり", "でした", "です", "ます", "ました", "ません", "された", "される", "されて", "され", "した", "して", "する", "しない",
-    "られる", "られた", "れる", "れた", "いる", "いた", "ある", "あった", "なる", "なった", "ない", "なく", "ため", "よう", "こと", "もの", "とき",
-    "の", "は", "が", "を", "に", "で", "と", "も", "へ", "や", "か", "な", "ね", "よ", "から", "まで", "より", "など", "ほど", "だけ", "しか", "でも", "ては", "には", "とは", "では",
-];
 const MATH_PATTERNS = [
     /\$\$[\s\S]*?\$\$/g,
     /\\\[[\s\S]*?\\\]/g,
@@ -44,19 +35,6 @@ export const stripLatex = (text) => {
     out = out.replace(/[{}~]/g, " ");
     return out.replace(/\s+/g, " ").trim();
 };
-const isCjk = (ch) => /[぀-ヿ㐀-鿿ｦ-ﾟ]/.test(ch);
-const japaneseTerms = (text) => {
-    let work = text;
-    for (const word of JA_FUNCTION_WORDS)
-        work = work.split(word).join(" ");
-    const terms = [];
-    for (const run of work.split(/[^぀-ヿ㐀-鿿ー]+/)) {
-        const cleaned = run.replace(/^[぀-ゟ]+|[぀-ゟ]+$/g, "");
-        if (cleaned.length >= 2)
-            terms.push(cleaned);
-    }
-    return terms;
-};
 const englishTerms = (text) => {
     const terms = [];
     const pattern = /[A-Za-z][A-Za-z0-9'’-]*[A-Za-z0-9]|[A-Za-z]{2,}/g;
@@ -69,11 +47,15 @@ const englishTerms = (text) => {
     }
     return terms;
 };
-/** Content terms of a piece of prose, most frequent first, at most `limit`. */
+/**
+ * Content terms of a piece of prose, most frequent first, at most `limit`.
+ * arXiv indexes English, so only Latin-script words are kept; Japanese prose
+ * contributes the English words and identifiers it contains.
+ */
 export const extractTerms = (text, limit = 8) => {
     const plain = stripLatex(text);
     const counts = new Map();
-    const all = [...englishTerms(plain), ...japaneseTerms(plain)];
+    const all = englishTerms(plain);
     all.forEach((term, index) => {
         const entry = counts.get(term);
         if (entry)
@@ -113,12 +95,42 @@ export const nearestHeading = (lines, index) => {
     }
     return "";
 };
-/** The query the dialog starts with: at most 8 content terms, space separated. */
+/** Latin-script words of a heading, stopwords included ("Results" is still a query). */
+const headingWords = (heading) => {
+    const words = [];
+    const pattern = /[A-Za-z][A-Za-z0-9'’-]*/g;
+    const plain = stripLatex(heading);
+    for (let match = pattern.exec(plain); match; match = pattern.exec(plain))
+        words.push(match[0].toLowerCase());
+    return words.slice(0, 8);
+};
+/**
+ * The query the dialog starts with: at most 8 content terms, space separated.
+ * Selection, else the paragraph with its heading; when those yield no English
+ * word (a \ref-only paragraph) the heading's own words; else "" — the dialog
+ * then asks for English words.
+ */
 export const buildArxivQuery = (context) => {
     const selection = String(context.selection || "").trim();
-    if (selection)
-        return extractTerms(selection).join(" ");
+    if (selection) {
+        const terms = extractTerms(selection);
+        if (terms.length)
+            return terms.join(" ");
+    }
     const paragraph = paragraphAround(context.lines, context.cursorLine);
     const heading = nearestHeading(context.lines, context.cursorLine);
-    return extractTerms(`${heading}\n${paragraph}`).join(" ");
+    const terms = extractTerms(`${heading}\n${paragraph}`);
+    if (terms.length)
+        return terms.join(" ");
+    return headingWords(heading).join(" ");
 };
+/** Title / abstract text for display: math delimiters and simple commands removed. */
+export const plainLatex = (text) => String(text || "")
+    .replace(/\\(?:url|href)\s*\{([^{}]*)\}(?:\s*\{[^{}]*\})?/g, "$1")
+    .replace(/\$\$?([^$]*)\$\$?/g, "$1")
+    .replace(/\\(?:emph|textit|textbf|texttt|textsc|mathrm|mathbf|mathcal|text|mbox)\s*\{([^{}]*)\}/g, "$1")
+    .replace(/\\[a-zA-Z]+\*?\s*/g, "")
+    .replace(/[{}]/g, "")
+    .replace(/\^|_/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
