@@ -18,6 +18,7 @@ import { initMathCaptureUi } from "./app/math-capture-ui.js";
 import { initMathCapture } from "./app/math-capture.js";
 import { initLauncherUi } from "./app/launcher-ui.js";
 import { initOnboardingUi } from "./app/onboarding-ui.js";
+import { initPrismImportUi } from "./app/prism-import-ui.js";
 import { initMonacoSetup } from "./app/monaco-setup.js";
 import { createFilePreviewBroker } from "./app/file-preview.js";
 import { createFileExcerptBroker } from "./app/file-excerpt.js";
@@ -366,8 +367,26 @@ export const initMain = () => {
             startInstall: (variant) => {
                 postToNative({ type: "env:install", target: "basictex", variant });
             },
-            onFinished: revealAppBehindOnboarding,
+            onFinished: () => {
+                revealAppBehindOnboarding();
+                prismImportUi.resume();
+            },
         });
+        // Prism export zips: File menu, or a .zip dropped on the launcher / file tree.
+        const prismImportUi = initPrismImportUi({
+            openProjectPath: (path) => {
+                requestWorkspaceChange({ type: "openProjectPath", path });
+            },
+            setCompileEngine: (engine) => {
+                settingsUi.applySettingsPatch({ compileEngine: engine });
+            },
+            requestRuntimeSetup: () => {
+                if (!onboardingUi.isVisible())
+                    onboardingUi.showChoice();
+            },
+        });
+        prismImportUi.attachZipDrop(appContext.dom.launcher);
+        prismImportUi.attachZipDrop(appContext.dom.fileTree);
         // Request recent projects on startup
         postToNative({ type: "getRecentProjects" });
         const fileTreeUi = initFileTreeUi(appContext, {
@@ -1170,6 +1189,10 @@ export const initMain = () => {
                     }
                     if (command === "project:open") {
                         requestWorkspaceChange({ type: "openWorkspace", locale: getUiLocale() });
+                        return;
+                    }
+                    if (command === "prism:import") {
+                        prismImportUi.start();
                         return;
                     }
                     if (command === "file:save" || command === "edit:find") {
