@@ -10706,3 +10706,14 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .git-empty { min-height: 30px; margin: 0; display: flex; align-items: center; }
 .git-settings { display: flex; flex-direction: column; gap: 8px; }
 .git-settings > p { margin: 8px 0 0; }
+
+/* Zotero citation dialog (shares .history-confirm) */
+.zotero-dialog { width: min(640px, calc(100vw - 48px)); }
+.zotero-dialog .settings-input { width: 100%; box-sizing: border-box; margin: 0 0 10px; }
+.zotero-results { display: flex; flex-direction: column; gap: 4px; min-height: 120px; max-height: min(360px, 50vh); overflow: auto; }
+.zotero-result { text-align: left; overflow-wrap: anywhere; background: transparent; color: inherit; border: 1px solid transparent; border-radius: 6px; padding: 7px 10px; font: inherit; cursor: pointer; }
+.zotero-result:hover { background: #4689dd18; }
+.zotero-result[aria-selected="true"] { background: #4689dd30; border-color: #4689dd55; }
+.zotero-empty { margin: 8px 10px; color: var(--text-muted, #889); }
+.zotero-status { min-height: 20px; margin: 12px 0 0; color: var(--text-muted, #889); overflow-wrap: anywhere; }
+.zotero-status.is-error { color: #efaa80; }
