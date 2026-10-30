@@ -47,7 +47,7 @@ const zoteroJson = (item) => ({
   library: item.lib === "group" ? { type: "group", id: GROUP_ID, name: "Lab Group" } : { type: "user", id: 0, name: "My Library" },
   data: {
     key: item.key, itemType: item.type === "inproceedings" ? "conferencePaper" : item.type === "article" ? "journalArticle" : "book",
-    title: item.title, date: item.date, citationKey: item.citekey,
+    title: item.title, date: item.date,
     creators: item.creators.map(([firstName, lastName]) => ({ creatorType: "author", firstName, lastName })),
   },
 });
@@ -89,7 +89,7 @@ const server = http.createServer(async (req, res) => {
       const [terms, libraryID] = params;
       const found = items.filter((item) => matches(item, Array.isArray(terms) ? terms.join(" ") : terms))
         .filter((item) => !libraryID || bbtLibraryIdOf(item) === Number(libraryID))
-        .map((item) => ({ ...zoteroJson(item).data, libraryID: bbtLibraryIdOf(item), citationKey: item.citekey, citekey: item.citekey }));
+        .map((item) => ({ ...zoteroJson(item).data, key: item.key, libraryID: bbtLibraryIdOf(item), citationKey: item.citekey, citekey: item.citekey }));
       return reply(found);
     }
     if (call.method === "item.export") {

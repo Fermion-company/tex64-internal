@@ -66,7 +66,7 @@ const inEditor = (fn, arg) => page.evaluate(([src, value]) => {
   return new Function("editor", "arg", `return (${src})(editor, arg);`)(editor, value);
 }, [fn.toString(), arg]);
 const lineText = (line) => inEditor((editor, n) => editor.getModel().getLineContent(n), line);
-const bibPath = path.join(PROJECT, "references.bib");
+const bibPath = path.join(PROJECT, "refs.bib");
 const readBib = () => (fs.existsSync(bibPath) ? fs.readFileSync(bibPath, "utf8") : null);
 const status = () => page.textContent("dialog.zotero-dialog .zotero-status");
 const settingsStatus = () => page.textContent("#settings-zotero-status");
@@ -99,7 +99,8 @@ const openDialog = async (line, column, { viaMenu = false } = {}) => {
 };
 const searchAndInsert = async (query) => {
   await page.fill("dialog.zotero-dialog input[type=text]", query);
-  await page.waitForSelector("dialog.zotero-dialog .zotero-result", { timeout: 10_000 });
+  // wait for the rows of THIS query (the previous list stays until the debounce fires)
+  await page.waitForFunction((q) => Array.from(document.querySelectorAll("dialog.zotero-dialog .zotero-result")).some((row) => row.textContent.toLowerCase().includes(q)), query, { timeout: 10_000 });
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => /inserted|挿入|already|既に|既存|not inserted|挿入できません/.test(document.querySelector("dialog.zotero-dialog .zotero-status")?.textContent || ""), null, { timeout: 20_000 });
   return status();
@@ -136,7 +137,7 @@ log("dialog-bbt", { usedMenu, status: await status() });
 await page.fill("dialog.zotero-dialog input[type=text]", "turing");
 await page.waitForSelector("dialog.zotero-dialog .zotero-result");
 await shot("01-search-bbt");
-log("insert-bbt-personal", { status: await searchAndInsert("turing"), line12: await lineText(12), bib: readBib() });
+log("insert-bbt-personal", { status: await searchAndInsert("turing"), line12: await lineText(12), bibTail: (readBib() || "").slice(-320), referencesBibCreated: fs.existsSync(path.join(PROJECT, "references.bib")) });
 await shot("02-inserted-bbt");
 await closeDialog();
 
@@ -168,10 +169,13 @@ await sleep(400);
 await inEditor((editor) => { editor.setPosition({ lineNumber: 12, column: editor.getModel().getLineMaxColumn(12) }); editor.trigger("drive", "type", { text: "\n" }); });
 await openDialog(13, 1);
 log("dialog-local", { status: await status() });
+// the Vaswani paper again, now through the local API: same item → same key, no second entry
+log("insert-local-dup", { status: await searchAndInsert("attention"), line13: await lineText(13), vaswaniEntries: ((readBib() || "").match(/@inproceedings\{vaswani/g) || []).length });
+await inEditor((editor) => { editor.setPosition({ lineNumber: 13, column: editor.getModel().getLineMaxColumn(13) }); editor.trigger("drive", "type", { text: " " }); });
 log("insert-local-group", { status: await searchAndInsert("hinton"), line13: await lineText(13), bibTail: (readBib() || "").slice(-400) });
 await shot("07-local-group");
 log("bump", await bump("HINTON2006"));
-log("sync-local", { status: await syncBib(), bib: readBib() });
+log("sync-local", { status: await syncBib(), bibTail: (readBib() || "").slice(-900) });
 await shot("08-sync-local");
 await closeDialog();
 
