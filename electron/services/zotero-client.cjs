@@ -383,22 +383,23 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
 
   /**
    * Fresh BibTeX for existing .bib entries: by citekey through Better BibTeX,
-   * else by the `% zotero: <library>/<key>` note. Entries that cannot be
-   * matched through the current door are counted as unmatched.
+   * else by the `% zotero: <library>/<key>` note. Hand-written entries (no
+   * note, unknown to the library) are left alone and not counted; an entry
+   * with a note whose item is gone counts as notFound.
    */
   const refresh = async (entries, library) => {
     const status = await probe();
     if (!status.transport) return failure("no-transport");
     const found = [];
-    let unmatched = 0;
+    let notFound = 0;
     if (status.transport === "bbt") {
       for (const entry of entries) {
         const result = await bbtExport([entry.key], library);
         if (result.ok) found.push({ key: entry.key, bibtex: result.bibtex });
-        else if (result.code === "not-found" || result.code === "rpc-error") unmatched += 1;
+        else if (result.code === "not-found" || result.code === "rpc-error") { if (entry.zoteroRef) notFound += 1; }
         else return result;
       }
-      return { ok: true, transport: "bbt", found, unmatched };
+      return { ok: true, transport: "bbt", found, notFound };
     }
     const context = status.transport === "local" ? localContext() : webContext(status);
     const known = await libraries(status);
@@ -413,10 +414,7 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
     };
     for (const entry of entries) {
       const ref = String(entry.zoteroRef || "").match(/^((?:users|groups|bbt):\d+)\/([A-Za-z0-9]+)$/);
-      if (!ref) {
-        unmatched += 1;
-        continue;
-      }
+      if (!ref) continue;
       let hit = null;
       for (const candidate of candidates(ref[1])) {
         const result = await apiBibtex({ ...context, library: candidate, key: ref[2] });
@@ -424,9 +422,9 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
         if (result.code !== "not-found") return result;
       }
       if (hit) found.push({ key: entry.key, bibtex: hit.bibtex });
-      else unmatched += 1;
+      else notFound += 1;
     }
-    return { ok: true, transport: status.transport, found, unmatched };
+    return { ok: true, transport: status.transport, found, notFound };
   };
 
   return { probe, libraries, search, bibtexFor, refresh };

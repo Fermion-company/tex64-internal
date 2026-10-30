@@ -133,6 +133,7 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
     let searchTimer = null;
     let searchSerial = 0;
     let connected = false;
+    let hinted = false;
     // The connection line comes back whenever nothing more specific applies.
     let baseStatus = "";
     const setStatus = (text) => { status.textContent = text; };
@@ -184,14 +185,26 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
             items = result.items;
             highlighted = 0;
             renderResults(items.length ? "" : uiText("No matches", "見つかりません"));
+            if (!connected) {
+                // Zotero came back since the dialog opened: say where results come from.
+                const current = await call("status").catch(() => null);
+                if (serial !== searchSerial || !current)
+                    return;
+                connected = Boolean(current.transport);
+                baseStatus = describeStatus(current);
+                showBase();
+            }
         }
         catch (error) {
             if (serial !== searchSerial)
                 return;
             items = [];
             renderResults();
-            if (errorCode(error) !== "no-transport" || !connected)
-                setStatus(describeError(error));
+            if (errorCode(error) === "no-transport") {
+                connected = false;
+                baseStatus = describeError(error);
+            }
+            setStatus(describeError(error));
         }
     };
     const insert = async (index) => {
@@ -208,14 +221,13 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
         try {
             const result = await call("cite", { item, activeFilePath: getActiveFilePath() });
             const line = (_d = (_c = editor.getPosition) === null || _c === void 0 ? void 0 : _c.call(editor)) === null || _d === void 0 ? void 0 : _d.lineNumber;
-            const inserted = insertCitation(editor, result.key, "zotero");
-            // insertCitation hands focus to the editor; the dialog stays open for
-            // the next citation, so keep the keyboard here.
+            const outcome = insertCitation(editor, result.key);
+            // The dialog stays open for the next citation, so keep the keyboard here.
             search.focus();
             const where = line ? `L${line}` : "";
-            const citeNote = inserted === null
+            const citeNote = outcome === "unavailable"
                 ? uiText("not inserted", "挿入できません")
-                : inserted === ""
+                : outcome === "present"
                     ? uiText(`\\cite already has ${result.key}`, `\\cite に ${result.key} は既にあります`)
                     : uiText(`inserted ${result.key} at ${where}`, `${where} に ${result.key} を挿入`);
             const bibNote = result.created
@@ -223,7 +235,11 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
                 : result.appended
                     ? uiText(`added to ${result.bibPath}`, `${result.bibPath} に追加`)
                     : uiText(`already in ${result.bibPath}`, `${result.bibPath} に既存`);
-            setStatus([citeNote, bibNote, result.named ? "" : bibHint(result)].filter(Boolean).join(" · "));
+            // The "add \bibliography{…}" reminder is said once per dialog.
+            const hint = !result.named && !hinted ? bibHint(result) : "";
+            if (hint)
+                hinted = true;
+            setStatus([citeNote, bibNote, hint].filter(Boolean).join(" · "));
         }
         catch (error) {
             setStatus(describeError(error));
@@ -249,8 +265,8 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
                 uiText(`${result.updated} updated`, `更新 ${result.updated}`),
                 uiText(`${result.unchanged} unchanged`, `変更なし ${result.unchanged}`),
             ];
-            if (result.unmatched)
-                parts.push(uiText(`${result.unmatched} not matched`, `照合できず ${result.unmatched}`));
+            if (result.notFound)
+                parts.push(uiText(`${result.notFound} not found`, `見つからず ${result.notFound}`));
             setStatus(`${result.bibPath}: ${parts.join(" · ")}`);
         })
             .catch((error) => setStatus(describeError(error)))
@@ -332,7 +348,7 @@ export const initZoteroSettingsUi = () => {
     if (!bridge() || !(apiKeyInput instanceof HTMLInputElement) || !(librarySelect instanceof HTMLSelectElement) || !(statusLine instanceof HTMLElement))
         return;
     if (explainer instanceof HTMLElement) {
-        explainer.textContent = uiText("With Zotero 7 or Better BibTeX running on this computer, no key is needed. An API key reaches your library and groups through zotero.org.", "この PC で Zotero 7 か Better BibTeX が動いていれば鍵は不要です。API キーを入れると zotero.org 経由でライブラリとグループを使えます。");
+        explainer.textContent = uiText("With Zotero 7 or Better BibTeX running on this computer, no key is needed. An API key reaches your library and groups through zotero.org.", "この PC で Zotero 7 か Better BibTeX が動いていれば API キーは不要です。API キーを入れると zotero.org 経由でライブラリとグループを使えます。");
     }
     if (keysLink instanceof HTMLButtonElement) {
         keysLink.textContent = uiText("Create an API key", "API キーを発行");
@@ -360,7 +376,7 @@ export const initZoteroSettingsUi = () => {
         }
         librarySelect.value = status.library;
         apiKeyInput.placeholder = status.hasApiKey ? "••••••••••••" : uiText("Paste a Zotero API key", "Zotero の API キーを貼り付け");
-        statusLine.textContent = `${describeStatus(status)} — ${describeDoors(status)}`;
+        statusLine.textContent = status.transport ? describeStatus(status) : `${describeStatus(status)} — ${describeDoors(status)}`;
         statusLine.classList.toggle("is-error", !status.transport);
         statusLine.classList.toggle("is-success", Boolean(status.transport));
     };

@@ -171,7 +171,7 @@ await openDialog(13, 1);
 log("dialog-local", { status: await status() });
 // the Vaswani paper again, now through the local API: same item → same key, no second entry
 log("insert-local-dup", { status: await searchAndInsert("attention"), line13: await lineText(13), vaswaniEntries: ((readBib() || "").match(/@inproceedings\{vaswani/g) || []).length });
-await inEditor((editor) => { editor.setPosition({ lineNumber: 13, column: editor.getModel().getLineMaxColumn(13) }); editor.trigger("drive", "type", { text: " " }); });
+// straight after the previous insertion the caret sits after "}", so the next key joins the same \cite
 log("insert-local-group", { status: await searchAndInsert("hinton"), line13: await lineText(13), bibTail: (readBib() || "").slice(-400) });
 await shot("07-local-group");
 log("bump", await bump("HINTON2006"));

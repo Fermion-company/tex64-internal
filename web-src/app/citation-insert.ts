@@ -1,69 +1,87 @@
-// Insert a citation key where the cursor is. Shared by the Zotero and arXiv
-// flows: a new `\cite{key}` at the cursor, or `,key` appended when the cursor
-// already sits inside the argument of a \cite-family command.
+// Inserts a citation into the editor. Shared by the arXiv search and Zotero
+// dialogs: \cite{key} at the cursor, or ",key" appended when the cursor is
+// already inside a \cite-like argument.
 
-export type CitationEditor = {
-  getModel?: () => { getLineContent: (line: number) => string; isDisposed?: () => boolean } | null;
-  getPosition?: () => { lineNumber: number; column: number } | null;
-  getSelection?: () => { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number; isEmpty?: () => boolean } | null;
-  executeEdits?: (source: string, edits: Array<{ range: unknown; text: string; forceMoveMarkers: boolean }>) => boolean;
-  pushUndoStop?: () => boolean;
-  focus?: () => void;
-  getRawOptions?: () => { readOnly?: boolean };
+const CITE_COMMANDS =
+  /\\(?:[cC]ite(?:p|t|author|year|yearpar|alp|alt|num|title)?|parencite|textcite|autocite|footcite|footfullcite|fullcite|smartcite|supercite|nocite)\*?\s*(?:\[[^\]]*\]\s*){0,2}\{([^{}]*)\}/g;
+
+export type CiteArgument = {
+  /** 1-based column of the first character inside the braces. */
+  start: number;
+  /** 1-based column of the closing brace. */
+  end: number;
+  keys: string[];
 };
 
-const CITE_COMMAND =
-  /\\(?:[cC]ite(?:p|t|author|year|yearpar|alp|alt|num|title)?|parencite|textcite|autocite|footcite|footfullcite|fullcite|smartcite|supercite|nocite)\*?\s*(?:\[[^\]]*\]\s*){0,2}\{$/;
+/** The \cite-like argument whose braces contain `column` (1-based), if any. */
+export const findCiteArgumentAt = (lineText: string, column: number): CiteArgument | null => {
+  CITE_COMMANDS.lastIndex = 0;
+  for (let match = CITE_COMMANDS.exec(lineText); match; match = CITE_COMMANDS.exec(lineText)) {
+    const open = match.index + match[0].lastIndexOf("{");
+    const close = match.index + match[0].length - 1;
+    const start = open + 2;
+    const end = close + 1;
+    // Inside the braces, or immediately after the closing brace (where the
+    // caret lands after an earlier insertion).
+    if (column >= start && column <= end + 1) {
+      CITE_COMMANDS.lastIndex = 0;
+      return { start, end, keys: match[1].split(",").map((key) => key.trim()).filter(Boolean) };
+    }
+  }
+  return null;
+};
+
+type Position = { lineNumber: number; column: number };
+type EditorLike = {
+  getModel?: () => { getLineContent: (line: number) => string; isDisposed?: () => boolean } | null;
+  getSelection?: () => { isEmpty?: () => boolean; getEndPosition?: () => Position } | null;
+  getPosition?: () => Position | null;
+  executeEdits?: (source: string, edits: { range: unknown; text: string }[]) => boolean;
+  setPosition?: (position: Position) => void;
+  focus?: () => void;
+};
+
+export type InsertCitationResult = "inserted" | "appended" | "present" | "unavailable";
 
 /**
- * When `column` (1-based) lies inside the `{…}` argument of a \cite command on
- * `line`, the argument's bounds (1-based columns of the text between braces).
+ * Insert `\cite{key}` at the caret (after the selection when there is one).
+ * Inside an existing \cite{…} the key is appended instead.
  */
-export const findCiteArgumentAt = (line: string, column: number): { start: number; end: number; keys: string[] } | null => {
-  const offset = column - 1;
-  const before = line.slice(0, offset);
-  const open = before.lastIndexOf("{");
-  if (open < 0 || before.indexOf("}", open) >= 0) return null;
-  if (!CITE_COMMAND.test(before.slice(0, open + 1))) return null;
-  const close = line.indexOf("}", offset);
-  if (close < 0) return null;
-  const inside = line.slice(open + 1, close);
-  return { start: open + 2, end: close + 1, keys: inside.split(",").map((key) => key.trim()).filter(Boolean) };
-};
-
-/** Insert `key` as a citation. Returns the text that was inserted, or null. */
-export const insertCitation = (editor: CitationEditor | null, key: string, source = "citation-insert"): string | null => {
+export const insertCitation = (editor: EditorLike, key: string): InsertCitationResult => {
   const model = editor?.getModel?.();
-  const position = editor?.getPosition?.();
-  const Range = (window as any).monaco?.Range;
-  if (!editor?.executeEdits || !model || model.isDisposed?.() || !position || !Range) return null;
-  if (editor.getRawOptions?.()?.readOnly) return null;
-  const clean = key.trim();
-  if (!clean) return null;
-
+  if (!model || model.isDisposed?.() || !editor.executeEdits) return "unavailable";
   const selection = editor.getSelection?.();
-  const hasSelection = selection && !(selection.isEmpty ? selection.isEmpty() : selection.startLineNumber === selection.endLineNumber && selection.startColumn === selection.endColumn);
-  const line = model.getLineContent(position.lineNumber);
-  const argument = hasSelection ? null : findCiteArgumentAt(line, position.column);
-
-  let range: unknown;
-  let text: string;
-  if (argument) {
-    if (argument.keys.includes(clean)) return "";
-    const column = argument.end;
-    const trimmed = line.slice(argument.start - 1, argument.end - 1).trim();
-    text = trimmed ? (trimmed.endsWith(",") ? clean : `,${clean}`) : clean;
-    range = new Range(position.lineNumber, column, position.lineNumber, column);
-  } else if (hasSelection && selection) {
-    text = `\\cite{${clean}}`;
-    range = new Range(selection.startLineNumber, selection.startColumn, selection.endLineNumber, selection.endColumn);
-  } else {
-    text = `\\cite{${clean}}`;
-    range = new Range(position.lineNumber, position.column, position.lineNumber, position.column);
+  const position =
+    selection && selection.isEmpty && !selection.isEmpty() && selection.getEndPosition
+      ? selection.getEndPosition()
+      : editor.getPosition?.();
+  if (!position) return "unavailable";
+  const lineText = model.getLineContent(position.lineNumber);
+  const inside = findCiteArgumentAt(lineText, position.column);
+  if (inside) {
+    if (inside.keys.includes(key)) return "present";
+    const range = {
+      startLineNumber: position.lineNumber,
+      startColumn: inside.end,
+      endLineNumber: position.lineNumber,
+      endColumn: inside.end,
+    };
+    const text = inside.keys.length ? `,${key}` : key;
+    editor.executeEdits("tex64.cite", [{ range, text }]);
+    editor.setPosition?.({ lineNumber: position.lineNumber, column: inside.end + text.length + 1 });
+    return "appended";
   }
-  editor.pushUndoStop?.();
-  editor.executeEdits(source, [{ range, text, forceMoveMarkers: true }]);
-  editor.pushUndoStop?.();
-  editor.focus?.();
-  return text;
+  const before = lineText.slice(0, position.column - 1);
+  // A tie keeps the citation on the line of the word it follows.
+  const prefix = /[A-Za-z0-9)\]]$/.test(before) ? "~" : "";
+  const text = `${prefix}\\cite{${key}}`;
+  const range = {
+    startLineNumber: position.lineNumber,
+    startColumn: position.column,
+    endLineNumber: position.lineNumber,
+    endColumn: position.column,
+  };
+  editor.executeEdits("tex64.cite", [{ range, text }]);
+  editor.setPosition?.({ lineNumber: position.lineNumber, column: position.column + text.length });
+  return "inserted";
 };

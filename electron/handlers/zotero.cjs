@@ -140,7 +140,7 @@ const registerZoteroHandlers = ({ ipcMain, workspace, state, safeStorage, ensure
     sync: async (payload) => {
       const mainFile = await mainFileFor(payload);
       const target = await resolveBibTarget({ workspace, mainFile });
-      if (!target.exists) return { bibPath: target.relativePath, total: 0, updated: 0, unchanged: 0, unmatched: 0 };
+      if (!target.exists) return { bibPath: target.relativePath, total: 0, updated: 0, unchanged: 0, notFound: 0 };
       const content = await workspace.readFile(target.relativePath);
       const entries = parseBibEntries(content).slice(0, MAX_SYNC_ENTRIES);
       const library = await effectiveLibrary();
@@ -158,7 +158,7 @@ const registerZoteroHandlers = ({ ipcMain, workspace, state, safeStorage, ensure
         total: entries.length,
         updated: replaced.updated,
         unchanged: replaced.unchanged,
-        unmatched: refreshed.unmatched,
+        notFound: refreshed.notFound,
       };
     },
   };
