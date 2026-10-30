@@ -924,6 +924,15 @@ ipcMain.handle("tex64:snippets", async (event, action, request = {}) => {
   } catch (error) { return { ok: false, code: error.code, error: error.message }; }
 });
 
+const { registerZoteroHandlers } = require("./handlers/zotero.cjs");
+registerZoteroHandlers({
+  ipcMain, workspace, state, safeStorage, ensureUserSettings,
+  afterBibWrite: async () => {
+    await workspaceHandlers.updateWorkspaceIfNeeded(workspace.getRootPath(), true);
+    workspaceHandlers.requestIndex(workspace.getRootPath());
+  },
+});
+
 ipcMain.handle("tex64:history", async (event, action, request) => {
   if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid history owner." };
   try {
