@@ -17,6 +17,8 @@ const DEFAULT_SETTINGS = {
   // the Web API key, stored only as the safeStorage ciphertext (base64).
   zotero: {
     library: "",
+    libraryName: "",
+    libraryKind: "",
     apiKeyEncrypted: "",
   },
 };
@@ -90,6 +92,8 @@ class UserSettingsService {
         ...(storedObject.zotero && typeof storedObject.zotero === "object"
           ? {
               library: typeof storedObject.zotero.library === "string" ? storedObject.zotero.library : "",
+              libraryName: typeof storedObject.zotero.libraryName === "string" ? storedObject.zotero.libraryName : "",
+              libraryKind: typeof storedObject.zotero.libraryKind === "string" ? storedObject.zotero.libraryKind : "",
               apiKeyEncrypted:
                 typeof storedObject.zotero.apiKeyEncrypted === "string" ? storedObject.zotero.apiKeyEncrypted : "",
             }
@@ -197,6 +201,8 @@ class UserSettingsService {
     const next = { ...(state.zotero ?? clone(DEFAULT_SETTINGS.zotero)) };
     if (partial && typeof partial === "object") {
       if (typeof partial.library === "string") next.library = partial.library;
+      if (typeof partial.libraryName === "string") next.libraryName = partial.libraryName;
+      if (typeof partial.libraryKind === "string") next.libraryKind = partial.libraryKind;
       if (typeof partial.apiKeyEncrypted === "string") next.apiKeyEncrypted = partial.apiKeyEncrypted;
     }
     state.zotero = next;

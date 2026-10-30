@@ -10707,13 +10707,14 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .git-settings { display: flex; flex-direction: column; gap: 8px; }
 .git-settings > p { margin: 8px 0 0; }
 
-/* Zotero citation dialog (shares .history-confirm) */
+/* Zotero citation dialog (shares .history-confirm and .history-button) */
 .zotero-dialog { width: min(640px, calc(100vw - 48px)); }
-.zotero-dialog .settings-input { width: 100%; box-sizing: border-box; margin: 0 0 10px; }
-.zotero-results { display: flex; flex-direction: column; gap: 4px; min-height: 120px; max-height: min(360px, 50vh); overflow: auto; }
-.zotero-result { text-align: left; overflow-wrap: anywhere; background: transparent; color: inherit; border: 1px solid transparent; border-radius: 6px; padding: 7px 10px; font: inherit; cursor: pointer; }
-.zotero-result:hover { background: #4689dd18; }
-.zotero-result[aria-selected="true"] { background: #4689dd30; border-color: #4689dd55; }
-.zotero-empty { margin: 8px 10px; color: var(--text-muted, #889); }
-.zotero-status { min-height: 20px; margin: 12px 0 0; color: var(--text-muted, #889); overflow-wrap: anywhere; }
-.zotero-status.is-error { color: #efaa80; }
+.zotero-search { box-sizing: border-box; width: 100%; margin: 0 0 10px; padding: 6px 10px; border: 1px solid var(--panel-border-strong); border-radius: 6px; background: transparent; color: var(--text); font: inherit; }
+.zotero-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.zotero-results { display: flex; flex-direction: column; gap: 2px; height: min(300px, 45vh); overflow: auto; }
+.zotero-result { display: flex; flex-direction: column; gap: 1px; text-align: left; overflow-wrap: anywhere; background: transparent; color: var(--text); border: none; border-left: 2px solid transparent; border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; }
+.zotero-result:hover { background: var(--control-bg); }
+.zotero-result[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 12%, transparent); border-left-color: var(--accent); }
+.zotero-result-meta, .zotero-empty { color: var(--text-soft); }
+.zotero-empty { margin: 8px 10px; }
+.zotero-status { min-height: 20px; margin: 12px 0 0; }

@@ -44,24 +44,53 @@ const findNamedBib = (mainFile, content) => {
   return null;
 };
 
+/** How the main document expects to be told about a .bib: biblatex or BibTeX. */
+const detectBibStyle = (content) => {
+  const text = String(content || "").split(/\r?\n/).map(stripComment).join("\n");
+  if (/\\usepackage\s*(?:\[[^\]]*\])?\s*\{[^}]*\bbiblatex\b[^}]*\}/.test(text)) return "biblatex";
+  return "bibtex";
+};
+
+const listWorkspaceBibs = async (workspace) => {
+  try {
+    const listed = await workspace.listFiles();
+    return listed
+      .filter((entry) => typeof entry === "string" && entry.toLowerCase().endsWith(".bib"))
+      .map(normalizeRelative)
+      .filter((entry) => !entry.split("/").some((part) => part.startsWith(".")));
+  } catch {
+    return [];
+  }
+};
+
 /**
  * Decide the target .bib for a main file: the first \addbibresource /
- * \bibliography target, else references.bib beside the main file.
- * Returns { relativePath, named, exists }.
+ * \bibliography target; else the workspace's only .bib (when there are
+ * several, the one closest to the main file); else references.bib beside the
+ * main file. Returns { relativePath, named, exists, style }.
  */
 const resolveBibTarget = async ({ workspace, mainFile }) => {
   const main = normalizeRelative(mainFile);
   if (!main) throw Object.assign(new Error("No main document."), { code: "NO_MAIN_FILE" });
   const content = await workspace.readFile(main);
+  const style = detectBibStyle(content);
   const named = findNamedBib(main, content);
   const dir = path.posix.dirname(main);
-  const fallback = normalizeRelative(dir && dir !== "." ? path.posix.join(dir, DEFAULT_BIB_NAME) : DEFAULT_BIB_NAME);
-  const relativePath = named || fallback;
+  const mainDir = dir && dir !== "." ? dir : "";
+  let relativePath = named;
+  if (!relativePath) {
+    const bibs = (await listWorkspaceBibs(workspace)).sort((a, b) => {
+      const depth = (value) => value.split("/").length;
+      const near = (value) => (path.posix.dirname(value) === (mainDir || ".") ? 0 : 1);
+      return near(a) - near(b) || depth(a) - depth(b) || a.localeCompare(b);
+    });
+    relativePath = bibs[0] || normalizeRelative(mainDir ? path.posix.join(mainDir, DEFAULT_BIB_NAME) : DEFAULT_BIB_NAME);
+  }
   const exists = await workspace
     .readFile(relativePath)
     .then(() => true)
     .catch(() => false);
-  return { relativePath, named: Boolean(named), exists };
+  return { relativePath, named: Boolean(named), exists, style };
 };
 
 /**
@@ -133,6 +162,7 @@ const normalizeBody = (body) => String(body || "").replace(/\s+/g, " ").trim();
 const appendEntry = async ({ workspace, bibPath, bibtex, zoteroRef }) => {
   const key = extractBibKey(bibtex);
   if (!key) throw Object.assign(new Error("The library returned no BibTeX entry."), { code: "NO_BIBTEX" });
+  const itemKey = zoteroRef ? String(zoteroRef).split("/").pop() : "";
   return workspace.withFileMutation(bibPath, async () => {
     let existing = null;
     try {
@@ -142,7 +172,14 @@ const appendEntry = async ({ workspace, bibPath, bibtex, zoteroRef }) => {
     }
     const created = existing === null;
     const content = existing ?? "";
-    if (parseBibEntries(content).some((entry) => entry.key === key)) {
+    const entries = parseBibEntries(content);
+    // The same Zotero item under another key (added through another
+    // transport, or renamed by hand) is one entry, not two.
+    const sameItem = itemKey
+      ? entries.find((entry) => entry.zoteroRef && String(entry.zoteroRef).split("/").pop() === itemKey)
+      : null;
+    if (sameItem) return { appended: false, created: false, key: sameItem.key };
+    if (entries.some((entry) => entry.key === key)) {
       return { appended: false, created: false, key };
     }
     const note = zoteroRef ? `% zotero: ${zoteroRef}\n` : "";
@@ -187,6 +224,7 @@ const replaceEntries = async ({ workspace, bibPath, fresh }) =>
 module.exports = {
   DEFAULT_BIB_NAME,
   resolveBibTarget,
+  detectBibStyle,
   findNamedBib,
   parseBibEntries,
   extractBibKey,

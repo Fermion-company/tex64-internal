@@ -60,10 +60,35 @@ const creatorLabel = (creators) => {
   return "";
 };
 
+const creatorCount = (creators) => (Array.isArray(creators) ? creators.filter((creator) => !creator?.creatorType || creator.creatorType === "author").length || creators.length : 0);
+
 const cslYear = (issued) => {
   const parts = issued?.["date-parts"];
   if (Array.isArray(parts) && Array.isArray(parts[0]) && parts[0][0]) return String(parts[0][0]);
   return yearOf(issued?.raw || issued?.literal || "");
+};
+
+const SKIP_WORDS = new Set(["a", "an", "the", "on", "of", "in", "for", "and", "or", "to", "with", "is", "are", "at", "by", "from", "as", "its", "into", "über", "der", "die", "das", "le", "la", "les", "un", "une", "des", "du", "de", "el", "los", "las", "il", "lo"]);
+const asciiWord = (value) =>
+  String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+/**
+ * A citekey in the Better BibTeX default shape, <author><year><title word>,
+ * so entries look the same whichever door served them.
+ */
+const generateCitekey = (item) => {
+  const author = asciiWord(item?.creator) || "anon";
+  const year = /^\d{4}$/.test(item?.year || "") ? item.year : "";
+  const title = String(item?.title || "")
+    .replace(/[{}$\\]/g, " ")
+    .split(/[\s:;,.!?()\[\]"'“”‘’—–-]+/)
+    .map((word) => ({ raw: word, ascii: asciiWord(word) }))
+    .filter((word) => word.ascii && !SKIP_WORDS.has(word.ascii) && !/^\d+$/.test(word.ascii));
+  return `${author}${year}${title[0]?.ascii || ""}` || "ref";
 };
 
 const parseLibraryId = (library) => {
@@ -131,6 +156,7 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
       citekey,
       title: String(raw?.title || "").trim(),
       creator: creatorLabel(creators),
+      creatorCount: creatorCount(creators),
       year: yearOf(raw?.date) || cslYear(raw?.issued),
       library: `bbt:${Number.isFinite(libraryId) ? libraryId : 1}`,
       libraryName: libraryName || "",
@@ -206,6 +232,7 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
       citekey: String(data.citationKey || (extraKey ? extraKey[1] : "")),
       title: String(data.title || "").trim(),
       creator: creatorLabel(data.creators),
+      creatorCount: creatorCount(data.creators),
       year: yearOf(data.date),
       library,
       libraryName: raw?.library?.name || libraryName || "",
@@ -299,7 +326,8 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
       web,
       transport: bbt.ok ? "bbt" : local.ok ? "local" : web.ok ? "web" : null,
     };
-    probeCache = { at: Date.now(), value };
+    // A closed door is not remembered: Zotero may be starting right now.
+    probeCache = value.transport ? { at: Date.now(), value } : null;
     return value;
   };
 
@@ -332,55 +360,76 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
     return result.ok ? { ...result, transport: status.transport } : result;
   };
 
-  /** BibTeX for one search result, keyed the way the library keys it. */
+  /**
+   * BibTeX for one search result, keyed the same way whichever door served
+   * it: the library's citekey when it has one, else the Better BibTeX default
+   * shape. zoteroRef is `<library>/<itemKey>` when the item key is known.
+   */
   const bibtexFor = async (item) => {
     const status = await probe();
     if (!status.transport) return failure("no-transport");
+    const ref = item?.key ? `${item.library}/${item.key}` : null;
     if (item?.transport === "bbt" || status.transport === "bbt") {
       if (!item?.citekey) return failure("not-found");
       const result = await bbtExport([item.citekey], item.library);
-      return result.ok ? { ok: true, bibtex: result.bibtex, zoteroRef: null } : result;
+      return result.ok ? { ok: true, bibtex: result.bibtex, key: item.citekey, zoteroRef: ref } : result;
     }
     const context = status.transport === "local" ? localContext() : webContext(status);
     const result = await apiBibtex({ ...context, library: item.library, key: item.key });
-    return result.ok ? { ok: true, bibtex: result.bibtex, zoteroRef: `${item.library}/${item.key}` } : result;
+    if (!result.ok) return result;
+    const key = asciiWord(item.citekey) ? item.citekey : generateCitekey(item);
+    return { ok: true, bibtex: result.bibtex, key, zoteroRef: ref };
   };
 
   /**
    * Fresh BibTeX for existing .bib entries: by citekey through Better BibTeX,
-   * else by the `% zotero: <library>/<key>` note. Returns the entries found.
+   * else by the `% zotero: <library>/<key>` note. Entries that cannot be
+   * matched through the current door are counted as unmatched.
    */
   const refresh = async (entries, library) => {
     const status = await probe();
     if (!status.transport) return failure("no-transport");
     const found = [];
-    let notFound = 0;
-    let skipped = 0;
+    let unmatched = 0;
     if (status.transport === "bbt") {
       for (const entry of entries) {
         const result = await bbtExport([entry.key], library);
         if (result.ok) found.push({ key: entry.key, bibtex: result.bibtex });
-        else if (result.code === "not-found" || result.code === "rpc-error") notFound += 1;
+        else if (result.code === "not-found" || result.code === "rpc-error") unmatched += 1;
         else return result;
       }
-      return { ok: true, transport: "bbt", found, notFound, skipped };
+      return { ok: true, transport: "bbt", found, unmatched };
     }
     const context = status.transport === "local" ? localContext() : webContext(status);
+    const known = await libraries(status);
+    const candidates = (ref) => {
+      const parsed = parseLibraryId(ref);
+      if (!parsed) return [];
+      if (parsed.kind !== "bbt") return [ref];
+      // A note written through Better BibTeX names its libraryID; try the
+      // personal library first, then every group this door can see.
+      const all = known.ok ? known.libraries.map((entry) => entry.id) : [`users:${context.userId}`];
+      return parsed.id === "1" ? all.filter((id) => id.startsWith("users:")) : all;
+    };
     for (const entry of entries) {
-      const ref = String(entry.zoteroRef || "").match(/^((?:users|groups):\d+)\/([A-Za-z0-9]+)$/);
+      const ref = String(entry.zoteroRef || "").match(/^((?:users|groups|bbt):\d+)\/([A-Za-z0-9]+)$/);
       if (!ref) {
-        skipped += 1;
+        unmatched += 1;
         continue;
       }
-      const result = await apiBibtex({ ...context, library: ref[1], key: ref[2] });
-      if (result.ok) found.push({ key: entry.key, bibtex: result.bibtex });
-      else if (result.code === "not-found") notFound += 1;
-      else return result;
+      let hit = null;
+      for (const candidate of candidates(ref[1])) {
+        const result = await apiBibtex({ ...context, library: candidate, key: ref[2] });
+        if (result.ok) { hit = result; break; }
+        if (result.code !== "not-found") return result;
+      }
+      if (hit) found.push({ key: entry.key, bibtex: hit.bibtex });
+      else unmatched += 1;
     }
-    return { ok: true, transport: status.transport, found, notFound, skipped };
+    return { ok: true, transport: status.transport, found, unmatched };
   };
 
   return { probe, libraries, search, bibtexFor, refresh };
 };
 
-module.exports = { createZoteroClient, parseLibraryId, LOCAL_BASE, WEB_BASE };
+module.exports = { createZoteroClient, parseLibraryId, generateCitekey, LOCAL_BASE, WEB_BASE };

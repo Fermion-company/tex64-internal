@@ -46,20 +46,34 @@ const registerZoteroHandlers = ({ ipcMain, workspace, state, safeStorage, ensure
     throw Object.assign(new Error("No main document."), { code: "NO_MAIN_FILE" });
   };
 
+  // The chosen library is remembered by id, kind and name, so it survives a
+  // change of door (Better BibTeX ids differ from Zotero's). When the new
+  // door cannot see it, the personal library is used and the UI says so.
+  const resolveLibrary = (libraries, chosen) => {
+    if (!libraries.length) return { library: "", notice: null };
+    const wanted = chosen && typeof chosen === "object" ? chosen : { id: "", name: "", kind: "" };
+    const byId = libraries.find((entry) => entry.id === wanted.id);
+    if (byId) return { library: byId.id, notice: null };
+    const byName = wanted.name && libraries.find((entry) => entry.kind === wanted.kind && entry.name === wanted.name);
+    if (byName) return { library: byName.id, notice: null };
+    const fallback = libraries.find((entry) => entry.kind === "user") || libraries[0];
+    return { library: fallback.id, notice: wanted.id && wanted.kind === "group" ? { missingLibrary: wanted.name || wanted.id } : null };
+  };
+
   const status = async ({ force = false } = {}) => {
     await loadApiKey();
     const settings = await ensureUserSettings().getZoteroSettings();
     const probe = await client.probe({ force });
     const list = probe.transport ? await client.libraries(probe) : { ok: false, code: "no-transport" };
     const libraries = list.ok ? list.libraries : [];
-    const library = libraries.some((entry) => entry.id === settings.library)
-      ? settings.library
-      : libraries[0]?.id || "";
+    const chosen = { id: settings.library, name: settings.libraryName, kind: settings.libraryKind };
+    const resolved = resolveLibrary(libraries, chosen);
     return {
       transport: probe.transport,
       probe: { bbt: probe.bbt, local: probe.local, web: probe.web },
       libraries,
-      library,
+      library: resolved.library,
+      missingLibrary: resolved.notice?.missingLibrary || "",
       hasApiKey: Boolean(apiKey),
       encryptionAvailable: canEncrypt(),
     };
@@ -83,7 +97,13 @@ const registerZoteroHandlers = ({ ipcMain, workspace, state, safeStorage, ensure
         apiKey = trimmed;
         patch.apiKeyEncrypted = trimmed ? safeStorage.encryptString(trimmed).toString("base64") : "";
       }
-      if (typeof payload?.library === "string") patch.library = payload.library;
+      if (typeof payload?.library === "string") {
+        const current = await status();
+        const picked = current.libraries.find((entry) => entry.id === payload.library);
+        patch.library = payload.library;
+        patch.libraryName = picked?.name || "";
+        patch.libraryKind = picked?.kind || "";
+      }
       await ensureUserSettings().updateZoteroSettings(patch);
       return status({ force: Object.prototype.hasOwnProperty.call(patch, "apiKeyEncrypted") });
     },
@@ -101,19 +121,26 @@ const registerZoteroHandlers = ({ ipcMain, workspace, state, safeStorage, ensure
       const mainFile = await mainFileFor(payload);
       const fetched = await client.bibtexFor(item);
       if (!fetched.ok) throw Object.assign(new Error("Zotero export failed."), { code: fetched.code });
-      const bibtex = String(fetched.bibtex).trim();
-      const key = extractBibKey(bibtex);
-      if (!key) throw Object.assign(new Error("No BibTeX entry."), { code: "NO_BIBTEX" });
+      const exported = String(fetched.bibtex).trim();
+      if (!extractBibKey(exported)) throw Object.assign(new Error("No BibTeX entry."), { code: "NO_BIBTEX" });
+      const bibtex = renameBibKey(exported, fetched.key);
       const target = await resolveBibTarget({ workspace, mainFile });
       const result = await appendEntry({ workspace, bibPath: target.relativePath, bibtex, zoteroRef: fetched.zoteroRef });
       if (result.appended) await afterBibWrite?.().catch(() => {});
-      return { key, bibPath: target.relativePath, named: target.named, created: result.created, appended: result.appended };
+      return {
+        key: result.key,
+        bibPath: target.relativePath,
+        named: target.named,
+        style: target.style,
+        created: result.created,
+        appended: result.appended,
+      };
     },
 
     sync: async (payload) => {
       const mainFile = await mainFileFor(payload);
       const target = await resolveBibTarget({ workspace, mainFile });
-      if (!target.exists) return { bibPath: target.relativePath, total: 0, updated: 0, unchanged: 0, notFound: 0, skipped: 0 };
+      if (!target.exists) return { bibPath: target.relativePath, total: 0, updated: 0, unchanged: 0, unmatched: 0 };
       const content = await workspace.readFile(target.relativePath);
       const entries = parseBibEntries(content).slice(0, MAX_SYNC_ENTRIES);
       const library = await effectiveLibrary();
@@ -131,8 +158,7 @@ const registerZoteroHandlers = ({ ipcMain, workspace, state, safeStorage, ensure
         total: entries.length,
         updated: replaced.updated,
         unchanged: replaced.unchanged,
-        notFound: refreshed.notFound,
-        skipped: refreshed.skipped,
+        unmatched: refreshed.unmatched,
       };
     },
   };
