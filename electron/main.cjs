@@ -925,7 +925,7 @@ ipcMain.handle("tex64:snippets", async (event, action, request = {}) => {
   } catch (error) { return { ok: false, code: error.code, error: error.message }; }
 });
 
-const prismImportHandlers = createPrismImportHandlers({ dialog, state, envService, buildService, sendToRenderer, sendIssues });
+const prismImportHandlers = createPrismImportHandlers({ dialog, state, envService, buildService, sendToRenderer });
 ipcMain.handle("tex64:prism", async (event, action, request = {}) => {
   if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid Prism import owner." };
   try {

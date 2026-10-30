@@ -437,7 +437,11 @@ export const initMain = () => {
     openProjectPath: (path) => {
       requestWorkspaceChange({ type: "openProjectPath", path });
     },
-    openIssues: () => setActiveTab("issues"),
+    getWorkspaceRoot: () => getWorkspaceRootKey(),
+    showIssues: (summary, issues) => {
+      updateIssuesProxy(issues.length, summary, issues.length ? "error" : "info", issues as IssueItem[]);
+      setActiveTab("issues");
+    },
     requestRuntimeSetup: () => {
       if (!onboardingUi.isVisible()) onboardingUi.showChoice();
     },

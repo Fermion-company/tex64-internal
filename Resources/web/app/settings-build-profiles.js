@@ -1,3 +1,4 @@
+const PROFILE_ENGINES = new Set(["pdflatex", "lualatex", "xelatex", "uplatex"]);
 const normalizeBuildProfiles = (profiles) => {
     const normalized = Array.isArray(profiles) ? profiles : [];
     const seen = new Set();
@@ -14,17 +15,19 @@ const normalizeBuildProfiles = (profiles) => {
         const name = typeof profile.name === "string" ? profile.name.trim() : "";
         const outDir = typeof profile.outDir === "string" ? profile.outDir.trim() || null : null;
         const extraArgs = typeof profile.extraArgs === "string" ? profile.extraArgs.trim() || null : null;
+        const engine = typeof profile.engine === "string" && PROFILE_ENGINES.has(profile.engine.trim()) ? profile.engine.trim() : null;
         cleaned.push({
             id,
             name: name || id,
             outDir,
             extraArgs,
+            engine,
         });
     });
     return cleaned.slice(0, 20);
 };
 export const initBuildProfilesUi = (context, deps) => {
-    const { settingsBuildProfileSelect, settingsBuildProfileName, settingsBuildOutDir, settingsBuildExtraArgs, settingsBuildProfileAdd, settingsBuildProfileDelete, settingsBuildProfileHint, settingsBuildCleanButton, settingsBuildCleanAllButton, } = context.dom;
+    const { settingsBuildProfileSelect, settingsBuildProfileName, settingsBuildOutDir, settingsBuildExtraArgs, settingsBuildEngine, settingsBuildProfileAdd, settingsBuildProfileDelete, settingsBuildProfileHint, settingsBuildCleanButton, settingsBuildCleanAllButton, } = context.dom;
     let buildProfiles = [];
     let activeProfileId = null;
     let saveTimer = null;
@@ -86,7 +89,7 @@ export const initBuildProfilesUi = (context, deps) => {
         }
     };
     const renderFields = (forceValues = false) => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e, _f;
         const enabled = isWorkspaceReady();
         const selectedId = getSelectedBuildProfileId();
         const selected = selectedId && selectedId !== ""
@@ -109,6 +112,13 @@ export const initBuildProfilesUi = (context, deps) => {
             settingsBuildExtraArgs.disabled = !allowEdit;
             setInputValueIfAllowed(settingsBuildExtraArgs, (_d = selected === null || selected === void 0 ? void 0 : selected.extraArgs) !== null && _d !== void 0 ? _d : "", shouldForceValues);
         }
+        if (settingsBuildEngine instanceof HTMLSelectElement) {
+            settingsBuildEngine.disabled = !allowEdit;
+            if (shouldForceValues || document.activeElement !== settingsBuildEngine) {
+                settingsBuildEngine.value = (_e = selected === null || selected === void 0 ? void 0 : selected.engine) !== null && _e !== void 0 ? _e : "";
+            }
+        }
+        (_f = deps.onActiveEngineChange) === null || _f === void 0 ? void 0 : _f.call(deps, enabled && (selected === null || selected === void 0 ? void 0 : selected.engine) ? selected.engine : null);
         if (settingsBuildProfileAdd instanceof HTMLButtonElement) {
             settingsBuildProfileAdd.disabled = !enabled;
         }
@@ -218,10 +228,14 @@ export const initBuildProfilesUi = (context, deps) => {
         const extraArgs = settingsBuildExtraArgs instanceof HTMLInputElement
             ? settingsBuildExtraArgs.value.trim()
             : "";
+        const engine = settingsBuildEngine instanceof HTMLSelectElement && PROFILE_ENGINES.has(settingsBuildEngine.value)
+            ? settingsBuildEngine.value
+            : null;
         updateSelectedProfile({
             name: name || selectedId,
             outDir: outDir || null,
             extraArgs: extraArgs || null,
+            engine,
         });
         if (settingsBuildProfileSelect instanceof HTMLSelectElement) {
             const option = Array.from(settingsBuildProfileSelect.options).find((entry) => entry.value === selectedId);
@@ -330,6 +344,12 @@ export const initBuildProfilesUi = (context, deps) => {
     if (settingsBuildExtraArgs instanceof HTMLInputElement) {
         settingsBuildExtraArgs.addEventListener("input", () => {
             handleBuildProfileTextChange();
+        });
+    }
+    if (settingsBuildEngine instanceof HTMLSelectElement) {
+        settingsBuildEngine.addEventListener("change", () => {
+            handleBuildProfileTextChange();
+            renderFields(false);
         });
     }
     if (settingsBuildCleanButton instanceof HTMLButtonElement) {

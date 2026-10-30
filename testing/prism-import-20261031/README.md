@@ -13,6 +13,7 @@ TeX64 に読み込む経路（ファイル > Prism から読み込む…、ラ�
 | `fixture-src/prism-export-sample/nihongo-report/` | 日本語レポート。`ltjsarticle` + `luatexja-fontspec`（lualatex）、`conversations/2026-10-12-heat-equation.json`（チャットログ）。`report.pdf` は現行原稿と同じなので比較は「一致」 |
 | `prism-import-dialog-diff.png` | 読み込みダイアログ（quantum-notes の比較結果まで進んだ状態、日本語 UI、評価 r1 反映後） |
 | `prism-import-dialog-notex.png` | .tex の無い zip を読んだときの「判定」失敗の表示 |
+| `prism-import-dialog-failure.png` | nihongo-report を pdflatex で組んだときの失敗表示（`luatexja-core.sty:79` の原因 1 行と「詳細を見る」） |
 
 zip の作り直し: `fixture-src/` で `zip -r -X ../prism-export-sample.zip prism-export-sample`。
 `quantum-notes/main.pdf` は `main.tex` から `\subsection{Spectrum}` の段落と `~\cite{dirac1958}` を外した
@@ -49,3 +50,10 @@ Playwright `_electron` で `dialog.showOpenDialog` を差し替えて確認（�
 展開 `8/8`・判定 `2 プロジェクト` の進行が `start` の応答前から出る。quantum-notes で文献ツールを「なし」にすると
 引用 3 件 → 0 件・節見出し 5 件 → 4 件（References 消失）に変わる。組版中に閉じてすぐ読み直しても「Build is already running」にならない。
 エンジンは `.tex64/settings.json` の `buildProfiles[prism-import].extraArgs`（`-pdf -bibtex` など）に入り、全体の `tex64.compileEngine` は変えない。
+
+## 評価 r2（2026-10-31）の反映
+
+エンジンはビルドプロファイルの正規の項目 `engine` に保存する（設定 > ビルドのプロファイル欄に「Engine」セレクトを追加、
+有効なプロファイルが engine を持つときは Compilation Engine の表示をそれに固定）。「詳細を見る」はプロジェクトが開いて
+いなければ先に開いてから Issues タブへ渡す。失敗の原因は `.log` / 転写の `file:line:` 診断（79 桁折り返しを結合）から
+先頭 1 件を出す。展開中の件数は `start` 応答前から更新、ビルド中は「ビルド中… Ns」、プロジェクト切替時は結果欄の高さを保つ。

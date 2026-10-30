@@ -33,6 +33,7 @@ export const initSettingsUi = (context, deps) => {
         getBuildProfiles: deps.getBuildProfiles,
         getBuildProfileId: deps.getBuildProfileId,
         postToNative: deps.postToNative,
+        onActiveEngineChange: (engine) => engineOps.setProfileEngine(engine),
     });
     const pageNavOps = createSettingsPageNavOps(runtime, attentionOps, {
         checkEnvironmentStatus: envOps.checkEnvironmentStatus,

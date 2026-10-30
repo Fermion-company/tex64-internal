@@ -17,9 +17,6 @@ const ENGINES = new Set(["pdflatex", "lualatex", "xelatex", "uplatex"]);
 const BIB_TOOLS = new Set(["biber", "bibtex", "none"]);
 const PROFILE_ID = "prism-import";
 
-// latexmk: a later engine option wins, so the project's profile can carry the
-// engine even when the app-wide engine flag comes first on the command line.
-const ENGINE_ARGS = { pdflatex: "-pdf", lualatex: "-lualatex", xelatex: "-xelatex", uplatex: "-pdfdvi" };
 const BIB_ARGS = {
   none: "-bibtex-",
   bibtex: "-bibtex",
@@ -46,12 +43,54 @@ const uniqueFolder = async (parent, name) => {
 
 const projectNameOf = (relative, zipName) => (relative ? relative.split("/").pop() : zipName);
 
+// The engine is the profile's own field (Build and the Settings page read it);
+// only the bibliography switch goes through latexmk options.
 const buildProfileFor = (engine, bibTool) => ({
   id: PROFILE_ID,
   name: "Prism",
   outDir: null,
-  extraArgs: `${ENGINE_ARGS[engine] || ENGINE_ARGS.pdflatex} ${BIB_ARGS[bibTool] || BIB_ARGS.bibtex}`,
+  extraArgs: BIB_ARGS[bibTool] || BIB_ARGS.bibtex,
+  engine: ENGINES.has(engine) ? engine : "pdflatex",
 });
+
+// The first issue with a source location explains a failed run better than
+// latexmk's closing "Fatal error" line. When the run's own issue list has no
+// such line, the .log is parsed the way the Issues panel parses it.
+// TeX wraps its transcript at 79 columns; a `file:line: message` diagnostic
+// from a package outside the project (texmf) is split across two lines and
+// the Issues parser keeps only in-project paths, so read it here directly.
+const firstTexDiagnostic = (transcript) => {
+  const raw = String(transcript || "").split(/\r?\n/);
+  const lines = [];
+  for (let index = 0; index < raw.length; index += 1) {
+    let line = raw[index];
+    while (line.length === 79 && index + 1 < raw.length) { index += 1; line += raw[index]; }
+    lines.push(line);
+  }
+  for (const line of lines) {
+    const located = /^(?:\.\/)?(\S+?\.(?:tex|ltx|sty|cls|def|cfg|ldf|lua)):(\d+):\s*(.+)$/.exec(line);
+    if (located) return { severity: "error", message: located[3].trim(), path: path.basename(located[1]), line: Number(located[2]) };
+    const bang = /^!\s+(.+)$/.exec(line);
+    if (bang) return { severity: "error", message: bang[1].trim(), path: null, line: null };
+  }
+  return null;
+};
+
+const explainFailure = async (buildService, root, pdfPath, issues, transcript) => {
+  const located = (list) => list.filter((issue) => issue && issue.severity === "error" && issue.line != null);
+  let best = located(issues);
+  if (best.length === 0) {
+    const logPath = pdfPath.replace(/\.pdf$/i, ".log");
+    const log = await fsp.readFile(logPath, "utf8").catch(() => "");
+    if (log && typeof buildService.parseIssues === "function") best = located(buildService.parseIssues(log, root));
+    if (best.length === 0) {
+      const found = firstTexDiagnostic(transcript) || firstTexDiagnostic(log);
+      if (found) best = [found];
+    }
+  }
+  const rest = issues.filter((issue) => !best.includes(issue));
+  return [...best, ...rest];
+};
 
 const classifyExtractError = (error) => {
   if (error?.code) return error;
@@ -63,7 +102,7 @@ const classifyExtractError = (error) => {
   return failure("ZIP_INVALID", "extract");
 };
 
-const createPrismImportHandlers = ({ dialog, state, envService, buildService, sendToRenderer, sendIssues }) => {
+const createPrismImportHandlers = ({ dialog, state, envService, buildService, sendToRenderer }) => {
   let session = null;
 
   const strings = (locale) => DIALOG_STRINGS[locale === "ja" ? "ja" : "en"];
@@ -276,7 +315,8 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
     }
     if (!session || session.id !== sessionId) return { canceled: true };
     const ok = result.kind === "success";
-    const issues = Array.isArray(result.issues) ? result.issues : [];
+    let issues = Array.isArray(result.issues) ? result.issues : [];
+    if (!ok && result.kind === "failure") issues = await explainFailure(buildService, project.root, output.pdfPath, issues, result.log);
     project.lastIssues = { summary: result.summary || "", issues };
     const buildReport = {
       ok,
@@ -315,11 +355,11 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
     return {};
   };
 
+  // The renderer shows these in the Issues panel once the project is open.
   const showIssues = (payload = {}) => {
     const project = projectOf(payload);
     const { summary, issues } = project.lastIssues || { summary: "", issues: [] };
-    sendIssues(issues.length, summary, issues.length ? "error" : "info", issues);
-    return {};
+    return { summary, issues };
   };
 
   const request = async (action, payload = {}) => {

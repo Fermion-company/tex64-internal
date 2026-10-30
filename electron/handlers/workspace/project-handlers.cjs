@@ -427,6 +427,10 @@ const createWorkspaceProjectHandlers = (ctx) => {
           typeof profile.outDir === "string" ? profile.outDir.trim() : "";
         const extraArgs =
           typeof profile.extraArgs === "string" ? profile.extraArgs.trim() : "";
+        const engine =
+          typeof profile.engine === "string" && ["pdflatex", "lualatex", "xelatex", "uplatex"].includes(profile.engine.trim())
+            ? profile.engine.trim()
+            : null;
         if (!id) {
           return null;
         }
@@ -435,6 +439,7 @@ const createWorkspaceProjectHandlers = (ctx) => {
           name: name || id,
           outDir: outDir || null,
           extraArgs: extraArgs || null,
+          ...(engine ? { engine } : {}),
         };
       })
       .filter(Boolean)

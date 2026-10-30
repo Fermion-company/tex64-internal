@@ -10661,6 +10661,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .prism-issues p { margin: 0; overflow-wrap: anywhere; }
 .prism-issues .history-button { align-self: flex-start; }
 .prism-paths { display: flex; flex-direction: column; gap: 2px; }
+.prism-paths p { margin: 0; }
 .prism-paths:empty { display: none; }
 .prism-diff-list { margin: 0; padding: 10px; list-style: none; display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--panel-border); border-radius: 6px; }
 .prism-diff-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; overflow-wrap: anywhere; }

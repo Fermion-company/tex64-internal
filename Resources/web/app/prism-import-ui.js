@@ -28,7 +28,7 @@ export const initPrismImportUi = (deps) => {
         extract: words("Unpack", "展開"),
         analyze: words("Detect", "判定"),
         env: words("Environment", "環境"),
-        build: words("Typeset", "組版"),
+        build: words("Build", "ビルド"),
         compare: words("Compare", "比較"),
     })[step];
     const diffLabel = (key) => {
@@ -73,9 +73,13 @@ export const initPrismImportUi = (deps) => {
     let busy = false;
     let awaitingRuntime = false;
     let sessionError = "";
-    // Progress arrives before `start` has returned the session id; keep it.
-    let pendingProgress = [];
+    // Progress arrives before `start` has returned the session id. Only one
+    // import runs at a time, so the first id seen while starting is adopted
+    // provisionally and the steps move while the zip is still unpacking.
+    let provisionalSessionId = null;
     let collecting = false;
+    let buildStartedAt = 0;
+    let buildTimer = null;
     const stepStatus = new Map();
     const stepDetail = new Map();
     // DOM
@@ -168,12 +172,34 @@ export const initPrismImportUi = (deps) => {
         }
         const more = el("button", "history-button", words("Show details", "詳細を見る"));
         more.type = "button";
+        // The Issues panel belongs to the open workspace: open this project first
+        // when it is not the one open, then hand the issues over.
         more.addEventListener("click", () => {
             if (!current || !sessionId)
                 return;
-            void call("show-issues", { sessionId, projectId: current.project.id }).catch(() => { });
-            finish();
-            deps.openIssues();
+            const project = current.project;
+            void (async () => {
+                let payload;
+                try {
+                    payload = (await call("show-issues", { sessionId, projectId: project.id }));
+                }
+                catch {
+                    return;
+                }
+                finish();
+                if (deps.getWorkspaceRoot() !== project.root) {
+                    deps.openProjectPath(project.root);
+                    const until = Date.now() + 15000;
+                    while (Date.now() < until && deps.getWorkspaceRoot() !== project.root) {
+                        await new Promise((resolve) => setTimeout(resolve, 200));
+                    }
+                    if (deps.getWorkspaceRoot() !== project.root)
+                        return;
+                    // The switch still reports its own cancel/idle issues for a moment.
+                    await new Promise((resolve) => setTimeout(resolve, 1500));
+                }
+                deps.showIssues(payload.summary, payload.issues);
+            })();
         });
         box.append(more);
         return box;
@@ -246,8 +272,35 @@ export const initPrismImportUi = (deps) => {
         renderDiff();
         renderPaths();
         errorBox.textContent = sessionError || (current === null || current === void 0 ? void 0 : current.error) || "";
+        openButton.hidden = !current;
         openButton.disabled = busy || !current;
         projectRow.hidden = states.length <= 1;
+    };
+    // Keep the result area from collapsing while the next build runs.
+    const holdDiffHeight = () => {
+        if (diffBox && diffBox.offsetHeight > 0)
+            diffBox.style.minHeight = `${diffBox.offsetHeight}px`;
+    };
+    const releaseDiffHeight = () => { if (diffBox)
+        diffBox.style.minHeight = ""; };
+    const buildProgressText = () => {
+        const seconds = buildStartedAt > 0 ? Math.max(0, Math.floor((Date.now() - buildStartedAt) / 1000)) : 0;
+        const phase = words("Building…", "ビルド中…");
+        return seconds > 0 ? `${phase} ${seconds}s` : phase;
+    };
+    const startBuildTimer = () => {
+        buildStartedAt = Date.now();
+        if (buildTimer === null)
+            buildTimer = window.setInterval(() => {
+                if (stepStatus.get("build") === "running")
+                    setStep("build", "running", buildProgressText());
+            }, 1000);
+    };
+    const stopBuildTimer = () => {
+        if (buildTimer !== null)
+            window.clearInterval(buildTimer);
+        buildTimer = null;
+        buildStartedAt = 0;
     };
     const ensureDialog = () => {
         if (modal)
@@ -266,10 +319,13 @@ export const initPrismImportUi = (deps) => {
             const next = states.find((state) => state.project.id === projectSelect.value);
             if (!next || next === current)
                 return;
+            holdDiffHeight();
             current = next;
             renderAll();
             if (!current.result && !busy)
                 void runBuild();
+            else
+                releaseDiffHeight();
         });
         fields = el("div", "prism-fields");
         const field = (label) => {
@@ -287,6 +343,7 @@ export const initPrismImportUi = (deps) => {
             select.addEventListener("change", () => {
                 if (!current || busy)
                     return;
+                holdDiffHeight();
                 current.mainFile = mainSelect.value;
                 current.engine = engineSelect.value;
                 current.bibTool = bibSelect.value;
@@ -324,6 +381,7 @@ export const initPrismImportUi = (deps) => {
     };
     // Closing ends the session; a typeset still running is cancelled with it.
     const finish = () => {
+        stopBuildTimer();
         if (sessionId && !awaitingRuntime) {
             const id = sessionId;
             void call("end", { sessionId: id }).catch(() => { });
@@ -351,16 +409,23 @@ export const initPrismImportUi = (deps) => {
         if (Array.isArray(payload.installing) && payload.installing.length > 0) {
             detail = `${words("Installing", "導入中")}: ${payload.installing.join(", ")}`;
         }
+        if (step === "build" && payload.status === "running" && !detail)
+            detail = buildProgressText();
         if (payload.status === "failed" && step !== "env")
             return; // the result carries the message
         setStep(step, payload.status, detail || stepDetail.get(step) || "");
     };
     (_a = bridge()) === null || _a === void 0 ? void 0 : _a.onChange((payload) => {
-        if (!payload)
+        if (!payload || !payload.sessionId)
             return;
         if (!sessionId) {
-            if (collecting)
-                pendingProgress.push(payload);
+            if (!collecting)
+                return;
+            if (!provisionalSessionId)
+                provisionalSessionId = payload.sessionId;
+            if (payload.sessionId !== provisionalSessionId)
+                return;
+            applyProgress(payload);
             return;
         }
         if (payload.sessionId !== sessionId)
@@ -395,7 +460,8 @@ export const initPrismImportUi = (deps) => {
         sessionError = "";
         current.error = "";
         setStep("env", "done", envDetail());
-        setStep("build", "running", "");
+        startBuildTimer();
+        setStep("build", "running", buildProgressText());
         setStep("compare", "pending", "");
         renderAll();
         const target = current;
@@ -410,6 +476,7 @@ export const initPrismImportUi = (deps) => {
             }));
             if (sessionId !== id)
                 return;
+            stopBuildTimer();
             if (result.canceled)
                 return;
             target.result = result;
@@ -427,6 +494,7 @@ export const initPrismImportUi = (deps) => {
             }
         }
         catch (error) {
+            stopBuildTimer();
             if (sessionId !== id)
                 return;
             if (current === target) {
@@ -437,6 +505,7 @@ export const initPrismImportUi = (deps) => {
         }
         busy = false;
         renderAll();
+        releaseDiffHeight();
     };
     const applyEnv = async () => {
         if (!env)
@@ -465,7 +534,7 @@ export const initPrismImportUi = (deps) => {
         current = null;
         awaitingRuntime = false;
         sessionError = "";
-        pendingProgress = [];
+        provisionalSessionId = null;
         collecting = true;
         busy = true;
         show();
@@ -481,8 +550,7 @@ export const initPrismImportUi = (deps) => {
             }
             sessionId = started.sessionId;
             destination = started.destination;
-            pendingProgress.filter((entry) => entry.sessionId === sessionId).forEach(applyProgress);
-            pendingProgress = [];
+            provisionalSessionId = null;
             env = started.env;
             states = started.projects.map((project) => {
                 var _a, _b;
@@ -504,7 +572,7 @@ export const initPrismImportUi = (deps) => {
         }
         catch (error) {
             collecting = false;
-            pendingProgress = [];
+            provisionalSessionId = null;
             const step = error instanceof ImportError && error.step
                 ? error.step
                 : stepStatus.get("extract") !== "done" ? "extract" : "analyze";
