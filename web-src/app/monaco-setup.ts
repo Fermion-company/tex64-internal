@@ -464,6 +464,8 @@ export const initMonacoSetup = (
         // Selection → Axiom: the context-menu entry (⌘K) and a small button
         // that floats at the end of a selection in a .tex file. Both open the
         // chat with the selection as its context.
+        let askButton: { hide: () => void; sync: () => void } | null = null;
+        let voicePillShown = false;
         if (deps.openAiWithSelection) {
           const KeyMod = (monacoWindow.monaco as any)?.KeyMod;
           const KeyCode = (monacoWindow.monaco as any)?.KeyCode;
@@ -518,7 +520,7 @@ export const initMonacoSetup = (
             const isTex = Boolean(group.currentFilePath && group.currentFilePath.endsWith(".tex"));
             const empty = !selection || (typeof selection.isEmpty === "function" ? selection.isEmpty() : true);
             const snippetActive = (editor as any).getContribution?.("snippetController2")?.isInSnippet?.();
-            if (!isTex || empty || snippetActive) {
+            if (!isTex || empty || snippetActive || voicePillShown) {
               hideAsk();
               return;
             }
@@ -534,13 +536,19 @@ export const initMonacoSetup = (
           editor.onDidChangeCursorSelection?.(() => queueMicrotask(syncAsk));
           editor.onDidChangeModelContent?.(() => hideAsk());
           (editor as any).onDidChangeModel?.(() => hideAsk());
+          askButton = { hide: hideAsk, sync: syncAsk };
         }
 
         // Voice edit (⌥⌘V): speak the instruction; it goes to Axiom with the
-        // selection as context.
+        // selection as context. Its pill stands where the Ask button was.
         deps.voiceEdit?.attachEditor(monacoWindow.monaco, editor, {
           getFilePath: () => group.currentFilePath,
           isDirty: () => Boolean(group.isDirty),
+          onPillChange: (shown) => {
+            voicePillShown = shown;
+            if (shown) askButton?.hide();
+            else askButton?.sync();
+          },
         });
 
         (editor as any).addAction?.({

@@ -282,6 +282,8 @@ export const initMonacoSetup = (context, deps) => {
             // Selection → Axiom: the context-menu entry (⌘K) and a small button
             // that floats at the end of a selection in a .tex file. Both open the
             // chat with the selection as its context.
+            let askButton = null;
+            let voicePillShown = false;
             if (deps.openAiWithSelection) {
                 const KeyMod = (_j = monacoWindow.monaco) === null || _j === void 0 ? void 0 : _j.KeyMod;
                 const KeyCode = (_k = monacoWindow.monaco) === null || _k === void 0 ? void 0 : _k.KeyCode;
@@ -337,7 +339,7 @@ export const initMonacoSetup = (context, deps) => {
                     const isTex = Boolean(group.currentFilePath && group.currentFilePath.endsWith(".tex"));
                     const empty = !selection || (typeof selection.isEmpty === "function" ? selection.isEmpty() : true);
                     const snippetActive = (_f = (_e = (_d = (_c = editor).getContribution) === null || _d === void 0 ? void 0 : _d.call(_c, "snippetController2")) === null || _e === void 0 ? void 0 : _e.isInSnippet) === null || _f === void 0 ? void 0 : _f.call(_e);
-                    if (!isTex || empty || snippetActive) {
+                    if (!isTex || empty || snippetActive || voicePillShown) {
                         hideAsk();
                         return;
                     }
@@ -354,12 +356,20 @@ export const initMonacoSetup = (context, deps) => {
                 (_q = editor.onDidChangeCursorSelection) === null || _q === void 0 ? void 0 : _q.call(editor, () => queueMicrotask(syncAsk));
                 (_r = editor.onDidChangeModelContent) === null || _r === void 0 ? void 0 : _r.call(editor, () => hideAsk());
                 (_t = (_s = editor).onDidChangeModel) === null || _t === void 0 ? void 0 : _t.call(_s, () => hideAsk());
+                askButton = { hide: hideAsk, sync: syncAsk };
             }
             // Voice edit (⌥⌘V): speak the instruction; it goes to Axiom with the
-            // selection as context.
+            // selection as context. Its pill stands where the Ask button was.
             (_u = deps.voiceEdit) === null || _u === void 0 ? void 0 : _u.attachEditor(monacoWindow.monaco, editor, {
                 getFilePath: () => group.currentFilePath,
                 isDirty: () => Boolean(group.isDirty),
+                onPillChange: (shown) => {
+                    voicePillShown = shown;
+                    if (shown)
+                        askButton === null || askButton === void 0 ? void 0 : askButton.hide();
+                    else
+                        askButton === null || askButton === void 0 ? void 0 : askButton.sync();
+                },
             });
             (_w = (_v = editor).addAction) === null || _w === void 0 ? void 0 : _w.call(_v, {
                 id: "tex64.pro-canvas-edit",

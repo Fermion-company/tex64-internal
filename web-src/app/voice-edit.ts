@@ -25,6 +25,8 @@ type VoiceEditDeps = {
 type EditorFile = {
   getFilePath: () => string | null;
   isDirty: () => boolean;
+  /** The pill takes the Ask button's place while it is up. */
+  onPillChange?: (shown: boolean) => void;
 };
 
 export type VoiceEditController = {
@@ -65,6 +67,7 @@ export const createVoiceEditController = (deps: VoiceEditDeps): VoiceEditControl
     widget: { getId: () => string; getDomNode: () => HTMLElement; getPosition: () => unknown };
     selection: VoiceInstructionSelection | null;
     setRecordingKey: (value: boolean) => void;
+    onPillChange?: (shown: boolean) => void;
     timeEl: HTMLElement;
     stopEl: HTMLButtonElement;
     node: HTMLElement;
@@ -78,9 +81,11 @@ export const createVoiceEditController = (deps: VoiceEditDeps): VoiceEditControl
 
   const removePill = () => {
     if (!session) return;
-    session.editor.removeContentWidget?.(session.widget);
-    session.setRecordingKey(false);
+    const ended = session;
     session = null;
+    ended.editor.removeContentWidget?.(ended.widget);
+    ended.setRecordingKey(false);
+    ended.onPillChange?.(false);
   };
 
   const recorder = createVoiceRecorder({
@@ -88,6 +93,7 @@ export const createVoiceEditController = (deps: VoiceEditDeps): VoiceEditControl
       if (!session) return;
       session.node.classList.add("is-recording");
       session.timeEl.textContent = "0:00";
+      session.onPillChange?.(true);
       session.editor.addContentWidget?.(session.widget);
       session.setRecordingKey(true);
     },
@@ -186,7 +192,7 @@ export const createVoiceEditController = (deps: VoiceEditDeps): VoiceEditControl
       getDomNode: () => node,
       getPosition: () =>
         position
-          ? { position, preference: preference ? [preference.ABOVE, preference.BELOW] : [1, 2] }
+          ? { position, preference: preference ? [preference.BELOW, preference.ABOVE] : [2, 1] }
           : null,
     };
 
@@ -227,7 +233,7 @@ export const createVoiceEditController = (deps: VoiceEditDeps): VoiceEditControl
       node.classList.remove("is-recording", "is-transcribing");
       stopEl.hidden = false;
       position = snapshot.anchor;
-      session = { editor, widget, selection: snapshot.selection, setRecordingKey, timeEl, stopEl, node };
+      session = { editor, widget, selection: snapshot.selection, setRecordingKey, onPillChange: file.onPillChange, timeEl, stopEl, node };
       void recorder.start();
     };
 

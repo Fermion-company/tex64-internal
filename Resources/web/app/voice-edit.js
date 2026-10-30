@@ -43,21 +43,24 @@ export const createVoiceEditController = (deps) => {
         showEditorNotice(null, message, { tone: "error", owner: NOTICE_OWNER });
     };
     const removePill = () => {
-        var _a, _b;
+        var _a, _b, _c;
         if (!session)
             return;
-        (_b = (_a = session.editor).removeContentWidget) === null || _b === void 0 ? void 0 : _b.call(_a, session.widget);
-        session.setRecordingKey(false);
+        const ended = session;
         session = null;
+        (_b = (_a = ended.editor).removeContentWidget) === null || _b === void 0 ? void 0 : _b.call(_a, ended.widget);
+        ended.setRecordingKey(false);
+        (_c = ended.onPillChange) === null || _c === void 0 ? void 0 : _c.call(ended, false);
     };
     const recorder = createVoiceRecorder({
         onStart: () => {
-            var _a, _b;
+            var _a, _b, _c;
             if (!session)
                 return;
             session.node.classList.add("is-recording");
             session.timeEl.textContent = "0:00";
-            (_b = (_a = session.editor).addContentWidget) === null || _b === void 0 ? void 0 : _b.call(_a, session.widget);
+            (_a = session.onPillChange) === null || _a === void 0 ? void 0 : _a.call(session, true);
+            (_c = (_b = session.editor).addContentWidget) === null || _c === void 0 ? void 0 : _c.call(_b, session.widget);
             session.setRecordingKey(true);
         },
         onTick: (elapsed) => {
@@ -153,7 +156,7 @@ export const createVoiceEditController = (deps) => {
             getId: () => "tex64.voice-edit-pill",
             getDomNode: () => node,
             getPosition: () => position
-                ? { position, preference: preference ? [preference.ABOVE, preference.BELOW] : [1, 2] }
+                ? { position, preference: preference ? [preference.BELOW, preference.ABOVE] : [2, 1] }
                 : null,
         };
         const snapshotSelection = () => {
@@ -197,7 +200,7 @@ export const createVoiceEditController = (deps) => {
             node.classList.remove("is-recording", "is-transcribing");
             stopEl.hidden = false;
             position = snapshot.anchor;
-            session = { editor, widget, selection: snapshot.selection, setRecordingKey, timeEl, stopEl, node };
+            session = { editor, widget, selection: snapshot.selection, setRecordingKey, onPillChange: file.onPillChange, timeEl, stopEl, node };
             void recorder.start();
         };
         const toggle = () => {
