@@ -52,7 +52,13 @@ type Range = { startLineNumber: number; startColumn: number; endLineNumber: numb
 
 const isTexPath = (path: string | null) => typeof path === "string" && path.endsWith(".tex");
 
-/** The blank-line delimited paragraph around a line; null on a blank line. */
+const HEADING_LINE = /^\s*\\(?:part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\s*[\[{]/;
+
+/**
+ * The blank-line delimited paragraph around a line; null on a blank line.
+ * Heading lines at its top are left out (the body under the heading is the
+ * paragraph), unless the cursor is on one of them.
+ */
 const paragraphAround = (model: any, lineNumber: number) => {
   const lineCount: number = model.getLineCount();
   const isBlank = (line: number) => /^\s*$/.test(model.getLineContent(line));
@@ -61,6 +67,7 @@ const paragraphAround = (model: any, lineNumber: number) => {
   while (start > 1 && !isBlank(start - 1)) start -= 1;
   let end = lineNumber;
   while (end < lineCount && !isBlank(end + 1)) end += 1;
+  while (start < lineNumber && HEADING_LINE.test(model.getLineContent(start))) start += 1;
   return {
     startLineNumber: start,
     startColumn: 1,

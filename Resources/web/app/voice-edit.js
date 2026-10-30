@@ -21,7 +21,12 @@ const CONTEXT_KEY = "tex64VoiceRecording";
 const ESCAPE_WHEN = `${CONTEXT_KEY} && !suggestWidgetVisible && !findWidgetVisible && !parameterHintsVisible && !renameInputVisible && !inSnippetMode`;
 const FAILURE_MS = 3000;
 const isTexPath = (path) => typeof path === "string" && path.endsWith(".tex");
-/** The blank-line delimited paragraph around a line; null on a blank line. */
+const HEADING_LINE = /^\s*\\(?:part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\s*[\[{]/;
+/**
+ * The blank-line delimited paragraph around a line; null on a blank line.
+ * Heading lines at its top are left out (the body under the heading is the
+ * paragraph), unless the cursor is on one of them.
+ */
 const paragraphAround = (model, lineNumber) => {
     const lineCount = model.getLineCount();
     const isBlank = (line) => /^\s*$/.test(model.getLineContent(line));
@@ -33,6 +38,8 @@ const paragraphAround = (model, lineNumber) => {
     let end = lineNumber;
     while (end < lineCount && !isBlank(end + 1))
         end += 1;
+    while (start < lineNumber && HEADING_LINE.test(model.getLineContent(start)))
+        start += 1;
     return {
         startLineNumber: start,
         startColumn: 1,
