@@ -437,9 +437,7 @@ export const initMain = () => {
     openProjectPath: (path) => {
       requestWorkspaceChange({ type: "openProjectPath", path });
     },
-    setCompileEngine: (engine) => {
-      settingsUi.applySettingsPatch({ compileEngine: engine });
-    },
+    openIssues: () => setActiveTab("issues"),
     requestRuntimeSetup: () => {
       if (!onboardingUi.isVisible()) onboardingUi.showChoice();
     },

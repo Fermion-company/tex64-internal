@@ -2,6 +2,13 @@ import { getUiLocale, uiText } from "./i18n.js";
 const STEPS = ["extract", "analyze", "env", "build", "compare"];
 const ENGINES = ["pdflatex", "lualatex", "xelatex", "uplatex"];
 const BIB_TOOLS = ["biber", "bibtex", "none"];
+class ImportError extends Error {
+    constructor(code, step = null) {
+        super(code);
+        this.code = code;
+        this.step = step;
+    }
+}
 const el = (tag, className = "", text = "") => {
     const node = document.createElement(tag);
     if (className)
@@ -10,34 +17,65 @@ const el = (tag, className = "", text = "") => {
         node.textContent = text;
     return node;
 };
+// The shared dictionary rewrites fragments of English sentences ("was not
+// found" → "が見つかりません") and would leave half-translated lines; in
+// Japanese the Japanese wording given here wins.
+const words = (english, japanese) => (getUiLocale() === "ja" ? japanese : uiText(english, japanese));
 const bridge = () => { var _a; return (_a = window.tex64Prism) !== null && _a !== void 0 ? _a : null; };
 export const initPrismImportUi = (deps) => {
     var _a;
     const stepLabel = (step) => ({
-        extract: uiText("Unpack", "展開"),
-        analyze: uiText("Detect", "判定"),
-        env: uiText("Environment", "環境"),
-        build: uiText("Build", "組版"),
-        compare: uiText("Compare", "比較"),
+        extract: words("Unpack", "展開"),
+        analyze: words("Detect", "判定"),
+        env: words("Environment", "環境"),
+        build: words("Typeset", "組版"),
+        compare: words("Compare", "比較"),
     })[step];
     const diffLabel = (key) => {
         var _a;
         return (_a = ({
-            title: uiText("Title", "タイトル"),
-            sections: uiText("Section order", "節見出しの順序"),
-            equations: uiText("Equation numbers", "式番号"),
-            citations: uiText("Citations", "引用"),
-            pageCount: uiText("Pages", "ページ数"),
+            title: words("Title", "タイトル"),
+            sections: words("Section headings", "節見出し"),
+            equations: words("Equation numbers", "式番号"),
+            citations: words("Citations", "引用"),
+            pageCount: words("Pages", "ページ数"),
         })[key]) !== null && _a !== void 0 ? _a : key;
     };
-    const bibLabel = (tool) => (tool === "none" ? uiText("None", "なし") : tool);
+    const bibLabel = (tool) => (tool === "none" ? words("None", "なし") : tool);
+    const messageFor = (code) => {
+        var _a;
+        return (_a = ({
+            ZIP_NOT_ZIP: words("Choose a .zip file exported from Prism.", "Prism から書き出した .zip を選んでください。"),
+            ZIP_NOT_FOUND: words("The zip file was not found.", "zip ファイルが見つかりません。"),
+            ZIP_INVALID: words("The file could not be read as a zip.", "zip として読めません。"),
+            ZIP_TOO_LARGE: words("The zip is larger than 2 GB.", "zip が 2 GB を超えています。"),
+            ZIP_TOO_MANY: words("The zip holds too many files.", "zip のファイル数が多すぎます。"),
+            ZIP_EMPTY: words("The zip holds no files.", "zip にファイルがありません。"),
+            ZIP_UNSAFE_PATH: words("The zip holds a path outside its folder.", "zip にフォルダの外を指すパスがあります。"),
+            DEST_NAME: words("No free folder name at the destination.", "展開先に空いているフォルダ名がありません。"),
+            NO_TEX: words("No .tex file was found in the zip.", "zip に .tex ファイルがありません。"),
+            NO_MAIN: words("No file with \\documentclass and \\begin{document} was found.", "\\documentclass と \\begin{document} を含むファイルがありません。"),
+            TEX_MISSING: words("TeX is not installed yet.", "TeX がまだ入っていません。"),
+            BUILD_BUSY: words("Another typeset is running.", "別の組版が実行中です。"),
+            SESSION_ENDED: words("This import has ended. Start it again.", "この読み込みは終了しています。やり直してください。"),
+            UNKNOWN_PROJECT: words("Unknown project.", "不明なプロジェクトです。"),
+            UNAVAILABLE: words("Prism import is not available.", "Prism の読み込みは使えません。"),
+            COMPARE_FAILED: words("The PDFs could not be compared.", "PDF を比較できませんでした。"),
+            NO_PRISM_PDF: words("The project holds no PDF from Prism to compare with.", "比較できる Prism の PDF がプロジェクトにありません。"),
+        })[code]) !== null && _a !== void 0 ? _a : words("Prism import failed.", "Prism の読み込みに失敗しました。") + ` (${code})`;
+    };
     let modal = null;
     let sessionId = null;
+    let destination = "";
     let env = null;
     let states = [];
     let current = null;
     let busy = false;
     let awaitingRuntime = false;
+    let sessionError = "";
+    // Progress arrives before `start` has returned the session id; keep it.
+    let pendingProgress = [];
+    let collecting = false;
     const stepStatus = new Map();
     const stepDetail = new Map();
     // DOM
@@ -49,16 +87,18 @@ export const initPrismImportUi = (deps) => {
     let bibSelect;
     let fields;
     let diffBox;
+    let pathsBox;
     let errorBox;
     let openButton;
     let closeButton;
     const call = async (action, payload = {}) => {
+        var _a;
         const api = bridge();
         if (!api)
-            throw new Error(uiText("Prism import is not available.", "Prism の読み込みは使えません。"));
+            throw new ImportError("UNAVAILABLE");
         const result = await api.call(action, payload);
         if (!(result === null || result === void 0 ? void 0 : result.ok))
-            throw new Error((result === null || result === void 0 ? void 0 : result.error) || uiText("Prism import failed.", "Prism の読み込みに失敗しました。"));
+            throw new ImportError((result === null || result === void 0 ? void 0 : result.code) || "FAILED", (_a = result === null || result === void 0 ? void 0 : result.step) !== null && _a !== void 0 ? _a : null);
         return result;
     };
     const setStep = (step, status, detail = "") => {
@@ -104,71 +144,108 @@ export const initPrismImportUi = (deps) => {
         }
         fields.hidden = false;
         const { analysis } = current.project;
-        const texFiles = analysis.texFiles.length > 0 ? analysis.texFiles : current.mainFile ? [current.mainFile] : [];
-        const ordered = [...analysis.candidates, ...texFiles.filter((file) => !analysis.candidates.includes(file))];
+        const ordered = [...analysis.candidates, ...analysis.texFiles.filter((file) => !analysis.candidates.includes(file))];
         fillSelect(mainSelect, ordered, (value) => value, current.mainFile);
         fillSelect(engineSelect, ENGINES, (value) => value, current.engine);
         fillSelect(bibSelect, BIB_TOOLS, bibLabel, current.bibTool);
-        const disabled = busy;
-        mainSelect.disabled = disabled || ordered.length === 0;
-        engineSelect.disabled = disabled;
-        bibSelect.disabled = disabled;
-        projectSelect.disabled = disabled;
+        mainSelect.disabled = busy || ordered.length === 0;
+        engineSelect.disabled = busy;
+        bibSelect.disabled = busy;
+        projectSelect.disabled = busy;
+    };
+    const countText = (value) => `${value} ${words("", "件")}`.trim();
+    const ordinal = (index) => (getUiLocale() === "ja" ? `${index + 1} 番目` : `#${index + 1}`);
+    const joiner = () => words(", ", "、");
+    const renderIssues = (result) => {
+        const box = el("div", "prism-issues");
+        const issues = result.build.issues;
+        if (issues.length === 0) {
+            box.append(el("p", "history-error", words("Typesetting failed.", "組版に失敗しました。")));
+        }
+        for (const issue of issues) {
+            const where = issue.path ? `${issue.path}${issue.line ? `:${issue.line}` : ""}  ` : "";
+            box.append(el("p", "history-error", `${where}${issue.message}`));
+        }
+        const more = el("button", "history-button", words("Show details", "詳細を見る"));
+        more.type = "button";
+        more.addEventListener("click", () => {
+            if (!current || !sessionId)
+                return;
+            void call("show-issues", { sessionId, projectId: current.project.id }).catch(() => { });
+            finish();
+            deps.openIssues();
+        });
+        box.append(more);
+        return box;
     };
     const renderDiff = () => {
         var _a, _b;
         diffBox.replaceChildren();
+        diffBox.classList.toggle("is-stale", busy);
         if (!current || !current.result)
             return;
-        const { build, diff, compareError, prismPdf } = current.result;
+        const { build, diff, compareError } = current.result;
         if (!build.ok) {
-            diffBox.append(el("p", "history-error", `${build.summary}\n${build.logTail}`.trim()));
+            diffBox.append(renderIssues(current.result));
             return;
         }
         if (!diff) {
-            if (compareError === "no-prism-pdf") {
-                diffBox.append(el("p", "", uiText("The project holds no PDF from Prism to compare with.", "比較できる Prism の PDF がプロジェクトにありません。")));
-            }
-            else {
-                diffBox.append(el("p", "", uiText("The PDFs could not be compared.", "PDF を比較できませんでした。")));
-            }
+            diffBox.append(el("p", "", messageFor(compareError || "COMPARE_FAILED")));
             return;
         }
         const changed = diff.filter((row) => !row.same);
         const list = el("ul", "prism-diff-list");
         if (changed.length === 0) {
-            list.append(el("li", "prism-diff-same", uiText("Matches Prism's PDF", "一致")));
+            list.append(el("li", "prism-diff-same", words("Matches Prism's PDF", "Prism の PDF と一致")));
         }
         else {
-            const same = diff.filter((row) => row.same);
             for (const row of changed) {
                 const item = el("li", "prism-diff-row");
                 item.append(el("span", "prism-diff-key", diffLabel(row.key)));
-                let text = `Prism: ${row.prism || "—"} / TeX64: ${row.local || "—"}`;
-                if (row.note) {
-                    try {
-                        const note = JSON.parse(row.note);
-                        text += `  ${uiText("first difference", "最初の相違")} #${note.index + 1}: ${(_a = note.prism) !== null && _a !== void 0 ? _a : "—"} → ${(_b = note.local) !== null && _b !== void 0 ? _b : "—"}`;
+                let text;
+                if (row.key === "title") {
+                    text = `Prism “${row.prism || "—"}” → TeX64 “${row.local || "—"}”`;
+                }
+                else if (row.key === "pageCount") {
+                    text = `Prism ${countText(row.prism)} → TeX64 ${countText(row.local)}`;
+                }
+                else {
+                    text = `Prism ${countText(row.prism)} → TeX64 ${countText(row.local)}`;
+                    if (row.first) {
+                        const detail = row.first.prism == null
+                            ? words(`${ordinal(row.first.index)} added: ${(_a = row.first.local) !== null && _a !== void 0 ? _a : ""}`, `${ordinal(row.first.index)}が増加: ${(_b = row.first.local) !== null && _b !== void 0 ? _b : ""}`)
+                            : row.first.local == null
+                                ? words(`${ordinal(row.first.index)} missing: ${row.first.prism}`, `${ordinal(row.first.index)}が消失: ${row.first.prism}`)
+                                : words(`first difference ${ordinal(row.first.index)}: ${row.first.prism} → ${row.first.local}`, `最初の相違 ${ordinal(row.first.index)}: ${row.first.prism} → ${row.first.local}`);
+                        text += ` (${detail})`;
                     }
-                    catch { /* note stays out */ }
                 }
                 item.append(el("span", "prism-diff-value", text));
                 list.append(item);
             }
+            const same = diff.filter((row) => row.same);
             if (same.length > 0) {
-                list.append(el("li", "prism-diff-same", `${uiText("Matches", "一致")}: ${same.map((row) => diffLabel(row.key)).join("、")}`));
+                list.append(el("li", "prism-diff-same", `${words("Matches", "一致")}: ${same.map((row) => diffLabel(row.key)).join(joiner())}`));
             }
         }
         diffBox.append(list);
-        if (prismPdf)
-            diffBox.append(el("p", "history-date", `${uiText("Prism PDF", "Prism の PDF")}: ${prismPdf}`));
+    };
+    const renderPaths = () => {
+        pathsBox.replaceChildren();
+        if (!destination)
+            return;
+        pathsBox.append(el("p", "history-date", `${words("Unpacked to", "展開先")}: ${destination}`));
+        if (current && current.project.notes.length > 0) {
+            const dir = current.project.notes[0].split("/").slice(0, -1).join("/");
+            pathsBox.append(el("p", "history-date", `${words("Conversation notes", "会話メモ")}: ${current.project.root}/${dir}`));
+        }
     };
     const renderAll = () => {
-        var _a;
         renderSteps();
         renderFields();
         renderDiff();
-        errorBox.textContent = (_a = current === null || current === void 0 ? void 0 : current.error) !== null && _a !== void 0 ? _a : "";
+        renderPaths();
+        errorBox.textContent = sessionError || (current === null || current === void 0 ? void 0 : current.error) || "";
         openButton.disabled = busy || !current;
         projectRow.hidden = states.length <= 1;
     };
@@ -176,12 +253,12 @@ export const initPrismImportUi = (deps) => {
         if (modal)
             return modal;
         modal = el("dialog", "history-confirm prism-import");
-        const heading = el("h2", "", uiText("Import from Prism", "Prism から読み込む"));
+        const heading = el("h2", "", words("Import from Prism", "Prism から読み込む"));
         heading.id = "prism-import-title";
         modal.setAttribute("aria-labelledby", heading.id);
         stepsList = el("ol", "prism-steps");
         projectRow = el("label", "prism-field");
-        projectRow.append(el("span", "", uiText("Project", "プロジェクト")));
+        projectRow.append(el("span", "", words("Project", "プロジェクト")));
         projectSelect = el("select", "history-name");
         projectRow.append(projectSelect);
         projectRow.hidden = true;
@@ -203,9 +280,9 @@ export const initPrismImportUi = (deps) => {
             fields.append(row);
             return select;
         };
-        mainSelect = field(uiText("Main file", "メインファイル"));
-        engineSelect = field(uiText("Engine", "エンジン"));
-        bibSelect = field(uiText("Bibliography", "文献ツール"));
+        mainSelect = field(words("Main file", "メインファイル"));
+        engineSelect = field(words("Engine", "エンジン"));
+        bibSelect = field(words("Bibliography", "文献ツール"));
         for (const select of [mainSelect, engineSelect, bibSelect]) {
             select.addEventListener("change", () => {
                 if (!current || busy)
@@ -213,28 +290,27 @@ export const initPrismImportUi = (deps) => {
                 current.mainFile = mainSelect.value;
                 current.engine = engineSelect.value;
                 current.bibTool = bibSelect.value;
-                current.result = null;
                 void runBuild();
             });
         }
         diffBox = el("div", "prism-diff");
+        pathsBox = el("div", "prism-paths");
         errorBox = el("p", "history-error");
         const actions = el("div", "history-confirm-actions");
-        openButton = el("button", "history-button is-primary", uiText("Open this project", "このプロジェクトを開く"));
+        openButton = el("button", "history-button is-primary", words("Open this project", "このプロジェクトを開く"));
         openButton.type = "button";
         openButton.addEventListener("click", () => {
             if (!current)
                 return;
             const root = current.project.root;
-            deps.setCompileEngine(current.engine);
             finish();
             deps.openProjectPath(root);
         });
-        closeButton = el("button", "history-button", uiText("Close", "閉じる"));
+        closeButton = el("button", "history-button", words("Close", "閉じる"));
         closeButton.type = "button";
         closeButton.addEventListener("click", () => finish());
         actions.append(openButton, closeButton);
-        modal.append(heading, stepsList, projectRow, fields, diffBox, errorBox, actions);
+        modal.append(heading, stepsList, projectRow, fields, diffBox, pathsBox, errorBox, actions);
         modal.addEventListener("cancel", (event) => { event.preventDefault(); finish(); });
         modal.addEventListener("close", () => { modal === null || modal === void 0 ? void 0 : modal.remove(); modal = null; });
         document.body.append(modal);
@@ -246,22 +322,24 @@ export const initPrismImportUi = (deps) => {
             dialog.showModal();
         renderAll();
     };
+    // Closing ends the session; a typeset still running is cancelled with it.
     const finish = () => {
-        if (sessionId && !awaitingRuntime)
-            void call("end", { sessionId }).catch(() => { });
+        if (sessionId && !awaitingRuntime) {
+            const id = sessionId;
+            void call("end", { sessionId: id }).catch(() => { });
+            sessionId = null;
+            busy = false;
+        }
         modal === null || modal === void 0 ? void 0 : modal.close();
     };
     const fail = (step, message) => {
         setStep(step, "failed", "");
-        if (current)
-            current.error = message;
-        errorBox.textContent = message;
+        sessionError = message;
         busy = false;
         renderAll();
     };
-    (_a = bridge()) === null || _a === void 0 ? void 0 : _a.onChange((payload) => {
-        if (!payload || payload.sessionId !== sessionId)
-            return;
+    const errorText = (error) => (error instanceof ImportError ? messageFor(error.code) : error instanceof Error ? error.message : String(error));
+    const applyProgress = (payload) => {
         const step = payload.step;
         if (!STEPS.includes(step))
             return;
@@ -271,24 +349,36 @@ export const initPrismImportUi = (deps) => {
         if (typeof payload.current === "number" && typeof payload.total === "number")
             detail = `${payload.current}/${payload.total}`;
         if (Array.isArray(payload.installing) && payload.installing.length > 0) {
-            detail = `${uiText("Installing", "導入中")}: ${payload.installing.join(", ")}`;
+            detail = `${words("Installing", "導入中")}: ${payload.installing.join(", ")}`;
         }
         if (payload.status === "failed" && step !== "env")
             return; // the result carries the message
         setStep(step, payload.status, detail || stepDetail.get(step) || "");
+    };
+    (_a = bridge()) === null || _a === void 0 ? void 0 : _a.onChange((payload) => {
+        if (!payload)
+            return;
+        if (!sessionId) {
+            if (collecting)
+                pendingProgress.push(payload);
+            return;
+        }
+        if (payload.sessionId !== sessionId)
+            return;
+        applyProgress(payload);
     });
     const envDetail = () => {
         var _a;
         if (!env)
             return "";
         if (!env.ready)
-            return uiText("TeX not found", "TeX が見つかりません");
+            return words("TeX not found", "TeX が見つかりません");
         const missing = (_a = current === null || current === void 0 ? void 0 : current.project.missingPackages) !== null && _a !== void 0 ? _a : [];
         if (missing.length === 0)
             return env.distribution;
         const prefix = env.autoInstall
-            ? uiText("Installed during build", "組版時に導入")
-            : uiText("Missing", "未導入");
+            ? words("Installed during typesetting", "組版時に導入")
+            : words("Missing", "未導入");
         return `${prefix}: ${missing.join(", ")}`;
     };
     const runBuild = async () => {
@@ -296,42 +386,54 @@ export const initPrismImportUi = (deps) => {
         if (!current || !sessionId || !(env === null || env === void 0 ? void 0 : env.ready))
             return;
         if (!current.mainFile) {
-            fail("build", uiText("No file with \\documentclass and \\begin{document} was found.", "\\documentclass と \\begin{document} を含むファイルがありません。"));
+            current.error = messageFor("NO_MAIN");
+            setStep("build", "failed", "");
+            renderAll();
             return;
         }
         busy = true;
+        sessionError = "";
         current.error = "";
         setStep("env", "done", envDetail());
         setStep("build", "running", "");
         setStep("compare", "pending", "");
         renderAll();
         const target = current;
+        const id = sessionId;
         try {
             const result = (await call("build", {
-                sessionId,
+                sessionId: id,
                 projectId: target.project.id,
                 mainFile: target.mainFile,
                 engine: target.engine,
                 bibTool: target.bibTool,
             }));
+            if (sessionId !== id)
+                return;
+            if (result.canceled)
+                return;
             target.result = result;
             if (result.prismPdf)
                 target.project.analysis.prismPdf = result.prismPdf;
             if (current !== target)
                 return;
             if (!result.build.ok) {
-                setStep("build", "failed", "");
+                setStep("build", result.build.kind === "cancelled" ? "pending" : "failed", "");
                 setStep("compare", "pending", "");
             }
             else {
-                setStep("build", "done", result.build.installed.length > 0 ? `${uiText("Installed", "導入")}: ${result.build.installed.join(", ")}` : (_a = result.build.pdfPath) !== null && _a !== void 0 ? _a : "");
+                setStep("build", "done", result.build.installed.length > 0 ? `${words("Installed", "導入")}: ${result.build.installed.join(", ")}` : (_a = result.build.pdfPath) !== null && _a !== void 0 ? _a : "");
                 setStep("compare", result.diff ? "done" : "failed", "");
             }
         }
         catch (error) {
-            if (current === target)
-                fail("build", error instanceof Error ? error.message : String(error));
-            return;
+            if (sessionId !== id)
+                return;
+            if (current === target) {
+                const step = error instanceof ImportError && error.step ? error.step : "build";
+                target.error = errorText(error);
+                setStep(step, "failed", "");
+            }
         }
         busy = false;
         renderAll();
@@ -354,23 +456,33 @@ export const initPrismImportUi = (deps) => {
     };
     const begin = async (zipPath) => {
         var _a, _b;
+        if (sessionId)
+            void call("end", { sessionId }).catch(() => { });
         sessionId = null;
+        destination = "";
         env = null;
         states = [];
         current = null;
         awaitingRuntime = false;
+        sessionError = "";
+        pendingProgress = [];
+        collecting = true;
         busy = true;
         show();
         resetSteps();
-        errorBox.textContent = "";
+        setStep("extract", "running", "");
         try {
             const started = await call("start", { zipPath, locale: getUiLocale() });
+            collecting = false;
             if (started.canceled) {
                 busy = false;
                 modal === null || modal === void 0 ? void 0 : modal.close();
                 return;
             }
             sessionId = started.sessionId;
+            destination = started.destination;
+            pendingProgress.filter((entry) => entry.sessionId === sessionId).forEach(applyProgress);
+            pendingProgress = [];
             env = started.env;
             states = started.projects.map((project) => {
                 var _a, _b;
@@ -386,14 +498,19 @@ export const initPrismImportUi = (deps) => {
             current = (_a = states[0]) !== null && _a !== void 0 ? _a : null;
             fillSelect(projectSelect, states.map((state) => state.project.id), (id) => { var _a, _b; return (_b = (_a = states.find((state) => state.project.id === id)) === null || _a === void 0 ? void 0 : _a.project.name) !== null && _b !== void 0 ? _b : id; }, (_b = current === null || current === void 0 ? void 0 : current.project.id) !== null && _b !== void 0 ? _b : "");
             setStep("extract", "done", stepDetail.get("extract") || "");
-            setStep("analyze", "done", `${states.length}`);
+            setStep("analyze", "done", `${states.length} ${words(states.length === 1 ? "project" : "projects", "プロジェクト")}`);
             renderAll();
             await applyEnv();
         }
         catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            const failedStep = stepStatus.get("extract") !== "done" ? "extract" : stepStatus.get("analyze") !== "done" ? "analyze" : "env";
-            fail(failedStep, message);
+            collecting = false;
+            pendingProgress = [];
+            const step = error instanceof ImportError && error.step
+                ? error.step
+                : stepStatus.get("extract") !== "done" ? "extract" : "analyze";
+            if (step === "analyze")
+                setStep("extract", "done", stepDetail.get("extract") || "");
+            fail(step, errorText(error));
         }
     };
     const start = (zipPath) => {
@@ -412,7 +529,7 @@ export const initPrismImportUi = (deps) => {
             }
             catch (error) {
                 show();
-                fail("extract", error instanceof Error ? error.message : String(error));
+                fail("extract", errorText(error));
             }
         })();
     };
@@ -436,7 +553,7 @@ export const initPrismImportUi = (deps) => {
                 await applyEnv();
             }
             catch (error) {
-                fail("env", error instanceof Error ? error.message : String(error));
+                fail("env", errorText(error));
             }
         })();
     };

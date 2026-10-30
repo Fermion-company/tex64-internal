@@ -536,25 +536,22 @@ const firstDifference = (left, right) => {
 };
 
 /**
- * Compare two outlines. Returns `[{ key, same, prism, local, note }]` for
- * title, sections, equations, citations and pageCount. `prism` / `local`
- * are short strings for the dialog.
+ * Compare two outlines. Returns one row per feature (title, sections,
+ * equations, citations, pageCount): `{ key, same, prism, local, first? }`
+ * where the sequence rows carry counts and the first differing entry.
  */
 const comparePdfOutlines = (prism, local) => {
   const rows = [];
-  const push = (key, same, prismValue, localValue, note = "") => rows.push({ key, same, prism: prismValue, local: localValue, note });
-  push("title", prism.title === local.title, prism.title, local.title);
+  rows.push({ key: "title", same: prism.title === local.title, prism: prism.title, local: local.title });
   for (const key of ["sections", "equations", "citations"]) {
     const left = prism[key] || [];
     const right = local[key] || [];
     const index = firstDifference(left, right);
-    if (index === -1) {
-      push(key, true, `${left.length}`, `${right.length}`);
-      continue;
-    }
-    push(key, false, `${left.length}`, `${right.length}`, JSON.stringify({ index, prism: left[index] ?? null, local: right[index] ?? null }));
+    const row = { key, same: index === -1, prism: left.length, local: right.length };
+    if (index !== -1) row.first = { index, prism: left[index] ?? null, local: right[index] ?? null };
+    rows.push(row);
   }
-  push("pageCount", prism.pageCount === local.pageCount, String(prism.pageCount), String(local.pageCount));
+  rows.push({ key: "pageCount", same: prism.pageCount === local.pageCount, prism: prism.pageCount, local: local.pageCount });
   return rows;
 };
 

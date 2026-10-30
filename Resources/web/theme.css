@@ -10643,7 +10643,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .history-restore-files { max-height: 35vh; overflow: auto; padding: 10px; border: 1px solid var(--panel-border); border-radius: 6px; overflow-wrap: anywhere; }
 .history-selection[hidden], .history-button[hidden], .history-name[hidden], .history-pinned[hidden] { display: none; }
 /* Prism import: one dialog, the five steps, three selects, the difference list. */
-.prism-import { display: flex; flex-direction: column; gap: 16px; }
+.prism-import { display: flex; flex-direction: column; gap: 16px; background: var(--bg); }
 .prism-import h2 { margin: 0; }
 .prism-steps { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; }
 .prism-step { display: flex; align-items: baseline; gap: 6px; color: var(--text-soft); }
@@ -10656,6 +10656,12 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .prism-field { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 8px; }
 .prism-field select.history-name { width: 100%; }
 .prism-diff:empty { display: none; }
+.prism-diff.is-stale { opacity: .5; }
+.prism-issues { display: flex; flex-direction: column; gap: 4px; }
+.prism-issues p { margin: 0; overflow-wrap: anywhere; }
+.prism-issues .history-button { align-self: flex-start; }
+.prism-paths { display: flex; flex-direction: column; gap: 2px; }
+.prism-paths:empty { display: none; }
 .prism-diff-list { margin: 0; padding: 10px; list-style: none; display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--panel-border); border-radius: 6px; }
 .prism-diff-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; overflow-wrap: anywhere; }
 .prism-diff-key { color: var(--text-soft); }

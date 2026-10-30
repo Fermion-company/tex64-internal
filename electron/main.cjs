@@ -925,13 +925,13 @@ ipcMain.handle("tex64:snippets", async (event, action, request = {}) => {
   } catch (error) { return { ok: false, code: error.code, error: error.message }; }
 });
 
-const prismImportHandlers = createPrismImportHandlers({ dialog, state, envService, buildService, sendToRenderer });
+const prismImportHandlers = createPrismImportHandlers({ dialog, state, envService, buildService, sendToRenderer, sendIssues });
 ipcMain.handle("tex64:prism", async (event, action, request = {}) => {
   if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid Prism import owner." };
   try {
     if (typeof action !== "string" || !request || typeof request !== "object" || JSON.stringify(request).length > 64 * 1024) throw new Error("Invalid Prism import request.");
     return { ok: true, ...(await prismImportHandlers.request(action, request)) };
-  } catch (error) { return { ok: false, code: error.code || "PRISM_IMPORT_ERROR", error: error.message }; }
+  } catch (error) { return { ok: false, code: error.code || "PRISM_IMPORT_ERROR", step: error.step || null, error: error.message }; }
 });
 
 ipcMain.handle("tex64:history", async (event, action, request) => {

@@ -5,7 +5,8 @@
 // the ordinary BuildService (including the missing-package recovery the
 // Build button uses) and compare the result with Prism's last PDF.
 // Renderer: `tex64Prism.call(action, payload)`; progress goes out as
-// `prism:progress` messages.
+// `prism:progress` messages. Failures carry a `code` (and the `step` they
+// belong to); the renderer owns the wording.
 
 const path = require("node:path");
 const fsp = require("node:fs/promises");
@@ -14,11 +15,24 @@ const prism = require("../services/prism-import.cjs");
 
 const ENGINES = new Set(["pdflatex", "lualatex", "xelatex", "uplatex"]);
 const BIB_TOOLS = new Set(["biber", "bibtex", "none"]);
+const PROFILE_ID = "prism-import";
+
+// latexmk: a later engine option wins, so the project's profile can carry the
+// engine even when the app-wide engine flag comes first on the command line.
+const ENGINE_ARGS = { pdflatex: "-pdf", lualatex: "-lualatex", xelatex: "-xelatex", uplatex: "-pdfdvi" };
+const BIB_ARGS = {
+  none: "-bibtex-",
+  bibtex: "-bibtex",
+  biber: "-bibtex -e $bibtex_use=2",
+};
+const BIB_ARTIFACTS = [".bbl", ".blg", ".bcf", ".run.xml"];
 
 const DIALOG_STRINGS = {
   en: { zipTitle: "Prism export", zipButton: "Import", destTitle: "Where to put the projects", destMessage: "The projects are unpacked into a new folder here.", destButton: "Unpack here" },
   ja: { zipTitle: "Prism の書き出し", zipButton: "読み込む", destTitle: "プロジェクトの置き場所", destMessage: "ここに新しいフォルダを作って展開します。", destButton: "ここに展開" },
 };
+
+const failure = (code, step = null) => Object.assign(new Error(code), { code, step });
 
 const uniqueFolder = async (parent, name) => {
   let candidate = path.join(parent, name);
@@ -27,32 +41,46 @@ const uniqueFolder = async (parent, name) => {
     if (!exists) return candidate;
     candidate = path.join(parent, `${name}-${counter}`);
   }
-  throw new Error("Could not find a free folder name.");
+  throw failure("DEST_NAME", "extract");
 };
 
-const projectNameOf = (relative, zipName) => {
-  if (!relative) return zipName;
-  return relative.split("/").pop();
+const projectNameOf = (relative, zipName) => (relative ? relative.split("/").pop() : zipName);
+
+const buildProfileFor = (engine, bibTool) => ({
+  id: PROFILE_ID,
+  name: "Prism",
+  outDir: null,
+  extraArgs: `${ENGINE_ARGS[engine] || ENGINE_ARGS.pdflatex} ${BIB_ARGS[bibTool] || BIB_ARGS.bibtex}`,
+});
+
+const classifyExtractError = (error) => {
+  if (error?.code) return error;
+  const message = String(error?.message || "");
+  if (/Unsafe path/.test(message)) return failure("ZIP_UNSAFE_PATH", "extract");
+  if (/larger than 2 GB|more than 2 GB/.test(message)) return failure("ZIP_TOO_LARGE", "extract");
+  if (/holds no files/.test(message)) return failure("ZIP_EMPTY", "extract");
+  if (/too many files/.test(message)) return failure("ZIP_TOO_MANY", "extract");
+  return failure("ZIP_INVALID", "extract");
 };
 
-const createPrismImportHandlers = ({ dialog, state, envService, buildService, sendToRenderer }) => {
+const createPrismImportHandlers = ({ dialog, state, envService, buildService, sendToRenderer, sendIssues }) => {
   let session = null;
 
   const strings = (locale) => DIALOG_STRINGS[locale === "ja" ? "ja" : "en"];
 
-  const progress = (payload) => {
-    if (!session) return;
-    sendToRenderer("prism:progress", { sessionId: session.id, ...payload });
+  const progress = (sessionId, payload) => {
+    if (!session || session.id !== sessionId) return;
+    sendToRenderer("prism:progress", { sessionId, ...payload });
   };
 
   const projectOf = (payload) => {
-    if (!session || payload?.sessionId !== session.id) throw new Error("This import has ended. Start it again.");
+    if (!session || payload?.sessionId !== session.id) throw failure("SESSION_ENDED");
     const project = session.projects.find((entry) => entry.id === payload?.projectId);
-    if (!project) throw new Error("Unknown project.");
+    if (!project) throw failure("UNKNOWN_PROJECT");
     return project;
   };
 
-  const writeRootFile = async (project, mainFile) => {
+  const writeProjectSettings = async (project, mainFile, profile) => {
     const directory = path.join(project.root, ".tex64");
     await fsp.mkdir(directory, { recursive: true });
     const settingsPath = path.join(directory, "settings.json");
@@ -64,6 +92,12 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
       settings = {};
     }
     settings.rootFile = mainFile;
+    if (profile) {
+      const others = (Array.isArray(settings.buildProfiles) ? settings.buildProfiles : [])
+        .filter((entry) => entry && typeof entry === "object" && entry.id !== PROFILE_ID);
+      settings.buildProfiles = [profile, ...others];
+      settings.buildProfileId = PROFILE_ID;
+    }
     await fsp.writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
   };
 
@@ -75,6 +109,24 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
     notes: project.notes,
     missingPackages: project.missingPackages,
   });
+
+  const detectEnv = async () => {
+    const report = await envService.detectEnvironment({ force: true }).catch(() => null);
+    const ready = Boolean(report?.ready);
+    if (ready) {
+      for (const project of session.projects) {
+        const located = await envService.locateTexFiles(project.analysis.packages).catch(() => null);
+        project.missingPackages = located ? located.missing : [];
+      }
+    }
+    session.env = {
+      ready,
+      hasEngine: Boolean(report?.hasEngine),
+      distribution: report?.distribution?.name || "",
+      autoInstall: typeof envService.isManagedLightweight === "function" ? envService.isManagedLightweight() : false,
+    };
+    return session.env;
+  };
 
   const chooseZip = async (payload = {}) => {
     const labels = strings(payload.locale);
@@ -90,9 +142,9 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
 
   const start = async (payload = {}) => {
     const zipPath = typeof payload.zipPath === "string" ? payload.zipPath : "";
-    if (!zipPath || !/\.zip$/i.test(zipPath)) throw new Error("Choose a .zip file exported from Prism.");
+    if (!zipPath || !/\.zip$/i.test(zipPath)) throw failure("ZIP_NOT_ZIP", "extract");
     const zipStat = await fsp.stat(zipPath).catch(() => null);
-    if (!zipStat?.isFile()) throw new Error("The zip file was not found.");
+    if (!zipStat?.isFile()) throw failure("ZIP_NOT_FOUND", "extract");
     const labels = strings(payload.locale);
     const chosen = await dialog.showOpenDialog(state.mainWindow, {
       title: labels.destTitle,
@@ -104,19 +156,30 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
     if (chosen.canceled || !chosen.filePaths[0]) return { canceled: true };
     const zipName = path.basename(zipPath, path.extname(zipPath)).replace(/[\\/:*?"<>|]/g, "-") || "prism";
     const destination = await uniqueFolder(chosen.filePaths[0], zipName);
-    session = { id: crypto.randomUUID(), zipPath, destination, projects: [] };
+    if (session?.building) buildService.cancelCurrentRun();
+    session = { id: crypto.randomUUID(), zipPath, destination, projects: [], env: null, building: false };
     const sessionId = session.id;
 
-    progress({ step: "extract", status: "running" });
-    const { root, files } = await prism.extractZip(zipPath, destination, {
-      onProgress: ({ current, total }) => progress({ step: "extract", status: "running", current, total }),
-    });
+    progress(sessionId, { step: "extract", status: "running" });
+    let extracted;
+    try {
+      extracted = await prism.extractZip(zipPath, destination, {
+        onProgress: ({ current, total }) => progress(sessionId, { step: "extract", status: "running", current, total }),
+      });
+    } catch (error) {
+      await fsp.rm(destination, { recursive: true, force: true }).catch(() => {});
+      throw classifyExtractError(error);
+    }
     if (!session || session.id !== sessionId) return { canceled: true };
-    progress({ step: "extract", status: "done", current: files.length, total: files.length });
+    const { root, files } = extracted;
+    progress(sessionId, { step: "extract", status: "done", current: files.length, total: files.length });
 
-    progress({ step: "analyze", status: "running" });
+    progress(sessionId, { step: "analyze", status: "running" });
     const projectDirs = prism.findProjects(files.map((file) => file.relativePath));
-    if (projectDirs.length === 0) throw new Error("No .tex file was found in the zip.");
+    if (projectDirs.length === 0) {
+      await fsp.rm(root, { recursive: true, force: true }).catch(() => {});
+      throw failure("NO_TEX", "analyze");
+    }
     for (const relative of projectDirs) {
       const projectRoot = relative ? path.join(root, ...relative.split("/")) : root;
       const list = await prism.walkProject(projectRoot);
@@ -129,165 +192,152 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
         analysis,
         notes,
         missingPackages: [],
+        preserved: new Set(),
+        lastBibTool: null,
+        lastIssues: [],
       };
-      if (analysis.mainFile) await writeRootFile(project, analysis.mainFile);
+      if (analysis.mainFile) {
+        await writeProjectSettings(project, analysis.mainFile, buildProfileFor(analysis.engine, analysis.bibTool));
+      }
       session.projects.push(project);
     }
-    progress({ step: "analyze", status: "done", current: session.projects.length, total: session.projects.length });
+    progress(sessionId, { step: "analyze", status: "done", current: session.projects.length, total: session.projects.length });
 
-    progress({ step: "env", status: "running" });
-    const report = await envService.detectEnvironment({ force: true }).catch(() => null);
-    const ready = Boolean(report?.ready);
-    if (ready) {
-      for (const project of session.projects) {
-        const located = await envService.locateTexFiles(project.analysis.packages).catch(() => null);
-        project.missingPackages = located ? located.missing : [];
-      }
-    }
-    const env = {
-      ready,
-      hasEngine: Boolean(report?.hasEngine),
-      distribution: report?.distribution?.name || "",
-      autoInstall: typeof envService.isManagedLightweight === "function" ? envService.isManagedLightweight() : false,
-    };
-    progress({ step: "env", status: ready ? "done" : "failed" });
-    session.env = env;
-    return {
-      sessionId,
-      destination: root,
-      env,
-      projects: session.projects.map(publicProject),
-    };
+    progress(sessionId, { step: "env", status: "running" });
+    const env = await detectEnv();
+    progress(sessionId, { step: "env", status: env.ready ? "done" : "failed" });
+    return { sessionId, destination: root, env, projects: session.projects.map(publicProject) };
   };
 
   // After the onboarding installed TeX the dialog asks again for the
   // environment and the missing packages, without unpacking a second time.
   const recheckEnv = async (payload = {}) => {
-    if (!session || payload.sessionId !== session.id) throw new Error("This import has ended. Start it again.");
-    const report = await envService.detectEnvironment({ force: true }).catch(() => null);
-    const ready = Boolean(report?.ready);
-    if (ready) {
-      for (const project of session.projects) {
-        const located = await envService.locateTexFiles(project.analysis.packages).catch(() => null);
-        project.missingPackages = located ? located.missing : [];
-      }
+    if (!session || payload.sessionId !== session.id) throw failure("SESSION_ENDED");
+    const env = await detectEnv();
+    return { env, projects: session.projects.map(publicProject) };
+  };
+
+  // A PDF the zip brought along must survive the first build that writes
+  // the same path. The copy is made once per path, before our own output
+  // could have replaced it; Prism's main PDF is compared from its copy.
+  const preserveExistingPdf = async (project, pdfPath) => {
+    if (project.preserved.has(pdfPath)) return;
+    const stat = await fsp.stat(pdfPath).catch(() => null);
+    if (!stat?.isFile()) { project.preserved.add(pdfPath); return; }
+    const copy = path.join(path.dirname(pdfPath), `${path.basename(pdfPath, ".pdf")}.prism.pdf`);
+    await fsp.copyFile(pdfPath, copy);
+    project.preserved.add(pdfPath);
+    const relative = path.relative(project.root, pdfPath).split(path.sep).join("/");
+    if (project.analysis.prismPdf === relative) {
+      project.analysis = { ...project.analysis, prismPdf: path.relative(project.root, copy).split(path.sep).join("/") };
     }
-    session.env = {
-      ready,
-      hasEngine: Boolean(report?.hasEngine),
-      distribution: report?.distribution?.name || "",
-      autoInstall: typeof envService.isManagedLightweight === "function" ? envService.isManagedLightweight() : false,
-    };
-    return { env: session.env, projects: session.projects.map(publicProject) };
+  };
+
+  const removeBibArtifacts = async (project, pdfPath) => {
+    const stem = pdfPath.replace(/\.pdf$/i, "");
+    for (const extension of BIB_ARTIFACTS) await fsp.rm(`${stem}${extension}`, { force: true }).catch(() => {});
   };
 
   const build = async (payload = {}) => {
     const project = projectOf(payload);
     const mainFile = typeof payload.mainFile === "string" ? prism.normalizeZipPath(payload.mainFile) : null;
-    if (!mainFile || !project.analysis.texFiles.includes(mainFile)) throw new Error("Choose the main file.");
+    if (!mainFile || !project.analysis.texFiles.includes(mainFile)) throw failure("NO_MAIN", "build");
     const engine = ENGINES.has(payload.engine) ? payload.engine : project.analysis.engine;
     const bibTool = BIB_TOOLS.has(payload.bibTool) ? payload.bibTool : project.analysis.bibTool;
-    if (!session.env?.ready) throw new Error("TeX is not installed yet.");
-    if (buildService.isBuilding) throw new Error("Build is already running.");
-    await writeRootFile(project, mainFile);
-    project.choice = { mainFile, engine, bibTool };
-    const extraArgs = bibTool === "none" ? "-bibtex-" : "-bibtex";
-    const buildProfile = { id: "prism-import", name: "Prism import", outDir: null, extraArgs };
+    if (!session.env?.ready) throw failure("TEX_MISSING", "env");
+    if (buildService.isBuilding) throw failure("BUILD_BUSY", "build");
+    const profile = buildProfileFor(engine, bibTool);
+    await writeProjectSettings(project, mainFile, profile);
+    const output = buildService.resolveBuildOutputProfile(project.root, mainFile, profile);
+    await preserveExistingPdf(project, output.pdfPath);
+    if (project.lastBibTool !== null && project.lastBibTool !== bibTool) await removeBibArtifacts(project, output.pdfPath);
+    project.lastBibTool = bibTool;
 
-    progress({ step: "build", status: "running", projectId: project.id });
-    let result = await buildService.build(project.root, mainFile, engine, buildProfile);
-    const installed = new Set();
-    for (let attempt = 0; attempt < 4 && result.kind === "failure"; attempt += 1) {
-      if (typeof envService.installMissingPackagesFromLog !== "function") break;
-      const recovery = await envService.installMissingPackagesFromLog(result.log, {
-        excludePackages: [...installed],
-        onPackagesResolved: (packages) => progress({ step: "build", status: "running", projectId: project.id, installing: packages }),
-      }).catch(() => null);
-      if (!recovery?.success || !Array.isArray(recovery.packages) || recovery.packages.length === 0) break;
-      recovery.packages.forEach((name) => installed.add(name));
-      result = await buildService.build(project.root, mainFile, engine, buildProfile);
+    const sessionId = session.id;
+    progress(sessionId, { step: "build", status: "running", projectId: project.id });
+    session.building = true;
+    let result;
+    try {
+      result = await buildService.build(project.root, mainFile, engine, profile);
+      const installed = new Set();
+      for (let attempt = 0; attempt < 4 && result.kind === "failure"; attempt += 1) {
+        if (typeof envService.installMissingPackagesFromLog !== "function") break;
+        const recovery = await envService.installMissingPackagesFromLog(result.log, {
+          excludePackages: [...installed],
+          onPackagesResolved: (packages) => progress(sessionId, { step: "build", status: "running", projectId: project.id, installing: packages }),
+        }).catch(() => null);
+        if (!recovery?.success || !Array.isArray(recovery.packages) || recovery.packages.length === 0) break;
+        recovery.packages.forEach((name) => installed.add(name));
+        result = await buildService.build(project.root, mainFile, engine, profile);
+      }
+      result.installed = [...installed];
+    } finally {
+      if (session?.id === sessionId) session.building = false;
     }
+    if (!session || session.id !== sessionId) return { canceled: true };
     const ok = result.kind === "success";
-    const output = buildService.resolveBuildOutputProfile(project.root, mainFile, buildProfile);
-    const pdfPath = ok ? output.pdfPath : null;
-    const log = typeof result.log === "string" ? result.log : "";
-    const issues = Array.isArray(result.issues) ? result.issues.slice(0, 5) : [];
+    const issues = Array.isArray(result.issues) ? result.issues : [];
+    project.lastIssues = { summary: result.summary || "", issues };
     const buildReport = {
       ok,
       kind: result.kind,
-      summary: result.summary || (ok ? "Build finished." : "Build failed."),
-      issues,
-      logTail: log.split(/\r?\n/).slice(-40).join("\n"),
-      pdfPath: pdfPath ? path.relative(project.root, pdfPath).split(path.sep).join("/") : null,
-      installed: [...installed],
+      issues: issues.slice(0, 3).map((issue) => ({ severity: issue.severity, message: issue.message, path: issue.path ?? null, line: issue.line ?? null })),
+      issueCount: issues.length,
+      pdfPath: ok ? path.relative(project.root, output.pdfPath).split(path.sep).join("/") : null,
+      installed: result.installed,
     };
-    progress({ step: "build", status: ok ? "done" : "failed", projectId: project.id });
+    progress(sessionId, { step: "build", status: ok ? "done" : "failed", projectId: project.id });
     if (!ok) return { build: buildReport, diff: null };
 
-    progress({ step: "compare", status: "running", projectId: project.id });
+    progress(sessionId, { step: "compare", status: "running", projectId: project.id });
     let diff = null;
     let compareError = null;
     if (project.analysis.prismPdf) {
       const prismPdfPath = path.join(project.root, ...project.analysis.prismPdf.split("/"));
-      const samePdf = path.resolve(prismPdfPath) === path.resolve(pdfPath);
-      if (samePdf) {
-        // The build overwrote Prism's PDF of the same name. Compare against
-        // the copy BuildService keeps? None exists, so say so plainly.
-        compareError = "same-name";
-      } else {
-        try {
-          const [prismOutline, localOutline] = await Promise.all([
-            prism.readPdfOutline(prismPdfPath),
-            prism.readPdfOutline(pdfPath),
-          ]);
-          diff = prism.comparePdfOutlines(prismOutline, localOutline);
-        } catch (error) {
-          compareError = error?.message || String(error);
-        }
+      try {
+        const [prismOutline, localOutline] = await Promise.all([
+          prism.readPdfOutline(prismPdfPath),
+          prism.readPdfOutline(output.pdfPath),
+        ]);
+        diff = prism.comparePdfOutlines(prismOutline, localOutline);
+      } catch {
+        compareError = "COMPARE_FAILED";
       }
     } else {
-      compareError = "no-prism-pdf";
+      compareError = "NO_PRISM_PDF";
     }
-    progress({ step: "compare", status: diff ? "done" : "failed", projectId: project.id });
+    progress(sessionId, { step: "compare", status: diff ? "done" : "failed", projectId: project.id });
     return { build: buildReport, diff, compareError, prismPdf: project.analysis.prismPdf };
   };
 
-  // Before the first build, move Prism's PDF aside when it carries the name
-  // the build will write, so the comparison still has both sides.
-  const preserveRecord = new Map();
-  const preservePrismPdf = async (project, mainFile) => {
-    const prismPdf = project.analysis.prismPdf;
-    if (!prismPdf) return;
-    const stem = mainFile.replace(/\.(tex|ltx)$/i, "");
-    if (prismPdf.replace(/\.pdf$/i, "") !== stem) return;
-    if (preserveRecord.has(project.id)) return;
-    const source = path.join(project.root, ...prismPdf.split("/"));
-    const target = path.join(path.dirname(source), `${path.basename(source, ".pdf")}.prism.pdf`);
-    await fsp.copyFile(source, target);
-    const relative = path.relative(project.root, target).split(path.sep).join("/");
-    project.analysis = { ...project.analysis, prismPdf: relative };
-    preserveRecord.set(project.id, relative);
+  const cancel = (payload = {}) => {
+    if (session && payload.sessionId === session.id && session.building) buildService.cancelCurrentRun();
+    return {};
+  };
+
+  const showIssues = (payload = {}) => {
+    const project = projectOf(payload);
+    const { summary, issues } = project.lastIssues || { summary: "", issues: [] };
+    sendIssues(issues.length, summary, issues.length ? "error" : "info", issues);
+    return {};
   };
 
   const request = async (action, payload = {}) => {
     switch (action) {
-      case "choose-zip":
-        return chooseZip(payload);
-      case "start":
-        return start(payload);
-      case "recheck-env":
-        return recheckEnv(payload);
-      case "build": {
-        const project = projectOf(payload);
-        const mainFile = typeof payload.mainFile === "string" ? prism.normalizeZipPath(payload.mainFile) : null;
-        if (mainFile && project.analysis.texFiles.includes(mainFile)) await preservePrismPdf(project, mainFile);
-        return build(payload);
-      }
+      case "choose-zip": return chooseZip(payload);
+      case "start": return start(payload);
+      case "recheck-env": return recheckEnv(payload);
+      case "build": return build(payload);
+      case "cancel": return cancel(payload);
+      case "show-issues": return showIssues(payload);
       case "end":
-        if (session && payload.sessionId === session.id) session = null;
+        if (session && payload.sessionId === session.id) {
+          if (session.building) buildService.cancelCurrentRun();
+          session = null;
+        }
         return {};
       default:
-        throw new Error(`Unknown Prism import action: ${action}`);
+        throw failure("UNKNOWN_ACTION");
     }
   };
 
