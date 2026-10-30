@@ -133,9 +133,18 @@ export type EditorSessionDeps = {
   };
   getMonacoApi: () => Record<string, unknown> | null;
   onLivePreviewSourceChanged?: () => void;
+  // Collaboration: a shared text file is written by the session layer, not by
+  // the renderer autosave; saving it means asking the session to flush.
+  collab?: {
+    isBound: (path: string | null | undefined) => boolean;
+    flush: () => Promise<boolean>;
+  };
 };
 
 export type EditorSessionApi = {
+  // Collaboration save ACK: the buffer is saved iff it still matches `digest`.
+  markSavedExternally: (path: string, digest: string) => boolean;
+  getSavedContent: (path: string) => string | null;
   getEditorGroup: (key: EditorGroupKey) => EditorGroupState;
   getEditorGroups: () => EditorGroupState[];
   getActiveGroup: () => EditorGroupState;

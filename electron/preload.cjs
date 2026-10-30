@@ -348,6 +348,28 @@ contextBridge.exposeInMainWorld("tex64History", {
   },
 });
 
+// Collaboration: actions go through invoke; Y.Doc sync / awareness bytes are
+// one-way frames in both directions (the renderer and main each hold a Y.Doc).
+const collabHandlers = new Set();
+ipcRenderer.on("tex64:collab:message", (_event, message) => {
+  collabHandlers.forEach((handler) => {
+    try {
+      handler(message);
+    } catch (error) {
+      console.error("tex64Collab handler error:", error);
+    }
+  });
+});
+contextBridge.exposeInMainWorld("tex64Collab", {
+  call: (action, payload = {}) => ipcRenderer.invoke("tex64:collab", action, payload),
+  onMessage: (handler) => {
+    if (typeof handler !== "function") return () => {};
+    collabHandlers.add(handler);
+    return () => collabHandlers.delete(handler);
+  },
+  send: (docId, bytes, meta = {}) => ipcRenderer.send("tex64:collab:send", { docId, bytes, kind: meta.kind || "sync", sessionId: meta.sessionId, epoch: meta.epoch }),
+});
+
 contextBridge.exposeInMainWorld("tex64Snippets", {
   call: (action, payload = {}) => ipcRenderer.invoke("tex64:snippets", action, payload),
 });
