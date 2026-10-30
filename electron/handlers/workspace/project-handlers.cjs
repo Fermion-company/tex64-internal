@@ -239,8 +239,12 @@ const createWorkspaceProjectHandlers = (ctx) => {
     sendLauncherStatus({ isBusy: false, message: null });
   };
 
-  const handleOpenRecentProject = async (projectPath) => {
-    if (!state.mainWindow || !projectPath) {
+  // Open a folder as the workspace without a picker: recent projects and the
+  // Prism importer already know the path. Verifies the folder, switches the
+  // root through the same quiesce/lease path as the dialogs, records it as
+  // recent.
+  const openWorkspacePath = async (projectPath, reason = "recent") => {
+    if (!state.mainWindow || typeof projectPath !== "string" || !projectPath) {
       return;
     }
     sendLauncherStatus({ isBusy: true, message: null });
@@ -276,7 +280,7 @@ const createWorkspaceProjectHandlers = (ctx) => {
       }
       return;
     }
-    const releaseWorkspace = await prepareWorkspaceChange(projectPath, "recent");
+    const releaseWorkspace = await prepareWorkspaceChange(projectPath, reason);
     if (!releaseWorkspace) {
       return;
     }
@@ -300,6 +304,8 @@ const createWorkspaceProjectHandlers = (ctx) => {
     }
     sendLauncherStatus({ isBusy: false, message: null });
   };
+
+  const handleOpenRecentProject = (projectPath) => openWorkspacePath(projectPath, "recent");
 
   const handleCreateProject = async (payload = {}) => {
     if (!state.mainWindow) {
@@ -490,6 +496,7 @@ const createWorkspaceProjectHandlers = (ctx) => {
   return {
     handleOpenWorkspace,
     handleOpenRecentProject,
+    openWorkspacePath,
     handleCreateProject,
     handleSetRoot,
     handleDetectRoot,
