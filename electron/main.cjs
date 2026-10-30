@@ -68,6 +68,7 @@ const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
 const { registerTexizeHandlers } = require("./handlers/texize.cjs");
 const { registerTdomEngineHandlers } = require("./handlers/tdom-engine.cjs");
+const { registerArxivHandlers } = require("./handlers/arxiv.cjs");
 const { registerAiWebHandlers } = require("./handlers/ai-web.cjs");
 const { AiWebService } = require("./services/ai-web.cjs");
 const {
@@ -1654,6 +1655,11 @@ ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
 });
 
 registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
+registerArxivHandlers({
+  ipcMain,
+  workspace,
+  isOwner: (event) => event.sender === state.mainWindow?.webContents && event.senderFrame === event.sender.mainFrame,
+});
 registerTdomEngineHandlers({
   ipcMain,
   getTdomEngineService,

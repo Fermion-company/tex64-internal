@@ -98,7 +98,7 @@ const extractArxivId = (input) => {
   if (!input) return "";
   const trimmed = String(input).trim();
   const match = trimmed.match(/arxiv\.org\/(abs|pdf|e-print)\/([^?#]+)/i);
-  let id = match ? match[2] : trimmed;
+  let id = match ? match[2] : trimmed.replace(/^arxiv:/i, "");
   id = id.replace(/\.pdf$/i, "");
   id = id.replace(/v\d+$/i, "");
   return id;
