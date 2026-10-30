@@ -780,9 +780,10 @@ const createAgentHandlers = (deps) => {
     // Developer fallback, off unless set: TEX64_VOICE_FAKE_TRANSCRIPT="..."
     // answers with that text instead of calling the platform, so the paths
     // after transcription can be exercised without a microphone or quota.
-    const fakeTranscript = typeof process.env.TEX64_VOICE_FAKE_TRANSCRIPT === "string" ? process.env.TEX64_VOICE_FAKE_TRANSCRIPT.trim() : "";
-    if (fakeTranscript) {
-      reply({ ok: true, text: fakeTranscript });
+    // Set but empty ("") stands for a transcription that heard nothing.
+    if (typeof process.env.TEX64_VOICE_FAKE_TRANSCRIPT === "string") {
+      const fakeTranscript = process.env.TEX64_VOICE_FAKE_TRANSCRIPT.trim();
+      reply(fakeTranscript ? { ok: true, text: fakeTranscript } : { ok: false, code: "empty", error: "Nothing was heard." });
       return;
     }
     const allowed = await guardAiAccess("voice", "voice", true);
