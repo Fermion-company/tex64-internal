@@ -11,14 +11,19 @@ const { appendBibEntry } = require("../services/bib-append.cjs");
 
 const MAX_QUERY_CHARS = 500;
 
-/** Give network, rate-limit and timeout failures a code the renderer can word. */
+/**
+ * Network, rate-limit and timeout failures as a plain { code, message }: the
+ * renderer words them. The original exception is not touched (a DOMException's
+ * `code` is read-only).
+ */
 const classify = (error) => {
   const message = String(error?.message || error);
   const cause = String(error?.cause?.code || error?.cause?.message || "");
-  if (error?.name === "TimeoutError" || /timeout|timed out/i.test(message)) error.code = "TIMEOUT";
-  else if (/\b429\b/.test(message)) error.code = "RATE_LIMIT";
-  else if (/fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|EAI_AGAIN|ENETUNREACH/i.test(`${message} ${cause}`)) error.code = "NETWORK";
-  return error;
+  let code = "ARXIV_ERROR";
+  if (error?.name === "TimeoutError" || /timeout|timed out/i.test(message)) code = "TIMEOUT";
+  else if (/\b(429|503)\b/.test(message)) code = "RATE_LIMIT";
+  else if (/fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|EAI_AGAIN|ENETUNREACH/i.test(`${message} ${cause}`)) code = "NETWORK";
+  return { code, message };
 };
 
 /**
@@ -30,8 +35,8 @@ const classify = (error) => {
 const registerArxivHandlers = ({ ipcMain, workspace, isOwner }) => {
   let inflight = null;
 
-  // Words are ANDed. An empty result drops the last word, up to twice
-  // (three requests at most); `query` in the answer is what was searched.
+  // Words are ANDed; one request per call. The renderer relaxes an empty
+  // result by dropping words, pausing between requests.
   const search = async (payload) => {
     const query = typeof payload?.query === "string" ? payload.query.trim() : "";
     if (!query) return { papers: [] };
@@ -41,12 +46,8 @@ const registerArxivHandlers = ({ ipcMain, workspace, isOwner }) => {
     const controller = new AbortController();
     inflight = controller;
     try {
-      let terms = query.split(/\s+/).filter(Boolean);
-      let papers = await searchArxiv(query, { max, terms, signal: controller.signal });
-      for (let relax = 0; relax < 2 && papers.length === 0 && terms.length > 1; relax += 1) {
-        terms = terms.slice(0, -1);
-        papers = await searchArxiv(query, { max, terms, signal: controller.signal });
-      }
+      const terms = query.split(/\s+/).filter(Boolean);
+      const papers = await searchArxiv(query, { max, terms, signal: controller.signal });
       return { papers, query: terms.join(" ") };
     } catch (error) {
       if (controller.signal.aborted && inflight !== controller) return { papers: [], superseded: true };

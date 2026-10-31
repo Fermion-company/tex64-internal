@@ -114,11 +114,22 @@ const headingWords = (heading: string): string[] => {
   return words.slice(0, 5);
 };
 
+/** The paragraph before the one containing line `index`, or "". */
+const previousParagraph = (lines: string[], index: number): string => {
+  let i = Math.min(index, lines.length - 1);
+  while (i >= 0 && lines[i]?.trim()) i -= 1; // leave the current paragraph
+  while (i >= 0 && !lines[i]?.trim()) i -= 1; // skip the blank gap
+  return i >= 0 ? paragraphAround(lines, i) : "";
+};
+
+const unique = (words: string[]) => words.filter((word, i) => words.indexOf(word) === i);
+
 /**
  * The query the dialog starts with: at most 5 content terms, space separated.
  * Selection, else the paragraph with its heading; when those yield no English
- * word (a \ref-only paragraph) the heading's own words; else "" — the dialog
- * then asks for English words.
+ * word (a \ref-only paragraph) the heading's own words, padded from the
+ * previous paragraph to at least 3; else "" — the dialog then asks for
+ * English words.
  */
 export const buildArxivQuery = (context: QueryContext): string => {
   const selection = String(context.selection || "").trim();
@@ -130,17 +141,36 @@ export const buildArxivQuery = (context: QueryContext): string => {
   const heading = nearestHeading(context.lines, context.cursorLine);
   const terms = extractTerms(`${heading}\n${paragraph}`);
   if (terms.length) return terms.join(" ");
-  return headingWords(heading).join(" ");
+  const fallback = headingWords(heading);
+  if (fallback.length && fallback.length < 3) {
+    fallback.push(...extractTerms(previousParagraph(context.lines, context.cursorLine), 5));
+  }
+  return unique(fallback).slice(0, 5).join(" ");
 };
 
-/** Title / abstract text for display: math delimiters and simple commands removed. */
+const GREEK: Record<string, string> = {
+  alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", varepsilon: "ε", zeta: "ζ", eta: "η", theta: "θ", vartheta: "θ",
+  iota: "ι", kappa: "κ", lambda: "λ", mu: "μ", nu: "ν", xi: "ξ", pi: "π", rho: "ρ", sigma: "σ", tau: "τ", upsilon: "υ",
+  phi: "φ", varphi: "φ", chi: "χ", psi: "ψ", omega: "ω", Gamma: "Γ", Delta: "Δ", Theta: "Θ", Lambda: "Λ", Xi: "Ξ", Pi: "Π",
+  Sigma: "Σ", Phi: "Φ", Psi: "Ψ", Omega: "Ω", infty: "∞", times: "×", pm: "±", leq: "≤", geq: "≥", neq: "≠", approx: "≈",
+  sim: "∼", to: "→", rightarrow: "→", cdot: "·", ell: "ℓ", hbar: "ħ", partial: "∂", nabla: "∇", sum: "Σ", prod: "Π", int: "∫",
+};
+
+/** Text of one math segment: commands to symbols or names, scripts flattened. */
+const plainMath = (math: string): string =>
+  math
+    .replace(/\\([a-zA-Z]+)/g, (whole, name: string) => GREEK[name] ?? (/^(log|ln|exp|sin|cos|tan|max|min|lim|det|dim)$/.test(name) ? name : ""))
+    .replace(/\\[^a-zA-Z]/g, "")
+    .replace(/[{}^_]/g, "");
+
+/** Title / abstract text for display: math and simple commands made readable. */
 export const plainLatex = (text: string): string =>
   String(text || "")
     .replace(/\\(?:url|href)\s*\{([^{}]*)\}(?:\s*\{[^{}]*\})?/g, "$1")
-    .replace(/\$\$?([^$]*)\$\$?/g, "$1")
-    .replace(/\\(?:emph|textit|textbf|texttt|textsc|mathrm|mathbf|mathcal|text|mbox)\s*\{([^{}]*)\}/g, "$1")
-    .replace(/\\[a-zA-Z]+\*?\s*/g, "")
+    .replace(/\$\$([^$]*)\$\$|\$([^$]*)\$|\\\(([\s\S]*?)\\\)|\\\[([\s\S]*?)\\\]/g, (_whole, a, b, c, d) => plainMath(a ?? b ?? c ?? d ?? ""))
+    .replace(/\\(?:emph|textit|textbf|texttt|textsc|text|mbox)\s*\{([^{}]*)\}/g, "$1")
+    .replace(/\\([%&$#_])/g, "$1")
+    .replace(/\\([a-zA-Z]+)\*?\s*/g, (_whole, name: string) => GREEK[name] ?? "")
     .replace(/[{}]/g, "")
-    .replace(/\^|_/g, "")
     .replace(/\s+/g, " ")
     .trim();

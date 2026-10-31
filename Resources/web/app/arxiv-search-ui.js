@@ -5,6 +5,9 @@ import { uiText } from "./i18n.js";
 import { buildArxivQuery, plainLatex } from "./arxiv-query.js";
 import { insertCitation } from "./citation-insert.js";
 const DEBOUNCE_MS = 3000;
+// arXiv asks for one request every 3 s; relaxing an empty result waits that long.
+const RELAX_PAUSE_MS = 3000;
+const MAX_RELAX = 2;
 const RESULT_COUNT = 10;
 const CONTEXT_KEY = "tex64ArxivTexFile";
 const bridge = () => window.tex64Arxiv;
@@ -17,15 +20,31 @@ const call = async (action, payload) => {
         throw new ArxivError((result === null || result === void 0 ? void 0 : result.error) || "arXiv request failed.", String((result === null || result === void 0 ? void 0 : result.code) || ""));
     return result;
 };
-const describe = (reason) => {
+const describe = (reason, retry = "search") => {
     const code = reason instanceof ArxivError ? reason.code : "";
+    const again = retry === "search"
+        ? uiText("Press Enter to retry.", "Enter で再試行してください。")
+        : uiText("Try again later.", "後でもう一度お試しください。");
     if (code === "NETWORK")
-        return uiText("Cannot reach arXiv. Check the connection and press Enter to retry.", "arXiv に接続できません。接続を確認して Enter で再試行してください。");
+        return `${uiText("Cannot reach arXiv. Check the connection.", "arXiv に接続できません。接続を確認してください。")} ${again}`;
     if (code === "RATE_LIMIT")
-        return uiText("arXiv is busy. Wait a moment and press Enter to retry.", "arXiv が混雑しています。しばらく待って Enter で再試行してください。");
+        return `${uiText("arXiv is busy. Wait a moment.", "arXiv が混み合っています。しばらく待ってください。")} ${again}`;
     if (code === "TIMEOUT")
-        return uiText("arXiv did not answer in time. Press Enter to retry.", "arXiv の応答がありません。Enter で再試行してください。");
+        return `${uiText("arXiv did not answer in time.", "arXiv の応答がありません。")} ${again}`;
     return reason instanceof Error ? reason.message : String(reason);
+};
+/** What the document still needs so BibTeX / biber finds the appended entry. */
+const bibHint = (result) => {
+    if (!result.suggestion)
+        return "";
+    const where = result.suggestion.place === "preamble"
+        ? uiText("Add %s to the preamble.", "プリアンブルに %s を加えてください。")
+        : uiText("Add %s before \\end{document}.", "本文末（\\end{document} の前）に %s を加えてください。");
+    const lines = result.suggestion.lines.join(uiText(" and ", " と "));
+    const head = result.created
+        ? uiText(`Created ${result.bibPath}.`, `${result.bibPath} を作成しました。`)
+        : uiText(`Appended to ${result.bibPath} (not loaded by the document).`, `${result.bibPath} に追記しました（本文では未参照）。`);
+    return `${head} ${where.replace("%s", lines)}`;
 };
 const isTexModel = (editor) => { var _a, _b, _c; return /\.tex$/i.test(((_c = (_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) === null || _b === void 0 ? void 0 : _b.uri) === null || _c === void 0 ? void 0 : _c.path) || ""); };
 let modalOpen = false;
@@ -99,7 +118,10 @@ export const openArxivSearch = (editor, group) => {
     let timer = null;
     const cited = new Map();
     let papers = [];
+    // The "add \bibliography…" hint stays until the next search; later cites keep it.
+    let hintShown = false;
     const setStatus = (text) => { status.textContent = text; };
+    const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
     const askForEnglish = () => {
         setStatus(uiText("arXiv is searched in English. Enter English words.", "arXiv は英語で検索します。英語の語を入れてください。"));
         query.focus();
@@ -135,7 +157,8 @@ export const openArxivSearch = (editor, group) => {
         const cite = button(uiText("Cite", "引用する"), () => void (async () => {
             var _a, _b, _c;
             cite.disabled = true;
-            setStatus("");
+            if (!hintShown)
+                setStatus("");
             try {
                 const result = await call("cite", { arxivId: paper.arxivId, activeFilePath: group.currentFilePath });
                 if (((_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== model || ((_b = model.isDisposed) === null || _b === void 0 ? void 0 : _b.call(model)) || ((_c = editor.getRawOptions) === null || _c === void 0 ? void 0 : _c.call(editor).readOnly)) {
@@ -145,13 +168,15 @@ export const openArxivSearch = (editor, group) => {
                 const inserted = how === "appended" ? `,${result.key}` : `\\cite{${result.key}}`;
                 cited.set(paper.arxivId, { result, inserted });
                 showCited(result, inserted);
-                if (result.created && result.suggestion) {
-                    setStatus(uiText(`Created ${result.bibPath}. Add ${result.suggestion} to the preamble.`, `${result.bibPath} を作成しました。プリアンブルに ${result.suggestion} を加えてください。`));
+                const hint = bibHint(result);
+                if (hint) {
+                    setStatus(hint);
+                    hintShown = true;
                 }
             }
             catch (reason) {
                 cite.disabled = false;
-                setStatus(describe(reason));
+                setStatus(describe(reason, "cite"));
             }
         })());
         side.append(cite);
@@ -171,19 +196,35 @@ export const openArxivSearch = (editor, group) => {
             return;
         }
         inflight = true;
+        hintShown = false;
         const seq = ++searchSeq;
         setStatus(uiText("Searching…", "検索中…"));
         try {
-            const result = await call("search", { query: trimmed, max: RESULT_COUNT });
-            if (seq === searchSeq && !result.superseded) {
-                papers = result.papers || [];
-                // The main process may have dropped trailing words to get a hit; the
-                // field shows the query that produced the list.
-                if (result.query && result.query !== trimmed && query.value.trim() === trimmed)
-                    query.value = result.query;
-                render();
-                setStatus(papers.length ? "" : uiText("No papers found.", "該当する論文はありません。"));
+            // Words are ANDed. An empty result drops the last word, up to MAX_RELAX
+            // times, pausing between requests; the field then shows what was used.
+            let terms = trimmed.split(/\s+/);
+            let found = [];
+            let used = trimmed;
+            for (let attempt = 0;; attempt += 1) {
+                const result = await call("search", { query: terms.join(" "), max: RESULT_COUNT });
+                if (seq !== searchSeq || result.superseded)
+                    return;
+                found = result.papers || [];
+                used = result.query || terms.join(" ");
+                if (found.length || attempt >= MAX_RELAX || terms.length < 2)
+                    break;
+                terms = terms.slice(0, -1);
+                setStatus(uiText(`Retrying with “${terms.join(" ")}”…`, `「${terms.join(" ")}」で再検索中…`));
+                await wait(RELAX_PAUSE_MS);
+                if (seq !== searchSeq || !dialog.open)
+                    return;
             }
+            papers = found;
+            // Only a hit replaces the field; an empty result leaves the user's words.
+            if (found.length && used !== trimmed && query.value.trim() === trimmed)
+                query.value = used;
+            render();
+            setStatus(found.length ? "" : uiText("No papers found.", "該当する論文はありません。"));
         }
         catch (reason) {
             if (seq === searchSeq)
