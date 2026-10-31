@@ -4938,132 +4938,113 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   background: var(--panel-strong); /* Ensure panel background */
 }
 
-/* Announcement modal lives at body level (outside .app) so the launcher's
-   `opacity: 0` cascade doesn't hide it. Still needs z-index above the
-   launcher overlay (which is z-index: 20). */
+/* ── Announcement modal ──────────────────────────────────
+   Lives at body level (outside .app) so the launcher's `opacity: 0` cascade
+   doesn't hide it; z-index above the launcher overlay (20).
+   House look: paper + ink. Serif heading, sans body, mono eyebrow; the only
+   colour is the app accent on the primary action. Fonts are the bundled
+   subsets below (OFL; see fonts/LICENSE_OFL_*.txt). Japanese falls back to
+   the system sans until Noto Sans JP is bundled. */
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("./fonts/SourceSerif4-Semibold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("./fonts/InstrumentSans-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("./fonts/InstrumentSans-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./fonts/JetBrainsMono-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
 #announcement-modal {
   z-index: 40;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(10px) saturate(0.9);
+  -webkit-backdrop-filter: blur(10px) saturate(0.9);
 }
 
 .announcement-card {
-  width: min(760px, 94vw);
-  padding: 34px 38px 30px;
-  gap: 22px;
-  position: relative;
-  overflow: hidden;
-  background:
-    radial-gradient(ellipse at top right, rgba(162, 167, 252, 0.13) 0%, transparent 55%),
-    radial-gradient(ellipse at bottom left, rgba(121, 126, 249, 0.07) 0%, transparent 55%),
-    linear-gradient(180deg, rgba(28, 36, 46, 1) 0%, rgba(20, 25, 32, 1) 100%);
-  border: 1px solid rgba(121, 126, 249, 0.22);
-  border-radius: 18px;
-  box-shadow:
-    0 32px 80px -12px rgba(0, 0, 0, 0.6),
-    0 0 80px -16px rgba(121, 126, 249, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --announce-serif: "Source Serif 4", "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+  --announce-sans: "Instrument Sans", "Noto Sans JP", "Hiragino Sans", "Yu Gothic", -apple-system, sans-serif;
+  --announce-mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  width: min(540px, 92vw);
+  padding: 36px 40px 32px;
+  gap: 18px;
+  font-family: var(--announce-sans);
+  background: var(--panel-strong);
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  transform: translateY(14px);
+  opacity: 0;
+  transition:
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.24s ease;
+}
+
+#announcement-modal.is-open .announcement-card {
+  transform: translateY(0);
+  opacity: 1;
 }
 
 .announcement-heading {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  align-items: start;
-  gap: 16px;
-  position: relative;
-  z-index: 1;
-}
-
-.announcement-mark {
-  width: 52px;
-  height: 52px;
-  display: grid;
-  place-items: center;
-  border-radius: 15px;
-  color: #eef0ff;
-  background:
-    linear-gradient(145deg, rgba(162, 167, 252, 0.34), rgba(121, 126, 249, 0.16)),
-    rgba(16, 21, 29, 0.78);
-  border: 1px solid rgba(180, 184, 255, 0.28);
-  box-shadow:
-    0 12px 30px -14px rgba(121, 126, 249, 0.9),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14);
-}
-
-.announcement-mark svg {
-  width: 28px;
-  height: 28px;
-  fill: currentColor;
-}
-
-.announcement-heading-copy {
-  min-width: 0;
+  gap: 10px;
 }
 
 .announcement-eyebrow {
-  width: fit-content;
-  margin: 1px 0 7px;
-  padding: 4px 9px;
-  border: 1px solid rgba(162, 167, 252, 0.24);
-  border-radius: 999px;
-  color: #c7caff;
-  background: rgba(121, 126, 249, 0.1);
-  font-size: 10px;
-  font-weight: 750;
-  letter-spacing: 0.11em;
+  font-family: var(--announce-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
   line-height: 1;
   text-transform: uppercase;
+  color: var(--muted);
 }
 
-.announcement-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(121, 126, 249, 0.6) 25%,
-    rgba(162, 167, 252, 0.95) 50%,
-    rgba(121, 126, 249, 0.6) 75%,
-    transparent 100%
-  );
-}
-
-.announcement-card::after {
-  content: '';
-  position: absolute;
-  top: -120px;
-  right: -120px;
-  width: 320px;
-  height: 320px;
-  background: radial-gradient(circle, rgba(162, 167, 252, 0.18) 0%, transparent 65%);
-  pointer-events: none;
+.announcement-eyebrow:empty {
+  display: none;
 }
 
 .announcement-card .announcement-title {
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1.3;
-  letter-spacing: -0.015em;
-  background: linear-gradient(180deg, #ffffff 0%, #c9d1d9 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  position: relative;
+  font-family: var(--announce-serif);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.22;
+  letter-spacing: -0.012em;
+  color: var(--text);
+  text-wrap: balance;
 }
 
 .announcement-card .announcement-body {
-  position: relative;
-  z-index: 1;
-  font-size: 15px;
-  line-height: 1.72;
-  color: var(--text-soft);
   margin: 0;
-  padding: 20px 22px;
-  border: 1px solid rgba(148, 163, 184, 0.14);
-  border-radius: 14px;
-  background: rgba(8, 12, 18, 0.24);
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text-soft);
+  letter-spacing: 0.002em;
 }
 
 .announcement-body p {
@@ -5073,12 +5054,12 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .announcement-body p + p,
 .announcement-body ul + p,
 .announcement-body p + ul {
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
 .announcement-body ul {
   display: grid;
-  gap: 9px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -5086,30 +5067,23 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .announcement-body li {
   position: relative;
-  padding-left: 22px;
+  padding-left: 18px;
 }
 
 .announcement-body li::before {
-  content: "✓";
+  content: "";
   position: absolute;
-  top: 0;
-  left: 0;
-  color: #a2a7fc;
-  font-weight: 800;
-}
-
-#announcement-modal[data-kind="update"] .announcement-mark {
-  color: #ffffff;
-  background:
-    linear-gradient(145deg, rgba(99, 102, 241, 0.95), rgba(139, 92, 246, 0.76));
-  border-color: rgba(199, 202, 255, 0.46);
+  top: 0.72em;
+  left: 2px;
+  width: 6px;
+  height: 1.5px;
+  background: var(--muted);
 }
 
 .announcement-input {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 6px;
+  gap: 8px;
 }
 
 .announcement-input.is-hidden {
@@ -5118,20 +5092,19 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .announcement-input textarea {
   width: 100%;
-  min-height: 140px;
+  min-height: 120px;
   resize: vertical;
   font-family: inherit;
   font-size: 14px;
   line-height: 1.6;
-  padding: 14px 16px;
-  border-radius: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
   background: var(--input-bg);
   border: 1px solid var(--input-border);
   color: var(--text);
   transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    background 0.2s ease;
+    border-color var(--duration-normal) ease,
+    background var(--duration-normal) ease;
 }
 
 .announcement-input textarea::placeholder {
@@ -5141,72 +5114,65 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .announcement-input textarea:focus {
   outline: none;
   background: var(--input-bg-strong);
-  border-color: var(--accent-strong);
-  box-shadow: 0 0 0 4px var(--accent-soft);
+  border-color: var(--accent);
 }
 
 .announcement-status {
   font-size: 12.5px;
   color: var(--text-soft);
   min-height: 18px;
-  letter-spacing: 0.01em;
 }
 
 .announcement-status.is-error {
-  color: #f87171;
+  color: var(--danger-text, var(--danger));
 }
 
 .announcement-status.is-success {
-  color: #7dd38b;
+  color: var(--status);
 }
 
 .announcement-card .modal-actions {
-  margin-top: 6px;
-  gap: 12px;
+  margin-top: 10px;
+  padding-top: 18px;
+  gap: 10px;
+  border-top: 1px solid var(--panel-border);
 }
 
-.announcement-card #announcement-modal-link {
-  color: #ffffff;
-  background: linear-gradient(135deg, #6d72f6 0%, #8b5cf6 100%);
-  border-color: transparent;
-  box-shadow: 0 8px 20px -10px rgba(109, 114, 246, 0.9);
-  font-weight: 650;
+.announcement-card .modal-actions .panel-button {
+  font-family: var(--announce-sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  height: 38px;
+  padding: 0 18px;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.005em;
 }
 
-.announcement-card #announcement-modal-link:hover {
-  filter: brightness(1.08);
-  transform: translateY(-1px);
+.announcement-card #announcement-modal-close {
+  margin-right: auto;
+  padding-left: 0;
+  color: var(--muted);
 }
 
+.announcement-card #announcement-modal-close:hover {
+  background: transparent;
+  color: var(--text);
+  transform: none;
+}
+
+.announcement-card #announcement-modal-link,
 .announcement-card #announcement-modal-submit {
-  position: relative;
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
-  border: none;
   color: #ffffff;
-  font-weight: 600;
-  font-size: 15px;
-  padding: 12px 30px;
-  border-radius: 10px;
-  letter-spacing: 0.02em;
-  box-shadow:
-    0 6px 16px -4px rgba(121, 126, 249, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.2s ease,
-    filter 0.2s ease;
+  background: var(--accent);
+  border: none;
+  padding: 0 22px;
 }
 
+.announcement-card #announcement-modal-link:hover,
 .announcement-card #announcement-modal-submit:hover:not(:disabled) {
-  transform: translateY(-1px);
-  filter: brightness(1.08);
-  box-shadow:
-    0 10px 24px -4px rgba(121, 126, 249, 0.65),
-    inset 0 1px 0 rgba(255, 255, 255, 0.28);
-}
-
-.announcement-card #announcement-modal-submit:active:not(:disabled) {
-  transform: translateY(0);
+  background: var(--accent-strong);
+  color: #ffffff;
+  transform: none;
 }
 
 .announcement-card #announcement-modal-submit:disabled {
@@ -5214,33 +5180,23 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   cursor: default;
 }
 
-.announcement-card #announcement-modal-close {
-  font-size: 14px;
-  padding: 12px 22px;
+@media (prefers-reduced-motion: reduce) {
+  .announcement-card {
+    transition: none;
+    transform: none;
+  }
 }
 
 @media (max-width: 640px) {
   .announcement-card {
-    padding: 26px 22px 22px;
-  }
-
-  .announcement-heading {
-    grid-template-columns: 42px minmax(0, 1fr);
-    gap: 12px;
-  }
-
-  .announcement-mark {
-    width: 42px;
-    height: 42px;
-    border-radius: 12px;
+    padding: 28px 24px 24px;
   }
 
   .announcement-card .announcement-title {
-    font-size: 21px;
+    font-size: 23px;
   }
 
   .announcement-card .announcement-body {
-    padding: 16px;
     font-size: 14px;
   }
 }
@@ -9621,51 +9577,6 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 
 :root[data-theme="light"] .modal {
   background: rgba(15, 23, 42, 0.22);
-}
-
-:root[data-theme="light"] .announcement-card {
-  background:
-    radial-gradient(ellipse at top right, rgba(37, 99, 235, 0.12) 0%, transparent 55%),
-    radial-gradient(ellipse at bottom left, rgba(14, 165, 233, 0.08) 0%, transparent 55%),
-    linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
-  border-color: rgba(37, 99, 235, 0.18);
-  box-shadow:
-    0 32px 80px -18px rgba(15, 23, 42, 0.24),
-    0 0 58px -22px rgba(37, 99, 235, 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8);
-}
-
-:root[data-theme="light"] .announcement-card .announcement-title {
-  background: linear-gradient(180deg, #0F172A 0%, #334155 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-}
-
-:root[data-theme="light"] .announcement-mark {
-  color: #4338ca;
-  background: linear-gradient(145deg, #eef2ff, #e0e7ff);
-  border-color: rgba(79, 70, 229, 0.18);
-  box-shadow: 0 12px 26px -18px rgba(37, 99, 235, 0.5);
-}
-
-:root[data-theme="light"] .announcement-eyebrow {
-  color: #4338ca;
-  background: rgba(79, 70, 229, 0.06);
-  border-color: rgba(79, 70, 229, 0.14);
-}
-
-:root[data-theme="light"] .announcement-card .announcement-body {
-  color: #334155;
-  background: rgba(248, 250, 252, 0.86);
-  border-color: rgba(100, 116, 139, 0.15);
-}
-
-:root[data-theme="light"] .announcement-body li::before {
-  color: #4f46e5;
-}
-
-:root[data-theme="light"] .announcement-card::after {
-  background: radial-gradient(circle, rgba(37, 99, 235, 0.12) 0%, transparent 65%);
 }
 
 :root[data-theme="light"] .editor-viewer-message {

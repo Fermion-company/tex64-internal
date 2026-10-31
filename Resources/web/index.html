@@ -1837,16 +1837,8 @@
         aria-labelledby="announcement-modal-title"
       >
         <div class="announcement-heading">
-          <div class="announcement-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3z"></path>
-              <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"></path>
-            </svg>
-          </div>
-          <div class="announcement-heading-copy">
-            <div class="announcement-eyebrow" id="announcement-modal-eyebrow"></div>
-            <div class="modal-title announcement-title" id="announcement-modal-title"></div>
-          </div>
+          <div class="announcement-eyebrow" id="announcement-modal-eyebrow"></div>
+          <div class="modal-title announcement-title" id="announcement-modal-title"></div>
         </div>
         <div class="modal-body">
           <div class="modal-help announcement-body" id="announcement-modal-body"></div>
@@ -1861,6 +1853,9 @@
           </div>
         </div>
         <div class="modal-actions">
+          <button class="panel-button ghost" id="announcement-modal-close" type="button">
+            Close
+          </button>
           <button
             class="panel-button ghost is-hidden"
             id="announcement-modal-link"
@@ -1874,9 +1869,6 @@
             aria-hidden="true"
           >
             Send
-          </button>
-          <button class="panel-button ghost" id="announcement-modal-close" type="button">
-            Close
           </button>
         </div>
       </div>
