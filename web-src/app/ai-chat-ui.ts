@@ -322,6 +322,12 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   if (aiModelMenu instanceof HTMLElement) {
     aiModelMenu.addEventListener("click", (event) => {
       const target = event.target as HTMLElement | null;
+      // Upsell close → hide the card, keep the menu.
+      if (target?.closest(".ai-model-upsell-close")) {
+        event.stopPropagation();
+        hideModelUpsell();
+        return;
+      }
       // Upsell CTA → open the pricing page in the browser.
       if (target?.closest(".ai-model-upsell-btn")) {
         event.stopPropagation();
