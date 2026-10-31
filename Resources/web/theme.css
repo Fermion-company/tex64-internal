@@ -2805,6 +2805,10 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   transition: background var(--duration-normal) ease, border-color var(--duration-normal) ease, transform var(--duration-fast) ease;
 }
 
+html[lang="ja"] .settings-page .panel-button {
+  padding: calc(var(--space-2) + 0.75px) var(--space-5) calc(var(--space-2) - 0.75px);
+}
+
 .settings-page .panel-button:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.15);
@@ -4383,10 +4387,22 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 
 #format-button {
   letter-spacing: 0.08em;
+  padding: 0 8px 0 7px;
 }
 
 #synctex-button {
   letter-spacing: 0.06em;
+}
+
+/* Icon side bearings inside the 16px box differ per glyph; trim the left
+   padding so icon + label sit optically centred. */
+#synctex-button {
+  padding: 0 8px 0 7.5px;
+}
+/* The label keeps a reserved width (longest state) so the button does not
+   jitter; centre the text inside it. */
+#save-button > span {
+  text-align: center;
 }
 
 /* Jump is resolving: the pointer mark turns so the click visibly took. */
@@ -4464,7 +4480,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
    Save / Saving / Saved so the toolbar does not shift while typing. */
 #save-button > span {
   display: inline-block;
-  text-align: left;
+  text-align: center;
 }
 
 #save-button[data-save-state="saved"] {
@@ -4563,7 +4579,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 
 #build-button {
   min-width: 30px;
-  padding: 0 8px;
+  padding: 0 9px 0 7px;
   gap: 4px;
   margin-left: 2px;
   border-color: rgba(127, 211, 220, 0.45);
@@ -4577,7 +4593,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   order: -1;
   gap: 6px;
   min-width: 54px;
-  padding: 0 10px;
+  padding: 0 10px 0 9px;
   margin-left: 0;
   border-color: var(--panel-border);
   background: var(--control-bg);
@@ -4783,7 +4799,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-sm);
-  margin-right: -4px;
+  margin-right: -7px;
 }
 
 .editor-tab-close:hover {
@@ -5211,7 +5227,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .announcement-card #announcement-modal-close {
   margin-right: auto;
-  padding-left: 0;
+  margin-left: -12px;
+  padding: 0 12px;
   color: var(--muted);
 }
 
@@ -9382,7 +9399,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 .plan-cta {
   width: 100%;
-  padding: 11.5px 0 10.5px;
+  padding: 12px 0 10px;
   border-radius: 999px;
   border: 1px solid var(--panel-border-strong);
   background: transparent;
@@ -10032,7 +10049,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 .ai-mode-option {
   height: 20px;
-  padding: 0 8px;
+  padding: 0 8px 1px;
   border: 0;
   border-radius: 5px;
   background: transparent;
