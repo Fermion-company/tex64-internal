@@ -5948,6 +5948,9 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   border-bottom: 1px dotted rgba(227, 179, 65, 0.72);
 }
 
+.monaco-editor .code-comment-range.is-resolved { background: transparent; border-bottom: 1px dashed rgba(140, 150, 160, 0.55); }
+.monaco-editor .code-comment-glyph.is-resolved::after { opacity: .4; content: "✓"; }
+
 .monaco-editor .code-comment-line {
   border-left: 2px solid rgba(227, 179, 65, 0.82);
 }
@@ -10706,3 +10709,27 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .git-empty { min-height: 30px; margin: 0; display: flex; align-items: center; }
 .git-settings { display: flex; flex-direction: column; gap: 8px; }
 .git-settings > p { margin: 8px 0 0; }
+
+/* ---- Collaboration: participant dots (topbar, session only) and the dialog ---- */
+.collab-participants { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 8px; border: none; border-radius: var(--radius-sm); background: transparent; cursor: pointer; -webkit-app-region: no-drag; }
+.collab-participants:hover { background: var(--control-bg); }
+.collab-participants[hidden] { display: none; }
+.collab-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--collab-color, var(--accent)); box-shadow: 0 0 0 2px var(--panel); box-sizing: border-box; }
+.collab-dot.is-offline { opacity: .35; }
+.collab-dot.is-self { outline: 1px solid var(--text-soft); outline-offset: 1px; }
+.collab-dot-more { font-size: 11px; color: var(--muted); }
+.collab-dialog-rows { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-top: 8px; }
+.collab-dialog-link { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.collab-dialog-link input { flex: 1; }
+.collab-dialog-participants { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 16px; }
+.collab-participant { display: flex; align-items: center; gap: 8px; }
+.collab-participant .collab-dot { box-shadow: none; }
+.collab-participant-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.collab-dialog .history-local { color: var(--muted); font-size: 12px; margin: 10px 0; }
+.collab-dialog .history-error { margin: 8px 0; }
+.yRemoteSelection { pointer-events: none; }
+.collab-dialog-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 12px; font-size: 12px; color: var(--muted); }
+.collab-dialog-start { margin: 0 0 4px; }
+.collab-guest-note { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+.is-collab-guest .history-list, .is-collab-guest .git-files { opacity: .6; }
+.code-comment-modal-quote { margin: 0 0 8px; padding: 6px 10px; border-left: 3px solid var(--panel-border-strong); color: var(--muted); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow-y: auto; }

@@ -228,6 +228,14 @@
             <span class="synctex-button-label">SyncTeX</span>
           </button>
           <button
+            id="collab-participants"
+            type="button"
+            class="collab-participants"
+            aria-label="Collaboration session"
+            title="Collaboration session"
+            hidden
+          ></button>
+          <button
             id="build-button"
             type="button"
             aria-label="Build"
@@ -1890,6 +1898,7 @@
          `define` when present, which would skip the window globals we rely on. -->
     <script src="./vendor/xterm.js"></script>
     <script src="./vendor/xterm-addon-fit.js"></script>
+    <script src="./vendor/collab.js"></script>
     <script src="./monaco/vs/loader.js"></script>
     <script type="module" src="./main.js"></script>
   </body>

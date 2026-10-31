@@ -2,6 +2,8 @@ import { historyDateLabels, historyVersionTitle } from "./history-format.js";
 import { createActionsMenu } from "./actions-menu.js";
 import { getEditorOperationGuard } from "./editor-operation-guard.js";
 import { uiText } from "./i18n.js";
+import { collabSession } from "./collab/session.js";
+import { applyCollabGuestLock } from "./collab/guest-lock.js";
 export const initHistoryUi = (editor, diff) => {
     const bridge = window.tex64History;
     const host = document.getElementById("history-panel");
@@ -155,6 +157,7 @@ export const initHistoryUi = (editor, diff) => {
     }));
     recovery.hidden = true;
     host.append(heading, name, renameSave, error, recovery, list, pinned, selection);
+    collabSession.onChange((state) => applyCollabGuestLock(host, state.active && state.role === "guest"));
     const call = async (action, payload = {}) => {
         const result = await bridge.call(action, payload);
         if (!result.ok)

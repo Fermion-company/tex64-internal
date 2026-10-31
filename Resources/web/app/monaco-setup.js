@@ -73,7 +73,7 @@ export const initMonacoSetup = (context, deps) => {
     }
     monacoWindow.require.config({ paths: { vs: requireBase } });
     monacoWindow.require(["vs/editor/editor.main"], () => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e;
         if (!monacoWindow.monaco || !monacoWindow.monaco.editor) {
             deps.updateFallback(uiText("Monaco initialization failed.", "Monacoの初期化に失敗しました。"));
             return;
@@ -99,7 +99,9 @@ export const initMonacoSetup = (context, deps) => {
         spellChecker === null || spellChecker === void 0 ? void 0 : spellChecker.start();
         const codeCommentManager = createCodeCommentManager(monacoWindow.monaco, {
             getWorkspaceRoot: deps.getWorkspaceRoot,
+            collab: (_a = deps.collab) === null || _a === void 0 ? void 0 : _a.comments,
         });
+        window.__tex64CodeComments = codeCommentManager;
         const themeName = applyMonacoTheme(monacoWindow.monaco, getCurrentAppearanceTheme());
         onAppearanceThemeChange((theme) => {
             if (monacoWindow.monaco) {
@@ -115,8 +117,8 @@ export const initMonacoSetup = (context, deps) => {
         // again whenever any later font load finishes (a font-family change
         // in settings, a lazily-loaded face).
         const remeasureFonts = () => { var _a, _b, _c; return (_c = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.remeasureFonts) === null || _c === void 0 ? void 0 : _c.call(_b); };
-        (_b = (_a = document.fonts) === null || _a === void 0 ? void 0 : _a.ready) === null || _b === void 0 ? void 0 : _b.then(() => remeasureFonts()).catch(() => { });
-        (_d = (_c = document.fonts) === null || _c === void 0 ? void 0 : _c.addEventListener) === null || _d === void 0 ? void 0 : _d.call(_c, "loadingdone", () => remeasureFonts());
+        (_c = (_b = document.fonts) === null || _b === void 0 ? void 0 : _b.ready) === null || _c === void 0 ? void 0 : _c.then(() => remeasureFonts()).catch(() => { });
+        (_e = (_d = document.fonts) === null || _d === void 0 ? void 0 : _d.addEventListener) === null || _e === void 0 ? void 0 : _e.call(_d, "loadingdone", () => remeasureFonts());
         const editorOptions = {
             value: "",
             language: "latex",
@@ -151,7 +153,7 @@ export const initMonacoSetup = (context, deps) => {
             selectionHighlight: false,
         };
         const createEditorForGroup = (group, host) => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3;
             const editor = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.create(host, editorOptions);
             const editorAny = editor;
             group.editor = editor;
@@ -242,6 +244,7 @@ export const initMonacoSetup = (context, deps) => {
                 scheduleHoverFixedAnchor();
             });
             editor.onDidChangeModelContent((e) => {
+                var _a;
                 if (group.isApplyingFile)
                     return;
                 if (e.isFlush)
@@ -256,8 +259,10 @@ export const initMonacoSetup = (context, deps) => {
                     deps.editorSession.updateBreadcrumbs();
                     deps.fileTree.render();
                     // Undo and redo change the file too. Autosave never reformats,
-                    // so saving them leaves the undo stack alone.
-                    deps.editorSession.scheduleAutoSave();
+                    // so saving them leaves the undo stack alone. A file shared in a
+                    // collaboration session is written by the session layer instead.
+                    if (!((_a = deps.collab) === null || _a === void 0 ? void 0 : _a.isBound(group.currentFilePath)))
+                        deps.editorSession.scheduleAutoSave();
                 }
             });
             (_g = editor.onDidChangeCursorPosition) === null || _g === void 0 ? void 0 : _g.call(editor, (e) => {
@@ -378,11 +383,33 @@ export const initMonacoSetup = (context, deps) => {
             });
             // 図ブロックのメタデータ行は長いので、エディタ上では短いチップに畳む。
             installFigureMetaChips(editor);
+            // Shared documents undo only this user's edits (Y.UndoManager); the
+            // precondition keeps Monaco's own undo for everything else.
+            if (deps.collab) {
+                const KeyMod = (_w = monacoWindow.monaco) === null || _w === void 0 ? void 0 : _w.KeyMod;
+                const KeyCode = (_x = monacoWindow.monaco) === null || _x === void 0 ? void 0 : _x.KeyCode;
+                const collab = deps.collab;
+                (_z = (_y = editor).addAction) === null || _z === void 0 ? void 0 : _z.call(_y, {
+                    id: "tex64.collab.undo",
+                    label: uiText("Undo", "取り消す"),
+                    keybindings: KeyMod && KeyCode ? [KeyMod.CtrlCmd | KeyCode.KeyZ] : undefined,
+                    precondition: "tex64CollabBound && !editorReadonly",
+                    run: () => { collab.undo(editor); },
+                });
+                (_1 = (_0 = editor).addAction) === null || _1 === void 0 ? void 0 : _1.call(_0, {
+                    id: "tex64.collab.redo",
+                    label: uiText("Redo", "やり直す"),
+                    keybindings: KeyMod && KeyCode ? [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyZ, KeyMod.CtrlCmd | KeyCode.KeyY] : undefined,
+                    precondition: "tex64CollabBound && !editorReadonly",
+                    run: () => { collab.redo(editor); },
+                });
+            }
+            window.dispatchEvent(new CustomEvent("tex64:editor-created", { detail: { group: group.key } }));
             // Spell: "Add to dictionary" for the word under the cursor (context menu
             // / command palette). Done as an editor action because this Monaco build
             // has no editor.registerCommand for code-action commands.
             if (spellChecker) {
-                (_x = (_w = editor).addAction) === null || _x === void 0 ? void 0 : _x.call(_w, {
+                (_3 = (_2 = editor).addAction) === null || _3 === void 0 ? void 0 : _3.call(_2, {
                     id: "tex64.spell.addWordToDictionary",
                     label: uiText("Add word to dictionary", "単語を辞書に追加"),
                     contextMenuGroupId: "9_spell",

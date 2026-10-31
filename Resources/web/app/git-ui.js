@@ -1,6 +1,8 @@
 import { createActionsMenu } from "./actions-menu.js";
 import { getEditorOperationGuard } from "./editor-operation-guard.js";
 import { uiText } from "./i18n.js";
+import { collabSession } from "./collab/session.js";
+import { applyCollabGuestLock } from "./collab/guest-lock.js";
 const gitErrors = {
     STALE_WORKSPACE: "プロジェクトが変わりました。Gitを開き直してください。",
     GIT_BUSY: "進行中の操作を完了してください。",
@@ -72,6 +74,7 @@ export function initGitUi(editor, diff) {
     recovery.hidden = true;
     heading.append(el("h2", "", "Git"), branches, createActionsMenu([merge, shelve, unshelve, tag, pushTag, clone, settings, refreshButton]));
     host.append(heading, error, recovery, list, message, commit, network);
+    collabSession.onChange((state) => applyCollabGuestLock(host, state.active && state.role === "guest"));
     async function call(action, payload = {}) {
         const requestedWorkspace = renderedWorkspaceId;
         const value = await bridge.call(action, payload);

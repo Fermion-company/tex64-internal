@@ -869,6 +869,9 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
       return Promise.resolve(false);
     }
+    if (deps.collab?.isBound(activePath)) {
+      return deps.collab.flush();
+    }
     const editor = activeGroup.editor as { getValue: () => string };
     const content = editor.getValue();
     if (contentConflicts.has(activePath)) {
@@ -917,9 +920,11 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
   };
 
   const saveDirtyFilesOnce = async () => {
-    const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
+    const allDirty = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
+    const boundDirty = allDirty.filter((path) => deps.collab?.isBound(path));
+    const dirtyPaths = allDirty.filter((path) => !deps.collab?.isBound(path));
     if (dirtyPaths.length === 0) {
-      return true;
+      return boundDirty.length ? deps.collab!.flush() : true;
     }
     // A file in an edit conflict waits for the user; the others still save.
     const conflicted = dirtyPaths.filter((path) => contentConflicts.has(path));
@@ -980,6 +985,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       );
       return false;
     }
+    if (boundDirty.length) return deps.collab!.flush();
     return true;
   };
 
@@ -1026,8 +1032,9 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
   };
 
   const scheduleAutoSave = () => {
-    // Check if any group (not just the active one) has dirty files.
-    const hasDirty = dirtyFiles.size > 0;
+    // Check if any group (not just the active one) has dirty files. Files
+    // bound to a collaboration session are written by that session.
+    const hasDirty = Array.from(dirtyFiles).some((path) => !deps.collab?.isBound(path));
     if (!hasDirty) {
       clearAutoSaveTimer();
       return;

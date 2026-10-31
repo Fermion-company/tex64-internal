@@ -271,6 +271,19 @@ const projectBoundary = (root) => {
 const { HistoryController } = require("./services/history-controller.cjs");
 const { WorkspaceOperationCoordinator } = require("./services/workspace-operation.cjs");
 const workspaceOperations = new WorkspaceOperationCoordinator();
+const { CollabHub } = require("./services/collab/hub.cjs");
+const { createCollabHandlers } = require("./handlers/collab.cjs");
+let collabHub = null;
+let collabHandlers = null;
+const sendCollab = (message) => {
+  const webContents = state.mainWindow?.webContents;
+  if (!webContents || webContents.isDestroyed()) return;
+  try {
+    webContents.send("tex64:collab:message", message);
+  } catch (error) {
+    console.warn("[collab] send failed", error?.message || error);
+  }
+};
 const buildService = new BuildService({
   onPdfBuilt: () => {
     if (!app.isPackaged || e2eHeadless) return;
@@ -603,6 +616,7 @@ const installApplicationMenu = () => {
       sendToRenderer("app:command", { command });
     },
     locale: state.uiLocale,
+    collabActive: Boolean(collabHub?.isActive()),
     terminalActive: Boolean(terminalWindow.window?.isFocused()),
     sendTerminalCommand: (command) => {
       const target = terminalWindow.window;
@@ -753,6 +767,12 @@ workspaceFileWatcher = new WorkspaceFileWatcher({
   onChange: (change) => {
     if (historyController?.blocked()) return;
     if (workspace.getRootPath() !== change.root || state.workspaceGeneration !== change.generation) return;
+    // A shared text file merges through its Y.Doc; the renderer receives the
+    // result as a document update, not as an external-change conflict.
+    if (collabHub?.ingestDisk(change.path)) {
+      workspaceHandlers.requestIndex(change.root);
+      return;
+    }
     sendToRenderer("file:externalChange", {
       ...change, workspaceId: state.workspaceId, workspaceGeneration: change.generation,
     });
@@ -882,9 +902,54 @@ gitController = new GitController({
     workspaceHandlers.requestIndex(workspace.getRootPath());
   },
 });
+collabHub = new CollabHub({
+  workspace,
+  state,
+  sendCollab,
+  withWorkspaceMutation: (operation) => workspaceHandlers.withWorkspaceMutation(operation),
+  trackSaved: (relativePath, content) => workspaceFileWatcher?.track(relativePath, content),
+  openWorkspacePath: (rootPath) => workspaceHandlers.handleOpenRecentProject(rootPath),
+  refreshTree: () => {
+    const rootPath = workspace.getRootPath();
+    if (rootPath) void workspaceHandlers.updateWorkspaceIfNeeded(rootPath, true);
+  },
+  // A version in the local History at session start / end and on every join /
+  // leave. Only when the lease is free; otherwise the hub skips it silently.
+  recordVersion: async (label) => {
+    const identity = { workspaceId: state.workspaceId, workspaceGeneration: state.workspaceGeneration };
+    if (!workspace.getRootPath() || !identity.workspaceId) return;
+    const { token } = await historyController.request("begin", { ...identity, purpose: "record" });
+    try {
+      await historyController.request("record", { ...identity, token, label });
+    } finally {
+      await historyController.request("release", { ...identity, token }).catch(() => {});
+    }
+  },
+  locale: () => state.uiLocale || "en",
+  userName: () => {
+    try {
+      return require("os").userInfo().username || "user";
+    } catch {
+      return "user";
+    }
+  },
+  collabRoot: () => process.env.TEX64_COLLAB_ROOT || path.join(app.getPath("home"), "TeX64 Collab"),
+});
+// E2E drivers (TEX64_E2E_USERDATA) reach the hub to simulate network loss.
+if (process.env.TEX64_E2E_USERDATA) global.__tex64CollabHub = collabHub;
+collabHub.on("state", () => installApplicationMenu());
+collabHandlers = createCollabHandlers({ ipcMain, hub: collabHub, state, workspace, sendCollab, getLocale: () => state.uiLocale || "en" });
+// Guests edit through the shared documents only. Git, History restores and
+// Axiom run on the host; a guest asking gets one line back.
+const COLLAB_GUEST_READ_ONLY = {
+  history: new Set(["status", "list", "inspect", "diff", "compare"]),
+  git: new Set(["status", "diff", "ahead-behind", "shelves", "recovery-files", "read-conflict"]),
+};
+const collabGuestRefusal = () => ({ ok: false, code: "COLLAB_GUEST", error: collabHandlers.guestError() });
 const gitCloneDestinations = new Map();
 ipcMain.handle("tex64:git", async (event, action, request) => {
   if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid Git owner." };
+  if (collabHub.isGuest() && !COLLAB_GUEST_READ_ONLY.git.has(action)) return collabGuestRefusal();
   try {
     if (typeof action !== "string" || !request || typeof request !== "object" || JSON.stringify(request).length > 16 * 1024 * 1024) throw new Error("Invalid Git request.");
     if (action === "choose-clone-destination") {
@@ -926,6 +991,7 @@ ipcMain.handle("tex64:snippets", async (event, action, request = {}) => {
 
 ipcMain.handle("tex64:history", async (event, action, request) => {
   if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid history owner." };
+  if (collabHub.isGuest() && !COLLAB_GUEST_READ_ONLY.history.has(action)) return collabGuestRefusal();
   try {
     if (!request || typeof request !== "object" || JSON.stringify(request).length > 16 * 1024 * 1024) throw new Error("History request is too large.");
     const result = await historyController.request(action, request);
@@ -934,6 +1000,7 @@ ipcMain.handle("tex64:history", async (event, action, request) => {
 });
 
 workspaceChangeCoordinator.beforeChange = async (change = {}) => {
+  if (collabHub.session && collabHub.session.phase !== "opening") await collabHub.leave();
   await quiesceWorkspaceActivity();
   if (
     typeof change.fromRootPath === "string" &&
@@ -1170,12 +1237,14 @@ if (!hasSingleInstanceLock) {
         ? argv.filter(
             (arg) =>
               looksLikeOAuthCallbackUrl(arg) ||
-              Boolean(parseBillingCompletionDeepLink(arg)),
+              Boolean(parseBillingCompletionDeepLink(arg)) ||
+              /^tex64:\/\/collab\//i.test(String(arg)),
           )
         : [];
       if (protocolArgs.length > 0) {
         focusMainWindow();
         protocolArgs.forEach((arg) => {
+          if (collabHandlers?.handleInviteUrl(arg)) return;
           if (!queueBillingCompletionDeepLink(arg)) {
             queueOAuthCallbackUrl(arg);
           }
@@ -1193,6 +1262,7 @@ if (!hasSingleInstanceLock) {
 app.on("open-url", (event, url) => {
   event.preventDefault();
   focusMainWindow();
+  if (collabHandlers?.handleInviteUrl(url)) return;
   if (!queueBillingCompletionDeepLink(url)) {
     queueOAuthCallbackUrl(url);
   }
@@ -1289,6 +1359,7 @@ app.whenReady().then(() => {
     }
   }
   process.argv.forEach((arg) => {
+    if (collabHandlers?.handleInviteUrl(arg)) return;
     if (!queueBillingCompletionDeepLink(arg)) {
       queueOAuthCallbackUrl(arg);
     }
@@ -1426,6 +1497,7 @@ const acceptRendererQuitPreparation = (event, message) => {
 
 const shutdownQuitServices = () => {
   const steps = [
+    ["collab", () => collabHub?.session && collabHub.teardown(collabHub.session)],
     ["agent", () => agentService.abort()],
     ["build", () => buildHandlers.cancelAllBuilds()],
     ["terminal", () => terminalService?.killAll()],
@@ -2073,6 +2145,7 @@ const handleRendererMessage = (event, message) => {
     return;
   }
   if (type === "ready") {
+    collabHandlers?.flushPendingInvites();
     const rootPath = workspace.getRootPath();
     if (!rootPath) {
       return;
@@ -2471,6 +2544,11 @@ const handleRendererMessage = (event, message) => {
     const turn = validateAiModeTurn(message);
     const accepted = turn.ok && require("./services/openprism/steering.cjs").acceptSteering(agentService, message.conversationId, message);
     sendToRenderer("agent:steerResult", { requestId: message.requestId, conversationId: message.conversationId, accepted });
+    return;
+  }
+  if (type === "agent:run" && collabHub.isGuest()) {
+    sendToRenderer("agent:error", { conversationId: message.conversationId, message: collabHandlers.guestError() });
+    agentService.sendStatus("error", collabHandlers.guestError(), message.conversationId);
     return;
   }
   if (type === "agent:run") {

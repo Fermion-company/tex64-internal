@@ -649,6 +649,7 @@ export const createEditorSessionFileOps = (ctx) => {
         return ok;
     };
     const saveCurrentFileInternal = () => {
+        var _a;
         const activeGroup = getActiveGroup();
         const activePath = activeGroup.currentFilePath;
         if (!activePath || !activeGroup.editor || !isEditableTextFilePath(activePath)) {
@@ -657,6 +658,9 @@ export const createEditorSessionFileOps = (ctx) => {
                 : "No files have been selected to save.";
             deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
             return Promise.resolve(false);
+        }
+        if ((_a = deps.collab) === null || _a === void 0 ? void 0 : _a.isBound(activePath)) {
+            return deps.collab.flush();
         }
         const editor = activeGroup.editor;
         const content = editor.getValue();
@@ -698,9 +702,11 @@ export const createEditorSessionFileOps = (ctx) => {
         return saveDirtyAgain;
     };
     const saveDirtyFilesOnce = async () => {
-        const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
+        const allDirty = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
+        const boundDirty = allDirty.filter((path) => { var _a; return (_a = deps.collab) === null || _a === void 0 ? void 0 : _a.isBound(path); });
+        const dirtyPaths = allDirty.filter((path) => { var _a; return !((_a = deps.collab) === null || _a === void 0 ? void 0 : _a.isBound(path)); });
         if (dirtyPaths.length === 0) {
-            return true;
+            return boundDirty.length ? deps.collab.flush() : true;
         }
         // A file in an edit conflict waits for the user; the others still save.
         const conflicted = dirtyPaths.filter((path) => contentConflicts.has(path));
@@ -757,6 +763,8 @@ export const createEditorSessionFileOps = (ctx) => {
             reportSaveError(uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。"));
             return false;
         }
+        if (boundDirty.length)
+            return deps.collab.flush();
         return true;
     };
     const getSaveStatus = () => {
@@ -801,8 +809,9 @@ export const createEditorSessionFileOps = (ctx) => {
         state.autoSavePending = false;
     };
     const scheduleAutoSave = () => {
-        // Check if any group (not just the active one) has dirty files.
-        const hasDirty = dirtyFiles.size > 0;
+        // Check if any group (not just the active one) has dirty files. Files
+        // bound to a collaboration session are written by that session.
+        const hasDirty = Array.from(dirtyFiles).some((path) => { var _a; return !((_a = deps.collab) === null || _a === void 0 ? void 0 : _a.isBound(path)); });
         if (!hasDirty) {
             clearAutoSaveTimer();
             return;

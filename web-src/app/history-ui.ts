@@ -4,6 +4,8 @@ import { getEditorOperationGuard } from "./editor-operation-guard.js";
 import { uiText } from "./i18n.js";
 import type { DiffModalApi } from "./diff-modal.js";
 import type { EditorSessionApi } from "./editor-session.js";
+import { collabSession } from "./collab/session.js";
+import { applyCollabGuestLock } from "./collab/guest-lock.js";
 
 type Version = { id: string; kind: string; label: string; labelRevision: number; createdAt: string; preRestore?: string; restoredFrom?: string; summary: { added: number; changed: number; deleted: number } };
 type Change = { path: string; kind: string; originalSize?: number; modifiedSize?: number };
@@ -110,6 +112,7 @@ export const initHistoryUi = (editor: EditorSessionApi, diff: DiffModalApi) => {
     phase = "idle"; freeze(false); await refresh();
   })); recovery.hidden = true;
   host.append(heading, name, renameSave, error, recovery, list, pinned, selection);
+  collabSession.onChange((state) => applyCollabGuestLock(host, state.active && state.role === "guest"));
 
   const call = async (action: string, payload: Record<string, unknown> = {}) => {
     const result = await bridge.call(action, payload);

@@ -34,7 +34,8 @@
     "mathlive:clean": "node scripts/clean-mathlive-fork.cjs",
     "mathlive:build": "node scripts/build-mathlive-fork.cjs",
     "mathlive:rebuild": "npm run -s mathlive:clean && npm run -s mathlive:build",
-    "web:build": "npm run -s math:check && npm run -s mathlive:build && tsc -p web-src/tsconfig.json",
+    "collab:vendor": "node scripts/build-collab-vendor.cjs",
+    "web:build": "npm run -s math:check && npm run -s mathlive:build && npm run -s collab:vendor && tsc -p web-src/tsconfig.json",
     "web:watch": "tsc -p web-src/tsconfig.json -w",
     "release:artifact-hash": "node scripts/release-artifact-hash.cjs",
     "release:checksums": "node scripts/release-checksums.cjs",
@@ -248,7 +249,8 @@
     "electron": "^42.2.0",
     "electron-builder": "^26.8.1",
     "playwright": "^1.60.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "y-monaco": "^0.1.6"
   },
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
@@ -265,6 +267,7 @@
     "js-tiktoken": "1.0.21",
     "katex": "^0.17.0",
     "langchain": "^1.4.2",
+    "lib0": "^0.2.119",
     "marked": "^18.0.4",
     "nspell": "^2.1.5",
     "onnxruntime-node": "1.23.2",
@@ -274,6 +277,9 @@
     "tr46": "^6.0.0",
     "webidl-conversions": "^8.0.1",
     "whatwg-url": "^16.0.1",
+    "ws": "^8.22.0",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.33",
     "zod": "^4.4.3"
   },
   "overrides": {

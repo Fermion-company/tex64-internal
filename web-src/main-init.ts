@@ -1,6 +1,9 @@
 import { openSnippets } from "./app/snippets-ui.js";
 import { initGitUi } from "./app/git-ui.js";
 import { initHistoryUi } from "./app/history-ui.js";
+import { collabSession } from "./app/collab/session.js";
+import { initCollabBinding, type CollabBindingApi } from "./app/collab/binding.js";
+import { initCollabUi } from "./app/collab/ui.js";
 import { getDomRefs } from "./app/dom.js";
 import { createAppActions } from "./app/actions.js";
 import { initEditorSettingsControls } from "./app/editor-settings/editor-settings-controls.js";
@@ -127,6 +130,13 @@ export const initMain = () => {
   let triggerBlockInsert = () => {};
   let resetBlockSession = (_options?: { applyMode?: "detected" | "new" }) => {};
   let editorSession: ReturnType<typeof initEditorSession>;
+  let collabBinding: CollabBindingApi | null = null;
+  let collabUi: ReturnType<typeof initCollabUi> | null = null;
+  // Shared text files are saved by the collaboration session, not by autosave.
+  const collabFileBridge = {
+    isBound: (path: string | null | undefined) => Boolean(collabBinding?.isBound(path)),
+    flush: () => collabSession.flush(),
+  };
   let editorTabsUi: ReturnType<typeof initEditorTabsUi>;
   let buildOps: ReturnType<typeof initBuildOpsUi>;
 
@@ -513,7 +523,10 @@ export const initMain = () => {
     },
     getMonacoApi: appActions.getMonacoApi,
     onLivePreviewSourceChanged: () => refreshCodeLivePreview(),
+    collab: collabFileBridge,
   });
+  collabBinding = initCollabBinding({ editorSession, getMonacoApi: appActions.getMonacoApi });
+  collabUi = initCollabUi();
   const reportInvalidLivePreviewPath = () => {
     const message = uiText(
       "The PDF edit is outside this workspace.",
@@ -1309,6 +1322,27 @@ export const initMain = () => {
         if (command === "settings:open") {
           setActiveTab("settings");
         }
+        if (command === "collab:open") {
+          void collabUi?.openDialog();
+          return;
+        }
+        if (command === "edit:undo" || command === "edit:redo") {
+          // The menu sends these only during a session (app-menu.cjs): a bound
+          // Monaco model undoes its own edits through the shared undo manager;
+          // anything else keeps the native behaviour.
+          const active = document.activeElement as HTMLElement | null;
+          const editorGroup = editorSession.getEditorGroups().find((group) => {
+            const node = (group.editor as { getDomNode?: () => HTMLElement | null } | null)?.getDomNode?.();
+            return Boolean(node && active && node.contains(active));
+          });
+          if (editorGroup?.editor) {
+            const handled = command === "edit:undo" ? collabBinding?.undo(editorGroup.editor) : collabBinding?.redo(editorGroup.editor);
+            if (!handled) (editorGroup.editor as { trigger?: (source: string, handlerId: string, payload?: unknown) => void }).trigger?.("menu", command === "edit:undo" ? "undo" : "redo", null);
+            return;
+          }
+          document.execCommand(command === "edit:undo" ? "undo" : "redo");
+          return;
+        }
       },
     },
     billing: {
@@ -1467,6 +1501,17 @@ export const initMain = () => {
       }
     },
     getEditorWordWrapEnabled: () => settingsUi.getEditorWordWrapEnabled(),
+    collab: {
+      isBound: (path) => collabFileBridge.isBound(path),
+      undo: (editor) => Boolean(collabBinding?.undo(editor)),
+      redo: (editor) => Boolean(collabBinding?.redo(editor)),
+      comments: {
+        sessionDoc: () => collabBinding?.sessionDoc() ?? null,
+        sessionText: (path) => collabBinding?.sessionText(path) ?? null,
+        getVendor: () => collabBinding?.getVendor() ?? null,
+        onSessionDoc: (listener) => collabBinding?.onSessionDoc(listener) ?? (() => {}),
+      },
+    },
     requestFilePreview: (path) => filePreviewBroker.requestPreview(path),
     requestFileExcerpt: (path, line, options) =>
       fileExcerptBroker.requestExcerpt(path, line, options),
