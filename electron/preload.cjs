@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 let historyIdentity = {};
 let historyToken = null;
@@ -342,6 +342,21 @@ contextBridge.exposeInMainWorld("tex64History", {
   onChange: (handler) => {
     const listener = (_event, message) => {
       if (["updateWorkspace", "history:state", "git:state", "workspace:operation"].includes(message?.type)) handler(message);
+    };
+    ipcRenderer.on("tex64:message", listener);
+    return () => ipcRenderer.removeListener("tex64:message", listener);
+  },
+});
+
+contextBridge.exposeInMainWorld("tex64Prism", {
+  call: (action, payload = {}) => ipcRenderer.invoke("tex64:prism", action, payload),
+  // A dropped File's path on disk; Electron exposes it only here.
+  pathForFile: (file) => {
+    try { return webUtils.getPathForFile(file); } catch { return ""; }
+  },
+  onChange: (handler) => {
+    const listener = (_event, message) => {
+      if (message?.type === "prism:progress") handler(message.payload);
     };
     ipcRenderer.on("tex64:message", listener);
     return () => ipcRenderer.removeListener("tex64:message", listener);

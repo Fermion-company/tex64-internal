@@ -3,16 +3,23 @@ import type { SettingsUiRuntime } from "./runtime.js";
 export type SettingsEngineOps = {
   updateEngineUI: () => void;
   setCompileEngine: (engine: string) => void;
+  setProfileEngine: (engine: string | null) => void;
 };
 
 export const createSettingsEngineOps = (runtime: SettingsUiRuntime): SettingsEngineOps => {
   const { settingsCompileEngineSelect } = runtime.context.dom;
 
+  // When the workspace's active build profile pins an engine, that engine is
+  // what Build runs; the select shows it and stays locked until the profile
+  // changes.
+  let profileEngine: string | null = null;
+
   const updateEngineUI = () => {
     if (!(settingsCompileEngineSelect instanceof HTMLSelectElement)) {
       return;
     }
-    const savedEngine = localStorage.getItem(runtime.keys.compileEngineKey) || "lualatex";
+    settingsCompileEngineSelect.disabled = Boolean(profileEngine);
+    const savedEngine = profileEngine || localStorage.getItem(runtime.keys.compileEngineKey) || "lualatex";
     const hasOption = Array.from(settingsCompileEngineSelect.options).some(
       (option) => option.value === savedEngine
     );
@@ -35,6 +42,13 @@ export const createSettingsEngineOps = (runtime: SettingsUiRuntime): SettingsEng
     });
   }
 
-  return { updateEngineUI, setCompileEngine };
+  const setProfileEngine = (engine: string | null) => {
+    const next = engine && runtime.config.texEngineCommands.has(engine) ? engine : null;
+    if (next === profileEngine) return;
+    profileEngine = next;
+    updateEngineUI();
+  };
+
+  return { updateEngineUI, setCompileEngine, setProfileEngine };
 };
 

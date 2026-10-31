@@ -1,0 +1,10 @@
+{
+  "title": "差分法レポートの構成",
+  "created_at": "2026-10-12T09:14:03Z",
+  "messages": [
+    {"role": "user", "created_at": "2026-10-12T09:14:03Z", "content": "熱伝導方程式の差分解法のレポートを書きたい。構成を提案して。"},
+    {"role": "assistant", "created_at": "2026-10-12T09:14:20Z", "content": [{"type": "text", "text": "目的・理論・方法・結果と考察・結論の5節がよいでしょう。理論では陽的スキームと安定条件 r ≤ 1/2 を式番号付きで示し、結果でその条件を破った場合の振る舞いに触れると筋が通ります。"}]},
+    {"role": "user", "created_at": "2026-10-12T09:20:41Z", "content": "ltjsarticle で日本語を組みたい。パッケージは？"},
+    {"role": "assistant", "created_at": "2026-10-12T09:20:55Z", "content": "LuaLaTeX で \\documentclass{ltjsarticle} と \\usepackage{luatexja-fontspec} を使えば十分です。数式は amsmath、箇条書きのラベルは enumitem で調整できます。"}
+  ]
+}

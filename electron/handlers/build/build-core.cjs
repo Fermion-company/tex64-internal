@@ -1,5 +1,7 @@
 const path = require("path");
 
+const PROFILE_ENGINES = new Set(["pdflatex", "lualatex", "xelatex", "uplatex"]);
+
 const createBuildCoreHandlers = (deps, resolvers) => {
   const {
     fs,
@@ -162,7 +164,9 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       typeof selected.outDir === "string" && selected.outDir.trim() ? selected.outDir.trim() : null;
     const extraArgs =
       typeof selected.extraArgs === "string" && selected.extraArgs.trim() ? selected.extraArgs.trim() : null;
-    return { outDir, extraArgs };
+    const engine =
+      typeof selected.engine === "string" && PROFILE_ENGINES.has(selected.engine.trim()) ? selected.engine.trim() : null;
+    return { outDir, extraArgs, engine };
   };
 
   const normalizeBuildProfile = (value) => {
@@ -300,6 +304,8 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       eventContext = { ...buildEventContext(options, targetFile), workspaceRoot: rootPath };
       const buildProfile = await resolveBuildProfile().catch(() => null);
       if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
+      // A profile that pins an engine wins over the app-wide engine setting.
+      if (buildProfile?.engine) options = { ...options, engine: buildProfile.engine };
       const outputProfile = buildService.resolveBuildOutputProfile(rootPath, targetFile, buildProfile);
       const expectedPdfPath = outputProfile.invalidDirectoryArgument ||
         (outputProfile.outDirRequested && !outputProfile.outDir)

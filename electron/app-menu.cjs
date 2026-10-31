@@ -4,13 +4,13 @@
 // the "uiLocale" message). `role:` items are localized by Electron itself from
 // the OS locale — that part cannot follow the in-app setting.
 const MENU_LABELS = {
-  en: { settings: "Settings…", file: "File", newFile: "New File", newProject: "New Project…", openFolder: "Open Folder…", save: "Save" },
-  ja: { settings: "設定…", file: "ファイル", newFile: "新規ファイル", newProject: "新規プロジェクト…", openFolder: "フォルダを開く…", save: "保存" },
-  zh: { settings: "设置…", file: "文件", newFile: "新建文件", newProject: "新建项目…", openFolder: "打开文件夹…", save: "保存" },
-  ko: { settings: "설정…", file: "파일", newFile: "새 파일", newProject: "새 프로젝트…", openFolder: "폴더 열기…", save: "저장" },
-  fr: { settings: "Réglages…", file: "Fichier", newFile: "Nouveau fichier", newProject: "Nouveau projet…", openFolder: "Ouvrir un dossier…", save: "Enregistrer" },
-  de: { settings: "Einstellungen…", file: "Datei", newFile: "Neue Datei", newProject: "Neues Projekt…", openFolder: "Ordner öffnen…", save: "Sichern" },
-  es: { settings: "Ajustes…", file: "Archivo", newFile: "Nuevo archivo", newProject: "Nuevo proyecto…", openFolder: "Abrir carpeta…", save: "Guardar" },
+  en: { settings: "Settings…", file: "File", newFile: "New File", newProject: "New Project…", openFolder: "Open Folder…", save: "Save", importPrism: "Import from Prism…" },
+  ja: { settings: "設定…", file: "ファイル", newFile: "新規ファイル", newProject: "新規プロジェクト…", openFolder: "フォルダを開く…", save: "保存", importPrism: "Prism から読み込む…" },
+  zh: { settings: "设置…", file: "文件", newFile: "新建文件", newProject: "新建项目…", openFolder: "打开文件夹…", save: "保存", importPrism: "从 Prism 导入…" },
+  ko: { settings: "설정…", file: "파일", newFile: "새 파일", newProject: "새 프로젝트…", openFolder: "폴더 열기…", save: "저장", importPrism: "Prism에서 가져오기…" },
+  fr: { settings: "Réglages…", file: "Fichier", newFile: "Nouveau fichier", newProject: "Nouveau projet…", openFolder: "Ouvrir un dossier…", save: "Enregistrer", importPrism: "Importer depuis Prism…" },
+  de: { settings: "Einstellungen…", file: "Datei", newFile: "Neue Datei", newProject: "Neues Projekt…", openFolder: "Ordner öffnen…", save: "Sichern", importPrism: "Aus Prism importieren…" },
+  es: { settings: "Ajustes…", file: "Archivo", newFile: "Nuevo archivo", newProject: "Nuevo proyecto…", openFolder: "Abrir carpeta…", save: "Guardar", importPrism: "Importar desde Prism…" },
 };
 
 const createApplicationMenuTemplate = ({
@@ -57,6 +57,7 @@ const createApplicationMenuTemplate = ({
         { type: "separator" },
         commandItem(labels.newProject, "project:new", "CmdOrCtrl+Shift+N"),
         commandItem(labels.openFolder, "project:open", "CmdOrCtrl+O"),
+        commandItem(labels.importPrism, "prism:import"),
         { type: "separator" },
         commandItem(labels.save, "file:save", "CmdOrCtrl+S"),
         { type: "separator" },

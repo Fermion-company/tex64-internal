@@ -134,6 +134,7 @@ export const getDomRefs = () => ({
     settingsBuildProfileName: document.getElementById("settings-build-profile-name"),
     settingsBuildOutDir: document.getElementById("settings-build-outdir"),
     settingsBuildExtraArgs: document.getElementById("settings-build-extra-args"),
+    settingsBuildEngine: document.getElementById("settings-build-engine"),
     settingsBuildProfileAdd: document.getElementById("settings-build-profile-add"),
     settingsBuildProfileDelete: document.getElementById("settings-build-profile-delete"),
     settingsBuildProfileHint: document.getElementById("settings-build-profile-hint"),

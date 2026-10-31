@@ -1,6 +1,6 @@
 # testing/
 
-テスト用の文書・ドライバ・計測記録はすべてここに置く。git で追跡するのは `README.md`、`test-workspace/`、`test-sample-hover/`、`evidence/` だけ。
+テスト用の文書・ドライバ・計測記録はすべてここに置く。git で追跡するのは `README.md`、`test-workspace/`、`test-sample-hover/`、`evidence/`、`prism-import-20261031/`（Prism 読み込みの合成 zip）だけ。
 
 ## 規則
 
@@ -22,6 +22,7 @@
 
 | フォルダ | 内容 |
 | --- | --- |
+| `prism-import-20261031/` | Prism の「Export all projects」zip を読み込む経路の確認。合成 zip（pdflatex+bibtex の英語論文、lualatex の日本語レポート + 会話ログ）、純関数の確認内容、ダイアログの画面 |
 | `demo-videos-20260927/` | 大・小・装飾の 3 文書の打鍵デモ動画と、プレビュー反映の計測（tex64-internal #102〜#104）。アプリ実機ドライバ `record.mjs`（動画は `VIDEO=1` のときだけ）、集計 `analyze.py` |
 | `large-typing-20260924/` | 大規模文書の打鍵反映（tex64-internal #61・#81〜#97）。API ドライバ `large-typing.mjs`、アプリ実機ドライバ `app-*.mjs` |
 | `kk-packages-20260925/` | lua-ul・KKluaverb・KKsymbols の確認（#97） |

@@ -72,6 +72,8 @@ export type BuildProfile = {
   name: string;
   outDir?: string | null;
   extraArgs?: string | null;
+  // Engine this profile builds with; empty means the app-wide engine setting.
+  engine?: string | null;
 };
 
 export type AgentStatusState =
