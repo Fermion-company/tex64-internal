@@ -18,7 +18,8 @@ const localHostAddress = () => {
     for (const entry of entries || []) {
       if (entry.internal || entry.family !== "IPv4") continue;
       // Prefer ordinary interfaces over container / VPN bridges.
-      const weight = /^(en|eth|wlan|wi)/i.test(name) ? 0 : /^(utun|tailscale|tun|wg)/i.test(name) ? 1 : 2;
+      const privateLan = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(entry.address);
+      const weight = (privateLan ? 0 : 2) + (/^(en|eth|wlan|wi)/i.test(name) ? 0 : 1);
       candidates.push({ weight, address: entry.address });
     }
   }

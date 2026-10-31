@@ -1,6 +1,9 @@
 import { openSnippets } from "./app/snippets-ui.js";
 import { initGitUi } from "./app/git-ui.js";
 import { initHistoryUi } from "./app/history-ui.js";
+import { collabSession } from "./app/collab/session.js";
+import { initCollabBinding } from "./app/collab/binding.js";
+import { initCollabUi } from "./app/collab/ui.js";
 import { getDomRefs } from "./app/dom.js";
 import { createAppActions } from "./app/actions.js";
 import { initEditorSettingsControls } from "./app/editor-settings/editor-settings-controls.js";
@@ -94,6 +97,13 @@ export const initMain = () => {
         let triggerBlockInsert = () => { };
         let resetBlockSession = (_options) => { };
         let editorSession;
+        let collabBinding = null;
+        let collabUi = null;
+        // Shared text files are saved by the collaboration session, not by autosave.
+        const collabFileBridge = {
+            isBound: (path) => Boolean(collabBinding === null || collabBinding === void 0 ? void 0 : collabBinding.isBound(path)),
+            flush: () => collabSession.flush(),
+        };
         let editorTabsUi;
         let buildOps;
         let outlineUi;
@@ -446,7 +456,10 @@ export const initMain = () => {
             },
             getMonacoApi: appActions.getMonacoApi,
             onLivePreviewSourceChanged: () => refreshCodeLivePreview(),
+            collab: collabFileBridge,
         });
+        collabBinding = initCollabBinding({ editorSession, getMonacoApi: appActions.getMonacoApi });
+        collabUi = initCollabUi();
         const reportInvalidLivePreviewPath = () => {
             const message = uiText("The PDF edit is outside this workspace.", "PDF編集対象がワークスペース外です。");
             updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
@@ -1154,7 +1167,7 @@ export const initMain = () => {
             handleRecentProjects: (projects) => launcherUi.updateRecentProjects(projects),
             app: {
                 handleCommand: (command) => {
-                    var _a, _b, _c;
+                    var _a, _b, _c, _d, _e;
                     if (command === "snippets:open") {
                         openSnippets();
                         return;
@@ -1194,6 +1207,29 @@ export const initMain = () => {
                     }
                     if (command === "settings:open") {
                         setActiveTab("settings");
+                    }
+                    if (command === "collab:open") {
+                        void (collabUi === null || collabUi === void 0 ? void 0 : collabUi.openDialog());
+                        return;
+                    }
+                    if (command === "edit:undo" || command === "edit:redo") {
+                        // The menu sends these only during a session (app-menu.cjs): a bound
+                        // Monaco model undoes its own edits through the shared undo manager;
+                        // anything else keeps the native behaviour.
+                        const active = document.activeElement;
+                        const editorGroup = editorSession.getEditorGroups().find((group) => {
+                            var _a, _b;
+                            const node = (_b = (_a = group.editor) === null || _a === void 0 ? void 0 : _a.getDomNode) === null || _b === void 0 ? void 0 : _b.call(_a);
+                            return Boolean(node && active && node.contains(active));
+                        });
+                        if (editorGroup === null || editorGroup === void 0 ? void 0 : editorGroup.editor) {
+                            const handled = command === "edit:undo" ? collabBinding === null || collabBinding === void 0 ? void 0 : collabBinding.undo(editorGroup.editor) : collabBinding === null || collabBinding === void 0 ? void 0 : collabBinding.redo(editorGroup.editor);
+                            if (!handled)
+                                (_e = (_d = editorGroup.editor).trigger) === null || _e === void 0 ? void 0 : _e.call(_d, "menu", command === "edit:undo" ? "undo" : "redo", null);
+                            return;
+                        }
+                        document.execCommand(command === "edit:undo" ? "undo" : "redo");
+                        return;
                     }
                 },
             },
@@ -1346,6 +1382,17 @@ export const initMain = () => {
                 }
             },
             getEditorWordWrapEnabled: () => settingsUi.getEditorWordWrapEnabled(),
+            collab: {
+                isBound: (path) => collabFileBridge.isBound(path),
+                undo: (editor) => Boolean(collabBinding === null || collabBinding === void 0 ? void 0 : collabBinding.undo(editor)),
+                redo: (editor) => Boolean(collabBinding === null || collabBinding === void 0 ? void 0 : collabBinding.redo(editor)),
+                comments: {
+                    sessionDoc: () => { var _a; return (_a = collabBinding === null || collabBinding === void 0 ? void 0 : collabBinding.sessionDoc()) !== null && _a !== void 0 ? _a : null; },
+                    sessionText: (path) => { var _a; return (_a = collabBinding === null || collabBinding === void 0 ? void 0 : collabBinding.sessionText(path)) !== null && _a !== void 0 ? _a : null; },
+                    getVendor: () => { var _a; return (_a = collabBinding === null || collabBinding === void 0 ? void 0 : collabBinding.getVendor()) !== null && _a !== void 0 ? _a : null; },
+                    onSessionDoc: (listener) => { var _a; return (_a = collabBinding === null || collabBinding === void 0 ? void 0 : collabBinding.onSessionDoc(listener)) !== null && _a !== void 0 ? _a : (() => { }); },
+                },
+            },
             requestFilePreview: (path) => filePreviewBroker.requestPreview(path),
             requestFileExcerpt: (path, line, options) => fileExcerptBroker.requestExcerpt(path, line, options),
         });

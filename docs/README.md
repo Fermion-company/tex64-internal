@@ -15,6 +15,7 @@
 | [agents-api-trial.md](agents-api-trial.md) | Agents API の開発接続 |
 | [codex-dev.md](codex-dev.md) | Codex バックエンド（開発者向けの互換経路） |
 | [axiom-improvement-proposals.md](axiom-improvement-proposals.md) | Axiom の改善案（未実装分） |
+| [collab.md](collab.md) | 共同編集（ローカルファースト、ホスト方式の Yjs 合流） |
 | [branching.md](branching.md) | Git 運用 |
 
 `archive/` は日付つきの受け入れ記録・引き継ぎ・状況報告。書き換えない。
