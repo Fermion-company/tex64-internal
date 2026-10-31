@@ -1,4 +1,5 @@
 import { uiText } from "./i18n.js";
+import { collabSession } from "./collab/session.js";
 const STORAGE_PREFIX = "tex64.codeComments.v1:";
 const MAX_COMMENT_CHARS = 4000;
 const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
@@ -24,9 +25,21 @@ const sanitizeStoredRange = (value) => {
         endColumn: Math.max(1, Math.floor(endColumn)),
     };
 };
-const sanitizeComment = (value) => {
+const sanitizeReply = (value) => {
     const entry = value;
-    const range = sanitizeStoredRange(entry);
+    const text = entry && typeof entry.text === "string" ? normalizeCommentText(entry.text) : "";
+    if (!text)
+        return null;
+    return {
+        author: typeof (entry === null || entry === void 0 ? void 0 : entry.author) === "string" ? entry.author.slice(0, 80) : "",
+        text: text.slice(0, MAX_COMMENT_CHARS),
+        createdAt: isFiniteNumber(entry === null || entry === void 0 ? void 0 : entry.createdAt) ? entry.createdAt : Date.now(),
+    };
+};
+const sanitizeComment = (value) => {
+    var _a;
+    const entry = value;
+    const range = sanitizeStoredRange((_a = entry === null || entry === void 0 ? void 0 : entry.range) !== null && _a !== void 0 ? _a : entry);
     if (!entry || !range || typeof entry.id !== "string" || typeof entry.filePath !== "string") {
         return null;
     }
@@ -39,10 +52,30 @@ const sanitizeComment = (value) => {
         id: entry.id,
         filePath: entry.filePath,
         text: text.slice(0, MAX_COMMENT_CHARS),
+        author: typeof entry.author === "string" ? entry.author.slice(0, 80) : "",
         createdAt: isFiniteNumber(entry.createdAt) ? entry.createdAt : Date.now(),
         updatedAt: isFiniteNumber(entry.updatedAt) ? entry.updatedAt : Date.now(),
+        resolved: entry.resolved === true,
+        replies: Array.isArray(entry.replies) ? entry.replies.map(sanitizeReply).filter((reply) => Boolean(reply)) : [],
     };
 };
+// The JSON file keeps the range as one object.
+const toStoredComment = (comment) => ({
+    id: comment.id,
+    filePath: comment.filePath,
+    range: {
+        startLineNumber: comment.startLineNumber,
+        startColumn: comment.startColumn,
+        endLineNumber: comment.endLineNumber,
+        endColumn: comment.endColumn,
+    },
+    text: comment.text,
+    author: comment.author,
+    createdAt: comment.createdAt,
+    updatedAt: comment.updatedAt,
+    resolved: comment.resolved,
+    replies: comment.replies,
+});
 const escapeMarkdownText = (text) => text
     .replace(/\\/g, "\\\\")
     .replace(/([`*_{}\[\]()#+\-.!|>])/g, "\\$1")
@@ -109,9 +142,15 @@ const getSelectionRange = (editor, model) => {
         endColumn,
     };
 };
-const createHoverMessage = (comment) => ({
-    value: `${uiText("**Comment**", "**コメント**")}\n\n${escapeMarkdownText(comment.text)}`,
-});
+const createHoverMessage = (comment) => {
+    const heading = comment.resolved ? uiText("**Comment** · resolved", "**コメント** · 解決済み") : uiText("**Comment**", "**コメント**");
+    const author = comment.author ? ` — ${escapeMarkdownText(comment.author)}` : "";
+    const lines = [`${heading}${author}`, "", escapeMarkdownText(comment.text)];
+    for (const reply of comment.replies) {
+        lines.push("", `↳ ${reply.author ? `**${escapeMarkdownText(reply.author)}** ` : ""}${escapeMarkdownText(reply.text)}`);
+    }
+    return { value: lines.join("\n") };
+};
 const createCodeCommentDialog = (options) => new Promise((resolve) => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const modal = document.createElement("div");
@@ -199,43 +238,245 @@ const createCodeCommentDialog = (options) => new Promise((resolve) => {
     });
 });
 export const createCodeCommentManager = (monaco, deps) => {
-    let loadedStorageKey = null;
+    var _a;
+    let loadedRoot = null;
     let cachedComments = [];
+    let loadGeneration = 0;
+    let saveTimer = null;
     const groupStates = new Map();
-    const getStorageKey = () => { var _a; return `${STORAGE_PREFIX}${(_a = deps.getWorkspaceRoot()) !== null && _a !== void 0 ? _a : "global"}`; };
-    const loadComments = () => {
+    const legacyStorageKey = () => { var _a; return `${STORAGE_PREFIX}${(_a = deps.getWorkspaceRoot()) !== null && _a !== void 0 ? _a : "global"}`; };
+    const sessionMap = () => { var _a, _b, _c; return (_c = (_b = (_a = deps.collab) === null || _a === void 0 ? void 0 : _a.sessionDoc()) === null || _b === void 0 ? void 0 : _b.getMap("comments")) !== null && _c !== void 0 ? _c : null; };
+    const inSession = () => Boolean(sessionMap());
+    const authorName = () => { var _a, _b; return ((_a = collabSession.selfParticipant()) === null || _a === void 0 ? void 0 : _a.name) || ((_b = deps.getAuthorName) === null || _b === void 0 ? void 0 : _b.call(deps)) || ""; };
+    const refreshAllGroups = () => {
+        groupStates.forEach((state) => scheduleRefreshGroup(state.group));
+    };
+    // Workspace file (outside a session). Loads once per root; the in-memory
+    // list is what the editor reads synchronously.
+    const loadFromWorkspace = async () => {
         var _a;
-        const storageKey = getStorageKey();
-        if (storageKey === loadedStorageKey) {
-            return cachedComments;
+        const root = deps.getWorkspaceRoot();
+        const generation = ++loadGeneration;
+        let comments = [];
+        let missing = false;
+        if (root && collabSession.available) {
+            try {
+                const result = await collabSession.call("comments:load");
+                comments = result.comments.map(sanitizeComment).filter((comment) => Boolean(comment));
+                missing = result.missing === true;
+            }
+            catch {
+                comments = [];
+            }
         }
-        loadedStorageKey = storageKey;
+        if (generation !== loadGeneration || deps.getWorkspaceRoot() !== root)
+            return;
+        let migrated = [];
         try {
-            const parsed = JSON.parse((_a = localStorage.getItem(storageKey)) !== null && _a !== void 0 ? _a : "[]");
-            cachedComments = Array.isArray(parsed)
-                ? parsed.map(sanitizeComment).filter((comment) => Boolean(comment))
-                : [];
+            const legacy = JSON.parse((_a = localStorage.getItem(legacyStorageKey())) !== null && _a !== void 0 ? _a : "[]");
+            if (Array.isArray(legacy))
+                migrated = legacy.map(sanitizeComment).filter((comment) => Boolean(comment));
+        }
+        catch { }
+        cachedComments = comments;
+        loadedRoot = root;
+        if (migrated.length && (missing || comments.length === 0) && root) {
+            cachedComments = migrated;
+            void persistWorkspace(cachedComments).then((ok) => {
+                if (ok) {
+                    try {
+                        localStorage.removeItem(legacyStorageKey());
+                    }
+                    catch { }
+                }
+            });
+        }
+        refreshAllGroups();
+    };
+    const persistWorkspace = async (comments) => {
+        if (!collabSession.available || !deps.getWorkspaceRoot())
+            return false;
+        try {
+            await collabSession.call("comments:save", { comments: comments.map(toStoredComment) });
+            return true;
         }
         catch {
+            return false;
+        }
+    };
+    const loadComments = () => {
+        const map = sessionMap();
+        if (map)
+            return readSessionComments(map);
+        const root = deps.getWorkspaceRoot();
+        if (root !== loadedRoot) {
+            loadedRoot = root;
             cachedComments = [];
+            void loadFromWorkspace();
         }
         return cachedComments;
     };
     const saveComments = (comments) => {
+        if (inSession())
+            return;
         cachedComments = comments;
-        loadedStorageKey = getStorageKey();
-        try {
-            if (comments.length === 0) {
-                localStorage.removeItem(loadedStorageKey);
-            }
-            else {
-                localStorage.setItem(loadedStorageKey, JSON.stringify(comments));
-            }
-        }
-        catch {
-            // Storage failures should not break editing.
-        }
+        loadedRoot = deps.getWorkspaceRoot();
+        if (saveTimer !== null)
+            window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(() => {
+            saveTimer = null;
+            void persistWorkspace(cachedComments);
+        }, 250);
     };
+    // ---- session store (Y.Map id → Y.Map comment, replies: Y.Array)
+    const Y = () => { var _a, _b, _c; return (_c = (_b = (_a = deps.collab) === null || _a === void 0 ? void 0 : _a.getVendor()) === null || _b === void 0 ? void 0 : _b.Y) !== null && _c !== void 0 ? _c : null; };
+    const resolveSessionRange = (entry) => {
+        var _a;
+        const YLib = Y();
+        const filePath = entry.get("filePath");
+        const ytext = (_a = deps.collab) === null || _a === void 0 ? void 0 : _a.sessionText(filePath);
+        const anchor = entry.get("anchor");
+        const head = entry.get("head");
+        if (YLib && ytext && anchor instanceof Uint8Array && head instanceof Uint8Array) {
+            try {
+                const start = YLib.createAbsolutePositionFromRelativePosition(YLib.decodeRelativePosition(anchor), ytext.doc);
+                const end = YLib.createAbsolutePositionFromRelativePosition(YLib.decodeRelativePosition(head), ytext.doc);
+                if (start && end) {
+                    const content = ytext.toString();
+                    const position = (offset) => {
+                        const clamped = Math.max(0, Math.min(content.length, offset));
+                        const before = content.slice(0, clamped);
+                        const lastBreak = before.lastIndexOf("\n");
+                        return { lineNumber: before.split("\n").length, column: clamped - lastBreak };
+                    };
+                    const a = position(Math.min(start.index, end.index));
+                    const b = position(Math.max(start.index, end.index));
+                    return { startLineNumber: a.lineNumber, startColumn: a.column, endLineNumber: b.lineNumber, endColumn: b.column };
+                }
+            }
+            catch { }
+        }
+        return sanitizeStoredRange(entry.get("range"));
+    };
+    const readSessionComments = (map) => {
+        const comments = [];
+        map.forEach((entry, id) => {
+            if (!entry || typeof entry.get !== "function")
+                return;
+            const range = resolveSessionRange(entry);
+            if (!range)
+                return;
+            const replies = entry.get("replies");
+            const comment = sanitizeComment({
+                ...range,
+                id,
+                filePath: entry.get("filePath"),
+                text: entry.get("text"),
+                author: entry.get("author"),
+                createdAt: entry.get("createdAt"),
+                updatedAt: entry.get("updatedAt"),
+                resolved: entry.get("resolved"),
+                replies: replies && typeof replies.toArray === "function" ? replies.toArray() : [],
+            });
+            if (comment)
+                comments.push(comment);
+        });
+        return comments;
+    };
+    const sessionRelativePositions = (filePath, range, model) => {
+        var _a;
+        const YLib = Y();
+        const ytext = (_a = deps.collab) === null || _a === void 0 ? void 0 : _a.sessionText(filePath);
+        if (!YLib || !ytext || !(model === null || model === void 0 ? void 0 : model.getOffsetAt))
+            return null;
+        const start = model.getOffsetAt({ lineNumber: range.startLineNumber, column: range.startColumn });
+        const end = model.getOffsetAt({ lineNumber: range.endLineNumber, column: range.endColumn });
+        return {
+            anchor: YLib.encodeRelativePosition(YLib.createRelativePositionFromTypeIndex(ytext, start)),
+            head: YLib.encodeRelativePosition(YLib.createRelativePositionFromTypeIndex(ytext, end, -1)),
+        };
+    };
+    const sessionAdd = (comment, model) => {
+        const map = sessionMap();
+        const YLib = Y();
+        if (!map || !YLib)
+            return false;
+        const entry = new YLib.Map();
+        const replies = new YLib.Array();
+        map.doc.transact(() => {
+            entry.set("filePath", comment.filePath);
+            entry.set("text", comment.text);
+            entry.set("author", comment.author);
+            entry.set("createdAt", comment.createdAt);
+            entry.set("updatedAt", comment.updatedAt);
+            entry.set("resolved", comment.resolved);
+            entry.set("range", { startLineNumber: comment.startLineNumber, startColumn: comment.startColumn, endLineNumber: comment.endLineNumber, endColumn: comment.endColumn });
+            entry.set("replies", replies);
+            const positions = sessionRelativePositions(comment.filePath, comment, model);
+            if (positions) {
+                entry.set("anchor", positions.anchor);
+                entry.set("head", positions.head);
+            }
+            map.set(comment.id, entry);
+        }, "comments");
+        return true;
+    };
+    const sessionUpdate = (id, patch) => {
+        const map = sessionMap();
+        const entry = map === null || map === void 0 ? void 0 : map.get(id);
+        if (!map || !entry)
+            return false;
+        map.doc.transact(() => {
+            if (typeof patch.text === "string")
+                entry.set("text", patch.text);
+            if (typeof patch.resolved === "boolean")
+                entry.set("resolved", patch.resolved);
+            if (patch.reply) {
+                let replies = entry.get("replies");
+                if (!replies || typeof replies.push !== "function") {
+                    replies = new (Y().Array)();
+                    entry.set("replies", replies);
+                }
+                replies.push([patch.reply]);
+            }
+            entry.set("updatedAt", Date.now());
+        }, "comments");
+        return true;
+    };
+    const sessionRemove = (id) => {
+        const map = sessionMap();
+        if (!map)
+            return false;
+        map.doc.transact(() => map.delete(id), "comments");
+        return true;
+    };
+    // Session comments change under us (another participant, or our own write
+    // echoed): redraw. The file store reloads when the session ends.
+    let observedDoc = null;
+    const observeSession = (doc) => {
+        if (observedDoc === doc)
+            return;
+        if (observedDoc) {
+            try {
+                observedDoc.getMap("comments").unobserveDeep(onSessionCommentsChanged);
+            }
+            catch { }
+        }
+        observedDoc = doc;
+        if (doc)
+            doc.getMap("comments").observeDeep(onSessionCommentsChanged);
+        else {
+            loadedRoot = null;
+            cachedComments = [];
+        }
+        refreshAllGroups();
+    };
+    const onSessionCommentsChanged = () => refreshAllGroups();
+    (_a = deps.collab) === null || _a === void 0 ? void 0 : _a.onSessionDoc(observeSession);
+    collabSession.onMessage("collab:comments", () => { if (!inSession()) {
+        loadedRoot = null;
+        refreshAllGroups();
+    } });
     const getState = (group) => {
         const existing = groupStates.get(group.key);
         if (existing) {
@@ -253,6 +494,11 @@ export const createCodeCommentManager = (monaco, deps) => {
     };
     const syncRangesFromDecorations = (state) => {
         var _a, _b;
+        // In a session the relative positions in the shared text move by
+        // themselves; writing absolute ranges back from every participant would
+        // make them fight.
+        if (inSession())
+            return;
         if (!state.path || !state.model || state.records.length === 0) {
             return;
         }
@@ -321,8 +567,8 @@ export const createCodeCommentManager = (monaco, deps) => {
             return {
                 range: new monaco.Range(range.startLineNumber, range.startColumn, range.endLineNumber, range.endColumn),
                 options: {
-                    className: "code-comment-range",
-                    glyphMarginClassName: "code-comment-glyph",
+                    className: comment.resolved ? "code-comment-range is-resolved" : "code-comment-range",
+                    glyphMarginClassName: comment.resolved ? "code-comment-glyph is-resolved" : "code-comment-glyph",
                     glyphMarginHoverMessage: hoverMessage,
                     hoverMessage,
                     linesDecorationsClassName: "code-comment-line",
@@ -371,13 +617,19 @@ export const createCodeCommentManager = (monaco, deps) => {
         })) !== null && _d !== void 0 ? _d : null);
     };
     const editComment = async (group, comment) => {
-        var _a, _b;
+        var _a, _b, _c, _d;
         const nextText = await createCodeCommentDialog({
             title: uiText("Edit comment", "コメントを編集"),
             initialText: comment.text,
             submitLabel: uiText("Save", "保存"),
         });
         if (nextText === null) {
+            return;
+        }
+        if (inSession()) {
+            sessionUpdate(comment.id, { text: nextText });
+            refreshGroupsForPath(comment.filePath);
+            (_b = (_a = group.editor) === null || _a === void 0 ? void 0 : _a.focus) === null || _b === void 0 ? void 0 : _b.call(_a);
             return;
         }
         const comments = loadComments();
@@ -389,6 +641,49 @@ export const createCodeCommentManager = (monaco, deps) => {
         target.updatedAt = Date.now();
         saveComments(comments);
         refreshGroupsForPath(target.filePath);
+        (_d = (_c = group.editor) === null || _c === void 0 ? void 0 : _c.focus) === null || _d === void 0 ? void 0 : _d.call(_c);
+    };
+    const replyToComment = async (group, comment) => {
+        var _a, _b;
+        const text = await createCodeCommentDialog({
+            title: uiText("Reply to comment", "コメントに返信"),
+            initialText: "",
+            submitLabel: uiText("Reply", "返信"),
+        });
+        if (text === null)
+            return;
+        const reply = { author: authorName(), text, createdAt: Date.now() };
+        if (inSession()) {
+            sessionUpdate(comment.id, { reply });
+        }
+        else {
+            const comments = loadComments();
+            const target = comments.find((entry) => entry.id === comment.id);
+            if (!target)
+                return;
+            target.replies = [...target.replies, reply];
+            target.updatedAt = Date.now();
+            saveComments(comments);
+        }
+        refreshGroupsForPath(comment.filePath);
+        (_b = (_a = group.editor) === null || _a === void 0 ? void 0 : _a.focus) === null || _b === void 0 ? void 0 : _b.call(_a);
+    };
+    const toggleResolved = (group, comment) => {
+        var _a, _b;
+        const resolved = !comment.resolved;
+        if (inSession()) {
+            sessionUpdate(comment.id, { resolved });
+        }
+        else {
+            const comments = loadComments();
+            const target = comments.find((entry) => entry.id === comment.id);
+            if (!target)
+                return;
+            target.resolved = resolved;
+            target.updatedAt = Date.now();
+            saveComments(comments);
+        }
+        refreshGroupsForPath(comment.filePath);
         (_b = (_a = group.editor) === null || _a === void 0 ? void 0 : _a.focus) === null || _b === void 0 ? void 0 : _b.call(_a);
     };
     const addOrEditComment = async (group) => {
@@ -417,16 +712,25 @@ export const createCodeCommentManager = (monaco, deps) => {
             return;
         }
         const now = Date.now();
-        const comments = loadComments();
-        comments.push({
+        const comment = {
             ...range,
             id: createCommentId(),
             filePath,
             text,
+            author: authorName(),
             createdAt: now,
             updatedAt: now,
-        });
-        saveComments(comments);
+            resolved: false,
+            replies: [],
+        };
+        if (inSession()) {
+            sessionAdd(comment, model);
+        }
+        else {
+            const comments = loadComments();
+            comments.push(comment);
+            saveComments(comments);
+        }
         refreshGroupsForPath(filePath);
         (_c = editor.focus) === null || _c === void 0 ? void 0 : _c.call(editor);
     };
@@ -440,9 +744,22 @@ export const createCodeCommentManager = (monaco, deps) => {
         if (!confirmed) {
             return;
         }
-        saveComments(loadComments().filter((entry) => entry.id !== comment.id));
+        if (inSession())
+            sessionRemove(comment.id);
+        else
+            saveComments(loadComments().filter((entry) => entry.id !== comment.id));
         refreshGroupsForPath(comment.filePath);
         (_b = (_a = group.editor) === null || _a === void 0 ? void 0 : _a.focus) === null || _b === void 0 ? void 0 : _b.call(_a);
+    };
+    const replyAtCursor = async (group) => {
+        const comment = findCommentAtCurrentContext(group);
+        if (comment)
+            await replyToComment(group, comment);
+    };
+    const resolveAtCursor = (group) => {
+        const comment = findCommentAtCurrentContext(group);
+        if (comment)
+            toggleResolved(group, comment);
     };
     const editCommentAtCursor = async (group) => {
         const comment = findCommentAtCurrentContext(group);
@@ -461,7 +778,7 @@ export const createCodeCommentManager = (monaco, deps) => {
         }
     };
     const attachToEditor = (group) => {
-        var _a, _b, _c, _d, _e, _f, _g;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
         const editor = group.editor;
         if (!editor) {
             return;
@@ -509,13 +826,27 @@ export const createCodeCommentManager = (monaco, deps) => {
             run: () => editCommentAtCursor(group),
         });
         (_g = editor.addAction) === null || _g === void 0 ? void 0 : _g.call(editor, {
+            id: `tex64.comments.reply.${group.key}`,
+            label: uiText("Reply to comment", "コメントに返信"),
+            contextMenuGroupId: "9_comments",
+            contextMenuOrder: 3,
+            run: () => replyAtCursor(group),
+        });
+        (_h = editor.addAction) === null || _h === void 0 ? void 0 : _h.call(editor, {
+            id: `tex64.comments.resolve.${group.key}`,
+            label: uiText("Resolve / reopen comment", "コメントを解決・再開"),
+            contextMenuGroupId: "9_comments",
+            contextMenuOrder: 4,
+            run: () => resolveAtCursor(group),
+        });
+        (_j = editor.addAction) === null || _j === void 0 ? void 0 : _j.call(editor, {
             id: `tex64.comments.delete.${group.key}`,
             label: uiText("Delete comment", "コメントを削除"),
             contextMenuGroupId: "9_comments",
-            contextMenuOrder: 3,
+            contextMenuOrder: 5,
             run: () => deleteCommentAtCursor(group),
         });
         scheduleRefreshGroup(group);
     };
-    return { attachToEditor, refreshGroup };
+    return { attachToEditor, refreshGroup, listComments: () => loadComments().map(toStoredComment) };
 };

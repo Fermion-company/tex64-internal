@@ -1505,6 +1505,12 @@ export const initMain = () => {
       isBound: (path) => collabFileBridge.isBound(path),
       undo: (editor) => Boolean(collabBinding?.undo(editor)),
       redo: (editor) => Boolean(collabBinding?.redo(editor)),
+      comments: {
+        sessionDoc: () => collabBinding?.sessionDoc() ?? null,
+        sessionText: (path) => collabBinding?.sessionText(path) ?? null,
+        getVendor: () => collabBinding?.getVendor() ?? null,
+        onSessionDoc: (listener) => collabBinding?.onSessionDoc(listener) ?? (() => {}),
+      },
     },
     requestFilePreview: (path) => filePreviewBroker.requestPreview(path),
     requestFileExcerpt: (path, line, options) =>

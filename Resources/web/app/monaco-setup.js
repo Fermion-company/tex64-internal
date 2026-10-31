@@ -73,7 +73,7 @@ export const initMonacoSetup = (context, deps) => {
     }
     monacoWindow.require.config({ paths: { vs: requireBase } });
     monacoWindow.require(["vs/editor/editor.main"], () => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e;
         if (!monacoWindow.monaco || !monacoWindow.monaco.editor) {
             deps.updateFallback(uiText("Monaco initialization failed.", "Monacoの初期化に失敗しました。"));
             return;
@@ -99,7 +99,9 @@ export const initMonacoSetup = (context, deps) => {
         spellChecker === null || spellChecker === void 0 ? void 0 : spellChecker.start();
         const codeCommentManager = createCodeCommentManager(monacoWindow.monaco, {
             getWorkspaceRoot: deps.getWorkspaceRoot,
+            collab: (_a = deps.collab) === null || _a === void 0 ? void 0 : _a.comments,
         });
+        window.__tex64CodeComments = codeCommentManager;
         const themeName = applyMonacoTheme(monacoWindow.monaco, getCurrentAppearanceTheme());
         onAppearanceThemeChange((theme) => {
             if (monacoWindow.monaco) {
@@ -115,8 +117,8 @@ export const initMonacoSetup = (context, deps) => {
         // again whenever any later font load finishes (a font-family change
         // in settings, a lazily-loaded face).
         const remeasureFonts = () => { var _a, _b, _c; return (_c = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.remeasureFonts) === null || _c === void 0 ? void 0 : _c.call(_b); };
-        (_b = (_a = document.fonts) === null || _a === void 0 ? void 0 : _a.ready) === null || _b === void 0 ? void 0 : _b.then(() => remeasureFonts()).catch(() => { });
-        (_d = (_c = document.fonts) === null || _c === void 0 ? void 0 : _c.addEventListener) === null || _d === void 0 ? void 0 : _d.call(_c, "loadingdone", () => remeasureFonts());
+        (_c = (_b = document.fonts) === null || _b === void 0 ? void 0 : _b.ready) === null || _c === void 0 ? void 0 : _c.then(() => remeasureFonts()).catch(() => { });
+        (_e = (_d = document.fonts) === null || _d === void 0 ? void 0 : _d.addEventListener) === null || _e === void 0 ? void 0 : _e.call(_d, "loadingdone", () => remeasureFonts());
         const editorOptions = {
             value: "",
             language: "latex",

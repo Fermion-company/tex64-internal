@@ -56,6 +56,12 @@ type MonacoSetupDeps = {
     isBound: (path: string | null | undefined) => boolean;
     undo: (editor: unknown) => boolean;
     redo: (editor: unknown) => boolean;
+    comments: {
+      sessionDoc: () => any | null;
+      sessionText: (path: string) => any | null;
+      getVendor: () => { Y: any } | null;
+      onSessionDoc: (listener: (doc: any | null) => void) => () => void;
+    };
   };
 };
 
@@ -211,7 +217,9 @@ export const initMonacoSetup = (
       spellChecker?.start();
       const codeCommentManager = createCodeCommentManager(monacoWindow.monaco, {
         getWorkspaceRoot: deps.getWorkspaceRoot,
+        collab: deps.collab?.comments,
       });
+      (window as unknown as { __tex64CodeComments?: unknown }).__tex64CodeComments = codeCommentManager;
       const themeName = applyMonacoTheme(monacoWindow.monaco, getCurrentAppearanceTheme());
       onAppearanceThemeChange((theme) => {
         if (monacoWindow.monaco) {

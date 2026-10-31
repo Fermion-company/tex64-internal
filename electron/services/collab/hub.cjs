@@ -25,6 +25,7 @@ const SESSION_DOC = "$session";
 const RENDERER = "renderer";
 const LOCAL = "local";
 const SCAN_INTERVAL_MS = 3000;
+const UPDATE_LOG_MAX_BYTES = 200 * 1024 * 1024;
 const JOIN_TIMEOUT_MS = 90000;
 const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#db2777", "#0891b2", "#65a30d", "#ea580c", "#4f46e5"];
 
@@ -457,6 +458,34 @@ class CollabHub extends EventEmitter {
     }
     if (entry.ytext && entry.attached && origin !== DISK_ORIGIN) session.diskSync.noteUpdate(entry.docId);
     if (entry.docId === SESSION_DOC) this.pushState();
+    else if (session.role === "host" && origin !== DISK_ORIGIN) this.logUpdate(session, entry.docId, update, origin);
+  }
+
+  // Who wrote what: the host appends every participant update to
+  // .tex64/collab/<session>/updates.log (JSON Lines). Oldest log rotates out
+  // past 200 MB. Line-level blame is not built on top of this yet.
+  logUpdate(session, docId, update, origin) {
+    const who = origin === RENDERER ? session.selfId : origin && origin.id ? origin.id : "?";
+    const line = `${JSON.stringify({ t: Date.now(), who, doc: docId, update: Buffer.from(update).toString("base64") })}\n`;
+    session.updateLog ||= { queue: Promise.resolve(), bytes: 0 };
+    const directory = path.join(session.rootPath, ".tex64", "collab", session.id);
+    const file = path.join(directory, "updates.log");
+    session.updateLog.queue = session.updateLog.queue.then(async () => {
+      try {
+        if (session.updateLog.bytes === 0) {
+          await fsp.mkdir(directory, { recursive: true });
+          session.updateLog.bytes = (await fsp.stat(file).catch(() => ({ size: 0 }))).size || 1;
+        }
+        if (session.updateLog.bytes + line.length > UPDATE_LOG_MAX_BYTES) {
+          await fsp.rename(file, `${file}.1`).catch(() => {});
+          session.updateLog.bytes = 1;
+        }
+        await fsp.appendFile(file, line, "utf8");
+        session.updateLog.bytes += line.length;
+      } catch (error) {
+        console.warn("[collab] update log failed", error?.message || error);
+      }
+    });
   }
 
   sendSyncStep1(session, docId, conn = null) {

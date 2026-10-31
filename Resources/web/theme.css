@@ -5948,6 +5948,9 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   border-bottom: 1px dotted rgba(227, 179, 65, 0.72);
 }
 
+.monaco-editor .code-comment-range.is-resolved { background: rgba(120, 130, 140, 0.12); border-bottom-color: rgba(140, 150, 160, 0.5); }
+.monaco-editor .code-comment-glyph.is-resolved::after { opacity: .45; }
+
 .monaco-editor .code-comment-line {
   border-left: 2px solid rgba(227, 179, 65, 0.82);
 }
