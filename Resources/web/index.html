@@ -757,6 +757,9 @@
                     </span>
                   </span>
                 </button>
+                <button class="settings-nav-item" data-settings-target="zotero" type="button">
+                  <span class="settings-nav-title">Zotero</span>
+                </button>
                 <button class="settings-nav-item" data-settings-target="info" type="button">
                   <span class="settings-nav-title">Info</span>
                 </button>
@@ -1301,6 +1304,35 @@
                       </button>
                     </div>
                     <div class="settings-help-text is-hidden" id="settings-feedback-status"></div>
+                  </div>
+                </div>
+                <div class="settings-page is-hidden" data-settings-page="zotero" aria-hidden="true">
+                  <div class="settings-page-header">
+                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
+                    <div class="settings-page-title">Zotero</div>
+                  </div>
+                  <div class="settings-group">
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">API key</span>
+                      </div>
+                      <div class="settings-control">
+                        <input class="settings-input" id="settings-zotero-api-key" type="password" autocomplete="off" spellcheck="false">
+                      </div>
+                    </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Library</span>
+                      </div>
+                      <div class="settings-control">
+                        <select class="settings-select" id="settings-zotero-library"></select>
+                      </div>
+                    </div>
+                    <div class="settings-help-text" id="settings-zotero-status" role="status"></div>
+                    <p class="env-explainer">
+                      <span id="settings-zotero-explainer"></span>
+                      <button class="env-link" id="settings-zotero-open-keys" type="button"></button>
+                    </p>
                   </div>
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="info" aria-hidden="true">

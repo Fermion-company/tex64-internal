@@ -13,6 +13,14 @@ const DEFAULT_SETTINGS = {
   },
   recentProjects: [],
   dismissedAnnouncementIds: [],
+  // Zotero: the chosen library id ("users:0", "groups:<id>", "bbt:<id>") and
+  // the Web API key, stored only as the safeStorage ciphertext (base64).
+  zotero: {
+    library: "",
+    libraryName: "",
+    libraryKind: "",
+    apiKeyEncrypted: "",
+  },
 };
 
 const MAX_DISMISSED_ANNOUNCEMENT_IDS = 200;
@@ -79,6 +87,18 @@ class UserSettingsService {
             (id) => typeof id === "string" && id.trim()
           )
         : clone(DEFAULT_SETTINGS.dismissedAnnouncementIds),
+      zotero: {
+        ...clone(DEFAULT_SETTINGS.zotero),
+        ...(storedObject.zotero && typeof storedObject.zotero === "object"
+          ? {
+              library: typeof storedObject.zotero.library === "string" ? storedObject.zotero.library : "",
+              libraryName: typeof storedObject.zotero.libraryName === "string" ? storedObject.zotero.libraryName : "",
+              libraryKind: typeof storedObject.zotero.libraryKind === "string" ? storedObject.zotero.libraryKind : "",
+              apiKeyEncrypted:
+                typeof storedObject.zotero.apiKeyEncrypted === "string" ? storedObject.zotero.apiKeyEncrypted : "",
+            }
+          : {}),
+      },
     };
     if (didMigrateModel || didDisableRunCommand || didClampMaxIterations) {
       // Persist canonical, safe settings so every renderer and future launch
@@ -169,6 +189,26 @@ class UserSettingsService {
     this.state = state;
     await this.save();
     return [];
+  }
+
+  async getZoteroSettings() {
+    const state = await this.load();
+    return clone(state.zotero ?? DEFAULT_SETTINGS.zotero);
+  }
+
+  async updateZoteroSettings(partial) {
+    const state = await this.load();
+    const next = { ...(state.zotero ?? clone(DEFAULT_SETTINGS.zotero)) };
+    if (partial && typeof partial === "object") {
+      if (typeof partial.library === "string") next.library = partial.library;
+      if (typeof partial.libraryName === "string") next.libraryName = partial.libraryName;
+      if (typeof partial.libraryKind === "string") next.libraryKind = partial.libraryKind;
+      if (typeof partial.apiKeyEncrypted === "string") next.apiKeyEncrypted = partial.apiKeyEncrypted;
+    }
+    state.zotero = next;
+    this.state = state;
+    await this.save();
+    return clone(next);
   }
 
   async getDismissedAnnouncementIds() {
