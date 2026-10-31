@@ -13,15 +13,26 @@ const render = () => {
     }
     const rules = [];
     for (const [clientId, { color, name }] of known) {
-        rules.push(`.yRemoteSelection-${clientId}{background-color:${color}2e;}`, `.yRemoteSelectionHead-${clientId}{position:absolute;border-left:2px solid ${color};border-top:2px solid ${color};height:100%;box-sizing:border-box;}`, `.yRemoteSelectionHead-${clientId}::after{content:"${cssString(name)}";position:absolute;top:-1.15em;left:-2px;padding:0 4px;font-size:10px;line-height:1.15em;font-family:var(--font-ui, system-ui);background:${color};color:#fff;white-space:nowrap;border-radius:3px 3px 3px 0;opacity:0;transition:opacity .15s;pointer-events:none;z-index:5;}`, `.yRemoteSelectionHead-${clientId}:hover::after,.collab-labels-visible .yRemoteSelectionHead-${clientId}::after{opacity:.92;}`);
+        rules.push(`.yRemoteSelection-${clientId}{background-color:${color}2e;}`, `.yRemoteSelectionHead-${clientId}{position:absolute;border-left:2px solid ${color};border-top:2px solid ${color};height:100%;box-sizing:border-box;}`, `.yRemoteSelectionHead-${clientId}::after{content:"${cssString(name)}";position:absolute;top:-1.15em;left:-2px;padding:0 4px;font-size:10px;line-height:1.15em;font-family:var(--font-ui, system-ui);background:${color};color:#fff;white-space:nowrap;border-radius:3px 3px 3px 0;opacity:0;transition:opacity .15s;pointer-events:none;z-index:5;}`, `.yRemoteSelectionHead-${clientId}:hover::after,.collab-labels-visible .yRemoteSelectionHead-${clientId}::after{opacity:.92;}`, `.yRemoteSelectionHead-${clientId}.is-top-line::after{top:100%;border-radius:0 3px 3px 3px;}`);
     }
     style.textContent = rules.join("\n");
 };
 // Names show while a remote caret moves and on hover, not permanently (a
 // permanent label hides the line above).
 let labelTimer = null;
+// A label above the first visible line would be clipped: put it below.
+const placeLabels = () => {
+    for (const head of document.querySelectorAll(".yRemoteSelectionHead")) {
+        const editor = head.closest(".monaco-editor");
+        if (!editor)
+            continue;
+        const top = head.getBoundingClientRect().top - editor.getBoundingClientRect().top;
+        head.classList.toggle("is-top-line", top < head.offsetHeight);
+    }
+};
 const flashLabels = () => {
     document.body.classList.add("collab-labels-visible");
+    window.requestAnimationFrame(placeLabels);
     if (labelTimer !== null)
         window.clearTimeout(labelTimer);
     labelTimer = window.setTimeout(() => document.body.classList.remove("collab-labels-visible"), 1500);
@@ -45,6 +56,8 @@ export const collabCursors = {
             render();
         if (remote)
             flashLabels();
+        else
+            window.requestAnimationFrame(placeLabels);
     },
     reset: () => {
         known.clear();

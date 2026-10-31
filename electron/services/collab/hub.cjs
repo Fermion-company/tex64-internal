@@ -89,6 +89,7 @@ class CollabHub extends EventEmitter {
       participants,
       rootPath: session.rootPath,
       preserved: session.preserved ? session.preserved.length : 0,
+      preservedFiles: session.preserved ? session.preserved.slice(0, 3) : [],
       textFiles: [...session.docs.keys()].filter((id) => id !== SESSION_DOC && !session.docs.get(id).deleted),
     };
   }
@@ -261,6 +262,7 @@ class CollabHub extends EventEmitter {
       // how they are written must be in place before the first await below.
       session.joining = true;
       session.preserved = [];
+      session.mirrorHashes = null;
       session.diskSync.paused = true;
       session.id = hello.sessionId;
       session.name = hello.name || session.name;
@@ -269,6 +271,7 @@ class CollabHub extends EventEmitter {
       session.rootFile = hello.rootFile || "";
       session.rootPath = path.join(this.deps.collabRoot(), `${safeSessionFolderName(session.name)}-${session.id.slice(0, 8)}`);
       const rejoining = await fsp.readdir(session.rootPath).then((names) => names.some((name) => name !== ".tex64")).catch(() => false);
+      if (rejoining) session.mirrorHashes = await this.readMirrorManifest(session);
       await fsp.mkdir(path.join(session.rootPath, ".tex64"), { recursive: true });
       if (rejoining) {
         // Edits made in the mirror after leaving are kept: a History version
@@ -326,8 +329,44 @@ class CollabHub extends EventEmitter {
     }
   }
 
-  // Guest join onto an existing mirror: keep a copy of a file whose local
-  // content differs from what the host sends.
+  // On leaving, a guest records the hash of every mirrored file so a rejoin
+  // can tell "edited here after leaving" from "changed by the host meanwhile".
+  mirrorManifestPath(session) {
+    return path.join(session.rootPath, ".tex64", "collab-mirror.json");
+  }
+
+  async writeMirrorManifest(session) {
+    if (!session.rootPath || !session.manifest) return;
+    try {
+      await session.manifest.scan();
+      const files = {};
+      for (const [relative, entry] of session.manifest.entries) {
+        if (entry.kind === "binary") files[relative] = entry.hash;
+        else {
+          try {
+            files[relative] = hashBuffer(await fsp.readFile(path.join(session.rootPath, relative)));
+          } catch {}
+        }
+      }
+      await fsp.writeFile(this.mirrorManifestPath(session), JSON.stringify({ schema: 1, sessionId: session.id, files }, null, 2), "utf8");
+    } catch (error) {
+      console.warn("[collab] mirror manifest failed", error?.message || error);
+    }
+  }
+
+  async readMirrorManifest(session) {
+    try {
+      const parsed = JSON.parse(await fsp.readFile(this.mirrorManifestPath(session), "utf8"));
+      return parsed && typeof parsed.files === "object" ? parsed.files : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Guest join onto an existing mirror: keep a copy of a file edited here
+  // after leaving (its hash moved from the one recorded at leave time) that
+  // the host's content is about to replace. Without a leave-time record, any
+  // file that differs from the host's copy is kept.
   async preserveLocal(session, relative, incoming) {
     if (!session.joining || !session.rootPath) return;
     const absolute = path.join(session.rootPath, relative);
@@ -338,12 +377,16 @@ class CollabHub extends EventEmitter {
       return;
     }
     if (typeof incoming === "string" ? current.toString("utf8") === incoming : Buffer.from(incoming).equals(current)) return;
+    if (session.mirrorHashes) {
+      const recorded = session.mirrorHashes[relative];
+      if (recorded && recorded === hashBuffer(current)) return;
+    }
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const extension = path.extname(relative);
     const target = `${absolute.slice(0, absolute.length - extension.length)}.local-${stamp}${extension}`;
     try {
       await fsp.copyFile(absolute, target);
-      session.preserved.push(relative);
+      session.preserved.push(path.relative(session.rootPath, target));
     } catch (error) {
       console.warn("[collab] preserve failed", relative, error?.message || error);
     }
@@ -386,6 +429,7 @@ class CollabHub extends EventEmitter {
     session.phase = "leaving";
     this.pushState();
     await session.diskSync.flush();
+    if (role === "guest") await this.writeMirrorManifest(session);
     // The JSON file must hold the final line numbers before the editor reads
     // it back outside the session.
     clearTimeout(session.commentsTimer);

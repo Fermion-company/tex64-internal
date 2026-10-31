@@ -62,6 +62,7 @@ export const initCollabBinding = (deps: {
   const contextKeys = new Map<any, any>();
   let clientId = 0;
   let sessionKey = "";
+  const lastSavedDigest = new Map<string, string>();
   let awarenessTimer: number | null = null;
 
   const notifySessionDoc = (doc: any | null) => {
@@ -158,6 +159,10 @@ export const initCollabBinding = (deps: {
     }
     entry.undo = new lib.Y.UndoManager(entry.ytext, { trackedOrigins: new Set([entry.binding]), captureTimeout: 500 });
     deps.editorSession.updateDirtyState(entry.docId, entry.model.getValue());
+    // A rejoin wrote the host's content before this model was bound; the ACK
+    // arrived while the buffer still held the old text. Settle it now.
+    const saved = lastSavedDigest.get(entry.docId);
+    if (saved && saved === contentDigest(entry.model.getValue())) deps.editorSession.markSavedExternally(entry.docId, saved);
     updateContextKeys();
   };
 
@@ -319,7 +324,10 @@ export const initCollabBinding = (deps: {
   collabSession.onMessage("collab:saved", (message) => {
     const path = String(message.path || "");
     const hash = String(message.hash || "");
-    if (path && hash) deps.editorSession.markSavedExternally(path, hash);
+    if (path && hash) {
+      lastSavedDigest.set(path, hash);
+      deps.editorSession.markSavedExternally(path, hash);
+    }
   });
 
   // Follow the editors: a model shown in a group gets its binding; the

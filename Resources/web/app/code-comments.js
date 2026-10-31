@@ -250,6 +250,7 @@ export const createCodeCommentManager = (monaco, deps) => {
     let loadGeneration = 0;
     let saveTimer = null;
     const groupStates = new Map();
+    const contextSyncers = new Map();
     const legacyStorageKey = () => { var _a; return `${STORAGE_PREFIX}${(_a = deps.getWorkspaceRoot()) !== null && _a !== void 0 ? _a : "global"}`; };
     const sessionMap = () => { var _a, _b, _c; return (_c = (_b = (_a = deps.collab) === null || _a === void 0 ? void 0 : _a.sessionDoc()) === null || _b === void 0 ? void 0 : _b.getMap("comments")) !== null && _c !== void 0 ? _c : null; };
     const inSession = () => Boolean(sessionMap());
@@ -549,7 +550,7 @@ export const createCodeCommentManager = (monaco, deps) => {
         state.records = [];
     };
     const refreshGroup = (group) => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e;
         const state = getState(group);
         state.refreshRafId = null;
         syncRangesFromDecorations(state);
@@ -587,6 +588,7 @@ export const createCodeCommentManager = (monaco, deps) => {
             decorationId,
             commentId: comments[index].id,
         }));
+        (_e = contextSyncers.get(group.key)) === null || _e === void 0 ? void 0 : _e();
     };
     const scheduleRefreshGroup = (group) => {
         const state = getState(group);
@@ -786,7 +788,7 @@ export const createCodeCommentManager = (monaco, deps) => {
         }
     };
     const attachToEditor = (group) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
         const editor = group.editor;
         if (!editor) {
             return;
@@ -796,19 +798,25 @@ export const createCodeCommentManager = (monaco, deps) => {
         // context menu shows them when the cursor or selection touches one.
         const editorAny = editor;
         const atComment = (_a = editorAny.createContextKey) === null || _a === void 0 ? void 0 : _a.call(editorAny, "tex64CommentAtCursor", false);
-        const syncAtComment = () => atComment === null || atComment === void 0 ? void 0 : atComment.set(Boolean(findCommentAtCurrentContext(group)));
-        (_b = editorAny.onDidChangeCursorSelection) === null || _b === void 0 ? void 0 : _b.call(editorAny, () => queueMicrotask(syncAtComment));
-        (_c = editor.onDidChangeModelContent) === null || _c === void 0 ? void 0 : _c.call(editor, () => {
+        const atResolved = (_b = editorAny.createContextKey) === null || _b === void 0 ? void 0 : _b.call(editorAny, "tex64CommentResolved", false);
+        const syncAtComment = () => {
+            const comment = findCommentAtCurrentContext(group);
+            atComment === null || atComment === void 0 ? void 0 : atComment.set(Boolean(comment));
+            atResolved === null || atResolved === void 0 ? void 0 : atResolved.set(Boolean(comment === null || comment === void 0 ? void 0 : comment.resolved));
+        };
+        (_c = editorAny.onDidChangeCursorSelection) === null || _c === void 0 ? void 0 : _c.call(editorAny, () => queueMicrotask(syncAtComment));
+        contextSyncers.set(group.key, syncAtComment);
+        (_d = editor.onDidChangeModelContent) === null || _d === void 0 ? void 0 : _d.call(editor, () => {
             const state = getState(group);
             syncRangesFromDecorations(state);
         });
-        (_d = editor.onDidChangeModel) === null || _d === void 0 ? void 0 : _d.call(editor, () => {
+        (_e = editor.onDidChangeModel) === null || _e === void 0 ? void 0 : _e.call(editor, () => {
             scheduleRefreshGroup(group);
         });
-        (_e = editor.onDidFocusEditorWidget) === null || _e === void 0 ? void 0 : _e.call(editor, () => {
+        (_f = editor.onDidFocusEditorWidget) === null || _f === void 0 ? void 0 : _f.call(editor, () => {
             scheduleRefreshGroup(group);
         });
-        (_f = editor.onMouseDown) === null || _f === void 0 ? void 0 : _f.call(editor, (event) => {
+        (_g = editor.onMouseDown) === null || _g === void 0 ? void 0 : _g.call(editor, (event) => {
             var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
             const target = event === null || event === void 0 ? void 0 : event.target;
             const glyphTargetType = (_b = (_a = monaco.editor) === null || _a === void 0 ? void 0 : _a.MouseTargetType) === null || _b === void 0 ? void 0 : _b.GUTTER_GLYPH_MARGIN;
@@ -825,14 +833,14 @@ export const createCodeCommentManager = (monaco, deps) => {
             event && ((_l = (_k = event.event) === null || _k === void 0 ? void 0 : _k.stopPropagation) === null || _l === void 0 ? void 0 : _l.call(_k));
             void editCommentAtLine(group, lineNumber);
         });
-        (_g = editor.addAction) === null || _g === void 0 ? void 0 : _g.call(editor, {
+        (_h = editor.addAction) === null || _h === void 0 ? void 0 : _h.call(editor, {
             id: `tex64.comments.add.${group.key}`,
             label: uiText("Add comment", "コメントを追加"),
             contextMenuGroupId: "9_comments",
             contextMenuOrder: 1,
             run: () => addOrEditComment(group),
         });
-        (_h = editor.addAction) === null || _h === void 0 ? void 0 : _h.call(editor, {
+        (_j = editor.addAction) === null || _j === void 0 ? void 0 : _j.call(editor, {
             id: `tex64.comments.edit.${group.key}`,
             label: uiText("Edit comment", "コメントを編集"),
             contextMenuGroupId: "9_comments",
@@ -840,7 +848,7 @@ export const createCodeCommentManager = (monaco, deps) => {
             precondition: "tex64CommentAtCursor",
             run: () => editCommentAtCursor(group),
         });
-        (_j = editor.addAction) === null || _j === void 0 ? void 0 : _j.call(editor, {
+        (_k = editor.addAction) === null || _k === void 0 ? void 0 : _k.call(editor, {
             id: `tex64.comments.reply.${group.key}`,
             label: uiText("Reply to comment", "コメントに返信"),
             contextMenuGroupId: "9_comments",
@@ -848,15 +856,23 @@ export const createCodeCommentManager = (monaco, deps) => {
             precondition: "tex64CommentAtCursor",
             run: () => replyAtCursor(group),
         });
-        (_k = editor.addAction) === null || _k === void 0 ? void 0 : _k.call(editor, {
+        (_l = editor.addAction) === null || _l === void 0 ? void 0 : _l.call(editor, {
             id: `tex64.comments.resolve.${group.key}`,
-            label: uiText("Resolve / reopen comment", "コメントを解決・再開"),
+            label: uiText("Resolve comment", "コメントを解決"),
             contextMenuGroupId: "9_comments",
             contextMenuOrder: 4,
-            precondition: "tex64CommentAtCursor",
+            precondition: "tex64CommentAtCursor && !tex64CommentResolved",
             run: () => resolveAtCursor(group),
         });
-        (_l = editor.addAction) === null || _l === void 0 ? void 0 : _l.call(editor, {
+        (_m = editor.addAction) === null || _m === void 0 ? void 0 : _m.call(editor, {
+            id: `tex64.comments.reopen.${group.key}`,
+            label: uiText("Reopen comment", "コメントを再開"),
+            contextMenuGroupId: "9_comments",
+            contextMenuOrder: 4,
+            precondition: "tex64CommentAtCursor && tex64CommentResolved",
+            run: () => resolveAtCursor(group),
+        });
+        (_o = editor.addAction) === null || _o === void 0 ? void 0 : _o.call(editor, {
             id: `tex64.comments.delete.${group.key}`,
             label: uiText("Delete comment", "コメントを削除"),
             contextMenuGroupId: "9_comments",

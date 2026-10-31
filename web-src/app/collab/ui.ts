@@ -31,9 +31,11 @@ export const initCollabUi = () => {
 
   const renderDots = (state: CollabState) => {
     if (!dots) return;
+    dots.setAttribute("aria-label", uiText("Collaboration session", "共同編集のセッション"));
     if (!state.active) {
       dots.hidden = true;
       dots.replaceChildren();
+      dots.title = uiText("Collaboration session", "共同編集のセッション");
       return;
     }
     dots.hidden = false;
@@ -126,7 +128,7 @@ export const initCollabUi = () => {
         const row = el("div", "collab-participant");
         const dot = el("span", `collab-dot${participant.connected ? "" : " is-offline"}`);
         dot.style.setProperty("--collab-color", participant.color);
-        const name = el("span", "collab-participant-name", participant.name);
+        const name = el("span", "collab-participant-name", participant.self ? `${participant.name} ${uiText("(you)", "（自分）")}` : participant.name);
         name.dataset.noI18n = "true";
         const reconnecting = participant.self && state.role === "guest" && state.connected === false;
         const status = el("span", "history-date", participant.host
@@ -172,8 +174,11 @@ export const initCollabUi = () => {
       pendingLink = "";
       const state = collabSession.getState();
       const preserved = Number((state as { preserved?: number }).preserved || 0);
+      const names = ((state as { preservedFiles?: string[] }).preservedFiles || []).slice(0, 3);
+      const rest = preserved - names.length;
+      const list = names.join(", ") + (rest > 0 ? uiText(` and ${rest} more`, ` ほか ${rest} 件`) : "");
       infoText = preserved > 0
-        ? uiText(`${preserved} file(s) edited after you left were kept as <name>.local-<time>.`, `退出後に編集した ${preserved} ファイルを <名前>.local-<日時> に退避しました。`)
+        ? uiText(`Edited after you left, kept as: ${list}`, `退出後に編集した分を退避しました: ${list}`)
         : "";
     } catch (reason) {
       // The link and the name stay in the fields for a retry.

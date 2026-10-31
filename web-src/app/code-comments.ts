@@ -394,6 +394,7 @@ export const createCodeCommentManager = (
   let loadGeneration = 0;
   let saveTimer: number | null = null;
   const groupStates = new Map<EditorGroupKey, GroupCommentState>();
+  const contextSyncers = new Map<EditorGroupKey, () => void>();
 
   const legacyStorageKey = () => `${STORAGE_PREFIX}${deps.getWorkspaceRoot() ?? "global"}`;
   const sessionMap = () => deps.collab?.sessionDoc()?.getMap("comments") ?? null;
@@ -723,6 +724,7 @@ export const createCodeCommentManager = (
       decorationId,
       commentId: comments[index].id,
     }));
+    contextSyncers.get(group.key)?.();
   };
 
   const scheduleRefreshGroup = (group: EditorGroupState) => {
@@ -937,8 +939,14 @@ export const createCodeCommentManager = (
       onDidChangeCursorSelection?: (listener: () => void) => void;
     };
     const atComment = editorAny.createContextKey?.("tex64CommentAtCursor", false);
-    const syncAtComment = () => atComment?.set(Boolean(findCommentAtCurrentContext(group)));
+    const atResolved = editorAny.createContextKey?.("tex64CommentResolved", false);
+    const syncAtComment = () => {
+      const comment = findCommentAtCurrentContext(group);
+      atComment?.set(Boolean(comment));
+      atResolved?.set(Boolean(comment?.resolved));
+    };
     editorAny.onDidChangeCursorSelection?.(() => queueMicrotask(syncAtComment));
+    contextSyncers.set(group.key, syncAtComment);
     editor.onDidChangeModelContent?.(() => {
       const state = getState(group);
       syncRangesFromDecorations(state);
@@ -1000,10 +1008,18 @@ export const createCodeCommentManager = (
     });
     editor.addAction?.({
       id: `tex64.comments.resolve.${group.key}`,
-      label: uiText("Resolve / reopen comment", "コメントを解決・再開"),
+      label: uiText("Resolve comment", "コメントを解決"),
       contextMenuGroupId: "9_comments",
       contextMenuOrder: 4,
-      precondition: "tex64CommentAtCursor",
+      precondition: "tex64CommentAtCursor && !tex64CommentResolved",
+      run: () => resolveAtCursor(group),
+    });
+    editor.addAction?.({
+      id: `tex64.comments.reopen.${group.key}`,
+      label: uiText("Reopen comment", "コメントを再開"),
+      contextMenuGroupId: "9_comments",
+      contextMenuOrder: 4,
+      precondition: "tex64CommentAtCursor && tex64CommentResolved",
       run: () => resolveAtCursor(group),
     });
     editor.addAction?.({
