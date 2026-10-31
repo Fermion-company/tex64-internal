@@ -1,4 +1,5 @@
 import { attachSnippetEditor } from "./snippets-ui.js";
+import { attachArxivSearch } from "./arxiv-search-ui.js";
 import type { AppContext } from "./context.js";
 import { uiText } from "./i18n.js";
 import { aiText } from "./ai-i18n.js";
@@ -457,6 +458,7 @@ export const initMonacoSetup = (
         );
 
         attachSnippetEditor(editor, monacoWindow.monaco);
+        attachArxivSearch(editor, group);
 
         // Selection → Axiom: the context-menu entry (⌘K) and a small button
         // that floats at the end of a selection in a .tex file. Both open the
