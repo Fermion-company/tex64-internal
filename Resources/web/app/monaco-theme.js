@@ -25,7 +25,7 @@ const lightTokenRules = [
     { token: "delimiter", foreground: "795E26" },
 ];
 const darkThemeColors = {
-    "editor.background": "#1E1E1E",
+    "editor.background": "#1A1A19",
     "editor.foreground": "#D4D4D4",
     "editorLineNumber.foreground": "#858585",
     "editorLineNumber.activeForeground": "#C6C6C6",
@@ -38,7 +38,7 @@ const darkThemeColors = {
     "editorIndentGuide.background": "#404040",
     "editorIndentGuide.activeBackground": "#707070",
     "editorWhitespace.foreground": "#404040",
-    "editorGutter.background": "#1E1E1E",
+    "editorGutter.background": "#1A1A19",
     "editorWidget.background": "#252526",
     "editorWidget.border": "#454545",
     "editorHoverWidget.background": "#252526",
@@ -72,7 +72,7 @@ const darkThemeColors = {
     "editorRuler.foreground": "#5A5A5A",
 };
 const lightThemeColors = {
-    "editor.background": "#F8FAFC",
+    "editor.background": "#FCFBF8",
     "editor.foreground": "#1F2937",
     "editorLineNumber.foreground": "#94A3B8",
     "editorLineNumber.activeForeground": "#334155",
@@ -85,7 +85,7 @@ const lightThemeColors = {
     "editorIndentGuide.background": "#E2E8F0",
     "editorIndentGuide.activeBackground": "#CBD5E1",
     "editorWhitespace.foreground": "#CBD5E1",
-    "editorGutter.background": "#F1F5F9",
+    "editorGutter.background": "#F4F3EE",
     "editorWidget.background": "#FBFCFE",
     "editorWidget.border": "#CBD5E1",
     "editorHoverWidget.background": "#FBFCFE",
