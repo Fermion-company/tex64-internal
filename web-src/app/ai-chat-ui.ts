@@ -67,6 +67,16 @@ type AiChatDeps = {
   /** Opens the settings overlay on a page (the usage line points at Account). */
 };
 
+export type VoiceInstructionSelection = {
+  path: string;
+  text: string;
+  isDirty: boolean;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+};
+
 export type AiChatApi = {
   handleSettings: (settings: AgentSettings) => void;
   handleState: (state: AgentUiState) => void;
@@ -110,6 +120,14 @@ export type AiChatApi = {
   handleBranchResult: (payload: { ok?: boolean; conversationId?: string; error?: string }) => void;
   handleProposalScope: (payload: { conversationId?: string; proposalId?: string; page?: number }) => void;
   handleTranscribeResult: (payload: { requestId?: string; ok?: boolean; text?: string; error?: string; code?: string }) => void;
+  /**
+   * The range a voice edit is about (the selection when recording started,
+   * or the paragraph around the cursor): shown as the chip and sent as the
+   * request's context until sendVoiceInstruction or null clears it.
+   */
+  holdVoiceSelection: (selection: VoiceInstructionSelection | null) => void;
+  /** A spoken edit instruction from the editor: sent as it is. The composer draft is kept. */
+  sendVoiceInstruction: (text: string) => void;
   handleDocumentMap: (payload: {
     requestId?: string;
     mainFile?: string | null;
@@ -494,10 +512,15 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   // first referenced item and clears once sent.
   let pdfPlace: { page: number; path: string; line: number; text: string } | null = null;
   let pendingPdfAsk: { requestId: string; page: number; text: string } | null = null;
+  // The range a spoken instruction is about, fixed when recording starts:
+  // the chip and the request read it in place of the editor's selection
+  // (which may have moved, or be empty: the paragraph around the cursor).
+  let voiceSelection: VoiceInstructionSelection | null = null;
+  const getSelectionForContext = () => voiceSelection ?? deps.getActiveSelectionSnapshot?.() ?? null;
   const updateContextBar = createContextBarUpdater({
     aiContextBar,
     getActiveFilePath: deps.getActiveFilePath,
-    getActiveSelectionSnapshot: deps.getActiveSelectionSnapshot,
+    getActiveSelectionSnapshot: getSelectionForContext,
     getActiveCursorPosition: deps.getActiveCursorPosition,
     getPdfPlace: () => pdfPlace,
     onClearPdfPlace: () => {
@@ -637,7 +660,10 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     }
   };
 
-  const _rawBuildContextPayload = createContextPayloadBuilder(deps);
+  const _rawBuildContextPayload = createContextPayloadBuilder({
+    ...deps,
+    getActiveSelectionSnapshot: getSelectionForContext,
+  });
   const buildContextPayload = (extras: ContextExtras = {}) => {
     const refs = mentionController ? mentionController.getExplicitRefs() : [];
     const placeRefs = pdfPlace
@@ -1496,6 +1522,24 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     askFromPdf,
     handlePdfReverseResult,
     handleTranscribeResult: (payload) => voice.handleTranscribeResult(payload),
+    holdVoiceSelection: (selection) => {
+      voiceSelection = selection ?? null;
+      updateContextBar();
+    },
+    sendVoiceInstruction: (text) => {
+      const trimmed = typeof text === "string" ? text.trim() : "";
+      if (!trimmed || !eventApi) {
+        voiceSelection = null;
+        updateContextBar();
+        return;
+      }
+      try {
+        eventApi.submitMessage(trimmed, { clearInput: false });
+      } finally {
+        voiceSelection = null;
+        updateContextBar();
+      }
+    },
     handleDocumentMap,
     handleWorkspaceChanged,
     refreshContextBar: updateContextBar,

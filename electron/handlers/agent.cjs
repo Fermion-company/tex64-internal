@@ -777,6 +777,15 @@ const createAgentHandlers = (deps) => {
       reply({ ok: false, error: buffer.byteLength > MAX_TRANSCRIBE_BYTES ? "The recording is too long." : "The recording is too short." });
       return;
     }
+    // Developer fallback, off unless set: TEX64_VOICE_FAKE_TRANSCRIPT="..."
+    // answers with that text instead of calling the platform, so the paths
+    // after transcription can be exercised without a microphone or quota.
+    // Set but empty ("") stands for a transcription that heard nothing.
+    if (typeof process.env.TEX64_VOICE_FAKE_TRANSCRIPT === "string") {
+      const fakeTranscript = process.env.TEX64_VOICE_FAKE_TRANSCRIPT.trim();
+      reply(fakeTranscript ? { ok: true, text: fakeTranscript } : { ok: false, code: "empty", error: "Nothing was heard." });
+      return;
+    }
     const allowed = await guardAiAccess("voice", "voice", true);
     if (!allowed) {
       reply({ ok: false, error: "Axiom is not available right now." });
