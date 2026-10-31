@@ -18,7 +18,9 @@ const MAX_BINARY_BYTES = 50 * 1024 * 1024;
 const IGNORED_DIRS = new Set([".git", ".tex64", "node_modules", ".venv", "venv", "__pycache__", ".svn", ".hg", "DerivedData"]);
 const INTERMEDIATE_RE = /\.(aux|log|fdb_latexmk|fls|synctex(?:\.gz)?|out|toc|bbl|blg|lof|lot|nav|snm|vrb|run\.xml|bcf|idx|ilg|ind|glo|gls|xdv|dvi)$/i;
 const SECRET_RE = /(^|\/)(\.env(?:\..*)?|\.npmrc|\.netrc|credentials(?:\.json)?|secrets?(?:\..*)?|id_(rsa|ed25519|ecdsa)(?:\.pub)?)$|\.(pem|key|p12|pfx)$/i;
-const TEMP_RE = /\.tmp-[^/]+$|(^|\/)\.DS_Store$|(^|\/)~\$|\.swp$/;
+// .local-<stamp> copies are a guest's own offline edits kept aside on rejoin;
+// they stay private to that mirror.
+const TEMP_RE = /\.tmp-[^/]+$|\.local-\d{4}-\d{2}-\d{2}T[\d-]+(\.[^/]*)?$|(^|\/)\.DS_Store$|(^|\/)~\$|\.swp$/;
 const TEXT_EXTENSIONS = new Set([
   "tex", "bib", "sty", "cls", "bst", "bbx", "cbx", "cfg", "def", "lbx", "ins", "dtx", "ltx", "txt",
   "tikz", "pgf", "mp", "asy", "lua", "bibtex", "md", "csv", "tsv", "json", "yaml", "yml", "xml", "svg",

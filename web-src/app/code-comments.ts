@@ -67,6 +67,7 @@ type EditorLike = {
     keybindings?: number[];
     contextMenuGroupId?: string;
     contextMenuOrder?: number;
+    precondition?: string;
     run: () => unknown;
   }) => void;
   deltaDecorations?: (oldDecorations: string[], newDecorations: unknown[]) => string[];
@@ -272,6 +273,8 @@ const createCodeCommentDialog = (options: {
   title: string;
   initialText: string;
   submitLabel: string;
+  quote?: string;
+  placeholder?: string;
 }): Promise<string | null> =>
   new Promise((resolve) => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -288,11 +291,17 @@ const createCodeCommentDialog = (options: {
     title.className = "modal-title code-comment-modal-title";
     title.textContent = options.title;
 
+    const quote = document.createElement("blockquote");
+    quote.className = "code-comment-modal-quote";
+    quote.textContent = options.quote ?? "";
+    quote.hidden = !options.quote;
+    quote.dataset.noI18n = "true";
+
     const textarea = document.createElement("textarea");
     textarea.className = "modal-input code-comment-modal-input";
     textarea.value = options.initialText;
     textarea.maxLength = MAX_COMMENT_CHARS;
-    textarea.placeholder = uiText("Write a comment", "コメントを入力");
+    textarea.placeholder = options.placeholder ?? uiText("Write a comment", "コメントを入力");
     textarea.setAttribute("aria-label", uiText("Comment", "コメント"));
 
     const help = document.createElement("div");
@@ -312,7 +321,7 @@ const createCodeCommentDialog = (options: {
     submitButton.textContent = options.submitLabel;
 
     actions.append(cancelButton, submitButton);
-    card.append(title, textarea, help, actions);
+    card.append(title, quote, textarea, help, actions);
     modal.append(card);
     document.body.append(modal);
 
@@ -786,6 +795,8 @@ export const createCodeCommentManager = (
       title: uiText("Reply to comment", "コメントに返信"),
       initialText: "",
       submitLabel: uiText("Reply", "返信"),
+      quote: `${comment.author ? `${comment.author}: ` : ""}${comment.text}`,
+      placeholder: uiText("Write a reply", "返信を入力"),
     });
     if (text === null) return;
     const reply: CommentReply = { author: authorName(), text, createdAt: Date.now() };
@@ -919,6 +930,15 @@ export const createCodeCommentManager = (
       return;
     }
     getState(group);
+    // Edit / reply / resolve / delete only make sense on a comment: the
+    // context menu shows them when the cursor or selection touches one.
+    const editorAny = editor as EditorLike & {
+      createContextKey?: (key: string, value: boolean) => { set: (value: boolean) => void };
+      onDidChangeCursorSelection?: (listener: () => void) => void;
+    };
+    const atComment = editorAny.createContextKey?.("tex64CommentAtCursor", false);
+    const syncAtComment = () => atComment?.set(Boolean(findCommentAtCurrentContext(group)));
+    editorAny.onDidChangeCursorSelection?.(() => queueMicrotask(syncAtComment));
     editor.onDidChangeModelContent?.(() => {
       const state = getState(group);
       syncRangesFromDecorations(state);
@@ -967,6 +987,7 @@ export const createCodeCommentManager = (
       label: uiText("Edit comment", "コメントを編集"),
       contextMenuGroupId: "9_comments",
       contextMenuOrder: 2,
+      precondition: "tex64CommentAtCursor",
       run: () => editCommentAtCursor(group),
     });
     editor.addAction?.({
@@ -974,6 +995,7 @@ export const createCodeCommentManager = (
       label: uiText("Reply to comment", "コメントに返信"),
       contextMenuGroupId: "9_comments",
       contextMenuOrder: 3,
+      precondition: "tex64CommentAtCursor",
       run: () => replyAtCursor(group),
     });
     editor.addAction?.({
@@ -981,6 +1003,7 @@ export const createCodeCommentManager = (
       label: uiText("Resolve / reopen comment", "コメントを解決・再開"),
       contextMenuGroupId: "9_comments",
       contextMenuOrder: 4,
+      precondition: "tex64CommentAtCursor",
       run: () => resolveAtCursor(group),
     });
     editor.addAction?.({
@@ -988,6 +1011,7 @@ export const createCodeCommentManager = (
       label: uiText("Delete comment", "コメントを削除"),
       contextMenuGroupId: "9_comments",
       contextMenuOrder: 5,
+      precondition: "tex64CommentAtCursor",
       run: () => deleteCommentAtCursor(group),
     });
     scheduleRefreshGroup(group);

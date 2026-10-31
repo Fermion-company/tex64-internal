@@ -2,6 +2,7 @@
 // left of Build only while a session runs.
 
 import { uiText } from "../i18n.js";
+import { showEditorNotice } from "../editor-notice.js";
 import { collabSession, type CollabState } from "./session.js";
 
 const MAX_DOTS = 5;
@@ -13,6 +14,7 @@ export const initCollabUi = () => {
   let busy = false;
   let errorText = "";
   let defaultName = "";
+  let infoText = "";
 
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = "") => {
     const node = document.createElement(tag);
@@ -52,6 +54,7 @@ export const initCollabUi = () => {
     dots.title = state.connected === false
       ? uiText("Reconnecting…", "再接続中…")
       : participants.map((participant) => participant.name).join(", ");
+    dots.setAttribute("aria-label", uiText("Collaboration session", "共同編集のセッション"));
   };
 
   const renderDialog = () => {
@@ -69,24 +72,37 @@ export const initCollabUi = () => {
         ? uiText("Joining the session…", "セッションに参加しています…")
         : uiText("Starting the session…", "セッションを開始しています…")));
     } else if (!state.active) {
+      const nameRow = el("label", "collab-dialog-field");
+      nameRow.append(el("span", "", uiText("Your name", "表示名")));
       const nameField = el("input", "history-name") as HTMLInputElement;
-      nameField.placeholder = uiText("Display name", "表示名");
-      nameField.setAttribute("aria-label", nameField.placeholder);
+      nameField.setAttribute("aria-label", uiText("Your name", "表示名"));
       nameField.maxLength = 40;
       nameField.value = defaultName;
-      const start = button(uiText("Start a session", "セッションを開始"), () => void run(() => collabSession.start(nameField.value.trim())), true);
+      nameField.addEventListener("input", () => { defaultName = nameField.value; });
+      nameRow.append(nameField);
+      const start = button(uiText("Start a session", "セッションを開始"), () => void run(() => collabSession.start(nameField.value.trim())));
+      const hostNote = el("p", "history-local", uiText(
+        "Starting a session opens a port on this computer; macOS may ask to allow incoming connections. Only people on the same network (LAN / VPN) can join.",
+        "セッションを開始するとこの Mac がポートを開きます。macOS が接続の許可を確認することがあります。参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。",
+      ));
       const linkField = el("input", "history-name") as HTMLInputElement;
       linkField.placeholder = uiText("Paste an invite link", "招待リンクを貼り付け");
       linkField.setAttribute("aria-label", linkField.placeholder);
       linkField.value = pendingLink;
       linkField.dataset.noI18n = "true";
       const join = button(uiText("Join with the link", "招待リンクで参加"), () => void run(() => collabSession.join(linkField.value.trim(), nameField.value.trim())));
+      const syncPrimary = () => {
+        const hasLink = linkField.value.trim().length > 0;
+        join.classList.toggle("is-primary", hasLink);
+        start.classList.toggle("is-primary", !hasLink);
+        hostNote.hidden = hasLink;
+      };
+      linkField.addEventListener("input", () => { pendingLink = linkField.value; syncPrimary(); });
+      syncPrimary();
       const rows = el("div", "collab-dialog-rows");
-      rows.append(nameField, start, linkField, join);
-      content.append(rows, el("p", "history-local", uiText(
-        "Starting a session opens a port on this computer; macOS may ask to allow incoming connections.",
-        "セッションを開始するとこの Mac がポートを開きます。macOS が接続の許可を確認することがあります。",
-      )));
+      rows.append(linkField, join);
+      content.append(nameRow, el("div", "collab-dialog-start"), hostNote, rows);
+      content.querySelector(".collab-dialog-start")!.append(start);
       window.requestAnimationFrame(() => (pendingLink ? linkField : nameField).focus());
     } else {
       if (state.inviteLink) {
@@ -103,7 +119,7 @@ export const initCollabUi = () => {
           );
         });
         linkRow.append(link, copy);
-        content.append(linkRow);
+        content.append(linkRow, el("p", "history-local", uiText("Only people on the same network (LAN / VPN) can join.", "参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。")));
       }
       const list = el("div", "collab-dialog-participants");
       for (const participant of state.participants) {
@@ -112,18 +128,38 @@ export const initCollabUi = () => {
         dot.style.setProperty("--collab-color", participant.color);
         const name = el("span", "collab-participant-name", participant.name);
         name.dataset.noI18n = "true";
+        const reconnecting = participant.self && state.role === "guest" && state.connected === false;
         const status = el("span", "history-date", participant.host
           ? uiText("host", "ホスト")
+          : reconnecting ? uiText("reconnecting", "再接続中")
           : participant.connected ? uiText("connected", "接続中") : uiText("disconnected", "切断"));
         row.append(dot, name, status);
         list.append(row);
       }
       content.append(list);
+      if (state.role === "guest" && state.rootPath) {
+        const where = el("p", "history-local", `${uiText("Your copy", "写し")}: ${state.rootPath} · ${uiText("It stays after you leave.", "退出後も残ります。")}`);
+        where.dataset.noI18n = "true";
+        content.append(where);
+      }
       if (state.role === "guest" && state.connected === false) content.append(el("p", "history-local", uiText("Reconnecting to the host…", "ホストに再接続しています…")));
-      content.append(button(state.role === "host" ? uiText("End the session", "セッションを終了") : uiText("Leave", "退出"), () => void run(() => collabSession.leave())));
+      if (infoText) content.append(el("p", "history-local", infoText));
     }
+    const actions = el("div", "history-confirm-actions");
     const close = button(uiText("Close", "閉じる"), () => dialog?.close());
-    dialog.replaceChildren(title, content, error, close);
+    close.autofocus = true;
+    actions.append(close);
+    if (state.active) {
+      const leave = state.role === "host"
+        ? button(uiText("End the session…", "セッションを終了…"), () => {
+          if (!window.confirm(uiText("End the session for everyone? Each participant keeps their copy.", "全員のセッションを終了しますか？各参加者の写しはそのまま残ります。"))) return;
+          void run(() => collabSession.leave());
+        })
+        : button(uiText("Leave", "退出"), () => void run(() => collabSession.leave()));
+      actions.append(leave);
+    }
+    dialog.replaceChildren(title, content, error, actions);
+    window.requestAnimationFrame(() => { if (!state.active && !busy) return; close.focus(); });
   };
 
   async function run(action: () => Promise<unknown>) {
@@ -134,7 +170,13 @@ export const initCollabUi = () => {
     try {
       await action();
       pendingLink = "";
+      const state = collabSession.getState();
+      const preserved = Number((state as { preserved?: number }).preserved || 0);
+      infoText = preserved > 0
+        ? uiText(`${preserved} file(s) edited after you left were kept as <name>.local-<time>.`, `退出後に編集した ${preserved} ファイルを <名前>.local-<日時> に退避しました。`)
+        : "";
     } catch (reason) {
+      // The link and the name stay in the fields for a retry.
       errorText = reason instanceof Error ? reason.message : String(reason);
     } finally {
       busy = false;
@@ -170,6 +212,9 @@ export const initCollabUi = () => {
   });
   collabSession.onMessage("collab:invite", (message) => {
     void openDialog(String(message.link || ""));
+  });
+  collabSession.onMessage("collab:notice", (message) => {
+    showEditorNotice(dots, String(message.message || ""), { owner: "collab", durationMs: 8000 });
   });
   dots?.addEventListener("click", () => void openDialog());
   renderDots(collabSession.getState());

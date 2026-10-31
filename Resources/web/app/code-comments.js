@@ -152,6 +152,7 @@ const createHoverMessage = (comment) => {
     return { value: lines.join("\n") };
 };
 const createCodeCommentDialog = (options) => new Promise((resolve) => {
+    var _a, _b;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const modal = document.createElement("div");
     modal.className = "modal code-comment-modal is-open";
@@ -163,11 +164,16 @@ const createCodeCommentDialog = (options) => new Promise((resolve) => {
     const title = document.createElement("h2");
     title.className = "modal-title code-comment-modal-title";
     title.textContent = options.title;
+    const quote = document.createElement("blockquote");
+    quote.className = "code-comment-modal-quote";
+    quote.textContent = (_a = options.quote) !== null && _a !== void 0 ? _a : "";
+    quote.hidden = !options.quote;
+    quote.dataset.noI18n = "true";
     const textarea = document.createElement("textarea");
     textarea.className = "modal-input code-comment-modal-input";
     textarea.value = options.initialText;
     textarea.maxLength = MAX_COMMENT_CHARS;
-    textarea.placeholder = uiText("Write a comment", "コメントを入力");
+    textarea.placeholder = (_b = options.placeholder) !== null && _b !== void 0 ? _b : uiText("Write a comment", "コメントを入力");
     textarea.setAttribute("aria-label", uiText("Comment", "コメント"));
     const help = document.createElement("div");
     help.className = "modal-help code-comment-modal-help";
@@ -182,7 +188,7 @@ const createCodeCommentDialog = (options) => new Promise((resolve) => {
     submitButton.className = "panel-button code-comment-modal-submit";
     submitButton.textContent = options.submitLabel;
     actions.append(cancelButton, submitButton);
-    card.append(title, textarea, help, actions);
+    card.append(title, quote, textarea, help, actions);
     modal.append(card);
     document.body.append(modal);
     let settled = false;
@@ -649,6 +655,8 @@ export const createCodeCommentManager = (monaco, deps) => {
             title: uiText("Reply to comment", "コメントに返信"),
             initialText: "",
             submitLabel: uiText("Reply", "返信"),
+            quote: `${comment.author ? `${comment.author}: ` : ""}${comment.text}`,
+            placeholder: uiText("Write a reply", "返信を入力"),
         });
         if (text === null)
             return;
@@ -778,23 +786,29 @@ export const createCodeCommentManager = (monaco, deps) => {
         }
     };
     const attachToEditor = (group) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
         const editor = group.editor;
         if (!editor) {
             return;
         }
         getState(group);
-        (_a = editor.onDidChangeModelContent) === null || _a === void 0 ? void 0 : _a.call(editor, () => {
+        // Edit / reply / resolve / delete only make sense on a comment: the
+        // context menu shows them when the cursor or selection touches one.
+        const editorAny = editor;
+        const atComment = (_a = editorAny.createContextKey) === null || _a === void 0 ? void 0 : _a.call(editorAny, "tex64CommentAtCursor", false);
+        const syncAtComment = () => atComment === null || atComment === void 0 ? void 0 : atComment.set(Boolean(findCommentAtCurrentContext(group)));
+        (_b = editorAny.onDidChangeCursorSelection) === null || _b === void 0 ? void 0 : _b.call(editorAny, () => queueMicrotask(syncAtComment));
+        (_c = editor.onDidChangeModelContent) === null || _c === void 0 ? void 0 : _c.call(editor, () => {
             const state = getState(group);
             syncRangesFromDecorations(state);
         });
-        (_b = editor.onDidChangeModel) === null || _b === void 0 ? void 0 : _b.call(editor, () => {
+        (_d = editor.onDidChangeModel) === null || _d === void 0 ? void 0 : _d.call(editor, () => {
             scheduleRefreshGroup(group);
         });
-        (_c = editor.onDidFocusEditorWidget) === null || _c === void 0 ? void 0 : _c.call(editor, () => {
+        (_e = editor.onDidFocusEditorWidget) === null || _e === void 0 ? void 0 : _e.call(editor, () => {
             scheduleRefreshGroup(group);
         });
-        (_d = editor.onMouseDown) === null || _d === void 0 ? void 0 : _d.call(editor, (event) => {
+        (_f = editor.onMouseDown) === null || _f === void 0 ? void 0 : _f.call(editor, (event) => {
             var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
             const target = event === null || event === void 0 ? void 0 : event.target;
             const glyphTargetType = (_b = (_a = monaco.editor) === null || _a === void 0 ? void 0 : _a.MouseTargetType) === null || _b === void 0 ? void 0 : _b.GUTTER_GLYPH_MARGIN;
@@ -811,39 +825,43 @@ export const createCodeCommentManager = (monaco, deps) => {
             event && ((_l = (_k = event.event) === null || _k === void 0 ? void 0 : _k.stopPropagation) === null || _l === void 0 ? void 0 : _l.call(_k));
             void editCommentAtLine(group, lineNumber);
         });
-        (_e = editor.addAction) === null || _e === void 0 ? void 0 : _e.call(editor, {
+        (_g = editor.addAction) === null || _g === void 0 ? void 0 : _g.call(editor, {
             id: `tex64.comments.add.${group.key}`,
             label: uiText("Add comment", "コメントを追加"),
             contextMenuGroupId: "9_comments",
             contextMenuOrder: 1,
             run: () => addOrEditComment(group),
         });
-        (_f = editor.addAction) === null || _f === void 0 ? void 0 : _f.call(editor, {
+        (_h = editor.addAction) === null || _h === void 0 ? void 0 : _h.call(editor, {
             id: `tex64.comments.edit.${group.key}`,
             label: uiText("Edit comment", "コメントを編集"),
             contextMenuGroupId: "9_comments",
             contextMenuOrder: 2,
+            precondition: "tex64CommentAtCursor",
             run: () => editCommentAtCursor(group),
         });
-        (_g = editor.addAction) === null || _g === void 0 ? void 0 : _g.call(editor, {
+        (_j = editor.addAction) === null || _j === void 0 ? void 0 : _j.call(editor, {
             id: `tex64.comments.reply.${group.key}`,
             label: uiText("Reply to comment", "コメントに返信"),
             contextMenuGroupId: "9_comments",
             contextMenuOrder: 3,
+            precondition: "tex64CommentAtCursor",
             run: () => replyAtCursor(group),
         });
-        (_h = editor.addAction) === null || _h === void 0 ? void 0 : _h.call(editor, {
+        (_k = editor.addAction) === null || _k === void 0 ? void 0 : _k.call(editor, {
             id: `tex64.comments.resolve.${group.key}`,
             label: uiText("Resolve / reopen comment", "コメントを解決・再開"),
             contextMenuGroupId: "9_comments",
             contextMenuOrder: 4,
+            precondition: "tex64CommentAtCursor",
             run: () => resolveAtCursor(group),
         });
-        (_j = editor.addAction) === null || _j === void 0 ? void 0 : _j.call(editor, {
+        (_l = editor.addAction) === null || _l === void 0 ? void 0 : _l.call(editor, {
             id: `tex64.comments.delete.${group.key}`,
             label: uiText("Delete comment", "コメントを削除"),
             contextMenuGroupId: "9_comments",
             contextMenuOrder: 5,
+            precondition: "tex64CommentAtCursor",
             run: () => deleteCommentAtCursor(group),
         });
         scheduleRefreshGroup(group);

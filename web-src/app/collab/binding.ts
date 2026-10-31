@@ -182,7 +182,7 @@ export const initCollabBinding = (deps: {
     doc.on("update", onUpdate);
     entry.disposables.push(() => doc.off("update", onUpdate));
     const onAwareness = ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
-      collabCursors.observe(awareness.getStates(), clientId);
+      collabCursors.observe(awareness.getStates(), clientId, origin === REMOTE);
       if (origin === REMOTE) return;
       const changed = added.concat(updated, removed);
       sendFrame(docId, "awareness", lib.awarenessProtocol.encodeAwarenessUpdate(awareness, changed));

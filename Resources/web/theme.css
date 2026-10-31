@@ -5948,8 +5948,8 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   border-bottom: 1px dotted rgba(227, 179, 65, 0.72);
 }
 
-.monaco-editor .code-comment-range.is-resolved { background: rgba(120, 130, 140, 0.12); border-bottom-color: rgba(140, 150, 160, 0.5); }
-.monaco-editor .code-comment-glyph.is-resolved::after { opacity: .45; }
+.monaco-editor .code-comment-range.is-resolved { background: transparent; border-bottom: 1px dashed rgba(140, 150, 160, 0.55); }
+.monaco-editor .code-comment-glyph.is-resolved::after { opacity: .4; content: "✓"; }
 
 .monaco-editor .code-comment-line {
   border-left: 2px solid rgba(227, 179, 65, 0.82);
@@ -10728,3 +10728,8 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .collab-dialog .history-local { color: var(--muted); font-size: 12px; margin: 10px 0; }
 .collab-dialog .history-error { margin: 8px 0; }
 .yRemoteSelection { pointer-events: none; }
+.collab-dialog-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 12px; font-size: 12px; color: var(--muted); }
+.collab-dialog-start { margin: 0 0 4px; }
+.collab-guest-note { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+.is-collab-guest .history-list, .is-collab-guest .git-files { opacity: .6; }
+.code-comment-modal-quote { margin: 0 0 8px; padding: 6px 10px; border-left: 3px solid var(--panel-border-strong); color: var(--muted); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow-y: auto; }

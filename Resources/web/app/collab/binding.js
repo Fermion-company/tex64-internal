@@ -147,7 +147,7 @@ export const initCollabBinding = (deps) => {
         doc.on("update", onUpdate);
         entry.disposables.push(() => doc.off("update", onUpdate));
         const onAwareness = ({ added, updated, removed }, origin) => {
-            collabCursors.observe(awareness.getStates(), clientId);
+            collabCursors.observe(awareness.getStates(), clientId, origin === REMOTE);
             if (origin === REMOTE)
                 return;
             const changed = added.concat(updated, removed);

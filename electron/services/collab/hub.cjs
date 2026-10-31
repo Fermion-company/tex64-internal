@@ -88,6 +88,7 @@ class CollabHub extends EventEmitter {
       connected: session.role === "host" ? true : Boolean(session.transport?.connected),
       participants,
       rootPath: session.rootPath,
+      preserved: session.preserved ? session.preserved.length : 0,
       textFiles: [...session.docs.keys()].filter((id) => id !== SESSION_DOC && !session.docs.get(id).deleted),
     };
   }
@@ -256,13 +257,33 @@ class CollabHub extends EventEmitter {
       guest.on("reconnecting", () => this.pushState());
       guest.connect();
       const hello = await welcome;
+      // Doc frames follow the welcome immediately; everything that decides
+      // how they are written must be in place before the first await below.
+      session.joining = true;
+      session.preserved = [];
+      session.diskSync.paused = true;
       session.id = hello.sessionId;
       session.name = hello.name || session.name;
       session.epoch = hello.epoch || 1;
       session.hostName = hello.hostName;
       session.rootFile = hello.rootFile || "";
       session.rootPath = path.join(this.deps.collabRoot(), `${safeSessionFolderName(session.name)}-${session.id.slice(0, 8)}`);
+      const rejoining = await fsp.readdir(session.rootPath).then((names) => names.some((name) => name !== ".tex64")).catch(() => false);
       await fsp.mkdir(path.join(session.rootPath, ".tex64"), { recursive: true });
+      if (rejoining) {
+        // Edits made in the mirror after leaving are kept: a History version
+        // first (when the lease is free), and any file that differs from the
+        // host's copy is set aside as <name>.local-<stamp><ext> before the
+        // host's content replaces it.
+        session.phase = "opening";
+        await this.deps.openWorkspacePath(session.rootPath);
+        if (this.session !== session) throw new Error("The join was cancelled.");
+        session.diskSync.coordinated = true;
+        try {
+          await this.deps.recordVersion?.(this.recordLabel("rejoin", [displayName]));
+        } catch {}
+        session.phase = "starting";
+      }
       if (session.rootFile) {
         const settingsPath = path.join(session.rootPath, ".tex64", "settings.json");
         let settings = {};
@@ -277,11 +298,17 @@ class CollabHub extends EventEmitter {
       // The session doc tells us which files exist; wait for every text doc
       // and every blob, then write the mirror and open it.
       await this.waitForInitialSync(session);
+      session.diskSync.resume();
       await session.diskSync.flush(60000);
-      session.phase = "opening";
-      await this.deps.openWorkspacePath(session.rootPath);
-      if (this.session !== session) throw new Error("The join was cancelled.");
-      session.diskSync.coordinated = true;
+      session.joining = false;
+      if (!rejoining) {
+        session.phase = "opening";
+        await this.deps.openWorkspacePath(session.rootPath);
+        if (this.session !== session) throw new Error("The join was cancelled.");
+        session.diskSync.coordinated = true;
+      } else {
+        this.deps.refreshTree?.();
+      }
       session.manifest = new WorkspaceManifest(session.rootPath);
       await session.manifest.scan();
       for (const [relative, entry] of session.manifest.entries) {
@@ -294,7 +321,31 @@ class CollabHub extends EventEmitter {
       return this.status();
     } catch (error) {
       this.teardown(session);
+      this.pushState();
       throw error;
+    }
+  }
+
+  // Guest join onto an existing mirror: keep a copy of a file whose local
+  // content differs from what the host sends.
+  async preserveLocal(session, relative, incoming) {
+    if (!session.joining || !session.rootPath) return;
+    const absolute = path.join(session.rootPath, relative);
+    let current;
+    try {
+      current = await fsp.readFile(absolute);
+    } catch {
+      return;
+    }
+    if (typeof incoming === "string" ? current.toString("utf8") === incoming : Buffer.from(incoming).equals(current)) return;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const extension = path.extname(relative);
+    const target = `${absolute.slice(0, absolute.length - extension.length)}.local-${stamp}${extension}`;
+    try {
+      await fsp.copyFile(absolute, target);
+      session.preserved.push(relative);
+    } catch (error) {
+      console.warn("[collab] preserve failed", relative, error?.message || error);
     }
   }
 
@@ -335,12 +386,18 @@ class CollabHub extends EventEmitter {
     session.phase = "leaving";
     this.pushState();
     await session.diskSync.flush();
+    // The JSON file must hold the final line numbers before the editor reads
+    // it back outside the session.
+    clearTimeout(session.commentsTimer);
+    session.commentsTimer = null;
+    await this.persistComments(session, { silent: true });
     if (role === "host") {
       session.transport?.broadcast(transport.encodeControl({ type: "end" }));
     }
     const names = this.participantNames(session);
     this.teardown(session);
     this.pushState();
+    this.deps.sendCollab({ type: "collab:comments", sessionId: session.id });
     void this.deps.recordVersion?.(this.recordLabel(role === "host" ? "end" : "leave", names)).catch(() => {});
     return { ok: true };
   }
@@ -381,8 +438,10 @@ class CollabHub extends EventEmitter {
   }
 
   recordLabel(reason, names) {
-    const list = names.join(", ");
-    return text(this.deps.locale(), `Collaboration: ${list}`, `共同編集: ${list}`);
+    const list = [...new Set(names)].join(", ");
+    const ja = { start: "開始", end: "終了", join: "参加", leave: "退出", rejoin: "再参加前" }[reason] || reason;
+    const en = { start: "started", end: "ended", join: "joined", leave: "left", rejoin: "before rejoining" }[reason] || reason;
+    return text(this.deps.locale(), `Collaboration ${en}: ${list}`, `共同編集 ${ja}: ${list}`);
   }
 
   async autoRecord(session, reason) {
@@ -441,6 +500,10 @@ class CollabHub extends EventEmitter {
     try {
       baseline = fs.readFileSync(path.join(session.rootPath, docId), "utf8");
     } catch {}
+    if (session.joining && baseline !== null && baseline !== entry.ytext.toString()) {
+      void this.preserveLocal(session, docId, entry.ytext.toString()).then(() => this.attachDoc(session, docId, baseline));
+      return;
+    }
     this.attachDoc(session, docId, baseline);
   }
 
@@ -459,6 +522,8 @@ class CollabHub extends EventEmitter {
     if (entry.ytext && entry.attached && origin !== DISK_ORIGIN) session.diskSync.noteUpdate(entry.docId);
     if (entry.docId === SESSION_DOC) this.pushState();
     else if (session.role === "host" && origin !== DISK_ORIGIN) this.logUpdate(session, entry.docId, update, origin);
+    // Comment anchors follow the text; keep the JSON's absolute lines current.
+    if (entry.docId !== SESSION_DOC && session.sessionDoc?.getMap("comments").size) this.scheduleCommentsPersist(session, 1500);
   }
 
   // Who wrote what: the host appends every participant update to
@@ -523,6 +588,11 @@ class CollabHub extends EventEmitter {
     if (this.session !== session) return;
     if (session.role === "host") {
       const existing = session.peers.get(conn.id);
+      if (!existing) {
+        for (const [id, stale] of session.peers) {
+          if (!stale.connected && !stale.host && stale.name === sanitizeName(conn.hello?.name, "")) session.peers.delete(id);
+        }
+      }
       const peer = existing || { id: conn.id, name: sanitizeName(conn.hello?.name, "guest"), color: this.nextColor(session), connected: true, host: false, conn };
       peer.conn = conn;
       peer.connected = true;
@@ -566,13 +636,18 @@ class CollabHub extends EventEmitter {
         peer.conn = null;
         this.broadcastPeers(session);
         this.pushState();
-        void this.autoRecord(session, "leave");
+        // A dropped socket usually reconnects within seconds; only a peer
+        // that stays away counts as having left.
+        setTimeout(() => {
+          if (this.session === session && session.peers.get(conn.id) === peer && !peer.connected) void this.autoRecord(session, "leave");
+        }, 15000).unref?.();
       }
       return;
     }
     this.pushState();
     if (info?.code === 1000 && session.phase === "active") {
       // The host ended the session or closed cleanly; keep the files, stop.
+      this.notice(text(this.deps.locale(), "The host ended the session. Your files stay in this folder.", "ホストがセッションを終了しました。ファイルはこのフォルダに残っています。"));
       void this.leave();
     }
   }
@@ -644,7 +719,10 @@ class CollabHub extends EventEmitter {
         if (session.role === "guest") this.applyPeers(session, message.peers);
         return;
       case "end":
-        if (session.role === "guest") void this.leave();
+        if (session.role === "guest") {
+          this.notice(text(this.deps.locale(), "The host ended the session. Your files stay in this folder.", "ホストがセッションを終了しました。ファイルはこのフォルダに残っています。"));
+          void this.leave();
+        }
         return;
       case "need-blob":
         if (session.role !== "host" || !Array.isArray(message.paths)) return;
@@ -777,6 +855,7 @@ class CollabHub extends EventEmitter {
     }
     const absolute = await resolveInsideRoot(session.rootPath, relative);
     if (!absolute) return;
+    await this.preserveLocal(session, relative, frame.bytes);
     const write = async () => {
       await fsp.mkdir(path.dirname(absolute), { recursive: true });
       const temporary = `${absolute}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -999,24 +1078,24 @@ class CollabHub extends EventEmitter {
     return { schema: 1, comments };
   }
 
-  scheduleCommentsPersist(session) {
+  scheduleCommentsPersist(session, delay = 400) {
     if (this.session !== session) return;
-    clearTimeout(session.commentsTimer);
+    if (session.commentsTimer) return;
     session.commentsTimer = setTimeout(() => {
       session.commentsTimer = null;
       void this.persistComments(session);
-    }, 400);
+    }, delay);
     session.commentsTimer.unref?.();
   }
 
-  async persistComments(session) {
-    if (this.session !== session || !session.rootPath) return;
+  async persistComments(session, { silent = false } = {}) {
+    if (this.session !== session || !session.rootPath || !session.sessionDoc) return;
     try {
       const payload = this.exportComments(session);
       const target = this.commentsPath(session);
       await fsp.mkdir(path.dirname(target), { recursive: true });
       await fsp.writeFile(target, JSON.stringify(payload, null, 2), "utf8");
-      this.deps.sendCollab({ type: "collab:comments", sessionId: session.id });
+      if (!silent) this.deps.sendCollab({ type: "collab:comments", sessionId: session.id });
     } catch (error) {
       console.warn("[collab] comments persist failed", error?.message || error);
     }

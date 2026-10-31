@@ -152,6 +152,14 @@ class DiskSync {
     // filesystem writes; afterwards they take the workspace lease.
     this.coordinated = false;
     this.stopped = false;
+    // While paused (a guest joining onto an existing mirror), edits collect
+    // in the Y.Docs and nothing is written until resume().
+    this.paused = false;
+  }
+
+  resume() {
+    this.paused = false;
+    for (const docId of this.docs.keys()) this.noteUpdate(docId);
   }
 
   absolute(relative) {
@@ -195,7 +203,7 @@ class DiskSync {
     const entry = this.docs.get(docId);
     if (!entry || this.stopped) return;
     entry.dirty = true;
-    if (entry.timer) return;
+    if (entry.timer || this.paused) return;
     entry.timer = setTimeout(() => {
       entry.timer = null;
       void this.writeNow(docId);
