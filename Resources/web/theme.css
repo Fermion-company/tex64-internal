@@ -51,8 +51,9 @@
   --muted: #87867F;
   
   /* Accents */
-  --accent: #26908A;
+  --accent: #1F7F79;
   --accent-strong: #7FD3DC;
+  --accent-hover: #1C7570; /* primary-button hover; keeps white text ≥ 4.5:1 */
   --accent-soft: rgba(127, 211, 220, 0.14);
   --accent-soft-strong: rgba(127, 211, 220, 0.24);
   --focus-ring: rgba(127, 211, 220, 0.45);
@@ -145,8 +146,9 @@
   --text-soft: #5E5D59;
   --muted: #87867F;
 
-  --accent: #1E8A84;
+  --accent: #1A7A75;
   --accent-strong: #10706B;
+  --accent-hover: #176B66;
   --accent-soft: rgba(30, 138, 132, 0.12);
   --accent-soft-strong: rgba(30, 138, 132, 0.22);
   --focus-ring: rgba(30, 138, 132, 0.4);
@@ -613,8 +615,8 @@ body.has-onboarding .launcher {
 }
 
 .launcher-action.primary:not(:disabled):hover {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .launcher-action:disabled {
@@ -1346,12 +1348,12 @@ body.has-onboarding .launcher {
 }
 
 .block-mode-toggle:not(.is-edit) .block-mode-toggle-label--insert {
-  color: var(--accent);
+  color: var(--accent-strong);
   font-weight: 600;
 }
 
 .block-mode-toggle.is-edit .block-mode-toggle-label--edit {
-  color: var(--accent);
+  color: var(--accent-strong);
   font-weight: 600;
 }
 
@@ -1995,7 +1997,7 @@ math-field.block-math-field::placeholder {
 }
 
 .search-rename-icon {
-  color: var(--accent);
+  color: var(--accent-strong);
   opacity: 0.8;
   flex-shrink: 0;
 }
@@ -2094,7 +2096,7 @@ math-field.block-math-field::placeholder {
 }
 
 .search-rename-scope input:checked + span {
-  color: var(--accent);
+  color: var(--accent-strong);
   background: var(--accent-soft);
   border-color: var(--focus-ring);
 }
@@ -3473,8 +3475,8 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   transition: background 0.16s ease, border-color 0.16s ease, transform 0.12s ease;
 }
 .panel[data-panel="settings"] .env-setup-btn:hover {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
   transform: translateY(-1px);
 }
 .panel[data-panel="settings"] .env-setup-btn:active {
@@ -3599,7 +3601,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   text-underline-offset: 2px;
 }
 .env-link:hover {
-  color: var(--accent);
+  color: var(--accent-strong);
 }
 
 .env-progress {
@@ -3878,7 +3880,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 }
 
 .outline-item[data-kind="figure"] {
-  color: var(--accent);
+  color: var(--accent-strong);
 }
 
 .outline-item[data-kind="figure"]::before {
@@ -4062,7 +4064,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   content: "●";
   margin-left: 6px;
   font-size: 9px;
-  color: var(--accent);
+  color: var(--accent-strong);
 }
 
 .tab-group {
@@ -4745,7 +4747,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .editor-tab.is-dirty .editor-tab-label::after {
   content: "●";
   font-size: 9px;
-  color: var(--accent);
+  color: var(--accent-strong);
 }
 
 .editor-tab-close {
@@ -4774,7 +4776,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--accent);
+  color: var(--accent-strong);
 }
 
 .editor-surface {
@@ -5186,7 +5188,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .announcement-card #announcement-modal-link:hover,
 .announcement-card #announcement-modal-submit:hover:not(:disabled) {
-  background: var(--accent-strong);
+  background: var(--accent-hover);
   color: #ffffff;
   transform: none;
 }
@@ -5301,13 +5303,13 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   color: #fff;
   font-weight: 500;
   border: none;
-  box-shadow: 0 2px 8px rgba(127, 211, 220, 0.3);
+  box-shadow: none;
 }
 
 #diff-modal-submit:hover {
-  background: var(--accent-strong);
+  background: var(--accent-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(127, 211, 220, 0.4);
+  box-shadow: none;
 }
 
 #diff-modal-submit:active {
@@ -5973,7 +5975,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 
 .code-comment-modal-submit:hover {
-  background: var(--accent-strong);
+  background: var(--accent-hover);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -6570,7 +6572,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   cursor: pointer;
 }
 .ai-message-expand:hover {
-  color: var(--accent);
+  color: var(--accent-strong);
 }
 
 /* Assistant */
@@ -6830,10 +6832,10 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 .ai-file-link:hover {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-strong);
 }
 .ai-external-link {
-  color: var(--accent);
+  color: var(--accent-strong);
   text-decoration: underline;
   text-underline-offset: 2px;
   overflow-wrap: anywhere;
@@ -7306,7 +7308,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   cursor: default;
 }
 .ai-btn-send:hover:not(:disabled) {
-  background: var(--accent-strong);
+  background: var(--accent-hover);
   box-shadow: none;
 }
 .ai-btn-send:active:not(:disabled) {
@@ -7954,7 +7956,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 /* A stopped turn offers to continue; that is an invitation, not a danger. */
 .ai-btn-stop.is-resume {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-strong);
 }
 .ai-btn-stop.is-resume:hover:not(:disabled) {
   background: var(--accent-soft-strong);
@@ -8927,7 +8929,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 
 .block-format-option.is-active {
-  color: var(--accent);
+  color: var(--accent-strong);
   font-weight: 600;
 }
 
@@ -9306,7 +9308,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   line-height: 1.4;
 }
 .plan-feature-mark {
-  color: var(--accent);
+  color: var(--accent-strong);
   line-height: 1.3;
   flex-shrink: 0;
 }
@@ -9336,8 +9338,8 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   color: #fff;
 }
 .plan-cta.primary:hover {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 .plan-cta.is-current,
 .plan-cta:disabled {
@@ -9611,7 +9613,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 
 .feedback-overlay-send:hover {
-  background: var(--accent-strong);
+  background: var(--accent-hover);
 }
 
 .feedback-overlay-send:active {
