@@ -1256,7 +1256,7 @@ body.has-onboarding .launcher {
   border: none;
   background: var(--control-bg);
   color: var(--text);
-  padding: 5px 8px 3px;
+  padding: 4.5px 8px 3.5px;
   border-radius: var(--radius-sm);
   font-size: 11px;
   cursor: pointer;
@@ -2796,7 +2796,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 
 /* Settings Page Panel Button Overrides */
 .settings-page .panel-button {
-  padding: calc(var(--space-2) + 1px) var(--space-5) calc(var(--space-2) - 1px);
+  padding: calc(var(--space-2) + 0.5px) var(--space-5) calc(var(--space-2) - 0.5px);
   border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 500;
@@ -3117,7 +3117,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 6px calc(10px - 0.02em) 6px 10px;
+  padding: 4.5px 10px 3.5px;
   border-radius: 4px;
   border: 1px solid var(--panel-border-strong);
   background: transparent;
@@ -4590,6 +4590,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  transform: translateY(0.5px);
 }
 
 .update-button-spinner {
@@ -4775,7 +4776,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   cursor: pointer;
   font-size: 12px;
   line-height: 1;
-  padding: 4px;
+  padding: 1px 4px 0;
   width: 20px;
   height: 20px;
   display: inline-flex;
@@ -5203,7 +5204,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   font-size: 13.5px;
   font-weight: 500;
   height: 38px;
-  padding: 2px 18px 0;
+  padding: 0 18px;
   border-radius: var(--radius-sm);
   letter-spacing: 0.005em;
 }
@@ -5225,7 +5226,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   color: #ffffff;
   background: var(--accent);
   border: none;
-  padding: 2px 22px 0;
+  padding: 0 22px;
 }
 
 .announcement-card #announcement-modal-link:hover,
@@ -5528,7 +5529,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 .modal-actions .panel-button {
-  padding: 9px 18px 7px;
+  padding: 8.5px 18px 7.5px;
   font-size: 12px;
   font-weight: 500;
   border-radius: var(--radius-sm);
@@ -6228,7 +6229,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px calc(5px - 0.06em) 4px 5px;
+  padding: 4.5px calc(5px - 0.06em) 3.5px 5px;
   border-radius: 4px;
   border: 1px solid var(--teal-line);
   background: var(--teal-soft);
@@ -6305,7 +6306,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   width: 100%;
   height: 30px;
   margin-top: 10px;
-  padding: 2px 10px 0;
+  padding: 1px 10px 0;
   border-radius: var(--radius-sm);
   border: none;
   cursor: pointer;
@@ -9381,7 +9382,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 .plan-cta {
   width: 100%;
-  padding: 12px 0 10px;
+  padding: 11.5px 0 10.5px;
   border-radius: 999px;
   border: 1px solid var(--panel-border-strong);
   background: transparent;
