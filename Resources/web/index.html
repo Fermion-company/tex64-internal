@@ -596,14 +596,15 @@
                         </button>
                         <div class="ai-model-menu" id="ai-model-menu" role="listbox" aria-label="Axiom model">
                           <div class="ai-model-menu-list"></div>
-                          <div class="ai-model-upsell">
-                            <div class="ai-model-upsell-row">
-                              <svg class="ai-model-upsell-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
-                              <div class="ai-model-upsell-text">
-                                <span class="ai-model-upsell-title">Available on the Pro plan</span>
-                              </div>
+                          <div class="ai-model-upsell" role="group" aria-labelledby="ai-model-upsell-heading">
+                            <div class="ai-model-upsell-card">
+                              <button class="ai-model-upsell-close" type="button" aria-label="Close">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                              </button>
+                              <div class="ai-model-upsell-heading" id="ai-model-upsell-heading" data-no-i18n>Axiom 1.0 Pro</div>
+                              <div class="ai-model-upsell-title">Available on the Pro plan</div>
+                              <button class="ai-model-upsell-btn" type="button">See Pro plans</button>
                             </div>
-                            <button class="ai-model-upsell-btn" type="button">See Pro plans</button>
                           </div>
                         </div>
                       </div>
@@ -1837,16 +1838,8 @@
         aria-labelledby="announcement-modal-title"
       >
         <div class="announcement-heading">
-          <div class="announcement-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3z"></path>
-              <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"></path>
-            </svg>
-          </div>
-          <div class="announcement-heading-copy">
-            <div class="announcement-eyebrow" id="announcement-modal-eyebrow"></div>
-            <div class="modal-title announcement-title" id="announcement-modal-title"></div>
-          </div>
+          <div class="announcement-eyebrow" id="announcement-modal-eyebrow"></div>
+          <div class="modal-title announcement-title" id="announcement-modal-title"></div>
         </div>
         <div class="modal-body">
           <div class="modal-help announcement-body" id="announcement-modal-body"></div>
@@ -1861,6 +1854,9 @@
           </div>
         </div>
         <div class="modal-actions">
+          <button class="panel-button ghost" id="announcement-modal-close" type="button">
+            Close
+          </button>
           <button
             class="panel-button ghost is-hidden"
             id="announcement-modal-link"
@@ -1874,9 +1870,6 @@
             aria-hidden="true"
           >
             Send
-          </button>
-          <button class="panel-button ghost" id="announcement-modal-close" type="button">
-            Close
           </button>
         </div>
       </div>
