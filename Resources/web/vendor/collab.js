@@ -32,9 +32,9 @@ var TeX64Collab = (() => {
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
   var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
-  // ../../TeX64-Pro/node_modules/.cache/tex64-collab-vendor/monaco-shim.cjs
+  // node_modules/.cache/tex64-collab-vendor/monaco-shim.cjs
   var require_monaco_shim = __commonJS({
-    "../../TeX64-Pro/node_modules/.cache/tex64-collab-vendor/monaco-shim.cjs"(exports, module) {
+    "node_modules/.cache/tex64-collab-vendor/monaco-shim.cjs"(exports, module) {
       var live = new Proxy({}, { get: (_t2, key) => (globalThis.monaco || {})[key] });
       var shim = Object.create(live);
       for (const key of ["Range", "Selection", "SelectionDirection", "Position", "editor", "Uri", "KeyMod", "KeyCode"]) {
@@ -44,7 +44,7 @@ var TeX64Collab = (() => {
     }
   });
 
-  // ../../TeX64-Pro/node_modules/.cache/tex64-collab-vendor/entry.js
+  // node_modules/.cache/tex64-collab-vendor/entry.js
   var entry_exports = {};
   __export(entry_exports, {
     MonacoBinding: () => MonacoBinding,
@@ -55,7 +55,7 @@ var TeX64Collab = (() => {
     syncProtocol: () => sync_exports
   });
 
-  // ../../TeX64-Pro/node_modules/yjs/dist/yjs.mjs
+  // node_modules/yjs/dist/yjs.mjs
   var yjs_exports = {};
   __export(yjs_exports, {
     AbsolutePosition: () => AbsolutePosition,
@@ -163,7 +163,7 @@ var TeX64Collab = (() => {
     typeMapGetSnapshot: () => typeMapGetSnapshot
   });
 
-  // ../../TeX64-Pro/node_modules/lib0/map.js
+  // node_modules/lib0/map.js
   var create = () => /* @__PURE__ */ new Map();
   var copy = (m) => {
     const r = create();
@@ -195,10 +195,10 @@ var TeX64Collab = (() => {
     return false;
   };
 
-  // ../../TeX64-Pro/node_modules/lib0/set.js
+  // node_modules/lib0/set.js
   var create2 = () => /* @__PURE__ */ new Set();
 
-  // ../../TeX64-Pro/node_modules/lib0/array.js
+  // node_modules/lib0/array.js
   var last = (arr) => arr[arr.length - 1];
   var appendTo = (dest, src) => {
     for (let i = 0; i < src.length; i++) {
@@ -231,7 +231,7 @@ var TeX64Collab = (() => {
   };
   var isArray = Array.isArray;
 
-  // ../../TeX64-Pro/node_modules/lib0/observable.js
+  // node_modules/lib0/observable.js
   var ObservableV2 = class {
     constructor() {
       this._observers = create();
@@ -353,7 +353,7 @@ var TeX64Collab = (() => {
     }
   };
 
-  // ../../TeX64-Pro/node_modules/lib0/math.js
+  // node_modules/lib0/math.js
   var floor = Math.floor;
   var abs = Math.abs;
   var min = (a, b) => a < b ? a : b;
@@ -361,7 +361,7 @@ var TeX64Collab = (() => {
   var isNaN = Number.isNaN;
   var isNegativeZero = (n) => n !== 0 ? n < 0 : 1 / n < 0;
 
-  // ../../TeX64-Pro/node_modules/lib0/encoding.js
+  // node_modules/lib0/encoding.js
   var encoding_exports = {};
   __export(encoding_exports, {
     Encoder: () => Encoder,
@@ -405,7 +405,7 @@ var TeX64Collab = (() => {
     writeVarUint8Array: () => writeVarUint8Array
   });
 
-  // ../../TeX64-Pro/node_modules/lib0/binary.js
+  // node_modules/lib0/binary.js
   var BIT1 = 1;
   var BIT2 = 2;
   var BIT3 = 4;
@@ -448,7 +448,7 @@ var TeX64Collab = (() => {
   var BITS30 = BIT31 - 1;
   var BITS31 = 2147483647;
 
-  // ../../TeX64-Pro/node_modules/lib0/number.js
+  // node_modules/lib0/number.js
   var MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER;
   var MIN_SAFE_INTEGER = Number.MIN_SAFE_INTEGER;
   var LOWEST_INT32 = 1 << 31;
@@ -456,7 +456,7 @@ var TeX64Collab = (() => {
   var isNaN2 = Number.isNaN;
   var parseInt = Number.parseInt;
 
-  // ../../TeX64-Pro/node_modules/lib0/string.js
+  // node_modules/lib0/string.js
   var fromCharCode = String.fromCharCode;
   var fromCodePoint = String.fromCodePoint;
   var MAX_UTF16_CHARACTER = fromCharCode(65535);
@@ -509,7 +509,7 @@ var TeX64Collab = (() => {
   var decodeUtf8 = utf8TextDecoder ? _decodeUtf8Native : _decodeUtf8Polyfill;
   var repeat = (source, n) => unfold(n, () => source).join("");
 
-  // ../../TeX64-Pro/node_modules/lib0/encoding.js
+  // node_modules/lib0/encoding.js
   var Encoder = class {
     constructor() {
       this.cpos = 0;
@@ -948,7 +948,7 @@ var TeX64Collab = (() => {
     }
   };
 
-  // ../../TeX64-Pro/node_modules/lib0/decoding.js
+  // node_modules/lib0/decoding.js
   var decoding_exports = {};
   __export(decoding_exports, {
     Decoder: () => Decoder,
@@ -991,7 +991,7 @@ var TeX64Collab = (() => {
     skip8: () => skip8
   });
 
-  // ../../TeX64-Pro/node_modules/lib0/error.js
+  // node_modules/lib0/error.js
   var create3 = (s) => new Error(s);
   var methodUnimplemented = () => {
     throw create3("Method unimplemented");
@@ -1000,7 +1000,7 @@ var TeX64Collab = (() => {
     throw create3("Unexpected case");
   };
 
-  // ../../TeX64-Pro/node_modules/lib0/decoding.js
+  // node_modules/lib0/decoding.js
   var errorUnexpectedEndOfArray = create3("Unexpected end of array");
   var errorIntegerOutOfRange = create3("Integer out of Range");
   var subarray = (arr, begin, len) => {
@@ -1389,11 +1389,11 @@ var TeX64Collab = (() => {
     }
   };
 
-  // ../../TeX64-Pro/node_modules/lib0/webcrypto.js
+  // node_modules/lib0/webcrypto.js
   var subtle = crypto.subtle;
   var getRandomValues = crypto.getRandomValues.bind(crypto);
 
-  // ../../TeX64-Pro/node_modules/lib0/random.js
+  // node_modules/lib0/random.js
   var uint32 = () => getRandomValues(new Uint32Array(1))[0];
   var uuidv4Template = "10000000-1000-4000-8000" + -1e11;
   var uuidv4 = () => uuidv4Template.replace(
@@ -1402,20 +1402,20 @@ var TeX64Collab = (() => {
     (c) => (c ^ uint32() & 15 >> c / 4).toString(16)
   );
 
-  // ../../TeX64-Pro/node_modules/lib0/time.js
+  // node_modules/lib0/time.js
   var getUnixTime = Date.now;
 
-  // ../../TeX64-Pro/node_modules/lib0/promise.js
+  // node_modules/lib0/promise.js
   var create4 = (f) => (
     /** @type {Promise<T>} */
     new Promise(f)
   );
   var all = Promise.all.bind(Promise);
 
-  // ../../TeX64-Pro/node_modules/lib0/conditions.js
+  // node_modules/lib0/conditions.js
   var undefinedToNull = (v) => v === void 0 ? null : v;
 
-  // ../../TeX64-Pro/node_modules/lib0/storage.js
+  // node_modules/lib0/storage.js
   var VarStoragePolyfill = class {
     constructor() {
       this.map = /* @__PURE__ */ new Map();
@@ -1445,14 +1445,14 @@ var TeX64Collab = (() => {
   }
   var varStorage = _localStorage;
 
-  // ../../TeX64-Pro/node_modules/lib0/trait/equality.js
+  // node_modules/lib0/trait/equality.js
   var EqualityTraitSymbol = /* @__PURE__ */ Symbol("Equality");
   var equals = (a, b) => {
     var _a;
     return a === b || !!((_a = a == null ? void 0 : a[EqualityTraitSymbol]) == null ? void 0 : _a.call(a, b)) || false;
   };
 
-  // ../../TeX64-Pro/node_modules/lib0/object.js
+  // node_modules/lib0/object.js
   var isObject = (o) => typeof o === "object";
   var assign = Object.assign;
   var keys = Object.keys;
@@ -1489,7 +1489,7 @@ var TeX64Collab = (() => {
     return freeze(o);
   };
 
-  // ../../TeX64-Pro/node_modules/lib0/function.js
+  // node_modules/lib0/function.js
   var callAll = (fs, args2, i = 0) => {
     try {
       for (; i < fs.length; i++) {
@@ -1578,7 +1578,7 @@ var TeX64Collab = (() => {
   };
   var isOneOf = (value, options) => options.includes(value);
 
-  // ../../TeX64-Pro/node_modules/lib0/environment.js
+  // node_modules/lib0/environment.js
   var isNode = typeof process !== "undefined" && process.release && /node|io\.js/.test(process.release.name) && Object.prototype.toString.call(typeof process !== "undefined" ? process : 0) === "[object process]";
   var isMac = typeof navigator !== "undefined" ? /Mac/.test(navigator.platform) : false;
   var params;
@@ -1631,7 +1631,7 @@ var TeX64Collab = (() => {
   var supportsColor = forceColor || !hasParam("--no-colors") && // @todo deprecate --no-colors
   !hasConf("no-color") && (!isNode || process.stdout.isTTY) && (!isNode || hasParam("--color") || getVariable("COLORTERM") !== null || (getVariable("TERM") || "").includes("color"));
 
-  // ../../TeX64-Pro/node_modules/lib0/buffer.js
+  // node_modules/lib0/buffer.js
   var createUint8ArrayFromLen = (len) => new Uint8Array(len);
   var copyUint8Array = (uint8Array) => {
     const newBuf = createUint8ArrayFromLen(uint8Array.byteLength);
@@ -1639,7 +1639,7 @@ var TeX64Collab = (() => {
     return newBuf;
   };
 
-  // ../../TeX64-Pro/node_modules/lib0/pair.js
+  // node_modules/lib0/pair.js
   var Pair = class {
     /**
      * @param {L} left
@@ -1652,7 +1652,7 @@ var TeX64Collab = (() => {
   };
   var create5 = (left, right) => new Pair(left, right);
 
-  // ../../TeX64-Pro/node_modules/lib0/prng.js
+  // node_modules/lib0/prng.js
   var bool = (gen) => gen.next() >= 0.5;
   var int53 = (gen, min2, max2) => floor(gen.next() * (max2 + 1 - min2) + min2);
   var int32 = (gen, min2, max2) => floor(gen.next() * (max2 + 1 - min2) + min2);
@@ -1668,7 +1668,7 @@ var TeX64Collab = (() => {
   };
   var oneOf = (gen, array) => array[int31(gen, 0, array.length - 1)];
 
-  // ../../TeX64-Pro/node_modules/lib0/schema.js
+  // node_modules/lib0/schema.js
   var schemaSymbol = /* @__PURE__ */ Symbol("0schema");
   var ValidationError = class {
     constructor() {
@@ -2405,7 +2405,7 @@ ${err.toString()}`);
     _random($(schema), gen)
   );
 
-  // ../../TeX64-Pro/node_modules/lib0/dom.js
+  // node_modules/lib0/dom.js
   var doc = (
     /** @type {Document} */
     typeof document !== "undefined" ? document : {}
@@ -2427,10 +2427,10 @@ ${err.toString()}`);
   var DOCUMENT_FRAGMENT_NODE = doc.DOCUMENT_FRAGMENT_NODE;
   var $node = $custom((el) => el.nodeType === DOCUMENT_NODE);
 
-  // ../../TeX64-Pro/node_modules/lib0/symbol.js
+  // node_modules/lib0/symbol.js
   var create6 = Symbol;
 
-  // ../../TeX64-Pro/node_modules/lib0/logging.common.js
+  // node_modules/lib0/logging.common.js
   var BOLD = create6();
   var UNBOLD = create6();
   var BLUE = create6();
@@ -2473,7 +2473,7 @@ ${err.toString()}`);
   };
   var lastLoggingTime = getUnixTime();
 
-  // ../../TeX64-Pro/node_modules/lib0/logging.js
+  // node_modules/lib0/logging.js
   var _browserStyleMap = {
     [BOLD]: create5("font-weight", "bold"),
     [UNBOLD]: create5("font-weight", "normal"),
@@ -2544,7 +2544,7 @@ ${err.toString()}`);
   };
   var vconsoles = create2();
 
-  // ../../TeX64-Pro/node_modules/lib0/iterator.js
+  // node_modules/lib0/iterator.js
   var createIterator = (next) => ({
     /**
      * @return {IterableIterator<T>}
@@ -2567,7 +2567,7 @@ ${err.toString()}`);
     return { done, value: done ? void 0 : fmap(value) };
   });
 
-  // ../../TeX64-Pro/node_modules/yjs/dist/yjs.mjs
+  // node_modules/yjs/dist/yjs.mjs
   var AbstractConnector = class extends ObservableV2 {
     /**
      * @param {Doc} ydoc
@@ -10130,10 +10130,10 @@ ${err.toString()}`);
   }
   glo[importIdentifier] = true;
 
-  // ../../TeX64-Pro/node_modules/y-monaco/src/y-monaco.js
+  // node_modules/y-monaco/src/y-monaco.js
   var monaco = __toESM(require_monaco_shim(), 1);
 
-  // ../../TeX64-Pro/node_modules/lib0/mutex.js
+  // node_modules/lib0/mutex.js
   var createMutex = () => {
     let token = true;
     return (f, g) => {
@@ -10150,7 +10150,7 @@ ${err.toString()}`);
     };
   };
 
-  // ../../TeX64-Pro/node_modules/y-protocols/awareness.js
+  // node_modules/y-protocols/awareness.js
   var awareness_exports = {};
   __export(awareness_exports, {
     Awareness: () => Awareness,
@@ -10377,7 +10377,7 @@ ${err.toString()}`);
     }
   };
 
-  // ../../TeX64-Pro/node_modules/y-monaco/src/y-monaco.js
+  // node_modules/y-monaco/src/y-monaco.js
   var RelativeSelection = class {
     /**
      * @param {Y.RelativePosition} start
@@ -10574,7 +10574,7 @@ ${err.toString()}`);
     }
   };
 
-  // ../../TeX64-Pro/node_modules/y-protocols/sync.js
+  // node_modules/y-protocols/sync.js
   var sync_exports = {};
   __export(sync_exports, {
     messageYjsSyncStep1: () => messageYjsSyncStep1,

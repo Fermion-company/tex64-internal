@@ -155,7 +155,7 @@ export const initMonacoSetup = (context, deps) => {
             selectionHighlight: false,
         };
         const createEditorForGroup = (group, host) => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4;
             const editor = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.create(host, editorOptions);
             const editorAny = editor;
             group.editor = editor;
@@ -408,17 +408,17 @@ export const initMonacoSetup = (context, deps) => {
             // Shared documents undo only this user's edits (Y.UndoManager); the
             // precondition keeps Monaco's own undo for everything else.
             if (deps.collab) {
-                const KeyMod = (_w = monacoWindow.monaco) === null || _w === void 0 ? void 0 : _w.KeyMod;
-                const KeyCode = (_x = monacoWindow.monaco) === null || _x === void 0 ? void 0 : _x.KeyCode;
+                const KeyMod = (_x = monacoWindow.monaco) === null || _x === void 0 ? void 0 : _x.KeyMod;
+                const KeyCode = (_y = monacoWindow.monaco) === null || _y === void 0 ? void 0 : _y.KeyCode;
                 const collab = deps.collab;
-                (_z = (_y = editor).addAction) === null || _z === void 0 ? void 0 : _z.call(_y, {
+                (_0 = (_z = editor).addAction) === null || _0 === void 0 ? void 0 : _0.call(_z, {
                     id: "tex64.collab.undo",
                     label: uiText("Undo", "取り消す"),
                     keybindings: KeyMod && KeyCode ? [KeyMod.CtrlCmd | KeyCode.KeyZ] : undefined,
                     precondition: "tex64CollabBound && !editorReadonly",
                     run: () => { collab.undo(editor); },
                 });
-                (_1 = (_0 = editor).addAction) === null || _1 === void 0 ? void 0 : _1.call(_0, {
+                (_2 = (_1 = editor).addAction) === null || _2 === void 0 ? void 0 : _2.call(_1, {
                     id: "tex64.collab.redo",
                     label: uiText("Redo", "やり直す"),
                     keybindings: KeyMod && KeyCode ? [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyZ, KeyMod.CtrlCmd | KeyCode.KeyY] : undefined,
@@ -431,7 +431,7 @@ export const initMonacoSetup = (context, deps) => {
             // / command palette). Done as an editor action because this Monaco build
             // has no editor.registerCommand for code-action commands.
             if (spellChecker) {
-                (_3 = (_2 = editor).addAction) === null || _3 === void 0 ? void 0 : _3.call(_2, {
+                (_4 = (_3 = editor).addAction) === null || _4 === void 0 ? void 0 : _4.call(_3, {
                     id: "tex64.spell.addWordToDictionary",
                     label: uiText("Add word to dictionary", "単語を辞書に追加"),
                     contextMenuGroupId: "9_spell",

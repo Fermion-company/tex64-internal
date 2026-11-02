@@ -414,7 +414,9 @@ const createMainWindow = () => {
   const windowOptions = {
     width: savedBounds?.width ?? 1280,
     height: savedBounds?.height ?? 820,
-    minWidth: 960,
+    // Side-by-side with another window must stay possible: never ask for more
+    // than half of the display the window opens on.
+    minWidth: Math.min(960, Math.floor((screen.getPrimaryDisplay()?.workAreaSize?.width || 1920) / 2)),
     minHeight: 600,
     show: !e2eHeadless,
     backgroundColor: "#1c2129",
