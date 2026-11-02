@@ -8433,6 +8433,19 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   justify-content: flex-end;
 }
 
+/* Side-by-side windows: below ~900px the toolbar keeps its icons and drops
+   the button labels so Build stays inside the window. Titles still name them. */
+@media (max-width: 900px) {
+  .top-actions { gap: 4px; padding: 0 8px; }
+  #pro-canvas-open > span,
+  #update-button > span:not(.update-button-icon):not(.update-button-spinner),
+  #save-button > span,
+  #format-button > span,
+  #synctex-button > span.synctex-button-label { display: none; }
+  /* save-status-ui reserves the label width inline; icon-only needs none. */
+  #save-button { min-width: 0 !important; }
+}
+
 @media (max-width: 720px) {
   .topbar {
     justify-content: flex-end;
