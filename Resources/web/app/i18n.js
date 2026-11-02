@@ -9,6 +9,8 @@ export const SUPPORTED_LOCALES = [
 ];
 export const UI_LOCALE_STORAGE_KEY = "tex64.ui.locale.v1";
 const EN_TO_JA = {
+    "API key": "API キー",
+    "Library": "ライブラリ",
     "Compare from": "比較元",
     "No recorded changes": "記録対象に変更なし",
     "Unnamed version": "名前なし",

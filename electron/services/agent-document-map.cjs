@@ -677,6 +677,7 @@ const buildMentionIndex = (map) => {
 };
 
 module.exports = {
+  BIB_RESOURCE_PATTERN,
   resolveMainTexFile,
   scanDocument,
   sectionAtLine,

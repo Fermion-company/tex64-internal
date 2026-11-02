@@ -46,6 +46,7 @@ import { initBottomPanelUi } from "./app/bottom-panel-ui.js";
 import { initTerminalUi } from "./app/terminal-ui.js";
 import { initBillingUi } from "./app/billing-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
+import { initZoteroSettingsUi } from "./app/zotero-ui.js";
 import { initAnnouncementsUi } from "./app/announcements-ui.js";
 import { initWorkspaceController } from "./app/workspace-controller.js";
 import { getUiLocale, initI18n, onUiLocaleChange, uiText } from "./app/i18n.js";
@@ -328,6 +329,7 @@ export const initMain = () => {
                 }
             },
         });
+        initZoteroSettingsUi();
         isReverseSynctexEnabled = () => settingsUi.getReverseSynctexEnabled();
         onSettingsTabActive = () => settingsUi.checkEnvironmentStatus();
         initEditorSettingsControls();
