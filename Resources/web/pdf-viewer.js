@@ -2146,11 +2146,20 @@ const initPdfViewer = () => {
   // confirms it (and pages beyond a shorter resident pagination stay pending
   // until then), so either completeness signal is accepted here. Other
   // activations wait for an exact paint.
+  // While the hands keep moving the frame's applied revision runs ahead of
+  // every paper it can show, so "complete for the latest keystroke" never
+  // holds until they stop. A canonical generation at or past the first
+  // post-Build edit is paper that already contains it: hand over then too,
+  // instead of keeping the Build PDF up for the whole run of typing.
   const livePaperPresentable = (data) => {
     const expected = liveActivation?.expectedSrcRev;
     if (!Number.isInteger(expected)) return data?.ready === true;
     const applied = !("srcRev" in data) || Number(data.srcRev) >= expected;
-    return applied && (data.ready === true || data.presentationPending === false);
+    const canonicalRev = Number(data?.status?.canonical?.rev);
+    // Typing keeps the next compile running back-to-back; a landed
+    // generation is still paper that contains the edit.
+    const canonicalCovers = Number.isFinite(canonicalRev) && canonicalRev >= expected;
+    return applied && (data.ready === true || data.presentationPending === false || canonicalCovers);
   };
   // A held frame keeps following the static viewport so the first edit can
   // replace the paper without a positioning round trip.
