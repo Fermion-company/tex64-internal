@@ -33,6 +33,155 @@ export const initCollabBinding = (deps) => {
         }
     };
     const sendFrame = (docId, kind, bytes) => collabSession.send(docId, kind, bytes);
+    const presenceDecorations = new WeakMap();
+    const normalizePath = (value) => value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/{2,}/g, "/").replace(/\/\.\//g, "/");
+    const joinPath = (dir, file) => {
+        const parts = normalizePath(dir ? `${dir}/${file}` : file).split("/");
+        const out = [];
+        for (const part of parts) {
+            if (part === "..")
+                out.pop();
+            else if (part !== "." && part !== "")
+                out.push(part);
+        }
+        return out.join("/");
+    };
+    const stripComment = (line) => {
+        let out = "";
+        for (let i = 0; i < line.length; i += 1) {
+            if (line[i] === "\\") {
+                out += line.slice(i, i + 2);
+                i += 1;
+            }
+            else if (line[i] === "%")
+                break;
+            else
+                out += line[i];
+        }
+        return out;
+    };
+    // Lines of `text` (file at `path`) that read another shared file: line → docId.
+    const includeLines = (path, text) => {
+        const result = new Map();
+        const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+        const lines = text.split("\n");
+        const pattern = /\\(?:input|include|subfile|subfileinclude)\s*\{([^}]*)\}|\\input\s+([^\s{}\\%]+)/g;
+        for (let index = 0; index < lines.length; index += 1) {
+            const line = lines[index];
+            if (!line.includes("\\"))
+                continue;
+            const source = stripComment(line);
+            pattern.lastIndex = 0;
+            let match;
+            while ((match = pattern.exec(source))) {
+                const file = (match[1] || match[2] || "").trim();
+                if (!file)
+                    continue;
+                const withExt = /\.[A-Za-z0-9]+$/.test(file) ? file : `${file}.tex`;
+                for (const candidate of [joinPath(dir, withExt), joinPath("", withExt)]) {
+                    if (entries.has(candidate) || collabSession.isSharedPath(candidate)) {
+                        result.set(index + 1, candidate);
+                        break;
+                    }
+                }
+            }
+        }
+        return result;
+    };
+    // Every participant announces the file they are in on the session doc's
+    // awareness (`at`), which everyone holds; per-file awareness only reaches
+    // those who have that file open.
+    let announcedDoc = null;
+    const publishLocation = (force = false) => {
+        const session = entries.get(SESSION_DOC);
+        if (!session)
+            return;
+        const active = deps.editorSession.getActiveGroup();
+        const path = (active === null || active === void 0 ? void 0 : active.currentFilePath) && collabSession.isSharedPath(active.currentFilePath) ? active.currentFilePath : null;
+        if (!force && path === announcedDoc)
+            return;
+        announcedDoc = path;
+        session.awareness.setLocalStateField("at", path ? { docId: path } : null);
+    };
+    const remotePresence = () => {
+        const byClient = new Map();
+        const session = entries.get(SESSION_DOC);
+        if (!session)
+            return byClient;
+        const states = session.awareness.getStates();
+        states.forEach((state, id) => {
+            var _a;
+            if (id === clientId || !(state === null || state === void 0 ? void 0 : state.user) || !((_a = state.at) === null || _a === void 0 ? void 0 : _a.docId))
+                return;
+            byClient.set(id, { docId: normalizePath(String(state.at.docId)), name: String(state.user.name || "").slice(0, 40) || "?", color: String(state.user.color || "#2563eb"), at: 0 });
+        });
+        return byClient;
+    };
+    let presenceTimer = null;
+    const renderPresence = () => {
+        var _a, _b;
+        presenceTimer = null;
+        const monacoApi = window.monaco;
+        const presence = collabSession.isActive() ? remotePresence() : new Map();
+        for (const group of deps.editorSession.getEditorGroups()) {
+            const editor = group.editor;
+            const model = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor);
+            const path = getEditorModelPath(model);
+            let holder = presenceDecorations.get(editor);
+            if (!editor || !model || !path) {
+                holder === null || holder === void 0 ? void 0 : holder.clear();
+                continue;
+            }
+            if (!holder) {
+                const collection = (_b = editor.createDecorationsCollection) === null || _b === void 0 ? void 0 : _b.call(editor, []);
+                if (!collection)
+                    continue;
+                holder = { clear: () => collection.clear(), set: (d) => collection.set(d) };
+                presenceDecorations.set(editor, holder);
+            }
+            if (presence.size === 0 || !(monacoApi === null || monacoApi === void 0 ? void 0 : monacoApi.Range)) {
+                holder.clear();
+                continue;
+            }
+            const lines = includeLines(path, model.getValue());
+            const decorations = [];
+            if (lines.size) {
+                for (const [id, who] of presence) {
+                    for (const [line, docId] of lines) {
+                        if (docId !== who.docId || line > model.getLineCount())
+                            continue;
+                        const end = model.getLineMaxColumn(line);
+                        decorations.push({
+                            range: new monacoApi.Range(line, 1, line, end),
+                            options: {
+                                linesDecorationsClassName: `collab-presence-gutter-${id}`,
+                                after: { content: who.name, inlineClassName: `collab-presence-tag-${id}`, cursorStops: 0 },
+                                stickiness: 1,
+                            },
+                        });
+                    }
+                }
+            }
+            holder.set(decorations);
+        }
+    };
+    const schedulePresence = (delay = 50) => {
+        if (presenceTimer !== null)
+            return;
+        presenceTimer = window.setTimeout(renderPresence, delay);
+    };
+    // The local selection lives only in the file an editor shows; a model that
+    // just left every editor must not keep saying we are still there.
+    const clearHiddenSelections = () => {
+        var _a;
+        for (const entry of entries.values()) {
+            if (entry.docId === SESSION_DOC || !entry.model)
+                continue;
+            if (groupsShowing(entry.model).length === 0 && ((_a = entry.awareness.getLocalState()) === null || _a === void 0 ? void 0 : _a.selection)) {
+                entry.awareness.setLocalStateField("selection", null);
+            }
+        }
+    };
     const groupsShowing = (model) => deps.editorSession.getEditorGroups().filter((group) => { var _a, _b; return ((_b = (_a = group.editor) === null || _a === void 0 ? void 0 : _a.getModel) === null || _b === void 0 ? void 0 : _b.call(_a)) === model; });
     const isComposingFor = (entry) => Boolean(entry.model) && groupsShowing(entry.model).some((group) => group.isComposing);
     const allEditors = () => new Set(deps.editorSession.getEditorGroups().map((group) => group.editor).filter(Boolean));
@@ -82,7 +231,7 @@ export const initCollabBinding = (deps) => {
             applyIncoming(entry, bytes);
     };
     const createBinding = (entry) => {
-        var _a, _b;
+        var _a, _b, _c;
         const lib = vendor();
         if (!lib || !entry.model || entry.binding || !entry.ytext)
             return;
@@ -122,6 +271,11 @@ export const initCollabBinding = (deps) => {
                 group.isApplyingFile = false;
         }
         entry.undo = new lib.Y.UndoManager(entry.ytext, { trackedOrigins: new Set([entry.binding]), captureTimeout: 500 });
+        if ((_c = entry.model) === null || _c === void 0 ? void 0 : _c.onDidChangeContent) {
+            const contentDisposable = entry.model.onDidChangeContent(() => schedulePresence(300));
+            entry.disposables.push(() => { var _a; return (_a = contentDisposable === null || contentDisposable === void 0 ? void 0 : contentDisposable.dispose) === null || _a === void 0 ? void 0 : _a.call(contentDisposable); });
+        }
+        schedulePresence();
         deps.editorSession.updateDirtyState(entry.docId, entry.model.getValue());
         // A rejoin wrote the host's content before this model was bound; the ACK
         // arrived while the buffer still held the old text. Settle it now.
@@ -154,6 +308,8 @@ export const initCollabBinding = (deps) => {
         entry.disposables.push(() => doc.off("update", onUpdate));
         const onAwareness = ({ added, updated, removed }, origin) => {
             collabCursors.observe(awareness.getStates(), clientId, origin === REMOTE);
+            if (origin === REMOTE)
+                schedulePresence();
             if (origin === REMOTE)
                 return;
             const changed = added.concat(updated, removed);
@@ -228,6 +384,8 @@ export const initCollabBinding = (deps) => {
         collabCursors.reset();
         openDoc(SESSION_DOC, null);
         bindVisibleModels();
+        announcedDoc = null;
+        publishLocation(true);
         if (awarenessTimer === null) {
             awarenessTimer = window.setInterval(() => {
                 for (const entry of entries.values())
@@ -251,6 +409,7 @@ export const initCollabBinding = (deps) => {
         }
         collabCursors.reset();
         updateContextKeys();
+        schedulePresence();
     };
     collabSession.onChange((state) => {
         const key = state.active ? `${state.sessionId}:${state.epoch}` : "";
@@ -272,6 +431,7 @@ export const initCollabBinding = (deps) => {
             if (self)
                 for (const entry of entries.values())
                     entry.awareness.setLocalStateField("user", { name: self.name, color: self.color, id: state.selfId || "" });
+            publishLocation();
         }
     });
     collabSession.onMessage("collab:doc", (message) => {
@@ -313,7 +473,7 @@ export const initCollabBinding = (deps) => {
     // binding keeps living while the model exists, even once hidden.
     const attached = new WeakSet();
     const attachEditors = () => {
-        var _a;
+        var _a, _b;
         for (const group of deps.editorSession.getEditorGroups()) {
             const editor = group.editor;
             if (!editor || attached.has(editor))
@@ -329,7 +489,15 @@ export const initCollabBinding = (deps) => {
                     if (path && collabSession.isSharedPath(path))
                         bindModel(path, model);
                     updateContextKeys();
+                    clearHiddenSelections();
+                    publishLocation();
+                    schedulePresence();
                 }, 0);
+            });
+            (_b = editor.onDidFocusEditorWidget) === null || _b === void 0 ? void 0 : _b.call(editor, () => {
+                if (!collabSession.isActive())
+                    return;
+                publishLocation();
             });
         }
     };

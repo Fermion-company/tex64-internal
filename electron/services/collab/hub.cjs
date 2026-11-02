@@ -198,7 +198,7 @@ class CollabHub extends EventEmitter {
       const host = new transport.HostTransport({ token: session.token });
       const port = await host.start();
       session.transport = host;
-      session.inviteLink = invite.buildInviteLink({ host: invite.localHostAddress(), port, token: session.token, name: sessionName });
+      session.inviteLink = invite.buildInviteLink({ hosts: invite.localHostAddresses(), port, token: session.token, name: sessionName });
       host.on("open", (conn) => this.onPeerOpen(session, conn));
       host.on("close", (conn) => this.onPeerClose(session, conn));
       host.on("message", (conn, frame) => this.onPeerFrame(session, conn, frame));
@@ -232,6 +232,7 @@ class CollabHub extends EventEmitter {
     try {
       const guest = new transport.GuestTransport({
         host: parsed.host,
+        hosts: parsed.hosts,
         port: parsed.port,
         token: parsed.token,
         hello: { clientId: session.selfId, name: displayName },

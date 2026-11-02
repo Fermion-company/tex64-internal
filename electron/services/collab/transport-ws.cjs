@@ -188,9 +188,14 @@ class HostTransport extends EventEmitter {
 }
 
 class GuestTransport extends EventEmitter {
-  constructor({ host, port, token, hello }) {
+  constructor({ host, hosts, port, token, hello }) {
     super();
-    this.url = `ws://${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${port}`;
+    const toUrl = (h) => `ws://${h.includes(":") && !h.startsWith("[") ? `[${h}]` : h}:${port}`;
+    // Addresses from the invite, in order; a failed connect moves to the next
+    // one at once, and the backoff only starts once every address failed.
+    this.urls = (Array.isArray(hosts) && hosts.length ? hosts : [host]).map(toUrl);
+    this.urlIndex = 0;
+    this.failedInRound = 0;
     this.token = token;
     this.hello = hello;
     this.socket = null;
@@ -204,11 +209,13 @@ class GuestTransport extends EventEmitter {
   connect() {
     if (this.closed) return;
     const WebSocket = require("ws");
+    this.url = this.urls[this.urlIndex % this.urls.length];
     const socket = new WebSocket(this.url, { maxPayload: MAX_FRAME_BYTES, perMessageDeflate: false, handshakeTimeout: 8000 });
     this.socket = socket;
     this.conn.socket = socket;
     socket.on("open", () => {
       this.attempt = 0;
+      this.failedInRound = 0;
       safeSend(socket, encodeControl({ type: "hello", token: this.token, ...this.hello }));
       this.connected = true;
       this.emit("open", this.conn);
@@ -230,6 +237,15 @@ class GuestTransport extends EventEmitter {
         if (!this.closed) this.emit("gaveUp", { code, reason });
         return;
       }
+      if (!wasConnected && this.urls.length > 1) {
+        this.urlIndex = (this.urlIndex + 1) % this.urls.length;
+        this.failedInRound += 1;
+        if (this.failedInRound < this.urls.length) {
+          this.connect();
+          return;
+        }
+        this.failedInRound = 0;
+      }
       this.schedule();
     };
     socket.on("close", onDown);
@@ -240,7 +256,8 @@ class GuestTransport extends EventEmitter {
 
   schedule() {
     if (this.closed || this.timer) return;
-    const delay = Math.min(30000, 1000 * 2 ** Math.min(this.attempt, 5));
+    // LAN blips are short: 0.5 s, 1 s, 2 s, 4 s, then every 5 s.
+    const delay = Math.min(5000, 500 * 2 ** Math.min(this.attempt, 4));
     this.attempt += 1;
     this.emit("reconnecting", { attempt: this.attempt, delay });
     this.timer = setTimeout(() => {

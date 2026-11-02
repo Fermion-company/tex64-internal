@@ -374,7 +374,8 @@ const initPdfViewer = () => {
   };
   const setStatus = (text, tone = "idle") => {
     if (buildPreviewState === "building") {
-      setStatusDirect(uiString("liveUpdating"), "busy");
+      // A manual Build shows the spinner alone.
+      setStatusDirect("", "busy");
       return;
     }
     if (buildPreviewState === "failed") {
@@ -390,7 +391,8 @@ const initPdfViewer = () => {
     const stale = staticNeedsRebuild();
     document.body.classList.toggle("pdf-needs-rebuild", stale);
     if (!isLive() && !isLivePending()) {
-      setStatus(uiString(!state.doc ? "waiting" : stale ? "rebuildNeeded" : "ready"));
+      // Only a stale paper is worth a word; "waiting" / "loaded" stay silent.
+      setStatus(stale && state.doc ? uiString("rebuildNeeded") : "");
       if (statusEl && buildPreviewState === "idle") statusEl.title = "";
     }
   };
@@ -1936,7 +1938,12 @@ const initPdfViewer = () => {
     }
     const view = resolvePdfLiveStatus(data?.status, data?.presentationPending);
     if (!view) return;
-    setStatus(uiString(view.key), view.tone);
+    // While typing the paper just follows the keys: no "updating" or "rendering"
+    // chatter. The spinner shows only for the canonical full compile (and a
+    // manual Build, handled in setStatus); errors keep their text.
+    if (view.key === "liveCompiling") setStatus("", "busy");
+    else if (view.tone === "error") setStatus(uiString(view.key), "error");
+    else setStatus("", "idle");
     if (statusEl) statusEl.title = view.detail;
   };
   const restoreStaticToolbar = () => {
@@ -2088,7 +2095,7 @@ const initPdfViewer = () => {
     document.body.classList.add("is-live-pending");
     liveFrame.setAttribute("aria-hidden", "true");
     liveFrame.dataset.livePhase = "activation-pending";
-    setStatus(uiString("liveUpdating"), "busy");
+    setStatus("", "idle");
     if (liveViewportHandoff) postLive("goto-sync", liveViewportHandoff.sync);
   };
   // Frames without the viewport token only report their top page; a centred
@@ -2213,7 +2220,7 @@ const initPdfViewer = () => {
         liveFrame.setAttribute("aria-hidden", "false");
         liveFrame.dataset.livePhase = "active";
         renderLiveToolbar();
-        setStatus(uiString("live"));
+        setStatus("", "idle");
         renderLiveStatus(latestData);
         if (pendingLiveSync) applyLiveSync(pendingLiveSync);
         // A query typed while the static PDF was showing has not reached the
@@ -2249,7 +2256,7 @@ const initPdfViewer = () => {
     liveFrame.setAttribute("aria-hidden", "true");
     liveFrame.dataset.livePhase = "reset-pending";
     restoreStaticToolbar();
-    setStatus(uiString("liveUpdating"), "busy");
+    setStatus("", "idle");
     // Resolve the new stacking order before allowing the child to discard
     // its old document DOM. The iframe stays paintable below the static PDF.
     getComputedStyle(liveFrame).zIndex;
@@ -2305,7 +2312,7 @@ const initPdfViewer = () => {
     hideContextMenu();
     restoreStaticToolbar();
     if (hold) refreshStaticStatus();
-    else setStatus(uiString("liveUpdating"), "busy");
+    else setStatus("", "idle");
 
     const params = new URLSearchParams({
       embed: "1",
@@ -2329,8 +2336,8 @@ const initPdfViewer = () => {
     const error = typeof payload?.error === "string" ? payload.error : "";
     if (!error) {
       if (statusEl) statusEl.title = "";
-      if (isLive()) setStatus(uiString("live"));
-      else if (isLivePending()) setStatus(uiString("liveUpdating"), "busy");
+      if (isLive()) setStatus("", "idle");
+      else if (isLivePending()) setStatus("", "idle");
       else refreshStaticStatus();
       return;
     }
@@ -2521,10 +2528,10 @@ const initPdfViewer = () => {
             ? payload.message
             : "";
         }
-        if (buildPreviewState === "building") setStatusDirect(uiString("liveUpdating"), "busy");
+        if (buildPreviewState === "building") setStatusDirect("", "busy");
         else if (buildPreviewState === "failed") setStatusDirect(uiString("buildFailedLastGood"), "error");
-        else if (isLive()) setStatus(uiString("live"));
-        else if (isLivePending()) setStatus(uiString("liveUpdating"), "busy");
+        else if (isLive()) setStatus("", "idle");
+        else if (isLivePending()) setStatus("", "idle");
         else refreshStaticStatus();
       }
       if (message.type === "sync" && message.payload) {

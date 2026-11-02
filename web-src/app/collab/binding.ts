@@ -78,6 +78,135 @@ export const initCollabBinding = (deps: {
   const sendFrame = (docId: string, kind: "sync" | "awareness" | "open" | "close", bytes: Uint8Array | null) =>
     collabSession.send(docId, kind, bytes);
 
+  // ---- presence in including files --------------------------------------
+  // A participant editing sections/results.tex is also shown in main.tex (and
+  // any other open file that \input / \include-s results.tex): a colour bar
+  // in the gutter and their name after the include line.
+  type Presence = { docId: string; name: string; color: string; at: number };
+  const presenceDecorations = new WeakMap<object, { clear: () => void; set: (d: unknown[]) => void }>();
+  const normalizePath = (value: string) => value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/{2,}/g, "/").replace(/\/\.\//g, "/");
+  const joinPath = (dir: string, file: string) => {
+    const parts = normalizePath(dir ? `${dir}/${file}` : file).split("/");
+    const out: string[] = [];
+    for (const part of parts) {
+      if (part === "..") out.pop();
+      else if (part !== "." && part !== "") out.push(part);
+    }
+    return out.join("/");
+  };
+  const stripComment = (line: string) => {
+    let out = "";
+    for (let i = 0; i < line.length; i += 1) {
+      if (line[i] === "\\") { out += line.slice(i, i + 2); i += 1; }
+      else if (line[i] === "%") break;
+      else out += line[i];
+    }
+    return out;
+  };
+  // Lines of `text` (file at `path`) that read another shared file: line → docId.
+  const includeLines = (path: string, text: string) => {
+    const result = new Map<number, string>();
+    const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    const lines = text.split("\n");
+    const pattern = /\\(?:input|include|subfile|subfileinclude)\s*\{([^}]*)\}|\\input\s+([^\s{}\\%]+)/g;
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (!line.includes("\\")) continue;
+      const source = stripComment(line);
+      pattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(source))) {
+        const file = (match[1] || match[2] || "").trim();
+        if (!file) continue;
+        const withExt = /\.[A-Za-z0-9]+$/.test(file) ? file : `${file}.tex`;
+        for (const candidate of [joinPath(dir, withExt), joinPath("", withExt)]) {
+          if (entries.has(candidate) || collabSession.isSharedPath(candidate)) {
+            result.set(index + 1, candidate);
+            break;
+          }
+        }
+      }
+    }
+    return result;
+  };
+  // Every participant announces the file they are in on the session doc's
+  // awareness (`at`), which everyone holds; per-file awareness only reaches
+  // those who have that file open.
+  let announcedDoc: string | null = null;
+  const publishLocation = (force = false) => {
+    const session = entries.get(SESSION_DOC);
+    if (!session) return;
+    const active = deps.editorSession.getActiveGroup();
+    const path = active?.currentFilePath && collabSession.isSharedPath(active.currentFilePath) ? active.currentFilePath : null;
+    if (!force && path === announcedDoc) return;
+    announcedDoc = path;
+    session.awareness.setLocalStateField("at", path ? { docId: path } : null);
+  };
+  const remotePresence = () => {
+    const byClient = new Map<number, Presence>();
+    const session = entries.get(SESSION_DOC);
+    if (!session) return byClient;
+    const states: Map<number, any> = session.awareness.getStates();
+    states.forEach((state, id) => {
+      if (id === clientId || !state?.user || !state.at?.docId) return;
+      byClient.set(id, { docId: normalizePath(String(state.at.docId)), name: String(state.user.name || "").slice(0, 40) || "?", color: String(state.user.color || "#2563eb"), at: 0 });
+    });
+    return byClient;
+  };
+  let presenceTimer: number | null = null;
+  const renderPresence = () => {
+    presenceTimer = null;
+    const monacoApi = (window as any).monaco;
+    const presence = collabSession.isActive() ? remotePresence() : new Map<number, Presence>();
+    for (const group of deps.editorSession.getEditorGroups()) {
+      const editor = group.editor as any;
+      const model = editor?.getModel?.();
+      const path = getEditorModelPath(model);
+      let holder = presenceDecorations.get(editor);
+      if (!editor || !model || !path) { holder?.clear(); continue; }
+      if (!holder) {
+        const collection = editor.createDecorationsCollection?.([]);
+        if (!collection) continue;
+        holder = { clear: () => collection.clear(), set: (d) => collection.set(d) };
+        presenceDecorations.set(editor, holder);
+      }
+      if (presence.size === 0 || !monacoApi?.Range) { holder.clear(); continue; }
+      const lines = includeLines(path, model.getValue());
+      const decorations: unknown[] = [];
+      if (lines.size) {
+        for (const [id, who] of presence) {
+          for (const [line, docId] of lines) {
+            if (docId !== who.docId || line > model.getLineCount()) continue;
+            const end = model.getLineMaxColumn(line);
+            decorations.push({
+              range: new monacoApi.Range(line, 1, line, end),
+              options: {
+                linesDecorationsClassName: `collab-presence-gutter-${id}`,
+                after: { content: who.name, inlineClassName: `collab-presence-tag-${id}`, cursorStops: 0 },
+                stickiness: 1,
+              },
+            });
+          }
+        }
+      }
+      holder.set(decorations);
+    }
+  };
+  const schedulePresence = (delay = 50) => {
+    if (presenceTimer !== null) return;
+    presenceTimer = window.setTimeout(renderPresence, delay);
+  };
+  // The local selection lives only in the file an editor shows; a model that
+  // just left every editor must not keep saying we are still there.
+  const clearHiddenSelections = () => {
+    for (const entry of entries.values()) {
+      if (entry.docId === SESSION_DOC || !entry.model) continue;
+      if (groupsShowing(entry.model).length === 0 && entry.awareness.getLocalState()?.selection) {
+        entry.awareness.setLocalStateField("selection", null);
+      }
+    }
+  };
+
   const groupsShowing = (model: any): EditorGroupState[] =>
     deps.editorSession.getEditorGroups().filter((group) => (group.editor as any)?.getModel?.() === model);
 
@@ -158,6 +287,11 @@ export const initCollabBinding = (deps: {
       for (const group of groups) group.isApplyingFile = false;
     }
     entry.undo = new lib.Y.UndoManager(entry.ytext, { trackedOrigins: new Set([entry.binding]), captureTimeout: 500 });
+    if (entry.model?.onDidChangeContent) {
+      const contentDisposable = entry.model.onDidChangeContent(() => schedulePresence(300));
+      entry.disposables.push(() => contentDisposable?.dispose?.());
+    }
+    schedulePresence();
     deps.editorSession.updateDirtyState(entry.docId, entry.model.getValue());
     // A rejoin wrote the host's content before this model was bound; the ACK
     // arrived while the buffer still held the old text. Settle it now.
@@ -188,6 +322,7 @@ export const initCollabBinding = (deps: {
     entry.disposables.push(() => doc.off("update", onUpdate));
     const onAwareness = ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
       collabCursors.observe(awareness.getStates(), clientId, origin === REMOTE);
+      if (origin === REMOTE) schedulePresence();
       if (origin === REMOTE) return;
       const changed = added.concat(updated, removed);
       sendFrame(docId, "awareness", lib.awarenessProtocol.encodeAwarenessUpdate(awareness, changed));
@@ -254,6 +389,8 @@ export const initCollabBinding = (deps: {
     collabCursors.reset();
     openDoc(SESSION_DOC, null);
     bindVisibleModels();
+    announcedDoc = null;
+    publishLocation(true);
     if (awarenessTimer === null) {
       awarenessTimer = window.setInterval(() => {
         for (const entry of entries.values()) entry.awareness.setLocalState(entry.awareness.getLocalState());
@@ -276,6 +413,7 @@ export const initCollabBinding = (deps: {
     }
     collabCursors.reset();
     updateContextKeys();
+    schedulePresence();
   };
 
   collabSession.onChange((state) => {
@@ -293,6 +431,7 @@ export const initCollabBinding = (deps: {
       bindVisibleModels();
       const self = collabSession.selfParticipant();
       if (self) for (const entry of entries.values()) entry.awareness.setLocalStateField("user", { name: self.name, color: self.color, id: state.selfId || "" });
+      publishLocation();
     }
   });
 
@@ -345,7 +484,14 @@ export const initCollabBinding = (deps: {
           const path = getEditorModelPath(model);
           if (path && collabSession.isSharedPath(path)) bindModel(path, model);
           updateContextKeys();
+          clearHiddenSelections();
+          publishLocation();
+          schedulePresence();
         }, 0);
+      });
+      editor.onDidFocusEditorWidget?.(() => {
+        if (!collabSession.isActive()) return;
+        publishLocation();
       });
     }
   };

@@ -22,6 +22,10 @@ const render = () => {
       `.yRemoteSelectionHead-${clientId}::after{content:"${cssString(name)}";position:absolute;top:-1.15em;left:-2px;padding:0 4px;font-size:10px;line-height:1.15em;font-family:var(--font-ui, system-ui);background:${color};color:#fff;white-space:nowrap;border-radius:3px 3px 3px 0;opacity:0;transition:opacity .15s;pointer-events:none;z-index:5;}`,
       `.yRemoteSelectionHead-${clientId}:hover::after,.collab-labels-visible .yRemoteSelectionHead-${clientId}::after{opacity:.92;}`,
       `.yRemoteSelectionHead-${clientId}.is-top-line::after{top:100%;border-radius:0 3px 3px 3px;}`,
+      // Where a participant is working, shown on the \include line of the files
+      // that read that file (binding.ts renderPresence).
+      `.collab-presence-gutter-${clientId}{width:3px!important;margin-left:4px;background:${color};border-radius:2px;}`,
+      `.collab-presence-tag-${clientId}{margin-left:10px;padding:0 5px;font-size:10px;line-height:1.3em;font-family:var(--font-ui, system-ui);font-style:normal;background:${color};color:#fff;border-radius:3px;opacity:.85;pointer-events:none;}`,
     );
   }
   style.textContent = rules.join("\n");
