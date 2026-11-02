@@ -30,16 +30,16 @@ export const LATEX_MONARCH = {
                 ],
             ],
             [
-                /(\\(?:begin|end))(\s*)(\{)([^}]+)(\})/,
+                /(\\(?:begin|end))(\s*)(\{)((?:[^{}]|\{[^{}]*\})+)(\})/,
                 ["keyword", "white", "delimiter", "type", "delimiter"],
             ],
-            [/(\\(?:begin|end))(\s*)(\{)([^}]*)$/, ["keyword", "white", "delimiter", "type"]],
+            [/(\\(?:begin|end))(\s*)(\{)((?:[^{}]|\{[^{}]*\})*)$/, ["keyword", "white", "delimiter", "type"]],
             [
-                /(\\(?:documentclass|usepackage))(\s*)(\[)([^\]]*)(\])(\s*)(\{)([^}]+)(\})/,
+                /(\\(?:documentclass|usepackage))(\s*)(\[)([^\]]*)(\])(\s*)(\{)((?:[^{}]|\{[^{}]*\})+)(\})/,
                 ["keyword", "white", "delimiter", "string", "delimiter", "white", "delimiter", "type", "delimiter"],
             ],
             [
-                /(\\(?:documentclass|usepackage))(\s*)(\{)([^}]+)(\})/,
+                /(\\(?:documentclass|usepackage))(\s*)(\{)((?:[^{}]|\{[^{}]*\})+)(\})/,
                 ["keyword", "white", "delimiter", "type", "delimiter"],
             ],
             [
@@ -47,19 +47,19 @@ export const LATEX_MONARCH = {
                 ["keyword", "white", "delimiter", "variable", "delimiter"],
             ],
             [
-                /(\\(?:label|ref|eqref|autoref|cref|Cref))(\s*)(\{)([^}]+)(\})/,
+                /(\\(?:label|ref|eqref|autoref|cref|Cref))(\s*)(\{)((?:[^{}]|\{[^{}]*\})+)(\})/,
                 ["keyword", "white", "delimiter", "variable", "delimiter"],
             ],
             [
-                /(\\(?:cite|citet|citep|citeauthor|citeyear|autocite|parencite|textcite|footcite|supercite))(\s*)(\{)([^}]+)(\})/,
+                /(\\(?:cite|citet|citep|citeauthor|citeyear|autocite|parencite|textcite|footcite|supercite))(\s*)(\{)((?:[^{}]|\{[^{}]*\})+)(\})/,
                 ["keyword", "white", "delimiter", "variable", "delimiter"],
             ],
             [
-                /(\\(?:bibliography|bibliographystyle))(\s*)(\{)([^}]+)(\})/,
+                /(\\(?:bibliography|bibliographystyle))(\s*)(\{)((?:[^{}]|\{[^{}]*\})+)(\})/,
                 ["keyword", "white", "delimiter", "type", "delimiter"],
             ],
             [
-                /(\\(?:input|include|includegraphics|graphicspath))(\s*)(\{)([^}]+)(\})/,
+                /(\\(?:input|include|includegraphics|graphicspath))(\s*)(\{)((?:[^{}]|\{[^{}]*\})+)(\})/,
                 ["keyword", "white", "delimiter", "string", "delimiter"],
             ],
             [EXPL3_COMMAND_PATTERN, "support.function.expl3"],
