@@ -10925,6 +10925,13 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .zotero-result-meta, .zotero-empty { color: var(--text-soft); }
 .zotero-empty { margin: 8px 10px; }
 .zotero-status { min-height: 20px; margin: 12px 0 0; }
+/* Build target chooser (build-ops-ui.ts): shares .history-confirm */
+.build-target-dialog { width: min(560px, calc(100vw - 48px)); }
+.build-target-note { margin: 0 0 12px; }
+.build-target-list { display: flex; flex-direction: column; gap: 4px; max-height: min(320px, 50vh); overflow-y: auto; }
+.build-target-row { justify-content: flex-start; text-align: left; font-family: var(--font-mono, ui-monospace, monospace); overflow-wrap: anywhere; }
+.build-target-dialog .history-local { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+
 /* ---- Collaboration: participant dots (topbar, session only) and the dialog ---- */
 .collab-participants { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 8px; border: none; border-radius: var(--radius-sm); background: transparent; cursor: pointer; -webkit-app-region: no-drag; }
 .collab-participants:hover { background: var(--control-bg); }

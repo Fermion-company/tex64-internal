@@ -1277,6 +1277,7 @@ export const initMain = () => {
                 handleBuildPreviewState: (payload) => buildOps.handleBuildPreviewState(payload),
                 setBuildState: (state, message) => buildOps.setBuildState(state, message),
                 setBuildTarget: (path) => { lastBuildMainFile = path; },
+                chooseBuildTarget: (payload) => buildOps.chooseBuildTarget(payload),
                 handleFormatResult: (payload) => buildOps.handleFormatResult(payload),
                 handleBuildLog: (log) => buildOps.handleBuildLog(log),
                 handleSynctexForwardResult: (payload) => buildOps.handleSynctexForwardResult(payload),

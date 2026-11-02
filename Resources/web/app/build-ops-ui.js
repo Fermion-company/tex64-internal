@@ -447,8 +447,70 @@ export const initBuildOpsUi = (context, deps) => {
             }
         }
     };
+    // Fragment → document chosen in the chooser, per workspace, for this session.
+    const chosenTargets = new Map();
+    let chooserDialog = null;
+    // Main could not decide which document to build (a fragment included by two
+    // documents, or several documents and no root): one dialog, one answer.
+    const chooseBuildTarget = (payload) => {
+        var _a, _b;
+        const candidates = Array.isArray(payload === null || payload === void 0 ? void 0 : payload.candidates) ? payload.candidates.filter((c) => typeof c === "string" && c) : [];
+        if (candidates.length === 0)
+            return;
+        const requested = typeof payload.requested === "string" ? payload.requested : null;
+        const workspaceKey = (_b = (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : null;
+        chooserDialog === null || chooserDialog === void 0 ? void 0 : chooserDialog.close();
+        const el = (tag, className = "", text = "") => {
+            const node = document.createElement(tag);
+            node.className = className;
+            node.textContent = text;
+            return node;
+        };
+        const dialog = el("dialog", "history-confirm build-target-dialog");
+        const title = el("h2", "", uiText("Which document should be built?", "どの文書をビルドしますか？"));
+        const note = el("p", "build-target-note", requested
+            ? uiText(`${requested} belongs to more than one document.`, `${requested} は複数の文書から読み込まれています。`)
+            : uiText("This folder has several documents and no main file is set.", "このフォルダには文書が複数あり、メイン TeX が決まっていません。"));
+        const list = el("div", "build-target-list");
+        list.setAttribute("role", "listbox");
+        const pick = (path) => {
+            var _a;
+            dialog.close();
+            if (((_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps)) !== workspaceKey)
+                return;
+            if (requested)
+                chosenTargets.set(`${workspaceKey !== null && workspaceKey !== void 0 ? workspaceKey : ""}\0${requested}`, path);
+            void startBuild(path);
+        };
+        candidates.forEach((path, index) => {
+            const row = el("button", "history-button build-target-row", path);
+            row.type = "button";
+            row.setAttribute("role", "option");
+            if (index === 0)
+                row.autofocus = true;
+            row.addEventListener("click", () => pick(path));
+            list.append(row);
+        });
+        const hint = el("p", "history-local", requested
+            ? uiText("Remembered for this file until the app closes. A % !TEX root line in the file settles it for good.", "この起動中はこのファイルについて記憶します。ファイル先頭の % !TEX root 行で固定できます。")
+            : uiText("Settings › Main TeX fixes the choice for this folder.", "設定の「メイン TeX」でこのフォルダの既定にできます。"));
+        const actions = el("div", "history-confirm-actions");
+        const cancel = el("button", "history-button", uiText("Cancel", "キャンセル"));
+        cancel.type = "button";
+        cancel.addEventListener("click", () => dialog.close());
+        actions.append(cancel);
+        dialog.append(title, note, list, hint, actions);
+        dialog.addEventListener("close", () => {
+            dialog.remove();
+            if (chooserDialog === dialog)
+                chooserDialog = null;
+        });
+        document.body.append(dialog);
+        chooserDialog = dialog;
+        dialog.showModal();
+    };
     const startBuild = async (explicitTarget) => {
-        var _a, _b, _c, _d, _e, _f;
+        var _a, _b, _c, _d, _e, _f, _g;
         // File-selection actions may outlive the idle state in which their context
         // menu opened. Only a normal button click is allowed to cancel a build.
         if (preparingBuild || currentBuildState === "building")
@@ -487,8 +549,14 @@ export const initBuildOpsUi = (context, deps) => {
         deps.cacheCurrentBuffer(deps.getActiveGroup());
         const buildWorkspace = (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps);
         const activePath = deps.getActiveFilePath();
-        const exactTarget = explicitTarget !== null && explicitTarget !== void 0 ? explicitTarget : (activePath && /\.tex$/i.test(activePath) ? activePath : undefined);
-        const mainFile = (_e = (_d = (_c = exactTarget !== null && exactTarget !== void 0 ? exactTarget : (_b = deps.getEditorGroups().find((group) => group.currentFilePath && /\.tex$/i.test(group.currentFilePath))) === null || _b === void 0 ? void 0 : _b.currentFilePath) !== null && _c !== void 0 ? _c : deps.getLastBuildMainFile()) !== null && _d !== void 0 ? _d : deps.getRootFilePath()) !== null && _e !== void 0 ? _e : undefined;
+        const activeTex = activePath && /\.tex$/i.test(activePath) ? activePath : undefined;
+        // A plain click names the active file and lets main resolve the document
+        // it belongs to (magic root, the including document, the workspace root).
+        // A chosen file (context menu, or the chooser's answer remembered for this
+        // fragment) is built exactly as named.
+        const remembered = activeTex ? chosenTargets.get(`${buildWorkspace !== null && buildWorkspace !== void 0 ? buildWorkspace : ""}\0${activeTex}`) : undefined;
+        const exactTarget = explicitTarget !== null && explicitTarget !== void 0 ? explicitTarget : remembered;
+        const mainFile = (_f = (_e = (_d = (_b = exactTarget !== null && exactTarget !== void 0 ? exactTarget : activeTex) !== null && _b !== void 0 ? _b : (_c = deps.getEditorGroups().find((group) => group.currentFilePath && /\.tex$/i.test(group.currentFilePath))) === null || _c === void 0 ? void 0 : _c.currentFilePath) !== null && _d !== void 0 ? _d : deps.getLastBuildMainFile()) !== null && _e !== void 0 ? _e : deps.getRootFilePath()) !== null && _f !== void 0 ? _f : undefined;
         if (deps.saveDirtyFiles) {
             const generation = ++preparationGeneration;
             preparingBuild = true;
@@ -505,7 +573,7 @@ export const initBuildOpsUi = (context, deps) => {
                 setBuildState("failed");
                 return;
             }
-            if (buildWorkspace !== ((_f = deps.getWorkspaceRootKey) === null || _f === void 0 ? void 0 : _f.call(deps))) {
+            if (buildWorkspace !== ((_g = deps.getWorkspaceRootKey) === null || _g === void 0 ? void 0 : _g.call(deps))) {
                 setBuildState("idle");
                 return;
             }
@@ -811,6 +879,7 @@ export const initBuildOpsUi = (context, deps) => {
         handleBuildPreviewState,
         setBuildState,
         startBuild,
+        chooseBuildTarget,
         requestFormatCurrentFile,
         handleFormatResult,
         handleSaveFormatError,

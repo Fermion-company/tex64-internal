@@ -13,6 +13,7 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     sendBuildState,
     sendIssues,
     sendBuildLog,
+    sendToRenderer,
     ensureWorkspace,
     updateWorkspaceIfNeeded,
     handleOpenFile,
@@ -487,6 +488,17 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       }
     } catch (error) {
       const errMsg = error?.message ?? String(error);
+      if (error?.code === "BUILD_TARGET_CHOICE" && Array.isArray(error.candidates)) {
+        // Not a failure: the renderer asks which document to build and
+        // sends the build again with that exact target.
+        if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
+        sendBuildState("idle", undefined, eventContext);
+        sendToRenderer?.("build:chooseTarget", {
+          requested: error.requested || null,
+          candidates: error.candidates.map(rendererPath),
+        });
+        return;
+      }
       console.error("[build] handleBuild error:", errMsg);
       if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
       sendBuildState("failed", errMsg, eventContext);
