@@ -1,8 +1,8 @@
-# リアルタイムプレビュー（ベータ）
+# リアルタイムプレビュー
 
 Code の設定トグルで有効化する、書きながら組版されるプレビュー。エンジンは兄弟リポジトリ **tdom-engine**（常駐 LuaLaTeX のインクリメンタル組版ランタイム、TDOM Engine）で、開発checkoutまたは同梱したコピーを別プロセスとして起動する。
 
-- 設定: **設定 > Build > Preview > Real-time Preview (Beta)**（`preview.realtime`、default off、localStorage）
+- 設定: **設定 > Build > Preview > Real-time Preview**（`preview.realtime`、default on、localStorage。明示的に off にした値はそのまま）
 - **ライブ専用の表示面は作らない。** Code の通常の `pdf-viewer.html` とツールバーを維持し、ページキャンバスだけを TDOM の埋め込み表示へ切り替える。PDF の表示設定に従い、既存の PDF タブまたは通常 Build の別ウィンドウを同じ状態で切り替える。
 - プレビュー上の文字・数式は直接編集できる。編集は同じ Monaco モデルへ入り、未保存状態・自動保存・Undo を通常のソース編集と共有する。ソース位置が競合した場合は推測で別箇所を書き換えず、その編集を拒否する。
 
@@ -95,7 +95,7 @@ TDOM の `closure-deferred` は resident の紙面を保持しつつ最新ソー
 - トグル OFF・アプリ終了で SIGTERM → エンジン側の shutdown が常駐 lualatex ツリーを回収する。
 - ポートは 4646 起点で空きを探す（tdom 開発サーバーの 4633 とは衝突させない）。
 
-## 既知の制限（ベータ）
+## 既知の制限
 
 - TDOM の canonical が未着地のあいだは直前の通常 PDF / last-good PDF を保持する。
 - Code の PDF タブはルート `.tex` と同階層の `.pdf` 名で開く。特殊な outDir を使う通常ビルドでは、先にその出力 PDF を開いておくと同じタブが更新される。
