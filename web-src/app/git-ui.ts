@@ -3,6 +3,8 @@ import { getEditorOperationGuard } from "./editor-operation-guard.js";
 import { uiText } from "./i18n.js";
 import type { EditorSessionApi } from "./editor-session.js";
 import type { DiffModalApi } from "./diff-modal.js";
+import { collabSession } from "./collab/session.js";
+import { applyCollabGuestLock } from "./collab/guest-lock.js";
 
 type Bridge = { getIdentity(): {workspaceId?: string; workspaceGeneration?: number}; call(action: string, payload?: Record<string, unknown>): Promise<any>; onChange(handler: (message: any) => void): () => void };
 type Entry = { path: string; staged: boolean; unstaged: boolean; partiallyStaged: boolean; unmerged: boolean; index: string; worktree: string };
@@ -67,6 +69,7 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
   const recovery = button(uiText("Resume synchronization", "画面の同期を再試行"), () => void run(phase === "recovery-required" ? recoveryDialog : sync)); recovery.hidden = true;
   heading.append(el("h2", "", "Git"), branches, createActionsMenu([merge, shelve, unshelve, tag, pushTag, clone, settings, refreshButton]));
   host.append(heading, error, recovery, list, message, commit, network);
+  collabSession.onChange((state) => applyCollabGuestLock(host, state.active && state.role === "guest"));
   async function call(action: string, payload: Record<string, unknown> = {}) {
     const requestedWorkspace = renderedWorkspaceId;
     const value = await bridge!.call(action, payload);

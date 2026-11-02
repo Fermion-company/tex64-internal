@@ -26,6 +26,7 @@
 | `zotero-20261031/` | Zotero 連携（引用の挿入・`.bib` 同期）の確認。偽 Zotero `mock-zotero.cjs`（Better BibTeX JSON-RPC とローカル API を 6 件で模す）と実機ドライバ `drive.mjs`、`shots/` のスクリーンショット |
 | `arxiv-search-20261031/` | 右クリック「arXiv で関連文献を探す…」→ 引用（`.bib` 追記と `\cite` 挿入）の実機確認。ドライバ `drive.mjs` |
 | `voice-edit-20261031/` | エディタの「音声で編集を指示」（feat/voice-edit）の実機確認。ドライバ `drive.mjs`（偽マイク＋ `TEX64_VOICE_FAKE_TRANSCRIPT`） |
+| `collab-20261031/` | 共同編集の 2 プロセス検証（docs/collab.md）。Playwright ドライバ `collab-e2e.mjs`（`RUN_DIR=… node testing/collab-20261031/collab-e2e.mjs`、`SHOW=1` で窓を表示）、結果は `RUN_DIR/results.json` と `shots/` |
 | `demo-videos-20260927/` | 大・小・装飾の 3 文書の打鍵デモ動画と、プレビュー反映の計測（tex64-internal #102〜#104）。アプリ実機ドライバ `record.mjs`（動画は `VIDEO=1` のときだけ）、集計 `analyze.py` |
 | `large-typing-20260924/` | 大規模文書の打鍵反映（tex64-internal #61・#81〜#97）。API ドライバ `large-typing.mjs`、アプリ実機ドライバ `app-*.mjs` |
 | `kk-packages-20260925/` | lua-ul・KKluaverb・KKsymbols の確認（#97） |
