@@ -1,0 +1,46 @@
+\documentclass[a4paper,11pt]{ltjsarticle}
+\usepackage{luatexja-fontspec}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{enumitem}
+\usepackage{hyperref}
+
+\title{熱伝導方程式の差分解法についての実験レポート}
+\author{物理学科 3年 \quad 学籍番号 0312345}
+\date{2026年10月}
+
+\begin{document}
+\maketitle
+
+\section{目的}
+一次元の熱伝導方程式を陽的差分法で解き、安定条件と誤差の関係を確かめる。
+
+\section{理論}
+温度 $u(x,t)$ は
+\begin{equation}
+  \frac{\partial u}{\partial t} = \kappa \frac{\partial^2 u}{\partial x^2}
+  \label{eq:heat}
+\end{equation}
+に従う。格子幅 $\Delta x$、時間刻み $\Delta t$ で離散化すると
+\begin{equation}
+  u_i^{n+1} = u_i^n + r\left(u_{i+1}^n - 2u_i^n + u_{i-1}^n\right),\qquad
+  r = \frac{\kappa\,\Delta t}{\Delta x^2}
+  \label{eq:scheme}
+\end{equation}
+となり、安定条件は $r \le 1/2$ である。
+
+\section{方法}
+\begin{enumerate}[label=(\arabic*)]
+  \item 区間 $[0,1]$ を 50 分割し、初期条件 $u(x,0)=\sin\pi x$ を与える。
+  \item $r=0.25,\ 0.5,\ 0.6$ の三通りで $t=0.1$ まで進める。
+  \item 厳密解 $e^{-\pi^2\kappa t}\sin\pi x$ との最大誤差を記録する。
+\end{enumerate}
+
+\section{結果と考察}
+$r=0.6$ では式~\eqref{eq:scheme} の解が振動して発散した。$r=0.25$ と $0.5$ では
+誤差は $\Delta x^2$ に比例して減少し、理論どおりであった。
+
+\section{結論}
+陽的差分法は実装が容易だが、時間刻みの上限が厳しい。次回は陰的法（Crank--Nicolson）を試す。
+
+\end{document}

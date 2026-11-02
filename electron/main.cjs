@@ -77,6 +77,7 @@ const {
 } = require("./services/ai-web-security.cjs");
 
 const { createMiscHandlers } = require("./handlers/misc.cjs");
+const { createPrismImportHandlers } = require("./handlers/prism-import.cjs");
 const { createAgentHandlers } = require("./handlers/agent.cjs");
 const { createApplicationMenuTemplate } = require("./app-menu.cjs");
 
@@ -922,6 +923,15 @@ ipcMain.handle("tex64:snippets", async (event, action, request = {}) => {
     const data = action === "list" ? await snippetStore.read() : await snippetStore.change(action, request);
     return { ok: true, ...data };
   } catch (error) { return { ok: false, code: error.code, error: error.message }; }
+});
+
+const prismImportHandlers = createPrismImportHandlers({ dialog, state, envService, buildService, sendToRenderer });
+ipcMain.handle("tex64:prism", async (event, action, request = {}) => {
+  if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid Prism import owner." };
+  try {
+    if (typeof action !== "string" || !request || typeof request !== "object" || JSON.stringify(request).length > 64 * 1024) throw new Error("Invalid Prism import request.");
+    return { ok: true, ...(await prismImportHandlers.request(action, request)) };
+  } catch (error) { return { ok: false, code: error.code || "PRISM_IMPORT_ERROR", step: error.step || null, error: error.message }; }
 });
 
 ipcMain.handle("tex64:history", async (event, action, request) => {
@@ -2120,6 +2130,10 @@ const handleRendererMessage = (event, message) => {
   }
   if (type === "openRecentProject") {
     workspaceHandlers.handleOpenRecentProject(message.path);
+    return;
+  }
+  if (type === "openProjectPath") {
+    workspaceHandlers.openWorkspacePath(message.path, "import");
     return;
   }
   if (type === "getRecentProjects") {

@@ -1096,6 +1096,33 @@ class EnvService {
     );
   }
 
+  // Which of the given .sty / .cls names the current TeX can find. One
+  // kpsewhich run; names it does not print are missing. Returns null when
+  // there is no kpsewhich to ask.
+  async locateTexFiles(fileNames, options = {}) {
+    const wanted = [...new Set(
+      (Array.isArray(fileNames) ? fileNames : [])
+        .map((name) => String(name || "").trim())
+        .filter((name) => SAFE_TEX_FILE.test(name))
+    )];
+    const kpsewhich = this.resolveCommandPath("kpsewhich");
+    if (!kpsewhich) return null;
+    const found = new Set();
+    for (let index = 0; index < wanted.length; index += 200) {
+      const batch = wanted.slice(index, index + 200);
+      const probe = await runCommand(kpsewhich, batch, {
+        timeoutMs: 30000,
+        signal: options.signal,
+      }).catch(() => null);
+      if (!probe) continue;
+      parseKpsewhichOutput(probe.output, batch).forEach((name) => found.add(name));
+    }
+    return {
+      found: wanted.filter((name) => found.has(name.toLowerCase())),
+      missing: wanted.filter((name) => !found.has(name.toLowerCase())),
+    };
+  }
+
   async findManagedPackageForFile(fileName, options = {}) {
     if (!SAFE_TEX_FILE.test(String(fileName || ""))) {
       return null;

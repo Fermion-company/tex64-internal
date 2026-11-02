@@ -40,6 +40,7 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
     getBuildProfiles: deps.getBuildProfiles,
     getBuildProfileId: deps.getBuildProfileId,
     postToNative: deps.postToNative,
+    onActiveEngineChange: (engine) => engineOps.setProfileEngine(engine),
   });
 
   const pageNavOps = createSettingsPageNavOps(runtime, attentionOps, {

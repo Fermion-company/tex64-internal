@@ -18,6 +18,7 @@ import { initMathCaptureUi } from "./app/math-capture-ui.js";
 import { initMathCapture } from "./app/math-capture.js";
 import { initLauncherUi } from "./app/launcher-ui.js";
 import { initOnboardingUi } from "./app/onboarding-ui.js";
+import { initPrismImportUi } from "./app/prism-import-ui.js";
 import type { TexInstallVariant } from "./app/tex-env-report.js";
 import { initMonacoSetup } from "./app/monaco-setup.js";
 
@@ -218,7 +219,7 @@ export const initMain = () => {
   });
   let workspaceSwitchInFlight = false;
   const requestWorkspaceChange = (
-    payload: { type: "openWorkspace" | "openRecentProject" | "createProject"; [key: string]: unknown },
+    payload: { type: "openWorkspace" | "openRecentProject" | "openProjectPath" | "createProject"; [key: string]: unknown },
   ): boolean => {
     if (workspaceSwitchInFlight) return false;
     workspaceSwitchInFlight = true;
@@ -426,8 +427,27 @@ export const initMain = () => {
     startInstall: (variant: TexInstallVariant) => {
       postToNative({ type: "env:install", target: "basictex", variant });
     },
-    onFinished: revealAppBehindOnboarding,
+    onFinished: () => {
+      revealAppBehindOnboarding();
+      prismImportUi.resume();
+    },
   });
+  // Prism export zips: File menu, or a .zip dropped on the launcher / file tree.
+  const prismImportUi = initPrismImportUi({
+    openProjectPath: (path) => {
+      requestWorkspaceChange({ type: "openProjectPath", path });
+    },
+    getWorkspaceRoot: () => getWorkspaceRootKey(),
+    showIssues: (summary, issues) => {
+      updateIssuesProxy(issues.length, summary, issues.length ? "error" : "info", issues as IssueItem[]);
+      setActiveTab("issues");
+    },
+    requestRuntimeSetup: () => {
+      if (!onboardingUi.isVisible()) onboardingUi.showChoice();
+    },
+  });
+  prismImportUi.attachZipDrop(appContext.dom.launcher as HTMLElement | null);
+  prismImportUi.attachZipDrop(appContext.dom.fileTree as HTMLElement | null);
 
   // Request recent projects on startup
   postToNative({ type: "getRecentProjects" });
@@ -1285,6 +1305,10 @@ export const initMain = () => {
         }
         if (command === "project:open") {
           requestWorkspaceChange({ type: "openWorkspace", locale: getUiLocale() });
+          return;
+        }
+        if (command === "prism:import") {
+          prismImportUi.start();
           return;
         }
         if (command === "file:save" || command === "edit:find") {

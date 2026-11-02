@@ -97,3 +97,4 @@ yarn-error.log*
 !/testing/test-workspace/
 !/testing/test-sample-hover/
 !/testing/evidence/
+!/testing/prism-import-20261031/
