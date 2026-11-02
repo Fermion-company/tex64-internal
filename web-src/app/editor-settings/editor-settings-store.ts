@@ -60,7 +60,7 @@ export const EDITOR_FEATURES: EditorFeatureMeta[] = [
   { id: "ergo.autoCloseEnvironment", label: "Auto-close environment", description: "Insert matching \\end when you type \\begin{...}.", category: "Editing", default: true },
   { id: "ergo.wrapSelection", label: "Wrap selection", description: "Wrap the selection in an environment or command.", category: "Editing", default: true },
   { id: "ergo.typewriterScroll", label: "Typewriter scrolling", description: "Keep the cursor near the center while writing.", category: "Editing", default: false },
-  { id: "preview.realtime", label: "Real-time preview (Beta)", description: "Typeset as you write with the incremental LuaLaTeX engine.", category: "Preview", default: false },
+  { id: "preview.realtime", label: "Real-time preview", description: "Typeset as you write with the incremental LuaLaTeX engine.", category: "Preview", default: true },
 ];
 
 const DEFAULTS = new Map<EditorFeatureId, boolean>(EDITOR_FEATURES.map((f) => [f.id, f.default]));
