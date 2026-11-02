@@ -351,7 +351,8 @@ export const initBuildOpsUi = (
       deps.getLastBuildMainFile(),
       deps.getRootFilePath()
     );
-    const enabled = Boolean(targetPath);
+    // A Build rewrites the PDF and its SyncTeX data: no Jump until it is done.
+    const enabled = Boolean(targetPath) && !preparingBuild && currentBuildState !== "building";
     synctexButton.disabled = !enabled;
     synctexButton.style.display = "inline-flex";
     const label = synctexButton.querySelector<HTMLElement>(".synctex-button-label");
@@ -551,7 +552,11 @@ export const initBuildOpsUi = (
       requestId,
       source,
       path: targetPath,
-      pdfPath: resolveSynctexForwardPdfPath(lastBuildMainFile, rootPath),
+      // main resolves the document (and its real PDF) like a Build would. A
+      // document chosen for this file, or the one the post-Build jump follows,
+      // is named explicitly.
+      documentMainFile: (source === "auto-build" ? lastBuildMainFile : null) ??
+        chosenTargets.get(`${deps.getWorkspaceRootKey?.() ?? ""}\0${targetPath}`) ?? undefined,
       line,
       column,
       fallbackToTop: options.fallbackToTop === true,
@@ -562,6 +567,9 @@ export const initBuildOpsUi = (
   const setBuildState = (state: BuildState, message?: string) => {
     const wasBusy = currentBuildState === "building";
     currentBuildState = state;
+    updateSynctexButtonState();
+    if (state === "building" && pendingJumpAfterBuild) pendingJumpAfterBuild.started = true;
+    else if (state === "success" || state === "failed" || state === "idle") resumeJumpAfterBuild(state);
     const isBusy = state === "building";
     if (isBusy) {
       if (!wasBusy) {
@@ -649,9 +657,30 @@ export const initBuildOpsUi = (
   const chosenTargets = new Map<string, string>();
   let chooserDialog: HTMLDialogElement | null = null;
 
+  // A Jump whose document had no PDF yet: the Build it started, and the file
+  // to jump from once that Build succeeds.
+  let pendingJumpAfterBuild: { path: string; target: string; workspaceKey: string | null; started: boolean } | null = null;
+  const resumeJumpAfterBuild = (state: BuildState) => {
+    const pending = pendingJumpAfterBuild;
+    if (!pending) return;
+    // setBuildState("idle") also runs while startBuild saves files first.
+    if (!pending.started) {
+      if (state === "failed") pendingJumpAfterBuild = null;
+      return;
+    }
+    pendingJumpAfterBuild = null;
+    if (state !== "success" || deps.getWorkspaceRootKey?.() !== pending.workspaceKey) return;
+    const built = deps.getLastBuildMainFile();
+    if (built && built !== pending.target) return;
+    window.setTimeout(() => requestSynctexForward(pending.path, { fallbackToTop: true, source: "manual" }), 0);
+  };
+
   // Main could not decide which document to build (a fragment included by two
   // documents, or several documents and no root): one dialog, one answer.
-  const chooseBuildTarget = (payload: { requested: string | null; candidates: string[] }) => {
+  const chooseBuildTarget = (payload: { requested: string | null; candidates: string[] }) =>
+    openTargetChooser({ ...payload, onPick: (path) => void startBuild(path) });
+
+  const openTargetChooser = (payload: { requested: string | null; candidates: string[]; onPick: (path: string) => void }) => {
     const candidates = Array.isArray(payload?.candidates) ? payload.candidates.filter((c) => typeof c === "string" && c) : [];
     if (candidates.length === 0) return;
     const requested = typeof payload.requested === "string" ? payload.requested : null;
@@ -674,7 +703,7 @@ export const initBuildOpsUi = (
       dialog.close();
       if (deps.getWorkspaceRootKey?.() !== workspaceKey) return;
       if (requested) chosenTargets.set(`${workspaceKey ?? ""}\0${requested}`, path);
-      void startBuild(path);
+      payload.onPick(path);
     };
     candidates.forEach((path, index) => {
       const row = el("button", "history-button build-target-row", path);
@@ -1034,6 +1063,32 @@ export const initBuildOpsUi = (
       if (matchedInFlight) {
         flushQueuedSynctexForward();
       }
+      return;
+    }
+    const code = (payload as { code?: string }).code;
+    if (code === "CHOOSE_TARGET" && payloadMeta?.source === "manual") {
+      const choice = payload as { requested?: string; candidates?: string[] };
+      openTargetChooser({
+        requested: choice.requested ?? payloadMeta.path,
+        candidates: Array.isArray(choice.candidates) ? choice.candidates : [],
+        onPick: () => requestSynctexForward(payloadMeta.path, { fallbackToTop: true, source: "manual" }),
+      });
+      if (matchedInFlight) flushQueuedSynctexForward();
+      return;
+    }
+    if (code === "NEEDS_BUILD" && payloadMeta?.source === "manual") {
+      // The document has no PDF yet: build it, then jump from the same file.
+      const targetFile = String((payload as { targetFile?: string }).targetFile || "");
+      if (targetFile) {
+        pendingJumpAfterBuild = {
+          path: payloadMeta.path,
+          target: targetFile,
+          workspaceKey: deps.getWorkspaceRootKey?.() ?? null,
+          started: false,
+        };
+        void startBuild(targetFile);
+      }
+      if (matchedInFlight) flushQueuedSynctexForward();
       return;
     }
     if (payloadMeta?.source === "auto-build") {

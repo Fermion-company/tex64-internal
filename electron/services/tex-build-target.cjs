@@ -104,12 +104,19 @@ const resolveBuildTarget = async (workspace, requestedPath) => {
         const base = include.directory !== undefined
           ? path.posix.join(include.kind.startsWith("sub") ? entry.base : cwd, include.directory)
           : include.kind.startsWith("subfile") ? path.posix.dirname(entry.file) : entry.base;
-        let candidate = path.posix.join(base, include.file);
-        if (!path.posix.extname(candidate)) candidate += ".tex";
-        try {
-          candidate = normalize(candidate);
-          if (await read(candidate) === null) continue;
-        } catch { current(); continue; }
+        // TeX64 runs TeX from the workspace root with the main file's folder
+        // on TEXINPUTS, so a plain \input resolves against either.
+        const withExt = (file) => (path.posix.extname(file) ? file : `${file}.tex`);
+        const tries = [withExt(path.posix.join(base, include.file))];
+        if (include.directory === undefined && !include.kind.startsWith("subfile")) tries.push(withExt(include.file));
+        let candidate = null;
+        for (const attempt of tries) {
+          try {
+            const normalized = normalize(attempt);
+            if (await read(normalized) !== null) { candidate = normalized; break; }
+          } catch { current(); }
+        }
+        if (!candidate) continue;
         if (candidate === requested) return true;
         queue.push({
           file: candidate,

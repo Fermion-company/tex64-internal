@@ -159,6 +159,7 @@ export type ViewerDeps = {
     x: number;
     y: number;
     pdfPath: string | null;
+    context?: { word: string; prev: string | null; next: string | null };
   }) => void;
   onLiveSourceRequest?: (payload: {
     file: string;
@@ -308,7 +309,7 @@ export const createViewer = (deps: ViewerDeps) => {
     }
     if (payload.type === "reverse") {
       const detail = (payload as { payload?: unknown }).payload as
-        | { page?: unknown; x?: unknown; y?: unknown; path?: unknown }
+        | { page?: unknown; x?: unknown; y?: unknown; path?: unknown; context?: unknown }
         | null
         | undefined;
       const page = typeof detail?.page === "number" ? detail.page : Number(detail?.page);
@@ -318,7 +319,12 @@ export const createViewer = (deps: ViewerDeps) => {
         return;
       }
       const pdfPath = typeof detail?.path === "string" ? detail.path : null;
-      deps.onPdfReverseRequest?.({ page, x, y, pdfPath });
+      const rawContext = detail?.context as { word?: unknown; prev?: unknown; next?: unknown } | null | undefined;
+      const text = (value: unknown) => (typeof value === "string" && value.length <= 64 ? value : null);
+      const context = rawContext && text(rawContext.word)
+        ? { word: text(rawContext.word) as string, prev: text(rawContext.prev), next: text(rawContext.next) }
+        : undefined;
+      deps.onPdfReverseRequest?.({ page, x, y, pdfPath, ...(context ? { context } : {}) });
       return;
     }
     if (payload.type === "ask-axiom") {

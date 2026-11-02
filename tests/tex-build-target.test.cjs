@@ -56,3 +56,12 @@ test("no active file: root, then main.tex, then the only document, else asks", a
   await assert.rejects(resolveBuildTarget(fakeWorkspace({ "a.tex": doc("A"), "b.tex": doc("B") }), null), (error) => error.code === BUILD_TARGET_CHOICE);
   await assert.rejects(resolveBuildTarget(fakeWorkspace({ "a.tex": doc("A"), "b.tex": doc("B") }, "a.tex", "auto"), null), (error) => error.code === BUILD_TARGET_CHOICE);
 });
+
+test("a fragment named from the workspace root by a document in a subfolder belongs to that document", async () => {
+  const ws = fakeWorkspace({
+    "main.tex": doc("Main."),
+    "notes/draft.tex": doc("\\input{notes/body}"),
+    "notes/body.tex": "Body.",
+  }, "main.tex", "auto");
+  assert.equal(await resolveBuildTarget(ws, "notes/body.tex"), "notes/draft.tex");
+});

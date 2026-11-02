@@ -1,7 +1,7 @@
 const path = require("path");
 
 const createSynctexForwardHandler = (deps, resolvers) => {
-  const { fs, pdfWindowManager, synctexService, sendToRenderer, ensureWorkspace, state, delay } = deps;
+  const { fs, pdfWindowManager, synctexService, sendToRenderer, ensureWorkspace, state, delay, resolveJumpDocument } = deps;
   const { resolveWorkspacePathFromRoot, resolveWorkspaceRelativePath, isWorkspaceSynctexPathSame } =
     resolvers;
 
@@ -273,8 +273,42 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       return;
     }
     const sourcePath = resolveWorkspacePathFromRoot(rootPath, message.path);
-    const pdfPath =
-      resolveWorkspacePathFromRoot(rootPath, message.pdfPath) || state.lastBuildPdfPath;
+    // Which document's PDF: the one a Build of this file would write. An
+    // explicit pdfPath (a tex64:// link, an older caller) is honoured as is.
+    let pdfPath = message.pdfPath ? resolveWorkspacePathFromRoot(rootPath, message.pdfPath) : null;
+    if (!pdfPath && sourcePath && typeof resolveJumpDocument === "function" &&
+        sourcePath.toLowerCase().endsWith(".tex")) {
+      const exactTarget = typeof message.documentMainFile === "string" && message.documentMainFile.trim()
+        ? message.documentMainFile.trim() : null;
+      let document = null;
+      try {
+        document = await resolveJumpDocument(message.path, { exactTarget });
+      } catch (error) {
+        if (error?.code === "BUILD_TARGET_CHOICE" && Array.isArray(error.candidates)) {
+          sendToRenderer("synctex:forwardResult", withRequestId({
+            ok: false,
+            code: "CHOOSE_TARGET",
+            requested: error.requested || message.path,
+            candidates: error.candidates.map((file) => String(file).split(path.sep).join("/")),
+          }));
+          return;
+        }
+        document = null;
+      }
+      if (isStaleRequest()) return;
+      if (document && !document.built) {
+        // Nothing to jump into yet: the renderer builds this document and
+        // asks again once its PDF exists.
+        sendToRenderer("synctex:forwardResult", withRequestId({
+          ok: false,
+          code: "NEEDS_BUILD",
+          targetFile: document.targetFile,
+        }));
+        return;
+      }
+      pdfPath = document?.pdfPath ?? null;
+    }
+    if (!pdfPath) pdfPath = state.lastBuildPdfPath;
     if (!sourcePath) {
       sendToRenderer("synctex:forwardResult", withRequestId({
         ok: false,

@@ -2732,6 +2732,7 @@ ipcMain.on("tex64:pdf", (event, message) => {
       x: payload.x,
       y: payload.y,
       pdfPath: payload.path,
+      context: payload.context,
     });
     return;
   }

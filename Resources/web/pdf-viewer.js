@@ -753,6 +753,7 @@ const initPdfViewer = () => {
         x: payload.x,
         y: payload.y,
         path: state.path || null,
+        ...(payload.context ? { context: payload.context } : {}),
       },
     });
   };
@@ -1064,6 +1065,62 @@ const initPdfViewer = () => {
     return null;
   };
 
+  // The clicked word and its neighbours on the same typeset line, read from
+  // the text layer. The host matches them against the source lines near
+  // SyncTeX's answer (SyncTeX alone misplaces a line's first word).
+  const WORD_PATTERN = /[\p{L}\p{N}]+/gu;
+  const wordContextAt = (event) => {
+    try {
+      const target = event?.target;
+      const span = target instanceof Element ? target.closest(".textLayer span") : null;
+      const layer = span?.closest(".textLayer");
+      if (!span || !layer || typeof document.caretRangeFromPoint !== "function") return null;
+      const range = document.caretRangeFromPoint(event.clientX, event.clientY);
+      const node = range?.startContainer;
+      if (!node || node.nodeType !== Node.TEXT_NODE) return null;
+      const owner = node.parentElement?.closest(".textLayer span");
+      if (!owner || !layer.contains(owner)) return null;
+      const ownerRect = owner.getBoundingClientRect();
+      const lineHeight = Math.max(1, ownerRect.height);
+      const sameLine = Array.from(layer.querySelectorAll("span"))
+        .filter((item) => item.childElementCount === 0 && item.textContent)
+        .map((item) => ({ item, rect: item.getBoundingClientRect() }))
+        .filter(({ rect }) => Math.abs(rect.top + rect.height / 2 - (ownerRect.top + ownerRect.height / 2)) < lineHeight * 0.5)
+        .sort((a, b) => a.rect.left - b.rect.left);
+      let text = "";
+      let clicked = -1;
+      let previousRight = null;
+      for (const { item, rect } of sameLine) {
+        if (previousRight !== null && rect.left - previousRight > lineHeight * 0.15 && !/\s$/.test(text)) text += " ";
+        if (item === owner || item.contains(node)) {
+          let offset = range.startOffset;
+          for (const child of item.childNodes) {
+            if (child === node) break;
+            offset += child.textContent?.length ?? 0;
+          }
+          clicked = text.length + offset;
+        }
+        text += item.textContent;
+        previousRight = rect.right;
+      }
+      if (clicked < 0) return null;
+      const words = [];
+      for (const match of text.matchAll(WORD_PATTERN)) words.push({ value: match[0], start: match.index, end: match.index + match[0].length });
+      if (!words.length) return null;
+      let at = words.findIndex((item) => clicked >= item.start && clicked <= item.end);
+      if (at < 0) {
+        at = words.reduce((best, item, i) => (Math.abs(item.start - clicked) < Math.abs(words[best].start - clicked) ? i : best), 0);
+      }
+      return {
+        word: words[at].value,
+        prev: words[at - 1]?.value ?? null,
+        next: words[at + 1]?.value ?? null,
+      };
+    } catch {
+      return null;
+    }
+  };
+
   const resolveClickPoint = (event) => {
     if (!event || typeof event !== "object") {
       return null;
@@ -1159,7 +1216,8 @@ const initPdfViewer = () => {
       textLayerClick: isTextLayerClick,
       nearMarker: isNearActiveMarker(),
     };
-    return { page, x: synctexX, y: synctexY };
+    const context = isTextLayerClick ? wordContextAt(event) : null;
+    return { page, x: synctexX, y: synctexY, ...(context ? { context } : {}) };
   };
 
 

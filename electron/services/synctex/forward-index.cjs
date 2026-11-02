@@ -260,6 +260,20 @@ const isAuthorInput = (index, tag) => {
   return !GENERATED_INPUT_PATTERN.test(inputPath);
 };
 
+// Words as they appear in both the PDF text layer and the source: letters and
+// digits only, case-folded. TeX commands and their braces drop out of the
+// source side; ligatures and dashes are not in the comparison.
+const normalizeWord = (value) => {
+  const text = String(value ?? "").normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  return text.length ? text.slice(0, 64) : "";
+};
+const sourceWords = (line) => String(line ?? "")
+  .replace(/(^|[^\\])%.*$/, "$1")
+  .replace(/\\[A-Za-z@]+\*?/g, " ")
+  .split(/[\s{}[\]()~]+/)
+  .map(normalizeWord)
+  .filter(Boolean);
+
 const reverseOnIndex = (index, { page, x, y }) => {
   const records = index.pages.get(page);
   if (!records) return null;
@@ -353,6 +367,77 @@ module.exports = (SynctexService) => {
       if (found) line = found;
     }
     return { path: sourcePath, line, column: 1, distance: hit.distance, exact: hit.exact };
+  };
+
+  /**
+   * Re-pick a reverse result by the words under the click. SyncTeX records
+   * glue and boxes, not characters: the first word of a source line sits
+   * right after the previous line's end-of-line space, and a paragraph's
+   * first word inside the line box that TeX tags with the paragraph's last
+   * line, so a click there returns the line above, the paragraph's end, or
+   * (via a page/column box) another file. The clicked word and its
+   * neighbours on the typeset line name the source line far more reliably.
+   * Candidates: lines near the result, and every source line that has
+   * records on the clicked typeset line. Returns null to keep the result.
+   */
+  SynctexService.prototype.refineReverseByText = function ({ pdfPath, page, y, result, context }) {
+    const word = normalizeWord(context?.word);
+    if (!word || !result?.path || !Number.isFinite(result.line)) return null;
+    const prev = normalizeWord(context?.prev);
+    const next = normalizeWord(context?.next);
+    const candidates = new Map(); // `${path}\0${line}` -> { path, line, near }
+    const add = (path, line, near) => {
+      if (!path || !Number.isFinite(line) || line < 1) return;
+      const key = `${path}\0${line}`;
+      const existing = candidates.get(key);
+      if (!existing || near < existing.near) candidates.set(key, { path, line, near });
+    };
+    for (let delta = -15; delta <= 3; delta += 1) add(result.path, result.line + delta, Math.abs(delta));
+    const synctexPath = this.findSynctexOutputPath(pdfPath);
+    const index = synctexPath ? this.loadForwardIndex(synctexPath) : null;
+    const records = index?.pages.get(Math.floor(page));
+    if (records && Number.isFinite(y)) {
+      const v = index.toUnits(y, index.yOffset);
+      const tolerance = index.toUnits(8, 0);
+      const seen = new Set();
+      for (const record of [...records.glyphs, ...records.boxes]) {
+        if (Math.abs(record.v - v) > tolerance) continue;
+        const key = `${record.tag}:${record.line}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const sourcePath = index.inputs.get(record.tag);
+        if (!sourcePath || !/\.(?:tex|ltx)$/i.test(sourcePath)) continue;
+        for (let delta = -2; delta <= 2; delta += 1) add(sourcePath, record.line + delta, 20 + Math.abs(delta));
+      }
+    }
+    const score = (text) => {
+      const words = sourceWords(text);
+      if (!words.includes(word)) return 0;
+      let best = 1;
+      for (let i = 0; i < words.length; i += 1) {
+        if (words[i] !== word) continue;
+        if (prev && words[i - 1] === prev) best = Math.max(best, 2);
+        if (next && words[i + 1] === next) best = Math.max(best, 2);
+        if (prev && next && words[i - 1] === prev && words[i + 1] === next) best = 3;
+      }
+      return best;
+    };
+    let best = null;
+    for (const candidate of candidates.values()) {
+      const text = this.getSourceLine?.(candidate.path, candidate.line);
+      if (typeof text !== "string") continue;
+      const value = score(text);
+      if (!value) continue;
+      if (!best || value > best.value || (value === best.value && candidate.near < best.near)) {
+        best = { ...candidate, value };
+      }
+    }
+    if (!best) return null;
+    // A short common word alone proves little; keep SyncTeX's answer then.
+    if (best.value === 1 && word.length < 4) return null;
+    const current = this.getSourceLine?.(result.path, result.line);
+    if (typeof current === "string" && score(current) >= best.value) return null;
+    return { path: best.path, line: best.line };
   };
 
   SynctexService.prototype.findSynctexOutputPath = function (pdfPath) {

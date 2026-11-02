@@ -640,12 +640,42 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     sendIssues(0, "Canceling build...", "info", []);
   };
 
+  // The document a Jump from `requestedFile` lands in, decided like a Build
+  // (magic root, the including document, the user's main TeX; an explicit
+  // target is taken as is), and the PDF that document's Build writes.
+  // Throws BUILD_TARGET_CHOICE when several documents could own the file.
+  const resolveJumpDocument = async (requestedFile, { exactTarget = null } = {}) => {
+    const rootPath = ensureWorkspace();
+    if (!rootPath) return null;
+    let targetFile = exactTarget;
+    if (!targetFile && typeof workspace.resolveBuildTarget === "function") {
+      targetFile = await workspace.resolveBuildTarget(requestedFile);
+    }
+    if (!targetFile) return null;
+    targetFile = resolveWorkspaceBuildTarget(rootPath, targetFile);
+    const buildProfile = await resolveBuildProfile().catch(() => null);
+    const outputProfile = buildService.resolveBuildOutputProfile(rootPath, targetFile, buildProfile);
+    const pdfPath = outputProfile.invalidDirectoryArgument || (outputProfile.outDirRequested && !outputProfile.outDir)
+      ? null
+      : outputProfile.pdfPath;
+    const isFile = (file) => {
+      try { return fs.statSync(file).isFile(); } catch { return false; }
+    };
+    const synctexPath = pdfPath ? pdfPath.replace(/\.pdf$/i, ".synctex.gz") : null;
+    return {
+      targetFile: rendererPath(targetFile),
+      pdfPath,
+      built: Boolean(pdfPath && isFile(pdfPath) && (isFile(synctexPath) || isFile(synctexPath.replace(/\.gz$/, "")))),
+    };
+  };
+
   return {
     handleBuild,
     handleBuildCancel,
     handleClean,
     cancelAllBuilds,
     waitForBuildIdle,
+    resolveJumpDocument,
   };
 };
 

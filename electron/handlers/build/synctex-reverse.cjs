@@ -192,6 +192,22 @@ const createSynctexReverseHandler = (deps, resolvers) => {
       return;
     }
 
+    // The words under the click settle which source line it was (see
+    // refineReverseByText): SyncTeX alone returns the line above for a
+    // line-initial word and can land in another file via a page box.
+    if (message.context && typeof synctexService.refineReverseByText === "function") {
+      try {
+        const refined = synctexService.refineReverseByText({ pdfPath, page, y, result, context: message.context });
+        const refinedPath = refined ? resolveResultSourcePath(refined) : null;
+        if (refined && refinedPath) {
+          result = { ...result, path: refined.path, line: refined.line, column: 1, refinedByText: true };
+          resolvedSourcePath = refinedPath;
+        }
+      } catch {
+        /* keep SyncTeX's own answer */
+      }
+    }
+
     if (!resolvedSourcePath) {
       sendToRenderer("synctex:reverseResult", withRequestId({
         ok: false,

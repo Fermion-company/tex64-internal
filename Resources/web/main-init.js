@@ -131,6 +131,7 @@ export const initMain = () => {
                     x: payload.x,
                     y: payload.y,
                     pdfPath: payload.pdfPath,
+                    context: payload.context,
                 }, true);
             },
             onLiveSourceRequest: (payload) => requestLiveSource(payload),
@@ -156,6 +157,7 @@ export const initMain = () => {
                     x: payload.x,
                     y: payload.y,
                     pdfPath: payload.pdfPath,
+                    context: payload.context,
                 }, true);
             },
             onLiveSourceRequest: (payload) => requestLiveSource(payload),
