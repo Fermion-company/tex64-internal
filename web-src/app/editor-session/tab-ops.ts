@@ -43,6 +43,11 @@ export const createEditorSessionTabOps = (
         group.isDirty = false;
         group.viewer.hideViewer();
         bufferOps.clearEditorView(group);
+        // The right-hand group opened for a PDF (or a split) has nothing left
+        // to show: give its space back instead of leaving an empty pane.
+        if (group.key === "secondary" && runtime.state.splitViewEnabled) {
+          splitViewOps.setSplitViewEnabled(false);
+        }
         if (coreOps.isActiveGroup(group)) {
           splitViewOps.updateBreadcrumbs();
           splitViewOps.updateMiniOutline();
