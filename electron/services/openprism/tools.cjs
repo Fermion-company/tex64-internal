@@ -38,7 +38,7 @@ const { execFile } = require("child_process");
 const { readTask, updateTask, recordReceipt } = require("./task-state.cjs");
 const { renderPdfPages } = require("../agent-pdf-review.cjs");
 const { calculateBatch } = require("./calculate.cjs");
-const { extractArxivId, fetchArxivEntry, buildArxivBibtex } = require("./arxiv-service.cjs");
+const { extractArxivId, searchArxiv, fetchArxivEntry, buildArxivBibtex } = require("./arxiv-service.cjs");
 const {
   checkBibliography,
   checkReferences,
@@ -149,10 +149,6 @@ const wrapWithIpc = (name, fn, service, conversationId) => {
   };
 };
 
-/**
- * Load fast-xml-parser lazily and parse arXiv Atom XML.
- */
-let _XMLParser = null;
 const MAX_NEXT_STEPS = 3;
 const clipStepText = (value, max) => {
   const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
@@ -255,18 +251,6 @@ const QUESTION_SCHEMA = {
     },
   },
   required: ["question"],
-};
-
-const getXMLParser = async () => {
-  if (_XMLParser) return _XMLParser;
-  try {
-    const mod = require("fast-xml-parser");
-    _XMLParser = mod.XMLParser;
-  } catch {
-    const mod = await import("fast-xml-parser");
-    _XMLParser = mod.XMLParser;
-  }
-  return _XMLParser;
 };
 
 /**
@@ -972,43 +956,19 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     },
     async (args) => {
       const max = Math.min(10, Math.max(1, args.maxResults ?? 5));
-      const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(args.query)}&start=0&max_results=${max}`;
-      const res = await fetch(url, {
-        headers: { "User-Agent": "tex64/1.0" },
-        signal:
-          turnSignal && typeof AbortSignal.any === "function"
-            ? AbortSignal.any([turnSignal, AbortSignal.timeout(30_000)])
-            : AbortSignal.timeout(30_000),
-      });
-      if (!res.ok) {
-        throw new Error(`arXiv search failed: ${res.status}`);
+      let entries;
+      try {
+        entries = await searchArxiv(args.query, { max, signal: turnSignal });
+      } catch (error) {
+        throw new Error(String(error?.message || error).replace("arXiv API failed", "arXiv search failed"));
       }
-      const xml = await res.text();
-
-      const Parser = await getXMLParser();
-      const parser = new Parser({ ignoreAttributes: false });
-      const data = parser.parse(xml);
-      const entries = Array.isArray(data?.feed?.entry)
-        ? data.feed.entry
-        : data?.feed?.entry
-          ? [data.feed.entry]
-          : [];
-
-      const papers = entries.map((entry) => {
-        const authors = Array.isArray(entry.author)
-          ? entry.author
-          : [entry.author].filter(Boolean);
-        const authorNames = authors.map((a) => a?.name).filter(Boolean);
-        const id = String(entry.id || "");
-        const arxivId = id ? id.split("/").pop() : "";
-        return {
-          title: String(entry.title || "").replace(/\s+/g, " ").trim(),
-          abstract: String(entry.summary || "").replace(/\s+/g, " ").trim(),
-          authors: authorNames,
-          url: id,
-          arxivId,
-        };
-      });
+      const papers = entries.map((entry) => ({
+        title: entry.title,
+        abstract: entry.abstract,
+        authors: entry.authors,
+        url: entry.url,
+        arxivId: entry.url ? entry.url.split("/").pop() : "",
+      }));
 
       return JSON.stringify({ papers });
     },

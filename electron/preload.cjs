@@ -371,6 +371,10 @@ contextBridge.exposeInMainWorld("tex64Zotero", {
   call: (action, payload = {}) => ipcRenderer.invoke("tex64:zotero", action, payload),
 });
 
+contextBridge.exposeInMainWorld("tex64Arxiv", {
+  call: (action, payload = {}) => ipcRenderer.invoke("tex64:arxiv", action, payload),
+});
+
 contextBridge.exposeInMainWorld("tex64Git", {
   getIdentity: () => ({ ...historyIdentity }),
   call: async (action, payload = {}) => {

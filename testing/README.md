@@ -24,6 +24,7 @@
 | --- | --- |
 | `prism-import-20261031/` | Prism の「Export all projects」zip を読み込む経路の確認。合成 zip（pdflatex+bibtex の英語論文、lualatex の日本語レポート + 会話ログ）、純関数の確認内容、ダイアログの画面 |
 | `zotero-20261031/` | Zotero 連携（引用の挿入・`.bib` 同期）の確認。偽 Zotero `mock-zotero.cjs`（Better BibTeX JSON-RPC とローカル API を 6 件で模す）と実機ドライバ `drive.mjs`、`shots/` のスクリーンショット |
+| `arxiv-search-20261031/` | 右クリック「arXiv で関連文献を探す…」→ 引用（`.bib` 追記と `\cite` 挿入）の実機確認。ドライバ `drive.mjs` |
 | `demo-videos-20260927/` | 大・小・装飾の 3 文書の打鍵デモ動画と、プレビュー反映の計測（tex64-internal #102〜#104）。アプリ実機ドライバ `record.mjs`（動画は `VIDEO=1` のときだけ）、集計 `analyze.py` |
 | `large-typing-20260924/` | 大規模文書の打鍵反映（tex64-internal #61・#81〜#97）。API ドライバ `large-typing.mjs`、アプリ実機ドライバ `app-*.mjs` |
 | `kk-packages-20260925/` | lua-ul・KKluaverb・KKsymbols の確認（#97） |

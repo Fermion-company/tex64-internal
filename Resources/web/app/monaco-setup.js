@@ -1,5 +1,6 @@
 import { attachSnippetEditor } from "./snippets-ui.js";
 import { attachZoteroEditor } from "./zotero-ui.js";
+import { attachArxivSearch } from "./arxiv-search-ui.js";
 import { uiText } from "./i18n.js";
 import { aiText } from "./ai-i18n.js";
 import { registerHoverProvider, } from "./monaco-hover.js";
@@ -281,6 +282,7 @@ export const initMonacoSetup = (context, deps) => {
             });
             attachSnippetEditor(editor, monacoWindow.monaco);
             attachZoteroEditor(editor, () => group.currentFilePath);
+            attachArxivSearch(editor, group);
             // Selection → Axiom: the context-menu entry (⌘K) and a small button
             // that floats at the end of a selection in a .tex file. Both open the
             // chat with the selection as its context.
