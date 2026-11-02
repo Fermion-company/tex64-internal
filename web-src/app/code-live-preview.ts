@@ -51,6 +51,8 @@ export const initCodeLivePreview = ({
   getAppMode,
   getWorkspaceRoot,
   getRootFile,
+  getRootSource,
+  getLastBuildTarget,
   getDirtyFileSnapshots,
 }: {
   getActiveGroup: () => EditorGroupState;
@@ -58,8 +60,26 @@ export const initCodeLivePreview = ({
   getAppMode: () => string;
   getWorkspaceRoot: () => string | null;
   getRootFile: () => string | null;
+  getRootSource?: () => string;
+  getLastBuildTarget?: () => string | null;
   getDirtyFileSnapshots: () => DirtySnapshot[];
 }) => {
+  // The document the live paper follows, decided like a Build: a file that is
+  // a document itself (\documentclass … \begin{document}) is its own root even
+  // when Settings names another; a fragment follows the document the last
+  // Build resolved for it (main knows which document includes it), else the
+  // root the user set, else the detected root.
+  const isStandaloneSource = (text: string) =>
+    /\\document(?:class|style)\s*(?:\[[^\]]*\])?\s*\{/.test(text.slice(0, 65536)) && text.includes("\\begin{document}");
+  const liveRootFor = (path: string | null, text: string | null) => {
+    const configuredRoot = getRootFile();
+    const isTex = Boolean(path && path.toLowerCase().endsWith(".tex"));
+    if (isTex && typeof text === "string" && isStandaloneSource(text)) return path;
+    const lastBuilt = getLastBuildTarget?.() ?? null;
+    if (lastBuilt && /\.tex$/i.test(lastBuilt)) return lastBuilt;
+    if (configuredRoot && getRootSource?.() === "manual") return configuredRoot;
+    return configuredRoot || (isTex ? path : null);
+  };
   const bridge = (window as BridgeWindow).tex64Tdom;
   let active = false;
   let starting = false;
@@ -202,8 +222,8 @@ export const initCodeLivePreview = ({
   const captureExactInput = (path: string | null, editor: LiveEditor | null, editedAtEpochMs: number) => {
     if (!path || !PROJECT_SOURCE_RE.test(path) || !editor?.getValue) return;
     const workspaceRoot = getWorkspaceRoot();
-    const configuredRoot = getRootFile();
-    const rootFile = configuredRoot || (path.toLowerCase().endsWith(".tex") ? path : null);
+    const text = editor.getValue();
+    const rootFile = liveRootFor(path, text);
     const sessionKey = workspaceRoot && rootFile
       ? `${workspaceRoot}\0${rootFile}`
       : path.toLowerCase().endsWith(".tex") ? `legacy\0${path}` : null;
@@ -212,7 +232,7 @@ export const initCodeLivePreview = ({
       id: ++nextExactInputId,
       sessionKey,
       path,
-      text: editor.getValue(),
+      text,
       editAtEpochMs: editedAtEpochMs,
     });
   };
@@ -236,8 +256,7 @@ export const initCodeLivePreview = ({
     if (activeEditorPathMismatch()) return null;
     const current = currentProjectSource();
     const workspaceRoot = getWorkspaceRoot();
-    const configuredRoot = getRootFile();
-    const rootFile = configuredRoot || (current?.path.toLowerCase().endsWith(".tex") ? current.path : null);
+    const rootFile = liveRootFor(current?.path ?? null, current?.editor.getValue?.() ?? null);
     if (workspaceRoot && rootFile) {
       const buffers = new Map<string, string>();
       for (const snapshot of getDirtyFileSnapshots()) {

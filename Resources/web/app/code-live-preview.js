@@ -29,7 +29,26 @@ const createDebouncedTask = (task, delayMs) => {
     return schedule;
 };
 const PROJECT_SOURCE_RE = /\.(?:tex|bib|sty|cls|bst|bbx|cbx|cfg|def|lbx|ltx|dtx|ins)$/i;
-export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getWorkspaceRoot, getRootFile, getDirtyFileSnapshots, }) => {
+export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getWorkspaceRoot, getRootFile, getRootSource, getLastBuildTarget, getDirtyFileSnapshots, }) => {
+    // The document the live paper follows, decided like a Build: a file that is
+    // a document itself (\documentclass … \begin{document}) is its own root even
+    // when Settings names another; a fragment follows the document the last
+    // Build resolved for it (main knows which document includes it), else the
+    // root the user set, else the detected root.
+    const isStandaloneSource = (text) => /\\document(?:class|style)\s*(?:\[[^\]]*\])?\s*\{/.test(text.slice(0, 65536)) && text.includes("\\begin{document}");
+    const liveRootFor = (path, text) => {
+        var _a;
+        const configuredRoot = getRootFile();
+        const isTex = Boolean(path && path.toLowerCase().endsWith(".tex"));
+        if (isTex && typeof text === "string" && isStandaloneSource(text))
+            return path;
+        const lastBuilt = (_a = getLastBuildTarget === null || getLastBuildTarget === void 0 ? void 0 : getLastBuildTarget()) !== null && _a !== void 0 ? _a : null;
+        if (lastBuilt && /\.tex$/i.test(lastBuilt))
+            return lastBuilt;
+        if (configuredRoot && (getRootSource === null || getRootSource === void 0 ? void 0 : getRootSource()) === "manual")
+            return configuredRoot;
+        return configuredRoot || (isTex ? path : null);
+    };
     const bridge = window.tex64Tdom;
     let active = false;
     let starting = false;
@@ -164,8 +183,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         if (!path || !PROJECT_SOURCE_RE.test(path) || !(editor === null || editor === void 0 ? void 0 : editor.getValue))
             return;
         const workspaceRoot = getWorkspaceRoot();
-        const configuredRoot = getRootFile();
-        const rootFile = configuredRoot || (path.toLowerCase().endsWith(".tex") ? path : null);
+        const text = editor.getValue();
+        const rootFile = liveRootFor(path, text);
         const sessionKey = workspaceRoot && rootFile
             ? `${workspaceRoot}\0${rootFile}`
             : path.toLowerCase().endsWith(".tex") ? `legacy\0${path}` : null;
@@ -175,7 +194,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             id: ++nextExactInputId,
             sessionKey,
             path,
-            text: editor.getValue(),
+            text,
             editAtEpochMs: editedAtEpochMs,
         });
     };
@@ -190,7 +209,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         }
     };
     const currentSnapshot = () => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
         // Keep event-time captures queued until the editor group's path catches up
         // with its newly installed model. The capture itself is already bound to
         // the model URI, so no keystroke is lost while dispatch is held.
@@ -198,8 +217,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             return null;
         const current = currentProjectSource();
         const workspaceRoot = getWorkspaceRoot();
-        const configuredRoot = getRootFile();
-        const rootFile = configuredRoot || ((current === null || current === void 0 ? void 0 : current.path.toLowerCase().endsWith(".tex")) ? current.path : null);
+        const rootFile = liveRootFor((_a = current === null || current === void 0 ? void 0 : current.path) !== null && _a !== void 0 ? _a : null, (_d = (_c = current === null || current === void 0 ? void 0 : (_b = current.editor).getValue) === null || _c === void 0 ? void 0 : _c.call(_b)) !== null && _d !== void 0 ? _d : null);
         if (workspaceRoot && rootFile) {
             const buffers = new Map();
             for (const snapshot of getDirtyFileSnapshots()) {
@@ -212,7 +230,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             // switch into a source edit. External reloads explicitly call
             // refreshSource below, which forces a same-session disk refresh.
             if (current === null || current === void 0 ? void 0 : current.group.isDirty) {
-                buffers.set(current.path, (_c = (_b = (_a = current.editor).getValue) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : "");
+                buffers.set(current.path, (_g = (_f = (_e = current.editor).getValue) === null || _f === void 0 ? void 0 : _f.call(_e)) !== null && _g !== void 0 ? _g : "");
             }
             const sessionKey = `${workspaceRoot}\0${rootFile}`;
             const exactInputs = [...pendingExactInputs.values()].filter((input) => input.sessionKey === sessionKey);
@@ -239,20 +257,20 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         }
         if (!current || !current.path.toLowerCase().endsWith(".tex"))
             return null;
-        const source = (_f = (_e = (_d = current.editor).getValue) === null || _e === void 0 ? void 0 : _e.call(_d)) !== null && _f !== void 0 ? _f : "";
+        const source = (_k = (_j = (_h = current.editor).getValue) === null || _j === void 0 ? void 0 : _j.call(_h)) !== null && _k !== void 0 ? _k : "";
         const sessionKey = `legacy\0${current.path}`;
-        const exactInput = ((_g = pendingExactInputs.get(current.path)) === null || _g === void 0 ? void 0 : _g.sessionKey) === sessionKey
+        const exactInput = ((_l = pendingExactInputs.get(current.path)) === null || _l === void 0 ? void 0 : _l.sessionKey) === sessionKey
             ? pendingExactInputs.get(current.path) : null;
         return {
             sessionKey,
-            buffers: new Map([[current.path, (_h = exactInput === null || exactInput === void 0 ? void 0 : exactInput.text) !== null && _h !== void 0 ? _h : source]]),
+            buffers: new Map([[current.path, (_m = exactInput === null || exactInput === void 0 ? void 0 : exactInput.text) !== null && _m !== void 0 ? _m : source]]),
             exactInputIds: new Map(exactInput ? [[current.path, exactInput.id]] : []),
             target: { workspaceRoot: null, pdfPath: current.path.replace(/\.tex$/i, ".pdf") },
             payload: {
-                source: (_j = exactInput === null || exactInput === void 0 ? void 0 : exactInput.text) !== null && _j !== void 0 ? _j : source,
+                source: (_o = exactInput === null || exactInput === void 0 ? void 0 : exactInput.text) !== null && _o !== void 0 ? _o : source,
                 path: current.path,
                 fresh: sessionKey !== queuedSessionKey,
-                clientEditAtEpochMs: (_k = exactInput === null || exactInput === void 0 ? void 0 : exactInput.editAtEpochMs) !== null && _k !== void 0 ? _k : (latestInputAtEpochMs || undefined),
+                clientEditAtEpochMs: (_p = exactInput === null || exactInput === void 0 ? void 0 : exactInput.editAtEpochMs) !== null && _p !== void 0 ? _p : (latestInputAtEpochMs || undefined),
             },
         };
     };

@@ -726,6 +726,8 @@ export const initMain = () => {
     getAppMode: () => appModeApi.getMode(),
     getWorkspaceRoot: getWorkspaceRootKey,
     getRootFile: getRootFilePath,
+    getRootSource,
+    getLastBuildTarget: () => lastBuildMainFile,
     getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
       maxFiles: Number.POSITIVE_INFINITY,
       maxChars: Number.POSITIVE_INFINITY,
