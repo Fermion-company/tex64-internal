@@ -16,18 +16,30 @@ import type { LivePreviewTarget } from "./viewer.js";
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
 import { getEditorModelPath } from "./editor-session/model-path.js";
 
-const createDebouncedTask = (task: () => void, delayMs: number) => {
+// Trailing debounce with an upper bound: a burst of keystrokes closer than
+// delayMs would otherwise keep pushing the task back and the paper would not
+// move until the hands stop. With maxWaitMs the task also fires once that much
+// time has passed since the first deferred call, so a long run of typing still
+// updates every maxWaitMs.
+const createDebouncedTask = (task: () => void, delayMs: number, maxWaitMs = 0) => {
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let firstDeferredAt = 0;
+  const fire = () => {
+    timer = null;
+    firstDeferredAt = 0;
+    task();
+  };
   const schedule = () => {
+    const now = Date.now();
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
-      task();
-    }, delayMs);
+    if (!firstDeferredAt) firstDeferredAt = now;
+    const wait = maxWaitMs > 0 ? Math.min(delayMs, Math.max(0, firstDeferredAt + maxWaitMs - now)) : delayMs;
+    timer = setTimeout(fire, wait);
   };
   schedule.cancel = () => {
     if (timer) clearTimeout(timer);
     timer = null;
+    firstDeferredAt = 0;
   };
   return schedule;
 };
@@ -446,7 +458,9 @@ export const initCodeLivePreview = ({
   // 80ms, matching the engine's own client: the engine typesets a keystroke
   // in 20-60ms, so the debounce dominates end-to-end latency — 300ms (the
   // Pro live preview's value) made a ~50ms pipeline feel like half a second.
-  const debouncedPush = createDebouncedTask(pushCurrent, 80);
+  // While the hands keep moving the paper still follows every 120ms; the
+  // single-flight queue below keeps the engine at one request in flight.
+  const debouncedPush = createDebouncedTask(pushCurrent, 80, 120);
   // The first keystroke after a pause (a jump to another place, say) goes
   // out within a frame: 16ms still takes in the companion edit the editor
   // makes in the same task (the \end{…} after a \begin{…}, a closing \]).
