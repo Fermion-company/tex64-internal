@@ -765,7 +765,11 @@ export const createCodeCommentManager = (
     );
   };
 
+  // A view-only guest reads the comments but changes none of them.
+  const viewOnly = () => collabSession.isViewer();
+
   const editComment = async (group: EditorGroupState, comment: CodeComment) => {
+    if (viewOnly()) return;
     const nextText = await createCodeCommentDialog({
       title: uiText("Edit comment", "コメントを編集"),
       initialText: comment.text,
@@ -793,6 +797,7 @@ export const createCodeCommentManager = (
   };
 
   const replyToComment = async (group: EditorGroupState, comment: CodeComment) => {
+    if (viewOnly()) return;
     const text = await createCodeCommentDialog({
       title: uiText("Reply to comment", "コメントに返信"),
       initialText: "",
@@ -817,6 +822,7 @@ export const createCodeCommentManager = (
   };
 
   const toggleResolved = (group: EditorGroupState, comment: CodeComment) => {
+    if (viewOnly()) return;
     const resolved = !comment.resolved;
     if (inSession()) {
       sessionUpdate(comment.id, { resolved });
@@ -833,6 +839,7 @@ export const createCodeCommentManager = (
   };
 
   const addOrEditComment = async (group: EditorGroupState) => {
+    if (viewOnly()) return;
     const editor = group.editor as EditorLike | null;
     const model = editor?.getModel?.() ?? null;
     const filePath = group.currentFilePath;
@@ -882,6 +889,7 @@ export const createCodeCommentManager = (
   };
 
   const deleteCommentAtCursor = (group: EditorGroupState) => {
+    if (viewOnly()) return;
     const comment = findCommentAtCurrentContext(group);
     if (!comment) {
       return;
@@ -940,6 +948,8 @@ export const createCodeCommentManager = (
     };
     const atComment = editorAny.createContextKey?.("tex64CommentAtCursor", false);
     const atResolved = editorAny.createContextKey?.("tex64CommentResolved", false);
+    const viewerKey = editorAny.createContextKey?.("tex64CollabViewer", viewOnly());
+    collabSession.onChange(() => viewerKey?.set(viewOnly()));
     const syncAtComment = () => {
       const comment = findCommentAtCurrentContext(group);
       atComment?.set(Boolean(comment));
@@ -988,6 +998,7 @@ export const createCodeCommentManager = (
       label: uiText("Add comment", "コメントを追加"),
       contextMenuGroupId: "9_comments",
       contextMenuOrder: 1,
+      precondition: "!tex64CollabViewer",
       run: () => addOrEditComment(group),
     });
     editor.addAction?.({
@@ -995,7 +1006,7 @@ export const createCodeCommentManager = (
       label: uiText("Edit comment", "コメントを編集"),
       contextMenuGroupId: "9_comments",
       contextMenuOrder: 2,
-      precondition: "tex64CommentAtCursor",
+      precondition: "tex64CommentAtCursor && !tex64CollabViewer",
       run: () => editCommentAtCursor(group),
     });
     editor.addAction?.({
@@ -1003,7 +1014,7 @@ export const createCodeCommentManager = (
       label: uiText("Reply to comment", "コメントに返信"),
       contextMenuGroupId: "9_comments",
       contextMenuOrder: 3,
-      precondition: "tex64CommentAtCursor",
+      precondition: "tex64CommentAtCursor && !tex64CollabViewer",
       run: () => replyAtCursor(group),
     });
     editor.addAction?.({
@@ -1011,7 +1022,7 @@ export const createCodeCommentManager = (
       label: uiText("Resolve comment", "コメントを解決"),
       contextMenuGroupId: "9_comments",
       contextMenuOrder: 4,
-      precondition: "tex64CommentAtCursor && !tex64CommentResolved",
+      precondition: "tex64CommentAtCursor && !tex64CommentResolved && !tex64CollabViewer",
       run: () => resolveAtCursor(group),
     });
     editor.addAction?.({
@@ -1019,7 +1030,7 @@ export const createCodeCommentManager = (
       label: uiText("Reopen comment", "コメントを再開"),
       contextMenuGroupId: "9_comments",
       contextMenuOrder: 4,
-      precondition: "tex64CommentAtCursor && tex64CommentResolved",
+      precondition: "tex64CommentAtCursor && tex64CommentResolved && !tex64CollabViewer",
       run: () => resolveAtCursor(group),
     });
     editor.addAction?.({
@@ -1027,7 +1038,7 @@ export const createCodeCommentManager = (
       label: uiText("Delete comment", "コメントを削除"),
       contextMenuGroupId: "9_comments",
       contextMenuOrder: 5,
-      precondition: "tex64CommentAtCursor",
+      precondition: "tex64CommentAtCursor && !tex64CollabViewer",
       run: () => deleteCommentAtCursor(group),
     });
     scheduleRefreshGroup(group);

@@ -155,6 +155,9 @@ class DiskSync {
     // While paused (a guest joining onto an existing mirror), edits collect
     // in the Y.Docs and nothing is written until resume().
     this.paused = false;
+    // View-only guest: the shared text always wins. A change on disk is
+    // written over (and reported), never folded into the Y.Doc.
+    this.readOnly = false;
   }
 
   resume() {
@@ -249,14 +252,14 @@ class DiskSync {
         if (!this.docs.has(docId)) return;
         let target = entry.ytext.toString();
         const current = await this.readDisk(docId);
-        if (current === null && entry.baseline !== null) {
+        if (current === null && entry.baseline !== null && !this.readOnly) {
           // Deleted underneath us. The manifest decides whether that is a
           // tombstone; recreating it here would resurrect a removed file.
           entry.dirty = false;
           this.deps.onMissing?.(docId);
           return;
         }
-        if (current !== null && (entry.baseline === null || current !== entry.baseline.content) && current !== target) {
+        if (!this.readOnly && current !== null && (entry.baseline === null || current !== entry.baseline.content) && current !== target) {
           // Something else wrote since the baseline: merge it in first.
           const dropped = mergeThreeWay(entry.ytext, entry.baseline?.content ?? "", target, current, DISK_ORIGIN);
           entry.baseline = { content: current, digest: contentDigest(current) };
@@ -312,6 +315,12 @@ class DiskSync {
           entry.baseline = { content: disk, digest };
           entry.dirty = false;
           this.deps.onSaved?.(docId, digest);
+          return;
+        }
+        if (this.readOnly) {
+          entry.baseline = { content: disk, digest };
+          this.deps.onReverted?.(docId);
+          this.noteUpdate(docId);
           return;
         }
         const dropped = mergeThreeWay(entry.ytext, entry.baseline?.content ?? "", current, disk, DISK_ORIGIN);

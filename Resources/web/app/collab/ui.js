@@ -12,6 +12,8 @@ export const initCollabUi = () => {
     let errorText = "";
     let defaultName = "";
     let infoText = "";
+    // Which invite link the host is showing: the edit link or the view link.
+    let linkAccess = "edit";
     const el = (tag, className = "", text = "") => {
         const node = document.createElement(tag);
         node.className = className;
@@ -103,16 +105,27 @@ export const initCollabUi = () => {
         else {
             if (state.inviteLink) {
                 const linkRow = el("div", "collab-dialog-link");
+                const linkFor = () => (linkAccess === "view" && state.viewInviteLink ? state.viewInviteLink : state.inviteLink || "");
+                const access = el("select", "history-name collab-dialog-access");
+                access.setAttribute("aria-label", uiText("What the link allows", "リンクでできること"));
+                access.append(new Option(uiText("Can edit", "編集できる"), "edit"), new Option(uiText("View only", "閲覧のみ"), "view"));
+                access.value = linkAccess;
+                access.hidden = !state.viewInviteLink;
                 const link = el("input", "history-name");
                 link.readOnly = true;
-                link.value = state.inviteLink;
+                link.value = linkFor();
                 link.dataset.noI18n = "true";
                 link.setAttribute("aria-label", uiText("Invite link", "招待リンク"));
                 const copy = button(uiText("Copy", "コピー"), () => {
                     var _a;
-                    void ((_a = navigator.clipboard) === null || _a === void 0 ? void 0 : _a.writeText(state.inviteLink || "").then(() => { copy.textContent = uiText("Copied", "コピーしました"); }, () => { link.select(); }));
+                    void ((_a = navigator.clipboard) === null || _a === void 0 ? void 0 : _a.writeText(linkFor()).then(() => { copy.textContent = uiText("Copied", "コピーしました"); }, () => { link.select(); }));
                 });
-                linkRow.append(link, copy);
+                access.addEventListener("change", () => {
+                    linkAccess = access.value === "view" ? "view" : "edit";
+                    link.value = linkFor();
+                    copy.textContent = uiText("Copy", "コピー");
+                });
+                linkRow.append(access, link, copy);
                 content.append(linkRow, el("p", "history-local", uiText("Only people on the same network (LAN / VPN) can join.", "参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。")));
             }
             const list = el("div", "collab-dialog-participants");
@@ -126,11 +139,14 @@ export const initCollabUi = () => {
                 const status = el("span", "history-date", participant.host
                     ? uiText("host", "ホスト")
                     : reconnecting ? uiText("reconnecting", "再接続中")
-                        : participant.connected ? uiText("connected", "接続中") : uiText("disconnected", "切断"));
+                        : !participant.connected ? uiText("disconnected", "切断")
+                            : participant.viewer ? uiText("viewing", "閲覧中") : uiText("connected", "接続中"));
                 row.append(dot, name, status);
                 list.append(row);
             }
             content.append(list);
+            if (state.role === "guest" && state.access === "view")
+                content.append(el("p", "history-local", uiText("You joined to view: you can read, follow and build, but not edit.", "閲覧のみで参加しています。読む・追う・ビルドはできますが、編集はできません。")));
             if (state.role === "guest" && state.rootPath) {
                 const where = el("p", "history-local", `${uiText("Your copy", "写し")}: ${state.rootPath} · ${uiText("It stays after you leave.", "退出後も残ります。")}`);
                 where.dataset.noI18n = "true";
@@ -212,6 +228,8 @@ export const initCollabUi = () => {
         renderDialog();
     };
     collabSession.onChange((state) => {
+        if (!state.active)
+            linkAccess = "edit";
         renderDots(state);
         renderDialog();
     });

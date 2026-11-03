@@ -8,6 +8,7 @@ export type CollabParticipant = {
   color: string;
   connected: boolean;
   host: boolean;
+  viewer?: boolean;
   self: boolean;
 };
 
@@ -19,6 +20,9 @@ export type CollabState = {
   epoch?: number;
   name?: string;
   inviteLink?: string | null;
+  viewInviteLink?: string | null;
+  // "view": joined with the view link; the host drops anything this side sends.
+  access?: "edit" | "view";
   selfId?: string;
   connected?: boolean;
   participants: CollabParticipant[];
@@ -80,6 +84,7 @@ export const collabSession = {
   isActive: () => state.active,
   isGuest: () => state.active && state.role === "guest",
   isHost: () => state.active && state.role === "host",
+  isViewer: () => state.active && state.role === "guest" && state.access === "view",
   selfParticipant: () => state.participants.find((participant) => participant.self) ?? null,
   isSharedPath: (path: string | null | undefined) => Boolean(path && state.active && state.textFiles.includes(path)),
   onChange: (listener: (state: CollabState) => void) => {

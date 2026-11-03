@@ -624,8 +624,12 @@ export const createCodeCommentManager = (monaco, deps) => {
             return Boolean(position && rangeContainsPosition(comment, position));
         })) !== null && _d !== void 0 ? _d : null);
     };
+    // A view-only guest reads the comments but changes none of them.
+    const viewOnly = () => collabSession.isViewer();
     const editComment = async (group, comment) => {
         var _a, _b, _c, _d;
+        if (viewOnly())
+            return;
         const nextText = await createCodeCommentDialog({
             title: uiText("Edit comment", "コメントを編集"),
             initialText: comment.text,
@@ -653,6 +657,8 @@ export const createCodeCommentManager = (monaco, deps) => {
     };
     const replyToComment = async (group, comment) => {
         var _a, _b;
+        if (viewOnly())
+            return;
         const text = await createCodeCommentDialog({
             title: uiText("Reply to comment", "コメントに返信"),
             initialText: "",
@@ -680,6 +686,8 @@ export const createCodeCommentManager = (monaco, deps) => {
     };
     const toggleResolved = (group, comment) => {
         var _a, _b;
+        if (viewOnly())
+            return;
         const resolved = !comment.resolved;
         if (inSession()) {
             sessionUpdate(comment.id, { resolved });
@@ -698,6 +706,8 @@ export const createCodeCommentManager = (monaco, deps) => {
     };
     const addOrEditComment = async (group) => {
         var _a, _b, _c;
+        if (viewOnly())
+            return;
         const editor = group.editor;
         const model = (_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== null && _b !== void 0 ? _b : null;
         const filePath = group.currentFilePath;
@@ -746,6 +756,8 @@ export const createCodeCommentManager = (monaco, deps) => {
     };
     const deleteCommentAtCursor = (group) => {
         var _a, _b;
+        if (viewOnly())
+            return;
         const comment = findCommentAtCurrentContext(group);
         if (!comment) {
             return;
@@ -788,7 +800,7 @@ export const createCodeCommentManager = (monaco, deps) => {
         }
     };
     const attachToEditor = (group) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
         const editor = group.editor;
         if (!editor) {
             return;
@@ -799,24 +811,26 @@ export const createCodeCommentManager = (monaco, deps) => {
         const editorAny = editor;
         const atComment = (_a = editorAny.createContextKey) === null || _a === void 0 ? void 0 : _a.call(editorAny, "tex64CommentAtCursor", false);
         const atResolved = (_b = editorAny.createContextKey) === null || _b === void 0 ? void 0 : _b.call(editorAny, "tex64CommentResolved", false);
+        const viewerKey = (_c = editorAny.createContextKey) === null || _c === void 0 ? void 0 : _c.call(editorAny, "tex64CollabViewer", viewOnly());
+        collabSession.onChange(() => viewerKey === null || viewerKey === void 0 ? void 0 : viewerKey.set(viewOnly()));
         const syncAtComment = () => {
             const comment = findCommentAtCurrentContext(group);
             atComment === null || atComment === void 0 ? void 0 : atComment.set(Boolean(comment));
             atResolved === null || atResolved === void 0 ? void 0 : atResolved.set(Boolean(comment === null || comment === void 0 ? void 0 : comment.resolved));
         };
-        (_c = editorAny.onDidChangeCursorSelection) === null || _c === void 0 ? void 0 : _c.call(editorAny, () => queueMicrotask(syncAtComment));
+        (_d = editorAny.onDidChangeCursorSelection) === null || _d === void 0 ? void 0 : _d.call(editorAny, () => queueMicrotask(syncAtComment));
         contextSyncers.set(group.key, syncAtComment);
-        (_d = editor.onDidChangeModelContent) === null || _d === void 0 ? void 0 : _d.call(editor, () => {
+        (_e = editor.onDidChangeModelContent) === null || _e === void 0 ? void 0 : _e.call(editor, () => {
             const state = getState(group);
             syncRangesFromDecorations(state);
         });
-        (_e = editor.onDidChangeModel) === null || _e === void 0 ? void 0 : _e.call(editor, () => {
+        (_f = editor.onDidChangeModel) === null || _f === void 0 ? void 0 : _f.call(editor, () => {
             scheduleRefreshGroup(group);
         });
-        (_f = editor.onDidFocusEditorWidget) === null || _f === void 0 ? void 0 : _f.call(editor, () => {
+        (_g = editor.onDidFocusEditorWidget) === null || _g === void 0 ? void 0 : _g.call(editor, () => {
             scheduleRefreshGroup(group);
         });
-        (_g = editor.onMouseDown) === null || _g === void 0 ? void 0 : _g.call(editor, (event) => {
+        (_h = editor.onMouseDown) === null || _h === void 0 ? void 0 : _h.call(editor, (event) => {
             var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
             const target = event === null || event === void 0 ? void 0 : event.target;
             const glyphTargetType = (_b = (_a = monaco.editor) === null || _a === void 0 ? void 0 : _a.MouseTargetType) === null || _b === void 0 ? void 0 : _b.GUTTER_GLYPH_MARGIN;
@@ -833,51 +847,52 @@ export const createCodeCommentManager = (monaco, deps) => {
             event && ((_l = (_k = event.event) === null || _k === void 0 ? void 0 : _k.stopPropagation) === null || _l === void 0 ? void 0 : _l.call(_k));
             void editCommentAtLine(group, lineNumber);
         });
-        (_h = editor.addAction) === null || _h === void 0 ? void 0 : _h.call(editor, {
+        (_j = editor.addAction) === null || _j === void 0 ? void 0 : _j.call(editor, {
             id: `tex64.comments.add.${group.key}`,
             label: uiText("Add comment", "コメントを追加"),
             contextMenuGroupId: "9_comments",
             contextMenuOrder: 1,
+            precondition: "!tex64CollabViewer",
             run: () => addOrEditComment(group),
         });
-        (_j = editor.addAction) === null || _j === void 0 ? void 0 : _j.call(editor, {
+        (_k = editor.addAction) === null || _k === void 0 ? void 0 : _k.call(editor, {
             id: `tex64.comments.edit.${group.key}`,
             label: uiText("Edit comment", "コメントを編集"),
             contextMenuGroupId: "9_comments",
             contextMenuOrder: 2,
-            precondition: "tex64CommentAtCursor",
+            precondition: "tex64CommentAtCursor && !tex64CollabViewer",
             run: () => editCommentAtCursor(group),
         });
-        (_k = editor.addAction) === null || _k === void 0 ? void 0 : _k.call(editor, {
+        (_l = editor.addAction) === null || _l === void 0 ? void 0 : _l.call(editor, {
             id: `tex64.comments.reply.${group.key}`,
             label: uiText("Reply to comment", "コメントに返信"),
             contextMenuGroupId: "9_comments",
             contextMenuOrder: 3,
-            precondition: "tex64CommentAtCursor",
+            precondition: "tex64CommentAtCursor && !tex64CollabViewer",
             run: () => replyAtCursor(group),
         });
-        (_l = editor.addAction) === null || _l === void 0 ? void 0 : _l.call(editor, {
+        (_m = editor.addAction) === null || _m === void 0 ? void 0 : _m.call(editor, {
             id: `tex64.comments.resolve.${group.key}`,
             label: uiText("Resolve comment", "コメントを解決"),
             contextMenuGroupId: "9_comments",
             contextMenuOrder: 4,
-            precondition: "tex64CommentAtCursor && !tex64CommentResolved",
+            precondition: "tex64CommentAtCursor && !tex64CommentResolved && !tex64CollabViewer",
             run: () => resolveAtCursor(group),
         });
-        (_m = editor.addAction) === null || _m === void 0 ? void 0 : _m.call(editor, {
+        (_o = editor.addAction) === null || _o === void 0 ? void 0 : _o.call(editor, {
             id: `tex64.comments.reopen.${group.key}`,
             label: uiText("Reopen comment", "コメントを再開"),
             contextMenuGroupId: "9_comments",
             contextMenuOrder: 4,
-            precondition: "tex64CommentAtCursor && tex64CommentResolved",
+            precondition: "tex64CommentAtCursor && tex64CommentResolved && !tex64CollabViewer",
             run: () => resolveAtCursor(group),
         });
-        (_o = editor.addAction) === null || _o === void 0 ? void 0 : _o.call(editor, {
+        (_p = editor.addAction) === null || _p === void 0 ? void 0 : _p.call(editor, {
             id: `tex64.comments.delete.${group.key}`,
             label: uiText("Delete comment", "コメントを削除"),
             contextMenuGroupId: "9_comments",
             contextMenuOrder: 5,
-            precondition: "tex64CommentAtCursor",
+            precondition: "tex64CommentAtCursor && !tex64CollabViewer",
             run: () => deleteCommentAtCursor(group),
         });
         scheduleRefreshGroup(group);

@@ -6,7 +6,9 @@
 //             kind(u8) · json(varString)              for control,
 //             kind(u8) · path · hash · bytes          for blobs.
 // The first frame on a connection must be a `hello` control frame carrying
-// the session token; anything else closes the socket.
+// the session token; anything else closes the socket. A session has two
+// tokens: the edit token and the view token; the one a guest presents is its
+// access (`conn.access`), which the hub enforces on everything it sends.
 
 const { EventEmitter } = require("node:events");
 const net = require("node:net");
@@ -96,9 +98,10 @@ const safeSend = (socket, data) => {
 };
 
 class HostTransport extends EventEmitter {
-  constructor({ token, maxClients = MAX_CLIENTS }) {
+  constructor({ token, viewToken = null, maxClients = MAX_CLIENTS }) {
     super();
     this.token = token;
+    this.viewToken = viewToken;
     this.maxClients = maxClients;
     this.server = null;
     this.port = 0;
@@ -120,7 +123,7 @@ class HostTransport extends EventEmitter {
   }
 
   accept(socket, request) {
-    const conn = { id: null, socket, hello: null, address: request?.socket?.remoteAddress || "" };
+    const conn = { id: null, socket, hello: null, access: null, address: request?.socket?.remoteAddress || "" };
     const helloTimer = setTimeout(() => {
       if (!conn.hello) socket.close(4001, "hello timeout");
     }, 5000);
@@ -137,7 +140,9 @@ class HostTransport extends EventEmitter {
       }
       if (!conn.hello) {
         clearTimeout(helloTimer);
-        if (frame.kind !== FRAME_CONTROL || frame.message.type !== "hello" || frame.message.token !== this.token) {
+        const token = frame.kind === FRAME_CONTROL && frame.message.type === "hello" ? frame.message.token : null;
+        const access = typeof token === "string" && token === this.token ? "edit" : typeof token === "string" && this.viewToken && token === this.viewToken ? "view" : null;
+        if (!access) {
           socket.close(4004, "unauthorized");
           return;
         }
@@ -146,6 +151,7 @@ class HostTransport extends EventEmitter {
           return;
         }
         conn.hello = frame.message;
+        conn.access = access;
         conn.id = String(frame.message.clientId || "").slice(0, 64) || null;
         if (!conn.id) {
           socket.close(4004, "unauthorized");

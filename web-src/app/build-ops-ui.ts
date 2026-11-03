@@ -116,6 +116,7 @@ type BuildOpsDeps = {
 };
 
 export type BuildOpsApi = {
+  documentFor: (path: string) => string | undefined;
   updateSynctexButtonState: () => void;
   handleBuildPreviewState: (payload: {
     state: BuildState;
@@ -1175,6 +1176,8 @@ export const initBuildOpsUi = (
   };
 
   return {
+    // The document a fragment was last built as, when the user chose it.
+    documentFor: (path: string) => chosenTargets.get(`${deps.getWorkspaceRootKey?.() ?? ""}\0${path}`),
     updateSynctexButtonState,
     handleBuildPreviewState,
     setBuildState,

@@ -1002,6 +1002,20 @@ ipcMain.handle("tex64:prism", async (event, action, request = {}) => {
   } catch (error) { return { ok: false, code: error.code || "PRISM_IMPORT_ERROR", step: error.step || null, error: error.message }; }
 });
 
+const wordCount = require("./services/word-count.cjs");
+ipcMain.handle("tex64:wordCount", async (event, request = {}) => {
+  if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid word count owner." };
+  try {
+    if (!request || typeof request !== "object" || JSON.stringify(request).length > 32 * 1024 * 1024) throw new Error("Invalid word count request.");
+    const selection = typeof request.selection === "string" && request.selection ? wordCount.countLatex(request.selection, { body: false }) : null;
+    if (!workspace.getRootPath()) return { ok: true, document: null, selection };
+    const buffers = request.buffers && typeof request.buffers === "object" ? request.buffers : {};
+    const mainFile = await wordCount.resolveCountTarget(workspace, request);
+    const document = mainFile ? await wordCount.countDocument({ workspace, mainFile, buffers }) : null;
+    return { ok: true, document, selection };
+  } catch (error) { return { ok: false, code: error.code || "WORD_COUNT_ERROR", error: error.message }; }
+});
+
 const { registerZoteroHandlers } = require("./handlers/zotero.cjs");
 registerZoteroHandlers({
   ipcMain, workspace, state, safeStorage, ensureUserSettings,

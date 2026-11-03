@@ -55,6 +55,7 @@ import { initTerminalUi } from "./app/terminal-ui.js";
 import { initBillingUi } from "./app/billing-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
 import { initZoteroSettingsUi } from "./app/zotero-ui.js";
+import { initWordCountUi } from "./app/word-count-ui.js";
 import { initAnnouncementsUi } from "./app/announcements-ui.js";
 import { initWorkspaceController } from "./app/workspace-controller.js";
 import { getUiLocale, initI18n, onUiLocaleChange, uiText } from "./app/i18n.js";
@@ -135,6 +136,7 @@ export const initMain = () => {
   let editorSession: ReturnType<typeof initEditorSession>;
   let collabBinding: CollabBindingApi | null = null;
   let collabUi: ReturnType<typeof initCollabUi> | null = null;
+  const wordCountUi = initWordCountUi({ editorSession: () => editorSession, documentFor: (path) => buildOps?.documentFor(path) });
   // Shared text files are saved by the collaboration session, not by autosave.
   const collabFileBridge = {
     isBound: (path: string | null | undefined) => Boolean(collabBinding?.isBound(path)),
@@ -1355,6 +1357,10 @@ export const initMain = () => {
         }
         if (command === "collab:open") {
           void collabUi?.openDialog();
+          return;
+        }
+        if (command === "wordcount:open") {
+          void wordCountUi.open();
           return;
         }
         if (command === "edit:undo" || command === "edit:redo") {

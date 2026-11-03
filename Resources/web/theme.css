@@ -10955,3 +10955,11 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .collab-guest-note { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
 .is-collab-guest .history-list, .is-collab-guest .git-files { opacity: .6; }
 .code-comment-modal-quote { margin: 0 0 8px; padding: 6px 10px; border-left: 3px solid var(--panel-border-strong); color: var(--muted); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow-y: auto; }
+/* Word count (word-count-ui.ts): shares .history-confirm */
+.word-count-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.word-count-table th, .word-count-table td { padding: 4px 8px; border-bottom: 1px solid var(--panel-border); text-align: right; white-space: nowrap; }
+.word-count-table tr > th:first-child { text-align: left; font-weight: 400; color: var(--text-soft); }
+.word-count-table tr:first-child th { font-weight: 600; color: var(--text); }
+.word-count-dialog .history-local { color: var(--muted); font-size: 12px; margin: 10px 0 0; overflow-wrap: anywhere; }
+.collab-dialog-access { flex: none; width: auto; }
+.collab-dialog-access[hidden] { display: none; }

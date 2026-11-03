@@ -11,6 +11,7 @@ import { getEditorModelPath } from "../editor-session/model-path.js";
 import { collabSession } from "./session.js";
 import { collabCursors } from "./cursors.js";
 import { contentDigest } from "./digest.js";
+import { getEditorOperationGuard } from "../editor-operation-guard.js";
 const SESSION_DOC = "$session";
 const REMOTE = "remote";
 const vendor = () => { var _a; return (_a = window.TeX64Collab) !== null && _a !== void 0 ? _a : null; };
@@ -248,7 +249,8 @@ export const initCollabBinding = (deps) => {
             while (suffix < max - prefix && modelValue.charCodeAt(modelValue.length - 1 - suffix) === shared.charCodeAt(shared.length - 1 - suffix))
                 suffix++;
             const savedContent = (_b = (_a = deps.editorSession).getSavedContent) === null || _b === void 0 ? void 0 : _b.call(_a, entry.docId);
-            const hadLocalEdits = typeof savedContent === "string" ? savedContent !== modelValue : false;
+            // A view-only guest's buffer never goes into the shared text.
+            const hadLocalEdits = !collabSession.isViewer() && typeof savedContent === "string" && savedContent !== modelValue;
             if (hadLocalEdits) {
                 entry.doc.transact(() => {
                     const deleteLength = shared.length - prefix - suffix;
@@ -411,7 +413,14 @@ export const initCollabBinding = (deps) => {
         updateContextKeys();
         schedulePresence();
     };
+    // View-only guest: every editor is read-only for the whole session (the
+    // mirror is the host's folder). New editors (split view) follow.
+    const viewGuard = getEditorOperationGuard(deps.editorSession);
+    const syncViewLock = () => viewGuard.setLocked("collab-view", collabSession.isViewer());
+    window.addEventListener("tex64:editor-created", () => { if (collabSession.isViewer())
+        viewGuard.refresh(); });
     collabSession.onChange((state) => {
+        syncViewLock();
         const key = state.active ? `${state.sessionId}:${state.epoch}` : "";
         if (key !== sessionKey) {
             if (sessionKey)

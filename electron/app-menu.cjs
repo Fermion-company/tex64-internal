@@ -4,8 +4,8 @@
 // the "uiLocale" message). `role:` items are localized by Electron itself from
 // the OS locale — that part cannot follow the in-app setting.
 const MENU_LABELS = {
-  en: { settings: "Settings…", file: "File", newFile: "New File", newProject: "New Project…", openFolder: "Open Folder…", save: "Save", importPrism: "Import from Prism…", collaborate: "Collaborate…", undo: "Undo", redo: "Redo" },
-  ja: { settings: "設定…", file: "ファイル", newFile: "新規ファイル", newProject: "新規プロジェクト…", openFolder: "フォルダを開く…", save: "保存", importPrism: "Prism から読み込む…", collaborate: "共同編集…", undo: "取り消す", redo: "やり直す" },
+  en: { settings: "Settings…", file: "File", newFile: "New File", newProject: "New Project…", openFolder: "Open Folder…", save: "Save", importPrism: "Import from Prism…", collaborate: "Collaborate…", wordCount: "Word Count…", undo: "Undo", redo: "Redo" },
+  ja: { settings: "設定…", file: "ファイル", newFile: "新規ファイル", newProject: "新規プロジェクト…", openFolder: "フォルダを開く…", save: "保存", importPrism: "Prism から読み込む…", collaborate: "共同編集…", wordCount: "文字数…", undo: "取り消す", redo: "やり直す" },
   zh: { settings: "设置…", file: "文件", newFile: "新建文件", newProject: "新建项目…", openFolder: "打开文件夹…", save: "保存", importPrism: "从 Prism 导入…" },
   ko: { settings: "설정…", file: "파일", newFile: "새 파일", newProject: "새 프로젝트…", openFolder: "폴더 열기…", save: "저장", importPrism: "Prism에서 가져오기…" },
   fr: { settings: "Réglages…", file: "Fichier", newFile: "Nouveau fichier", newProject: "Nouveau projet…", openFolder: "Ouvrir un dossier…", save: "Enregistrer", importPrism: "Importer depuis Prism…" },
@@ -63,6 +63,7 @@ const createApplicationMenuTemplate = ({
         commandItem(labels.save, "file:save", "CmdOrCtrl+S"),
         { type: "separator" },
         commandItem(labels.collaborate, "collab:open"),
+        commandItem(labels.wordCount, "wordcount:open"),
         { type: "separator" },
         { role: isMac ? "close" : "quit" },
       ],

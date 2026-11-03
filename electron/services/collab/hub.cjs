@@ -5,7 +5,9 @@
 // decodes y-protocols sync and awareness messages, and moves them between
 // three kinds of peers: the renderer (IPC), network peers (transport-ws), and
 // the disk (disk-sync). The host runs the ws server; guests connect to it and
-// keep a mirror of the workspace under ~/TeX64 Collab/.
+// keep a mirror of the workspace under ~/TeX64 Collab/. A guest who joined
+// with the view link reads along: the host drops every change it sends (text,
+// comments, files), and its own app keeps the mirror equal to the host's.
 
 const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
@@ -62,6 +64,10 @@ class CollabHub extends EventEmitter {
     return this.session?.role === "host";
   }
 
+  isViewer() {
+    return this.session?.role === "guest" && this.session.access === "view";
+  }
+
   isSyncedTextPath(relativePath) {
     const session = this.session;
     if (!session || session.phase !== "active") return false;
@@ -74,7 +80,7 @@ class CollabHub extends EventEmitter {
     if (!session) return { active: false, phase: "idle" };
     const participants = [];
     for (const peer of session.peers.values()) {
-      participants.push({ id: peer.id, name: peer.name, color: peer.color, connected: peer.connected, host: peer.host, self: peer.id === session.selfId });
+      participants.push({ id: peer.id, name: peer.name, color: peer.color, connected: peer.connected, host: peer.host, viewer: peer.viewer === true, self: peer.id === session.selfId });
     }
     return {
       active: session.phase === "active",
@@ -84,6 +90,8 @@ class CollabHub extends EventEmitter {
       epoch: session.epoch,
       name: session.name,
       inviteLink: session.inviteLink || null,
+      viewInviteLink: session.viewInviteLink || null,
+      access: session.access,
       selfId: session.selfId,
       connected: session.role === "host" ? true : Boolean(session.transport?.connected),
       participants,
@@ -116,6 +124,7 @@ class CollabHub extends EventEmitter {
       name,
       token,
       role,
+      access: "edit",
       epoch: 1,
       phase: "starting",
       rootPath,
@@ -150,6 +159,9 @@ class CollabHub extends EventEmitter {
       onMissing: (relative) => {
         if (this.session === session) void this.rescan();
       },
+      onReverted: (relative) => {
+        this.notice(text(this.deps.locale(), `${relative}: you joined to view, so the host's content was put back.`, `${relative}: 閲覧のみで参加しているため、ホストの内容に戻しました。`));
+      },
     });
     this.session = session;
     return session;
@@ -168,6 +180,7 @@ class CollabHub extends EventEmitter {
       rootPath,
       displayName,
     });
+    session.viewToken = invite.createToken();
     try {
       session.peers.set(session.selfId, { id: session.selfId, name: displayName, color: this.nextColor(session), connected: true, host: true, conn: null });
       this.createSessionDoc(session);
@@ -195,10 +208,12 @@ class CollabHub extends EventEmitter {
       }, LOCAL);
       await this.loadCommentsFromDisk(session);
       session.diskSync.coordinated = true;
-      const host = new transport.HostTransport({ token: session.token });
+      const host = new transport.HostTransport({ token: session.token, viewToken: session.viewToken });
       const port = await host.start();
       session.transport = host;
-      session.inviteLink = invite.buildInviteLink({ hosts: invite.localHostAddresses(), port, token: session.token, name: sessionName });
+      const hosts = invite.localHostAddresses();
+      session.inviteLink = invite.buildInviteLink({ hosts, port, token: session.token, name: sessionName });
+      session.viewInviteLink = invite.buildInviteLink({ hosts, port, token: session.viewToken, name: sessionName });
       host.on("open", (conn) => this.onPeerOpen(session, conn));
       host.on("close", (conn) => this.onPeerClose(session, conn));
       host.on("message", (conn, frame) => this.onPeerFrame(session, conn, frame));
@@ -270,6 +285,8 @@ class CollabHub extends EventEmitter {
       session.epoch = hello.epoch || 1;
       session.hostName = hello.hostName;
       session.rootFile = hello.rootFile || "";
+      session.access = hello.access === "view" ? "view" : "edit";
+      session.diskSync.readOnly = session.access === "view";
       session.rootPath = path.join(this.deps.collabRoot(), `${safeSessionFolderName(session.name)}-${session.id.slice(0, 8)}`);
       const rejoining = await fsp.readdir(session.rootPath).then((names) => names.some((name) => name !== ".tex64")).catch(() => false);
       if (rejoining) session.mirrorHashes = await this.readMirrorManifest(session);
@@ -559,7 +576,7 @@ class CollabHub extends EventEmitter {
     const frame = transport.encodeDocFrame(transport.FRAME_SYNC, entry.docId, encoding.toUint8Array(encoder));
     if (session.transport) {
       if (session.role === "host") session.transport.broadcast(frame, origin && origin.socket ? origin : null);
-      else if (!(origin && origin.socket)) session.transport.broadcast(frame);
+      else if (!(origin && origin.socket) && session.access !== "view") session.transport.broadcast(frame);
     }
     if (origin !== RENDERER && session.rendererDocs.has(entry.docId)) {
       this.deps.sendCollab({ type: "collab:doc", sessionId: session.id, epoch: session.epoch, docId: entry.docId, kind: "sync", bytes: encoding.toUint8Array(encoder) });
@@ -641,6 +658,7 @@ class CollabHub extends EventEmitter {
       const peer = existing || { id: conn.id, name: sanitizeName(conn.hello?.name, "guest"), color: this.nextColor(session), connected: true, host: false, conn };
       peer.conn = conn;
       peer.connected = true;
+      peer.viewer = conn.access === "view";
       peer.name = sanitizeName(conn.hello?.name, peer.name);
       session.peers.set(conn.id, peer);
       const welcome = {
@@ -651,7 +669,8 @@ class CollabHub extends EventEmitter {
         hostName: session.displayName,
         rootFile: session.rootFileCache || "",
         color: peer.color,
-        peers: [...session.peers.values()].map((item) => ({ id: item.id, name: item.name, color: item.color, connected: item.connected, host: item.host })),
+        access: conn.access === "view" ? "view" : "edit",
+        peers: [...session.peers.values()].map((item) => ({ id: item.id, name: item.name, color: item.color, connected: item.connected, host: item.host, viewer: item.viewer === true })),
       };
       const sendWelcome = (rootFile) => {
         welcome.rootFile = rootFile || "";
@@ -701,12 +720,28 @@ class CollabHub extends EventEmitter {
     if (session.role !== "host") return;
     session.transport.broadcast(transport.encodeControl({
       type: "peers",
-      peers: [...session.peers.values()].map((item) => ({ id: item.id, name: item.name, color: item.color, connected: item.connected, host: item.host })),
+      peers: [...session.peers.values()].map((item) => ({ id: item.id, name: item.name, color: item.color, connected: item.connected, host: item.host, viewer: item.viewer === true })),
     }));
+  }
+
+  // What a view-only guest may send: requests for state (SyncStep1),
+  // presence, and requests for files. Its SyncStep2 replies, updates and
+  // file bytes are dropped, so nothing it holds reaches anyone.
+  viewerMayApply(session, frame) {
+    if (frame.kind === transport.FRAME_AWARENESS) return true;
+    if (frame.kind === transport.FRAME_CONTROL) return frame.message.type === "need-blob";
+    if (frame.kind !== transport.FRAME_SYNC) return false;
+    if (!session.docs.has(frame.docId)) return false;
+    try {
+      return decoding.readVarUint(decoding.createDecoder(frame.payload)) === syncProtocol.messageYjsSyncStep1;
+    } catch {
+      return false;
+    }
   }
 
   onPeerFrame(session, conn, frame) {
     if (this.session !== session) return;
+    if (session.role === "host" && conn.access !== "edit" && !this.viewerMayApply(session, frame)) return;
     try {
       if (frame.kind === transport.FRAME_SYNC) {
         const entry = this.docForPeer(session, frame.docId);
@@ -783,9 +818,9 @@ class CollabHub extends EventEmitter {
     const next = new Map();
     for (const item of peers) {
       if (!item || typeof item.id !== "string") continue;
-      next.set(item.id, { id: item.id, name: sanitizeName(item.name, "guest"), color: typeof item.color === "string" ? item.color : COLORS[0], connected: item.connected !== false, host: item.host === true, conn: null });
+      next.set(item.id, { id: item.id, name: sanitizeName(item.name, "guest"), color: typeof item.color === "string" ? item.color : COLORS[0], connected: item.connected !== false, host: item.host === true, viewer: item.viewer === true, conn: null });
     }
-    if (!next.has(session.selfId)) next.set(session.selfId, { id: session.selfId, name: session.displayName, color: COLORS[1], connected: true, host: false, conn: null });
+    if (!next.has(session.selfId)) next.set(session.selfId, { id: session.selfId, name: session.displayName, color: COLORS[1], connected: true, host: false, viewer: session.access === "view", conn: null });
     session.peers = next;
     if (hostName) session.hostName = hostName;
     this.pushState();
@@ -940,12 +975,16 @@ class CollabHub extends EventEmitter {
       const { added, changed, removed } = await session.manifest.scan();
       if (this.session !== session) return;
       const files = session.sessionDoc.getMap("files");
+      // A view-only guest announces nothing: a shared file changed here goes
+      // back to the host's content, a new file stays local.
+      const viewOnly = session.role === "guest" && session.access === "view";
       for (const relative of [...added, ...changed]) {
         const entry = session.manifest.get(relative);
         if (!entry) continue;
         if (entry.kind === "text") {
           const doc = session.docs.get(relative);
           if (!doc || doc.deleted) {
+            if (viewOnly) continue;
             let content;
             try {
               content = await fsp.readFile(path.join(session.rootPath, relative), "utf8");
@@ -970,6 +1009,11 @@ class CollabHub extends EventEmitter {
         } else if (entry.kind === "binary") {
           if (session.knownBinaryHashes.get(relative) === entry.hash) continue;
           const shared = files.get(relative);
+          if (viewOnly) {
+            // The request below fetches the host's bytes again.
+            if (shared && !shared.deleted) session.knownBinaryHashes.set(relative, entry.hash);
+            continue;
+          }
           if (shared && shared.hash === entry.hash) {
             session.knownBinaryHashes.set(relative, entry.hash);
             session.pendingBlobs?.delete(relative);
@@ -984,6 +1028,11 @@ class CollabHub extends EventEmitter {
         const shared = files.get(relative);
         if (shared?.deleted) continue;
         const doc = session.docs.get(relative);
+        if (viewOnly) {
+          if (doc?.attached) session.diskSync.noteUpdate(relative);
+          session.knownBinaryHashes.delete(relative);
+          continue;
+        }
         if (doc) {
           doc.deleted = true;
           doc.attached = false;
@@ -1043,6 +1092,13 @@ class CollabHub extends EventEmitter {
     if (frame.kind === "sync") {
       const entry = session.docs.get(docId);
       if (!entry || entry.deleted) return;
+      if (session.access === "view") {
+        let type = -1;
+        try {
+          type = decoding.readVarUint(decoding.createDecoder(bytes));
+        } catch {}
+        if (type !== syncProtocol.messageYjsSyncStep1) return;
+      }
       const reply = this.applySync(session, entry, bytes, RENDERER);
       if (reply) this.deps.sendCollab({ type: "collab:doc", sessionId: session.id, epoch: session.epoch, docId, kind: "sync", bytes: reply });
       return;

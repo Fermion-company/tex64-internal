@@ -49,6 +49,7 @@ export const collabSession = {
     isActive: () => state.active,
     isGuest: () => state.active && state.role === "guest",
     isHost: () => state.active && state.role === "host",
+    isViewer: () => state.active && state.role === "guest" && state.access === "view",
     selfParticipant: () => { var _a; return (_a = state.participants.find((participant) => participant.self)) !== null && _a !== void 0 ? _a : null; },
     isSharedPath: (path) => Boolean(path && state.active && state.textFiles.includes(path)),
     onChange: (listener) => {

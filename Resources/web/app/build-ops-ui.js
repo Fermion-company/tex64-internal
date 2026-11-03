@@ -938,6 +938,8 @@ export const initBuildOpsUi = (context, deps) => {
         }
     };
     return {
+        // The document a fragment was last built as, when the user chose it.
+        documentFor: (path) => { var _a, _b; return chosenTargets.get(`${(_b = (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : ""}\0${path}`); },
         updateSynctexButtonState,
         handleBuildPreviewState,
         setBuildState,
