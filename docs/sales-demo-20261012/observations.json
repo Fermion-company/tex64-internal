@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-12",
+  "installed_app": "TeX64 0.1.26",
+  "platform": "macOS",
+  "app_free_allowance_before": "0 / 100000 tokens",
+  "fixture": "original fictional centered-difference manuscript; no customer/student data",
+  "source_base": "Fermion-company/tex64-internal origin/main 828c65d",
+  "observed": [
+    "Opened /tmp/tex64-sales-demo-20261012 through Open Folder",
+    "Built original main.tex and saw original PDF",
+    "Submitted the recorded prompt to Axiom",
+    "Axiom changed sections/stencil.tex: +23 -8, h/12 -> h^2/12, Taylor expansions and error 1/2",
+    "Initial turn showed processing-limit message; actual PDF on disk was corrected while old PDF remained visible",
+    "A continuation ran and again showed processing-limit message",
+    "Final editor PDF view showed corrected h^2/12 and exact polynomial error 1/2",
+    "Diff overlay opened"
+  ],
+  "not_verified": [
+    "Windows execution",
+    "general assistant accuracy",
+    "speed advantage",
+    "saved working time",
+    "production first_pdf event arrival",
+    "number of upstream model calls"
+  ],
+  "metered_api_contracts_added": false,
+  "pdf_sha256": {
+    "before": "04c6b14be9fb290b9f50480056ebb2d94b6de51c6ad5dfa53a2b98621737735f",
+    "after": "4c6d09166254b584418ea4c062767016bc5d316e415cd2d7a57b3b4aa65c493f"
+  }
+}

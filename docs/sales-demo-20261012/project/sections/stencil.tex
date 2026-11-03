@@ -1,0 +1,18 @@
+\section{The centered difference}
+Let $u$ have six continuous derivatives near $x$ and let $h>0$.
+We define the centered second difference by
+\begin{equation}\label{eq:stencil}
+ D_h u(x)=\frac{u(x+h)-2u(x)+u(x-h)}{h^2}.
+\end{equation}
+The symmetric numerator cancels its odd powers of $h$.
+The Taylor expansion therefore gives
+\begin{equation}\label{eq:error}
+ D_h u(x)=u''(x)+\frac{h}{12}u^{(4)}(x)+O(h^4).
+\end{equation}
+The leading error is second order in $h$.
+
+\section{A polynomial check}
+For $u(x)=x^4$ at $x=1$ with $h=1/2$, direct substitution into
+\eqref{eq:stencil} gives $D_hu(1)=25/2$.
+The exact second derivative is $u''(1)=12$.
+The difference between these values is the leading error term.
