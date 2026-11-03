@@ -406,8 +406,9 @@ class CollabHub extends EventEmitter {
     let current;
     try {
       current = await fsp.readFile(absolute);
-    } catch {
-      return true;
+    } catch (error) {
+      // Nothing there to keep; any other failure (EACCES …) keeps the file.
+      return error?.code === "ENOENT";
     }
     if (incoming !== null && (typeof incoming === "string" ? current.toString("utf8") === incoming : Buffer.from(incoming).equals(current))) return true;
     if (session.mirrorHashes) {
@@ -458,9 +459,10 @@ class CollabHub extends EventEmitter {
   }
 
   // `leaseHeld`: the caller (a project switch) already holds the workspace
-  // mutation lease, so the shared files are written directly — waiting for
-  // the lease would wait for ourselves. Every shared edit must be on disk
-  // before the docs go: if that fails, the session stays and the caller fails.
+  // mutation lease, so the shared files are written under their file guards
+  // only — waiting for the lease would wait for ourselves. Every shared edit
+  // must be on disk before the docs go: if that fails, the session stays and
+  // the caller fails.
   async leave({ leaseHeld = false } = {}) {
     const session = this.session;
     if (!session) return { ok: true };
@@ -468,17 +470,13 @@ class CollabHub extends EventEmitter {
     const previousPhase = session.phase;
     session.phase = "leaving";
     this.pushState();
-    const coordinated = session.diskSync.coordinated;
-    if (leaseHeld) session.diskSync.coordinated = false;
-    let flushed;
-    try {
-      flushed = await session.diskSync.flush();
-    } finally {
-      session.diskSync.coordinated = coordinated;
-    }
+    // No new timed writes while leaving; flushHeld writes what is dirty.
+    if (leaseHeld) session.diskSync.paused = true;
+    const flushed = leaseHeld ? await session.diskSync.flushHeld() : await session.diskSync.flush();
     if (!flushed) {
       if (this.session === session) {
         session.phase = previousPhase;
+        if (leaseHeld) session.diskSync.resume();
         this.pushState();
       }
       throw Object.assign(new Error(text(this.deps.locale(), "Some shared files could not be saved, so the session stays open. Try again.", "共有中のファイルを保存できなかったため、セッションを続けています。もう一度お試しください。")), { code: "COLLAB_FLUSH_FAILED" });

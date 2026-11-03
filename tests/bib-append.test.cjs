@@ -193,3 +193,17 @@ test("no workspace or no .tex at all is NO_MAIN_FILE", async (t) => {
   const empty = await tempWorkspace(t, { "readme.txt": "x" });
   await assert.rejects(resolveCitationDocument(empty, { activeFilePath: "" }), (error) => error.code === "NO_MAIN_FILE");
 });
+
+test("two different zotero.org accounts are two libraries; a conflicting DOI outweighs a matching note", async (t) => {
+  assert.equal(sameZoteroItem("users:111/ABCD1234", "users:222/ABCD1234"), false);
+  assert.equal(sameZoteroItem("users:111/ABCD1234", "users:111/ABCD1234"), true);
+  // This computer's library (local API / Better BibTeX) is anyone's web library.
+  assert.equal(sameZoteroItem("users:0/ABCD1234", "users:111/ABCD1234"), true);
+  assert.equal(sameZoteroItem("bbt:1/ABCD1234", "users:111/ABCD1234"), true);
+  const workspace = await tempWorkspace(t);
+  await appendEntry({ workspace, bibPath: "refs.bib", zoteroRef: "users:111/ABCD1234", bibtex: "@article{first,\n  title={One},\n  doi={10.1000/one}\n}" });
+  const second = await appendEntry({ workspace, bibPath: "refs.bib", zoteroRef: "users:222/ABCD1234", bibtex: "@article{first,\n  title={Two},\n  doi={10.1000/two}\n}" });
+  assert.deepEqual([second.key, second.appended], ["firsta", true]);
+  const third = await appendEntry({ workspace, bibPath: "refs.bib", zoteroRef: "users:0/ABCD1234", bibtex: "@article{first,\n  title={Three},\n  doi={10.1000/three}\n}" });
+  assert.deepEqual([third.key, third.appended], ["firstb", true]);
+});

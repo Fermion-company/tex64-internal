@@ -304,7 +304,10 @@ const documentFiles = async (workspace, main, buffers) => {
     const content = await read(entry.file);
     if (content === null) continue;
     files.push({ path: entry.file, content });
-    for (const include of parseTexIncludes(content)) {
+    // Only what TeX reads: nothing after \end{document} (the preamble's
+    // \input files are read).
+    const end = firstUncommented(content, /\\end\s*\{document\}/g);
+    for (const include of parseTexIncludes(end ? content.slice(0, end.index) : content)) {
       const base = include.directory !== undefined
         ? path.posix.join(include.kind.startsWith("sub") ? entry.base : cwd, include.directory)
         : include.kind.startsWith("subfile") ? path.posix.dirname(entry.file) : entry.base;

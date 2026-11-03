@@ -144,3 +144,18 @@ test("the files of a document come from the unsaved buffers first", async () => 
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("files read after \\end{document} are not part of the document", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-wc-"));
+  try {
+    fs.writeFileSync(path.join(root, "main.tex"), "\\documentclass{article}\n\\input{macros}\n\\begin{document}\nVisible.\n\\end{document}\n\\input{discarded}\n");
+    fs.writeFileSync(path.join(root, "macros.tex"), "\\newcommand{\\x}{y}\n");
+    fs.writeFileSync(path.join(root, "discarded.tex"), "These words never print.\n");
+    const workspace = { getRootPath: () => root, resolvePath: (r) => path.join(root, r), readFile: async (r) => fs.readFileSync(path.join(root, r), "utf8") };
+    const result = await countDocument({ workspace, mainFile: "main.tex" });
+    assert.deepEqual(result.files.map((file) => file.path), ["main.tex", "macros.tex"]);
+    assert.equal(result.total.words, 1);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -11,7 +11,7 @@ const { CollabHub } = require("../electron/services/collab/hub.cjs");
 const transport = require("../electron/services/collab/transport-ws.cjs");
 const invite = require("../electron/services/collab/invite.cjs");
 const { safeRelativePath } = require("../electron/services/collab/manifest.cjs");
-const { mergeThreeWay } = require("../electron/services/collab/disk-sync.cjs");
+const { mergeThreeWay, DiskSync } = require("../electron/services/collab/disk-sync.cjs");
 const { createCollabHandlers } = require("../electron/handlers/collab.cjs");
 
 const waitFor = async (predicate, timeoutMs = 8000, label = "condition") => {
@@ -190,4 +190,63 @@ test("a comment save is written to the project it was made in, even after a swit
   // A folder this app never loaded comments from is refused.
   const refused = await handler(event, "comments:save", { root: path.join(base, "other"), comments: [] });
   assert.equal(refused.code, "WORKSPACE_CHANGED");
+});
+
+test("leaving during a project switch writes even when a write is already queued behind the held lease", async (t) => {
+  const base = tempBase(t);
+  const hostRoot = path.join(base, "paper");
+  fs.mkdirSync(hostRoot);
+  fs.writeFileSync(path.join(hostRoot, "main.tex"), "Hello\n");
+  let leaseHeld = false;
+  const lease = (operation) => (leaseHeld ? new Promise(() => {}) : operation());
+  const host = makeHub({ path: hostRoot }, { collabRoot: path.join(base, "c"), name: "Host", lease });
+  await host.start({ name: "Host" });
+  leaseHeld = true;
+  host.session.docs.get("main.tex").ytext.insert(5, " world");
+  // The debounced write fires and waits for the lease the switch holds.
+  await sleep(800);
+  const started = Date.now();
+  await host.leave({ leaseHeld: true });
+  assert.ok(Date.now() - started < 5000, "did not wait for the queued write");
+  assert.equal(fs.readFileSync(path.join(hostRoot, "main.tex"), "utf8"), "Hello world\n");
+});
+
+test("a shared path through a symlinked folder is never written, on either write path", async (t) => {
+  const base = tempBase(t);
+  const root = path.join(base, "paper");
+  const outside = path.join(base, "outside");
+  fs.mkdirSync(root);
+  fs.mkdirSync(outside);
+  fs.symlinkSync(outside, path.join(root, "linked"));
+  for (const held of [false, true]) {
+    const sync = new DiskSync({
+      rootPath: () => root,
+      withWorkspaceMutation: (operation) => operation(),
+      // A file guard that checks nothing: the disk layer must refuse by itself.
+      withFileMutation: (_relative, operation) => operation(),
+    });
+    sync.coordinated = true;
+    const doc = new Y.Doc();
+    const text = doc.getText("content");
+    text.insert(0, "planted\n");
+    sync.attach("linked/outside.tex", text, null);
+    if (held) await sync.flushHeld();
+    else await sync.flush(3000);
+    sync.stop();
+    assert.equal(fs.existsSync(path.join(outside, "outside.tex")), false, held ? "flushHeld" : "flush");
+  }
+});
+
+test("an offline-edited file that cannot be read is kept, not deleted, when the host removed it", async (t) => {
+  const base = tempBase(t);
+  const root = path.join(base, "mirror");
+  fs.mkdirSync(root);
+  const file = path.join(root, "notes.tex");
+  fs.writeFileSync(file, "offline edit\n");
+  fs.chmodSync(file, 0o000);
+  t.after(() => { try { fs.chmodSync(file, 0o644); } catch {} });
+  const hub = makeHub({ path: root }, { collabRoot: path.join(base, "c"), name: "Guest" });
+  const session = { joining: true, rootPath: root, mirrorHashes: null, preserved: [] };
+  assert.equal(await hub.preserveLocal(session, "notes.tex", null), false);
+  assert.equal(await hub.preserveLocal(session, "missing.tex", null), true);
 });

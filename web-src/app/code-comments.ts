@@ -393,8 +393,10 @@ export const createCodeCommentManager = (
   let cachedComments: CodeComment[] = [];
   let loadGeneration = 0;
   let saveTimer: number | null = null;
-  // The save waiting for its timer, bound to the folder it belongs to.
+  // The save waiting for its timer, bound to the folder it belongs to, and
+  // the chain of saves already sent (one at a time, in order).
   let pendingSave: { root: string | null; comments: CodeComment[] } | null = null;
+  let saving: Promise<void> = Promise.resolve();
   const groupStates = new Map<EditorGroupKey, GroupCommentState>();
   const contextSyncers = new Map<EditorGroupKey, () => void>();
 
@@ -464,22 +466,31 @@ export const createCodeCommentManager = (
     return cachedComments;
   };
 
-  const flushPendingSave = async () => {
+  // Sends the pending save after any save still on its way, and settles when
+  // both are written. A failed save stays pending and the promise rejects.
+  const flushPendingSave = () => {
     if (saveTimer !== null) window.clearTimeout(saveTimer);
     saveTimer = null;
     const pending = pendingSave;
-    pendingSave = null;
-    if (pending) await persistWorkspace(pending.comments, pending.root);
+    const run = saving.then(async () => {
+      if (!pending) return;
+      if (!(await persistWorkspace(pending.comments, pending.root))) {
+        throw new Error(uiText("The comments could not be saved, so the session was not started.", "コメントを保存できなかったため、セッションを開始しませんでした。"));
+      }
+      if (pendingSave === pending) pendingSave = null;
+    });
+    saving = run.catch(() => {});
+    return run;
   };
 
   const saveComments = (comments: CodeComment[]) => {
     if (inSession()) return;
     cachedComments = comments;
     loadedRoot = deps.getWorkspaceRoot();
-    if (pendingSave && pendingSave.root !== loadedRoot) void flushPendingSave();
+    if (pendingSave && pendingSave.root !== loadedRoot) void flushPendingSave().catch(() => {});
     pendingSave = { root: loadedRoot, comments: comments.slice() };
     if (saveTimer !== null) window.clearTimeout(saveTimer);
-    saveTimer = window.setTimeout(() => void flushPendingSave(), 250);
+    saveTimer = window.setTimeout(() => void flushPendingSave().catch(() => {}), 250);
   };
   // Starting a session reads the comments file: write the pending save first.
   collabSession.onBeforeStart(flushPendingSave);

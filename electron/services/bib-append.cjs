@@ -326,9 +326,11 @@ const parseZoteroRef = (ref) => {
   const match = String(ref || "").match(/^(users|groups|bbt):(\d+)\/([A-Za-z0-9]+)$/);
   if (!match) return null;
   const [, kind, id, item] = match;
-  // The personal library is bbt:1 through Better BibTeX and users:<id>
-  // through the local and web APIs.
-  return { kind, item, scope: kind === "users" || (kind === "bbt" && id === "1") ? "user" : `${kind}:${id}` };
+  // This computer's personal library is bbt:1 through Better BibTeX and
+  // users:0 through the local API; the web API names it users:<id>. Two
+  // different nonzero user ids are two different libraries.
+  const local = (kind === "users" && id === "0") || (kind === "bbt" && id === "1");
+  return { kind, item, scope: local ? "user" : kind === "users" ? `user:${id}` : `${kind}:${id}` };
 };
 
 /**
@@ -343,12 +345,19 @@ const sameZoteroItem = (a, b) => {
   if (!left || !right) return Boolean(a) && a === b;
   if (left.item !== right.item) return false;
   if (left.scope === right.scope) return true;
-  return left.scope !== "user" && right.scope !== "user" && left.kind !== right.kind && (left.kind === "bbt" || right.kind === "bbt");
+  const personal = (ref) => ref.scope === "user" || ref.scope.startsWith("user:");
+  // The local personal library and a web users:<id> are the same library
+  // seen through two doors.
+  if (personal(left) && personal(right)) return left.scope === "user" || right.scope === "user";
+  return !personal(left) && !personal(right) && left.kind !== right.kind && (left.kind === "bbt" || right.kind === "bbt");
 };
 
 /** One work by an identifier: the same Zotero item, else DOI, else arXiv id. */
+// An item note never outweighs identifiers that disagree.
+const identifiersConflict = (a, b) => Boolean((a.doi && b.doi && a.doi !== b.doi) || (a.arxivId && b.arxivId && a.arxivId !== b.arxivId));
+
 const sameIdentifiedWork = (a, b) => {
-  if (a.zoteroRef && b.zoteroRef && sameZoteroItem(a.zoteroRef, b.zoteroRef)) return true;
+  if (a.zoteroRef && b.zoteroRef && !identifiersConflict(a, b) && sameZoteroItem(a.zoteroRef, b.zoteroRef)) return true;
   if (a.doi && b.doi) return a.doi === b.doi;
   return Boolean(a.arxivId && b.arxivId && a.arxivId === b.arxivId);
 };
@@ -360,7 +369,7 @@ const sameIdentifiedWork = (a, b) => {
  * is trusted, as before.
  */
 const sameWork = (a, b) => {
-  if (a.zoteroRef && b.zoteroRef && sameZoteroItem(a.zoteroRef, b.zoteroRef)) return true;
+  if (a.zoteroRef && b.zoteroRef && !identifiersConflict(a, b) && sameZoteroItem(a.zoteroRef, b.zoteroRef)) return true;
   if (a.doi && b.doi) return a.doi === b.doi;
   if (a.arxivId && b.arxivId) return a.arxivId === b.arxivId;
   if (a.title && b.title) return a.title === b.title;

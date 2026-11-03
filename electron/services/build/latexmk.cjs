@@ -32,6 +32,11 @@ const prependKpathseaSearchPath = (env, name, directories) => {
   env[name] = [...new Set(entries), existing].join(path.delimiter);
 };
 
+// latexmk reads any argument that starts with "-" as an option, so a file
+// named "-pdflatex=cmd;#.tex" (from an imported zip, say) would set its
+// commands. Such a name goes as ./name.
+const fileArgument = (fileName) => (String(fileName).startsWith("-") ? `./${fileName}` : fileName);
+
 module.exports = (BuildService) => {
   BuildService.prototype.runLatexmk = async function (rootPath, mainFileName, engine, options = {}) {
     const latexmkPath = this.findLatexmk();
@@ -73,7 +78,7 @@ module.exports = (BuildService) => {
       "-halt-on-error",
       "-file-line-error",
       ...(Array.isArray(options?.extraArgs) ? options.extraArgs : []),
-      mainFileName
+      fileArgument(mainFileName)
     );
     const env = { ...process.env };
     env.PATH = this.extendPath(env.PATH);
@@ -105,7 +110,7 @@ module.exports = (BuildService) => {
     if (!hasExplicitOutDirArg && outDir) {
       args.push(`-outdir=${outDir}`);
     }
-    args.push(...(Array.isArray(options?.extraArgs) ? options.extraArgs : []), mainFileName);
+    args.push(...(Array.isArray(options?.extraArgs) ? options.extraArgs : []), fileArgument(mainFileName));
     const env = { ...process.env };
     env.PATH = this.extendPath(env.PATH);
     const result = await this.runProcess(latexmkPath, args, rootPath, env);

@@ -18,7 +18,7 @@
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const Diff = require("diff");
-const { contentDigest } = require("./manifest.cjs");
+const { contentDigest, resolveInsideRoot } = require("./manifest.cjs");
 
 const DISK_ORIGIN = "disk";
 const WRITE_DEBOUNCE_MS = 500;
@@ -236,9 +236,18 @@ class DiskSync {
     return run;
   }
 
+  // The file a doc is written to, checked on every access: inside the root,
+  // not excluded, no symlinked component (a peer may name any text path).
+  async safeAbsolute(docId) {
+    const absolute = await resolveInsideRoot(this.deps.rootPath(), docId);
+    if (!absolute) throw Object.assign(new Error(`Refusing to write outside the project: ${docId}`), { code: "UNSAFE_PATH" });
+    return absolute;
+  }
+
   async readDisk(docId) {
+    const absolute = await this.safeAbsolute(docId);
     try {
-      const buffer = await fsp.readFile(this.absolute(docId));
+      const buffer = await fsp.readFile(absolute);
       return buffer.toString("utf8");
     } catch (error) {
       if (error.code === "ENOENT") return null;
@@ -247,44 +256,57 @@ class DiskSync {
   }
 
   async writeDisk(docId, content) {
-    const absolute = this.absolute(docId);
+    const absolute = await this.safeAbsolute(docId);
     await fsp.mkdir(path.dirname(absolute), { recursive: true });
     const temporary = `${absolute}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     await fsp.writeFile(temporary, content, "utf8");
     await fsp.rename(temporary, absolute);
   }
 
+  // One write of a doc's text to disk (merging what changed there first).
+  async writeOperation(docId, entry) {
+    if (!this.docs.has(docId)) return;
+    let current;
+    try {
+      current = await this.readDisk(docId);
+    } catch (error) {
+      if (error?.code !== "UNSAFE_PATH") throw error;
+      // A path that leads out of the project is never written; the doc is let go.
+      console.warn("[collab]", error.message);
+      entry.dirty = false;
+      this.detach(docId);
+      return;
+    }
+    let target = entry.ytext.toString();
+    if (current === null && entry.baseline !== null && !this.readOnly) {
+      // Deleted underneath us. The manifest decides whether that is a
+      // tombstone; recreating it here would resurrect a removed file.
+      entry.dirty = false;
+      this.deps.onMissing?.(docId);
+      return;
+    }
+    if (!this.readOnly && current !== null && (entry.baseline === null || current !== entry.baseline.content) && current !== target) {
+      // Something else wrote since the baseline: merge it in first.
+      const dropped = mergeThreeWay(entry.ytext, entry.baseline?.content ?? "", target, current, DISK_ORIGIN);
+      entry.baseline = { content: current, digest: contentDigest(current) };
+      if (dropped > 0) this.deps.onNotice?.(docId, dropped);
+      target = entry.ytext.toString();
+    }
+    if (current !== target) {
+      this.deps.trackSaved?.(docId, target);
+      await this.writeDisk(docId, target);
+    }
+    entry.baseline = { content: target, digest: contentDigest(target) };
+    entry.dirty = entry.ytext.toString() !== target;
+    this.deps.onSaved?.(docId, entry.baseline.digest);
+    if (entry.dirty) this.noteUpdate(docId);
+  }
+
   async writeNow(docId) {
     const entry = this.docs.get(docId);
     if (!entry || this.stopped) return;
     try {
-      await this.guarded(docId, async () => {
-        if (!this.docs.has(docId)) return;
-        let target = entry.ytext.toString();
-        const current = await this.readDisk(docId);
-        if (current === null && entry.baseline !== null && !this.readOnly) {
-          // Deleted underneath us. The manifest decides whether that is a
-          // tombstone; recreating it here would resurrect a removed file.
-          entry.dirty = false;
-          this.deps.onMissing?.(docId);
-          return;
-        }
-        if (!this.readOnly && current !== null && (entry.baseline === null || current !== entry.baseline.content) && current !== target) {
-          // Something else wrote since the baseline: merge it in first.
-          const dropped = mergeThreeWay(entry.ytext, entry.baseline?.content ?? "", target, current, DISK_ORIGIN);
-          entry.baseline = { content: current, digest: contentDigest(current) };
-          if (dropped > 0) this.deps.onNotice?.(docId, dropped);
-          target = entry.ytext.toString();
-        }
-        if (current !== target) {
-          this.deps.trackSaved?.(docId, target);
-          await this.writeDisk(docId, target);
-        }
-        entry.baseline = { content: target, digest: contentDigest(target) };
-        entry.dirty = entry.ytext.toString() !== target;
-        this.deps.onSaved?.(docId, entry.baseline.digest);
-        if (entry.dirty) this.noteUpdate(docId);
-      });
+      await this.guarded(docId, () => this.writeOperation(docId, entry));
     } catch (error) {
       if (!this.docs.has(docId) || this.stopped) return;
       if (error?.code === "HISTORY_BUSY" || error?.code === "AGENT_WORKSPACE_BUSY") {
@@ -367,6 +389,27 @@ class DiskSync {
     const timeout = new Promise((resolve) => setTimeout(() => resolve(false), Math.max(0, deadline - Date.now())).unref?.());
     const result = await Promise.race([Promise.all(pending).then(() => true), timeout]);
     return result && ![...this.docs.values()].some((entry) => entry.dirty);
+  }
+
+  // The caller already holds the workspace lease (a project switch): every
+  // dirty doc is written now under its own file guard, ahead of any write
+  // still queued behind that lease — those find the session gone and do
+  // nothing. Returns whether everything reached the disk.
+  async flushHeld() {
+    let ok = true;
+    for (const [docId, entry] of [...this.docs]) {
+      if (!entry.dirty) continue;
+      clearTimeout(entry.timer);
+      entry.timer = null;
+      try {
+        if (this.coordinated) await this.deps.withFileMutation(docId, () => this.writeOperation(docId, entry));
+        else await this.writeOperation(docId, entry);
+      } catch (error) {
+        ok = false;
+        console.warn("[collab] write failed", docId, error?.message || error);
+      }
+    }
+    return ok && ![...this.docs.values()].some((entry) => entry.dirty);
   }
 
   baselineOf(docId) {
