@@ -73,11 +73,14 @@ export const initPrismImportUi = (deps) => {
     let busy = false;
     let awaitingRuntime = false;
     let sessionError = "";
-    // Progress arrives before `start` has returned the session id. Only one
-    // import runs at a time, so the first id seen while starting is adopted
-    // provisionally and the steps move while the zip is still unpacking.
-    let provisionalSessionId = null;
-    let collecting = false;
+    // The id `start` is asked to use, chosen here before the call: progress
+    // carries it while the zip is still unpacking, and closing the dialog
+    // before `start` returns can end that session on the main side.
+    let startingId = null;
+    // Bumped when the dialog closes and when a new import begins. A
+    // continuation that finds another value after an await belongs to an
+    // import that is over and leaves the state alone.
+    let generation = 0;
     let buildStartedAt = 0;
     let buildTimer = null;
     const stepStatus = new Map();
@@ -178,6 +181,7 @@ export const initPrismImportUi = (deps) => {
             if (!current || !sessionId)
                 return;
             const project = current.project;
+            const gen = generation;
             void (async () => {
                 let payload;
                 try {
@@ -186,6 +190,8 @@ export const initPrismImportUi = (deps) => {
                 catch {
                     return;
                 }
+                if (gen !== generation)
+                    return;
                 finish();
                 if (deps.getWorkspaceRoot() !== project.root) {
                     deps.openProjectPath(project.root);
@@ -379,16 +385,26 @@ export const initPrismImportUi = (deps) => {
             dialog.showModal();
         renderAll();
     };
-    // Closing ends the session; a typeset still running is cancelled with it.
+    // Closing ends the session, also one still unpacking; a typeset still
+    // running is cancelled with it.
     const finish = () => {
         stopBuildTimer();
-        if (sessionId && !awaitingRuntime) {
-            const id = sessionId;
-            void call("end", { sessionId: id }).catch(() => { });
+        if (!awaitingRuntime) {
+            generation += 1;
+            const id = sessionId !== null && sessionId !== void 0 ? sessionId : startingId;
+            if (id)
+                void call("end", { sessionId: id }).catch(() => { });
             sessionId = null;
+            startingId = null;
             busy = false;
         }
         modal === null || modal === void 0 ? void 0 : modal.close();
+    };
+    const newSessionId = () => {
+        var _a;
+        if (typeof ((_a = window.crypto) === null || _a === void 0 ? void 0 : _a.randomUUID) === "function")
+            return window.crypto.randomUUID();
+        return `prism-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     };
     const fail = (step, message) => {
         setStep(step, "failed", "");
@@ -418,17 +434,8 @@ export const initPrismImportUi = (deps) => {
     (_a = bridge()) === null || _a === void 0 ? void 0 : _a.onChange((payload) => {
         if (!payload || !payload.sessionId)
             return;
-        if (!sessionId) {
-            if (!collecting)
-                return;
-            if (!provisionalSessionId)
-                provisionalSessionId = payload.sessionId;
-            if (payload.sessionId !== provisionalSessionId)
-                return;
-            applyProgress(payload);
-            return;
-        }
-        if (payload.sessionId !== sessionId)
+        const id = sessionId !== null && sessionId !== void 0 ? sessionId : startingId;
+        if (!id || payload.sessionId !== id)
             return;
         applyProgress(payload);
     });
@@ -466,6 +473,7 @@ export const initPrismImportUi = (deps) => {
         renderAll();
         const target = current;
         const id = sessionId;
+        const gen = generation;
         try {
             const result = (await call("build", {
                 sessionId: id,
@@ -474,7 +482,7 @@ export const initPrismImportUi = (deps) => {
                 engine: target.engine,
                 bibTool: target.bibTool,
             }));
-            if (sessionId !== id)
+            if (gen !== generation || sessionId !== id)
                 return;
             stopBuildTimer();
             if (result.canceled)
@@ -494,9 +502,9 @@ export const initPrismImportUi = (deps) => {
             }
         }
         catch (error) {
-            stopBuildTimer();
-            if (sessionId !== id)
+            if (gen !== generation || sessionId !== id)
                 return;
+            stopBuildTimer();
             if (current === target) {
                 const step = error instanceof ImportError && error.step ? error.step : "build";
                 target.error = errorText(error);
@@ -507,8 +515,8 @@ export const initPrismImportUi = (deps) => {
         renderAll();
         releaseDiffHeight();
     };
-    const applyEnv = async () => {
-        if (!env)
+    const applyEnv = async (gen) => {
+        if (!env || gen !== generation)
             return;
         if (!env.ready) {
             setStep("env", "failed", envDetail());
@@ -525,24 +533,29 @@ export const initPrismImportUi = (deps) => {
     };
     const begin = async (zipPath) => {
         var _a, _b;
-        if (sessionId)
-            void call("end", { sessionId }).catch(() => { });
+        const previous = sessionId !== null && sessionId !== void 0 ? sessionId : startingId;
+        if (previous)
+            void call("end", { sessionId: previous }).catch(() => { });
+        generation += 1;
+        const gen = generation;
+        const id = newSessionId();
         sessionId = null;
+        startingId = id;
         destination = "";
         env = null;
         states = [];
         current = null;
         awaitingRuntime = false;
         sessionError = "";
-        provisionalSessionId = null;
-        collecting = true;
         busy = true;
         show();
         resetSteps();
         setStep("extract", "running", "");
         try {
-            const started = await call("start", { zipPath, locale: getUiLocale() });
-            collecting = false;
+            const started = await call("start", { zipPath, locale: getUiLocale(), sessionId: id });
+            if (gen !== generation)
+                return;
+            startingId = null;
             if (started.canceled) {
                 busy = false;
                 modal === null || modal === void 0 ? void 0 : modal.close();
@@ -550,7 +563,6 @@ export const initPrismImportUi = (deps) => {
             }
             sessionId = started.sessionId;
             destination = started.destination;
-            provisionalSessionId = null;
             env = started.env;
             states = started.projects.map((project) => {
                 var _a, _b;
@@ -568,11 +580,12 @@ export const initPrismImportUi = (deps) => {
             setStep("extract", "done", stepDetail.get("extract") || "");
             setStep("analyze", "done", `${states.length} ${words(states.length === 1 ? "project" : "projects", "プロジェクト")}`);
             renderAll();
-            await applyEnv();
+            await applyEnv(gen);
         }
         catch (error) {
-            collecting = false;
-            provisionalSessionId = null;
+            if (gen !== generation)
+                return;
+            startingId = null;
             const step = error instanceof ImportError && error.step
                 ? error.step
                 : stepStatus.get("extract") !== "done" ? "extract" : "analyze";
@@ -606,11 +619,14 @@ export const initPrismImportUi = (deps) => {
             return;
         awaitingRuntime = false;
         busy = true;
+        const gen = generation;
         show();
         setStep("env", "running", "");
         void (async () => {
             try {
                 const checked = await call("recheck-env", { sessionId });
+                if (gen !== generation)
+                    return;
                 env = checked.env;
                 const projects = checked.projects;
                 for (const state of states) {
@@ -618,9 +634,11 @@ export const initPrismImportUi = (deps) => {
                     if (fresh)
                         state.project.missingPackages = fresh.missingPackages;
                 }
-                await applyEnv();
+                await applyEnv(gen);
             }
             catch (error) {
+                if (gen !== generation)
+                    return;
                 fail("env", errorText(error));
             }
         })();

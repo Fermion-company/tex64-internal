@@ -56,6 +56,7 @@ import { initBillingUi } from "./app/billing-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
 import { initZoteroSettingsUi } from "./app/zotero-ui.js";
 import { initWordCountUi } from "./app/word-count-ui.js";
+import { setCitationDocumentResolver } from "./app/citation-insert.js";
 import { initAnnouncementsUi } from "./app/announcements-ui.js";
 import { initWorkspaceController } from "./app/workspace-controller.js";
 import { getUiLocale, initI18n, onUiLocaleChange, uiText } from "./app/i18n.js";
@@ -137,6 +138,8 @@ export const initMain = () => {
   let collabBinding: CollabBindingApi | null = null;
   let collabUi: ReturnType<typeof initCollabUi> | null = null;
   const wordCountUi = initWordCountUi({ editorSession: () => editorSession, documentFor: (path) => buildOps?.documentFor(path) });
+  // Citations go to the bibliography of the document the user chose to build.
+  setCitationDocumentResolver((path) => buildOps?.documentFor(path));
   // Shared text files are saved by the collaboration session, not by autosave.
   const collabFileBridge = {
     isBound: (path: string | null | undefined) => Boolean(collabBinding?.isBound(path)),
@@ -504,6 +507,26 @@ export const initMain = () => {
   };
 
   let lastBuildMainFile: string | null = null;
+  // Fragment → the document Build makes of it: the user's choice first, else
+  // what main resolves (asked once per fragment, forgotten after each build
+  // since includes may have changed). Ambiguous fragments stay unresolved.
+  const documentOwners = new Map<string, string | null>();
+  const documentOwnerOf = (path: string): string | null | undefined => {
+    const chosen = buildOps?.documentFor(path);
+    if (chosen) return chosen;
+    const key = `${getWorkspaceRootKey() ?? ""}\0${path}`;
+    if (documentOwners.has(key)) return documentOwners.get(key) ?? undefined;
+    documentOwners.set(key, null);
+    const bridge = (window as unknown as { tex64WordCount?: { documentFor: (path: string) => Promise<{ ok: boolean; document?: string | null }> } }).tex64WordCount;
+    void bridge?.documentFor(path).then((result) => {
+      if (documentOwners.get(key) === null && result?.ok && typeof result.document === "string") documentOwners.set(key, result.document);
+    }, () => {});
+    return undefined;
+  };
+  const noteBuildTarget = (path: string | null) => {
+    lastBuildMainFile = path;
+    documentOwners.clear();
+  };
   let blockPreviewActive = false;
   let activeBlockOriginalSnippet: string | null = null;
   let activeBlockEditMode: BlockEditMode = "none";
@@ -732,6 +755,7 @@ export const initMain = () => {
     getRootFile: getRootFilePath,
     getRootSource,
     getLastBuildTarget: () => lastBuildMainFile,
+    getDocumentFor: (path) => documentOwnerOf(path),
     getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
       maxFiles: Number.POSITIVE_INFINITY,
       maxChars: Number.POSITIVE_INFINITY,
@@ -1026,9 +1050,7 @@ export const initMain = () => {
     getRootFilePath,
     getLastBuildMainFile: () => lastBuildMainFile,
     getWorkspaceRootKey,
-    setLastBuildMainFile: (path) => {
-      lastBuildMainFile = path;
-    },
+    setLastBuildMainFile: (path) => noteBuildTarget(path),
     getStoredCursorPosition: (path) => editorSession.getStoredCursorPosition(path),
     cacheCurrentBuffer: editorSession.cacheCurrentBuffer,
     saveCurrentFile: () => editorSession.saveCurrentFile(),
@@ -1131,9 +1153,7 @@ export const initMain = () => {
     },
     envRegistry,
     rootSelectorUi,
-    setLastBuildMainFile: (path) => {
-      lastBuildMainFile = path;
-    },
+    setLastBuildMainFile: (path) => noteBuildTarget(path),
   });
   updateIssues = workspaceController.updateIssues;
   setPendingBuildIssuesFocus = workspaceController.setPendingBuildIssuesFocus;
@@ -1309,6 +1329,8 @@ export const initMain = () => {
       const rootChanged = aiChatUi?.handleWorkspaceChanged(payload.rootPath) === true;
       workspaceController.handleWorkspaceUpdate(payload);
       if (rootChanged) postToNative({ type: "agent:state:get" }, true);
+      // A voice edit belongs to the project it started in.
+      if (rootChanged) voiceEdit.cancel();
     },
     handleIndexUpdate: workspaceController.handleIndexUpdate,
     handleLauncherStatus,
@@ -1397,7 +1419,7 @@ export const initMain = () => {
     build: {
       handleBuildPreviewState: (payload) => buildOps.handleBuildPreviewState(payload),
       setBuildState: (state, message) => buildOps.setBuildState(state, message),
-      setBuildTarget: (path) => { lastBuildMainFile = path; },
+      setBuildTarget: (path) => noteBuildTarget(path),
       chooseBuildTarget: (payload) => buildOps.chooseBuildTarget(payload),
       handleFormatResult: (payload) => buildOps.handleFormatResult(payload),
       handleBuildLog: (log) => buildOps.handleBuildLog(log),
@@ -1518,6 +1540,7 @@ export const initMain = () => {
   postToNative({ type: "announcements:check" }, true);
 
   const voiceEdit = createVoiceEditController({
+    getWorkspaceRootKey,
     postToNative: (payload, silent) => postToNative(payload, silent),
     holdSelection: (selection) => aiChatUi?.holdVoiceSelection(selection),
     sendInstruction: (text) => {

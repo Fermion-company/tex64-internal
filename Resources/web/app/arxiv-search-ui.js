@@ -3,7 +3,7 @@
 // model call is involved. The dialog follows the History dialog's grammar.
 import { uiText } from "./i18n.js";
 import { buildArxivQuery, plainLatex } from "./arxiv-query.js";
-import { insertCitation } from "./citation-insert.js";
+import { citationDocumentFor, insertCitation } from "./citation-insert.js";
 const DEBOUNCE_MS = 3000;
 // arXiv asks for one request every 3 s; relaxing an empty result waits that long.
 const RELAX_PAUSE_MS = 3000;
@@ -20,11 +20,25 @@ const call = async (action, payload) => {
         throw new ArxivError((result === null || result === void 0 ? void 0 : result.error) || "arXiv request failed.", String((result === null || result === void 0 ? void 0 : result.code) || ""));
     return result;
 };
-const describe = (reason, retry = "search") => {
+const documentChanged = () => uiText("The document changed. Close the dialog and place the cursor again.", "文書が変更されました。閉じてカーソル位置を選び直してください。");
+const describe = (reason, retry = "search", activeFilePath = null) => {
     const code = reason instanceof ArxivError ? reason.code : "";
     const again = retry === "search"
         ? uiText("Press Enter to retry.", "Enter で再試行してください。")
         : uiText("Try again later.", "後でもう一度お試しください。");
+    // The project closed while arXiv answered; nothing was written.
+    if (code === "STALE_WORKSPACE")
+        return documentChanged();
+    // The .bib is written under the same lease as saves; Axiom holds it.
+    if (code === "AGENT_WORKSPACE_BUSY")
+        return uiText("Axiom is editing this project. Try again when it finishes.", "Axiom がこのプロジェクトを編集中です。終わってからもう一度お試しください。");
+    // The file belongs to several documents with different .bib files; Build's
+    // chooser (or a % !TEX root line) settles which one.
+    if (code === "BUILD_TARGET_CHOICE") {
+        return activeFilePath
+            ? uiText(`${activeFilePath} belongs to more than one document.`, `${activeFilePath} は複数の文書から読み込まれています。`)
+            : uiText("This folder has several documents and no main file is set.", "このフォルダには文書が複数あり、メイン TeX が決まっていません。");
+    }
     if (code === "NETWORK")
         return `${uiText("Cannot reach arXiv. Check the connection.", "arXiv に接続できません。接続を確認してください。")} ${again}`;
     if (code === "RATE_LIMIT")
@@ -159,10 +173,15 @@ export const openArxivSearch = (editor, group) => {
             cite.disabled = true;
             if (!hintShown)
                 setStatus("");
+            const activeFilePath = group.currentFilePath;
             try {
-                const result = await call("cite", { arxivId: paper.arxivId, activeFilePath: group.currentFilePath });
+                const result = await call("cite", {
+                    arxivId: paper.arxivId,
+                    activeFilePath,
+                    documentMainFile: citationDocumentFor(activeFilePath),
+                });
                 if (((_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== model || ((_b = model.isDisposed) === null || _b === void 0 ? void 0 : _b.call(model)) || ((_c = editor.getRawOptions) === null || _c === void 0 ? void 0 : _c.call(editor).readOnly)) {
-                    throw new Error(uiText("The document changed. Close the dialog and place the cursor again.", "文書が変更されました。閉じてカーソル位置を選び直してください。"));
+                    throw new Error(documentChanged());
                 }
                 const how = insertCitation(editor, result.key);
                 const inserted = how === "appended" ? `,${result.key}` : `\\cite{${result.key}}`;
@@ -176,7 +195,7 @@ export const openArxivSearch = (editor, group) => {
             }
             catch (reason) {
                 cite.disabled = false;
-                setStatus(describe(reason, "cite"));
+                setStatus(describe(reason, "cite", activeFilePath));
             }
         })());
         side.append(cite);

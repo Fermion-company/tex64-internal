@@ -5,7 +5,8 @@
 // sources, figures, the last saved PDF and sometimes `conversations/*.json`.
 // This module turns such a zip into local projects TeX64 can compile:
 //
-//   extractZip        zip → folder (path traversal and symlinks refused, 2 GB cap)
+//   extractZip        zip → folder (path traversal and symlinks refused, 2 GB
+//                     cap counted on the bytes actually inflated)
 //   findProjects      which folders of the extracted tree are projects
 //   analyzeProject    pure: main file, engine, bibliography tool, packages,
 //                     Prism's last PDF, conversation logs
@@ -17,17 +18,38 @@
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
+const zlib = require("node:zlib");
+const { Readable, Transform } = require("node:stream");
+const { pipeline } = require("node:stream/promises");
 const { pathToFileURL } = require("node:url");
 const { Worker, isMainThread, parentPort, workerData } = require("node:worker_threads");
 
 const MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_ENTRY_COUNT = 50000;
+// 50,000 records with ordinary names take a few MB; the directory is read
+// into memory once, so its size is checked before that read.
+const MAX_CENTRAL_DIRECTORY_BYTES = 64 * 1024 * 1024;
 const MAX_TEX_READ_BYTES = 4 * 1024 * 1024;
 const TEXT_EXTENSIONS = new Set([".tex", ".ltx", ".sty", ".cls", ".bib", ".bbl", ".txt", ".md", ".json"]);
 const IGNORED_SEGMENTS = new Set(["__MACOSX", ".git", "node_modules", ".tex64"]);
 
 // ---------------------------------------------------------------------------
 // zip extraction
+//
+// The zip is read with node:zlib alone. Every size in a zip is the archive's
+// own claim, so the entry count and the central directory are bounded before
+// they are read, and each entry is inflated as a stream through a counter
+// that stops at the size the directory declared for it (those sizes sum to
+// at most 2 GB). An entry that inflates to more, or to less, ends the import
+// and the files written so far are removed.
+
+const SIGNATURE = {
+  local: 0x04034b50,
+  central: 0x02014b50,
+  end: 0x06054b50,
+  zip64End: 0x06064b50,
+  zip64Locator: 0x07064b50,
+};
 
 const isSymlinkAttributes = (externalFileAttributes) => {
   const mode = (Number(externalFileAttributes) >>> 16) & 0o170000;
@@ -45,61 +67,259 @@ const normalizeZipPath = (rawPath) => {
 
 const isIgnoredEntry = (segments) => segments.some((segment) => IGNORED_SEGMENTS.has(segment) || segment === ".DS_Store");
 
-const extractZip = async (zipPath, destinationDir, { onProgress = () => {}, signal } = {}) => {
-  const unzipper = require("unzipper");
-  const stat = await fsp.stat(zipPath);
-  if (!stat.isFile()) throw new Error("The selected path is not a zip file.");
-  if (stat.size > MAX_TOTAL_BYTES) throw new Error("The zip is larger than 2 GB.");
-  const directory = await unzipper.Open.file(zipPath);
-  const entries = directory.files.filter((entry) => entry && entry.type === "File");
-  if (entries.length > MAX_ENTRY_COUNT) throw new Error("The zip holds too many files.");
-  let totalBytes = 0;
+const abortError = () => Object.assign(new Error("Import cancelled."), { name: "AbortError" });
+const invalidZip = (detail) => new Error(`Invalid zip: ${detail}`);
+
+const strictDecoder = (label) => {
+  try { return new TextDecoder(label, { fatal: true }); } catch { return null; }
+};
+const STRICT_UTF8 = strictDecoder("utf-8");
+const STRICT_SHIFT_JIS = strictDecoder("shift_jis");
+const LOOSE_UTF8 = new TextDecoder("utf-8");
+
+// Names are UTF-8 when bit 11 says so and, in practice, also in zips from
+// macOS and web services that leave the bit unset. A name that is not valid
+// UTF-8 is most often Shift_JIS from Windows' "Send to compressed folder".
+const decodeZipName = (bytes, flags) => {
+  try { if (STRICT_UTF8) return STRICT_UTF8.decode(bytes); } catch { /* fall through */ }
+  if (!(flags & 0x800) && STRICT_SHIFT_JIS) {
+    try { return STRICT_SHIFT_JIS.decode(bytes); } catch { /* fall through */ }
+  }
+  return LOOSE_UTF8.decode(bytes);
+};
+
+const dosDateTime = (date, time) => {
+  const value = new Date(Date.UTC(((date >> 9) & 0x7f) + 1980, ((date >> 5) & 0x0f) - 1, date & 0x1f, time >> 11, (time >> 5) & 0x3f, (time & 0x1f) * 2));
+  return Number.isNaN(value.getTime()) ? null : value;
+};
+
+const readExactly = async (handle, length, position) => {
+  const buffer = Buffer.alloc(length);
+  let offset = 0;
+  while (offset < length) {
+    const { bytesRead } = await handle.read(buffer, offset, length - offset, position + offset);
+    if (bytesRead === 0) throw invalidZip("truncated");
+    offset += bytesRead;
+  }
+  return buffer;
+};
+
+const readUInt64 = (buffer, offset) => {
+  const value = buffer.readBigUInt64LE(offset);
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) throw invalidZip("size out of range");
+  return Number(value);
+};
+
+const readEndRecord = async (handle, zipSize) => {
+  const tailLength = Math.min(zipSize, 22 + 0xffff);
+  if (tailLength < 22) throw invalidZip("no end record");
+  const tail = await readExactly(handle, tailLength, zipSize - tailLength);
+  let at = -1;
+  for (let index = tail.length - 22; index >= 0; index -= 1) {
+    if (tail.readUInt32LE(index) === SIGNATURE.end) { at = index; break; }
+  }
+  if (at < 0) throw invalidZip("no end record");
+  const endOffset = zipSize - tailLength + at;
+  const record = {
+    disk: tail.readUInt16LE(at + 4),
+    directoryDisk: tail.readUInt16LE(at + 6),
+    count: tail.readUInt16LE(at + 10),
+    directorySize: tail.readUInt32LE(at + 12),
+    directoryOffset: tail.readUInt32LE(at + 16),
+    directoryEnd: endOffset,
+  };
+  if (record.count === 0xffff || record.directorySize === 0xffffffff || record.directoryOffset === 0xffffffff) {
+    if (endOffset < 20) throw invalidZip("no zip64 locator");
+    const locator = await readExactly(handle, 20, endOffset - 20);
+    if (locator.readUInt32LE(0) !== SIGNATURE.zip64Locator) throw invalidZip("no zip64 locator");
+    const recordOffset = readUInt64(locator, 8);
+    if (recordOffset + 56 > endOffset - 20) throw invalidZip("zip64 end record out of range");
+    const zip64 = await readExactly(handle, 56, recordOffset);
+    if (zip64.readUInt32LE(0) !== SIGNATURE.zip64End) throw invalidZip("no zip64 end record");
+    record.disk = zip64.readUInt32LE(16);
+    record.directoryDisk = zip64.readUInt32LE(20);
+    record.count = readUInt64(zip64, 32);
+    record.directorySize = readUInt64(zip64, 40);
+    record.directoryOffset = readUInt64(zip64, 48);
+    record.directoryEnd = recordOffset;
+  }
+  if (record.disk !== 0 || record.directoryDisk !== 0) throw invalidZip("split archives are not supported");
+  return record;
+};
+
+// The zip64 extra field carries, in this order, whichever of the three
+// values the record itself set to 0xffffffff.
+const applyZip64Extra = (entry, extra) => {
+  const wanted = ["uncompressedSize", "compressedSize", "localHeaderOffset"].filter((key) => entry[key] === 0xffffffff);
+  if (wanted.length === 0) return;
+  for (let at = 0; at + 4 <= extra.length;) {
+    const id = extra.readUInt16LE(at);
+    const body = extra.subarray(at + 4, at + 4 + extra.readUInt16LE(at + 2));
+    if (id === 0x0001) {
+      wanted.forEach((key, index) => {
+        if ((index + 1) * 8 > body.length) throw invalidZip("short zip64 field");
+        entry[key] = readUInt64(body, index * 8);
+      });
+      return;
+    }
+    at += 4 + body.length;
+  }
+  throw invalidZip("missing zip64 field");
+};
+
+const readCentralDirectory = async (handle, zipSize) => {
+  const end = await readEndRecord(handle, zipSize);
+  if (end.count > MAX_ENTRY_COUNT || end.directorySize > MAX_CENTRAL_DIRECTORY_BYTES) {
+    throw new Error("The zip holds too many files.");
+  }
+  if (end.directoryOffset + end.directorySize > end.directoryEnd || end.count * 46 > end.directorySize) {
+    throw invalidZip("central directory out of range");
+  }
+  const directory = await readExactly(handle, end.directorySize, end.directoryOffset);
+  const entries = [];
+  let at = 0;
+  for (let index = 0; index < end.count; index += 1) {
+    if (at + 46 > directory.length || directory.readUInt32LE(at) !== SIGNATURE.central) throw invalidZip("damaged central directory");
+    const flags = directory.readUInt16LE(at + 8);
+    const nameLength = directory.readUInt16LE(at + 28);
+    const extraLength = directory.readUInt16LE(at + 30);
+    const next = at + 46 + nameLength + extraLength + directory.readUInt16LE(at + 32);
+    if (next > directory.length) throw invalidZip("damaged central directory");
+    const entry = {
+      path: decodeZipName(directory.subarray(at + 46, at + 46 + nameLength), flags),
+      flags,
+      method: directory.readUInt16LE(at + 10),
+      mtime: dosDateTime(directory.readUInt16LE(at + 14), directory.readUInt16LE(at + 12)),
+      compressedSize: directory.readUInt32LE(at + 20),
+      uncompressedSize: directory.readUInt32LE(at + 24),
+      externalFileAttributes: directory.readUInt32LE(at + 38),
+      localHeaderOffset: directory.readUInt32LE(at + 42),
+    };
+    applyZip64Extra(entry, directory.subarray(at + 46 + nameLength, at + 46 + nameLength + extraLength));
+    entries.push(entry);
+    at = next;
+  }
+  return entries;
+};
+
+// Which entries are written, checked before anything touches the disk.
+// APFS and NTFS fold case and Unicode normalization, so `Fig.png` and
+// `fig.png`, or a file and a folder of one name, would land on one path:
+// the first entry keeps it and a later one is left out, never replacing a
+// file already written. Duplicate names are left out the same way.
+const planEntries = (entries) => {
   const planned = [];
+  const fileKeys = new Set();
+  const folderKeys = new Set();
+  let totalBytes = 0;
   for (const entry of entries) {
+    if (/[\\/]$/.test(entry.path)) continue;
     const normalized = normalizeZipPath(entry.path);
     if (!normalized) throw new Error(`Unsafe path inside the zip: ${entry.path}`);
-    const segments = normalized.split("/");
-    if (isIgnoredEntry(segments)) continue;
+    if (isIgnoredEntry(normalized.split("/"))) continue;
     if (isSymlinkAttributes(entry.externalFileAttributes)) continue;
-    totalBytes += Number(entry.uncompressedSize) || 0;
+    if (entry.flags & 0x1) throw invalidZip(`encrypted entry ${normalized}`);
+    if (entry.method !== 0 && entry.method !== 8) throw invalidZip(`unsupported compression in ${normalized}`);
+    const keySegments = normalized.normalize("NFC").toLowerCase().split("/");
+    const key = keySegments.join("/");
+    const folders = keySegments.slice(0, -1).map((_, index) => keySegments.slice(0, index + 1).join("/"));
+    if (fileKeys.has(key) || folderKeys.has(key) || folders.some((folder) => fileKeys.has(folder))) continue;
+    fileKeys.add(key);
+    folders.forEach((folder) => folderKeys.add(folder));
+    totalBytes += entry.uncompressedSize;
     if (totalBytes > MAX_TOTAL_BYTES) throw new Error("The zip expands to more than 2 GB.");
     planned.push({ entry, relativePath: normalized });
   }
-  if (planned.length === 0) throw new Error("The zip holds no files.");
-  // A zip whose every entry sits under one folder (the usual `export/` or the
-  // zip's own name) unpacks that folder's contents, so the destination does
-  // not end up as `<zip>/<zip>/…`.
-  const firstSegments = new Set(planned.map(({ relativePath }) => relativePath.split("/")[0]));
-  if (firstSegments.size === 1 && planned.every(({ relativePath }) => relativePath.includes("/"))) {
-    for (const item of planned) item.relativePath = item.relativePath.split("/").slice(1).join("/");
-  }
-  const root = path.resolve(destinationDir);
-  await fsp.mkdir(root, { recursive: true });
-  const realRoot = await fsp.realpath(root);
+  return planned;
+};
+
+// One entry → one new file. `wx` refuses anything already at the path, a
+// symbolic link included; `onCreated` hears of the file once it exists so a
+// failure later on can remove it.
+const writeEntry = async (zip, zipSize, entry, target, { signal, onCreated }) => {
+  const header = await readExactly(zip, 30, entry.localHeaderOffset);
+  if (header.readUInt32LE(0) !== SIGNATURE.local) throw invalidZip(`damaged entry ${target}`);
+  const start = entry.localHeaderOffset + 30 + header.readUInt16LE(26) + header.readUInt16LE(28);
+  if (start + entry.compressedSize > zipSize) throw invalidZip(`damaged entry ${target}`);
   let written = 0;
-  const files = [];
-  for (const { entry, relativePath } of planned) {
-    if (signal?.aborted) throw Object.assign(new Error("Import cancelled."), { name: "AbortError" });
-    const target = path.resolve(realRoot, ...relativePath.split("/"));
-    if (target !== realRoot && !target.startsWith(realRoot + path.sep)) {
-      throw new Error(`Unsafe path inside the zip: ${relativePath}`);
-    }
-    await fsp.mkdir(path.dirname(target), { recursive: true });
-    const parentReal = await fsp.realpath(path.dirname(target));
-    if (parentReal !== realRoot && !parentReal.startsWith(realRoot + path.sep)) {
-      throw new Error(`Unsafe path inside the zip: ${relativePath}`);
-    }
-    const buffer = await entry.buffer();
-    await fsp.writeFile(target, buffer, { flag: "w" });
-    const mtime = entry.lastModifiedDateTime instanceof Date && !Number.isNaN(entry.lastModifiedDateTime.getTime())
-      ? entry.lastModifiedDateTime
-      : null;
-    if (mtime) await fsp.utimes(target, mtime, mtime).catch(() => {});
-    written += 1;
-    files.push({ relativePath, size: buffer.length, mtime: mtime ? mtime.getTime() : stat.mtimeMs });
-    onProgress({ current: written, total: planned.length, relativePath });
+  const counter = new Transform({
+    transform(chunk, _encoding, callback) {
+      written += chunk.length;
+      callback(written > entry.uncompressedSize ? invalidZip(`entry larger than declared: ${target}`) : null, chunk);
+    },
+  });
+  const output = await fsp.open(target, "wx");
+  onCreated(target);
+  try {
+    const source = entry.compressedSize > 0
+      ? zip.createReadStream({ start, end: start + entry.compressedSize - 1, autoClose: false })
+      : Readable.from([]);
+    const stages = entry.method === 8 ? [source, zlib.createInflateRaw(), counter] : [source, counter];
+    await pipeline(...stages, output.createWriteStream(), ...(signal ? [{ signal }] : []));
+  } finally {
+    await output.close().catch(() => {});
   }
-  return { root: realRoot, files };
+  if (written !== entry.uncompressedSize) throw invalidZip(`entry smaller than declared: ${target}`);
+  return written;
+};
+
+const extractZip = async (zipPath, destinationDir, { onProgress = () => {}, signal } = {}) => {
+  const stat = await fsp.stat(zipPath);
+  if (!stat.isFile()) throw new Error("The selected path is not a zip file.");
+  if (stat.size > MAX_TOTAL_BYTES) throw new Error("The zip is larger than 2 GB.");
+  const checkAborted = () => { if (signal?.aborted) throw abortError(); };
+  checkAborted();
+  const zip = await fsp.open(zipPath, "r");
+  // What this call made, so that a failure or a cancel leaves nothing behind.
+  let createdRoot = null;
+  const createdFolders = [];
+  const createdFiles = [];
+  try {
+    const planned = planEntries(await readCentralDirectory(zip, stat.size));
+    if (planned.length === 0) throw new Error("The zip holds no files.");
+    // A zip whose every entry sits under one folder (the usual `export/` or the
+    // zip's own name) unpacks that folder's contents, so the destination does
+    // not end up as `<zip>/<zip>/…`.
+    const firstSegments = new Set(planned.map(({ relativePath }) => relativePath.split("/")[0]));
+    if (firstSegments.size === 1 && planned.every(({ relativePath }) => relativePath.includes("/"))) {
+      for (const item of planned) item.relativePath = item.relativePath.split("/").slice(1).join("/");
+    }
+    checkAborted();
+    const root = path.resolve(destinationDir);
+    createdRoot = (await fsp.mkdir(root, { recursive: true })) ?? null;
+    const realRoot = await fsp.realpath(root);
+    let written = 0;
+    const files = [];
+    for (const { entry, relativePath } of planned) {
+      checkAborted();
+      const target = path.resolve(realRoot, ...relativePath.split("/"));
+      if (target !== realRoot && !target.startsWith(realRoot + path.sep)) {
+        throw new Error(`Unsafe path inside the zip: ${relativePath}`);
+      }
+      const madeFolder = await fsp.mkdir(path.dirname(target), { recursive: true });
+      if (madeFolder) createdFolders.push(madeFolder);
+      const parentReal = await fsp.realpath(path.dirname(target));
+      if (parentReal !== realRoot && !parentReal.startsWith(realRoot + path.sep)) {
+        throw new Error(`Unsafe path inside the zip: ${relativePath}`);
+      }
+      const size = await writeEntry(zip, stat.size, entry, target, { signal, onCreated: (file) => createdFiles.push(file) });
+      if (entry.mtime) await fsp.utimes(target, entry.mtime, entry.mtime).catch(() => {});
+      written += 1;
+      files.push({ relativePath, size, mtime: entry.mtime ? entry.mtime.getTime() : stat.mtimeMs });
+      onProgress({ current: written, total: planned.length, relativePath });
+    }
+    return { root: realRoot, files };
+  } catch (error) {
+    if (createdRoot) {
+      await fsp.rm(createdRoot, { recursive: true, force: true }).catch(() => {});
+    } else {
+      for (const file of createdFiles) await fsp.rm(file, { force: true }).catch(() => {});
+      for (const folder of createdFolders.reverse()) await fsp.rm(folder, { recursive: true, force: true }).catch(() => {});
+    }
+    throw signal?.aborted ? abortError() : error;
+  } finally {
+    await zip.close().catch(() => {});
+  }
 };
 
 // ---------------------------------------------------------------------------

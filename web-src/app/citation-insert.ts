@@ -2,6 +2,17 @@
 // dialogs: \cite{key} at the cursor, or ",key" appended when the cursor is
 // already inside a \cite-like argument.
 
+// The document chosen for a file in Build's chooser (main-init wires it to
+// build-ops' documentFor). Both dialogs send it as `documentMainFile`, so the
+// entry goes to that document's .bib, as Build would use it.
+let chosenDocumentFor: (path: string) => string | undefined = () => undefined;
+
+export const setCitationDocumentResolver = (resolver: (path: string) => string | undefined) => {
+  chosenDocumentFor = resolver;
+};
+
+export const citationDocumentFor = (path: string | null | undefined): string => (path ? chosenDocumentFor(path) ?? "" : "");
+
 const CITE_COMMANDS =
   /\\(?:[cC]ite(?:p|t|author|year|yearpar|alp|alt|num|title)?|parencite|textcite|autocite|footcite|footfullcite|fullcite|smartcite|supercite|nocite)\*?\s*(?:\[[^\]]*\]\s*){0,2}\{([^{}]*)\}/g;
 

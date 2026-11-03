@@ -11,6 +11,11 @@
  * (`agent:transcribe`, like the composer microphone) and the words are
  * sent as they are. When nothing was heard the pill says so for a moment
  * and nothing is sent.
+ *
+ * An edit belongs to the editor, file and workspace it was started in. If
+ * the editor shows another file, closes, or the workspace changes before
+ * the words are back, the edit ends there and nothing is sent; a microphone
+ * granted late or a clip read late is let go when it arrives.
  */
 import { aiText } from "./ai-i18n.js";
 import { getUiLocale, uiText } from "./i18n.js";
@@ -51,6 +56,14 @@ export const createVoiceEditController = (deps) => {
     let session = null;
     let pendingRequestId = null;
     let failureTimer = null;
+    let current = null;
+    // The edit the microphone works for, from start() until its clip or error
+    // is in. It can outlive `current`: a microphone still being granted and a
+    // clip still being read cannot be called back, so they are turned away
+    // when they arrive, and no new recording starts before then.
+    let recorderOp = null;
+    const workspaceRoot = () => { var _a, _b; return (_b = (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : null; };
+    const isLive = (op) => { var _a, _b; return op !== null && op === current && ((_b = (_a = op.editor).getModel) === null || _b === void 0 ? void 0 : _b.call(_a)) === op.model && workspaceRoot() === op.workspaceRoot; };
     const removePill = (state) => {
         var _a, _b, _c, _d;
         if (!session)
@@ -71,6 +84,7 @@ export const createVoiceEditController = (deps) => {
     // The pill stays a moment with the reason, then goes; nothing is sent.
     const failInPill = (message) => {
         var _a, _b, _c, _d, _e;
+        current = null;
         deps.holdSelection(null);
         if (!session)
             return;
@@ -94,7 +108,8 @@ export const createVoiceEditController = (deps) => {
     const recorder = createVoiceRecorder({
         onStart: () => {
             var _a, _b, _c;
-            if (!session)
+            // A microphone granted after its edit ended is let go once start() returns.
+            if (!session || !isLive(recorderOp))
                 return;
             session.node.classList.add("is-recording");
             session.timeEl.textContent = "0:00";
@@ -109,7 +124,10 @@ export const createVoiceEditController = (deps) => {
         },
         onClip: (clip) => {
             var _a, _b;
-            if (!session)
+            const op = recorderOp;
+            recorderOp = null;
+            // A clip read after its edit ended goes nowhere.
+            if (!stillLive(op) || !session)
                 return;
             session.node.classList.remove("is-recording");
             session.node.classList.add("is-transcribing");
@@ -133,14 +151,51 @@ export const createVoiceEditController = (deps) => {
             }
         },
         onError: (code) => {
+            const op = recorderOp;
+            recorderOp = null;
+            if (!stillLive(op))
+                return;
             failInPill(aiText(code === "denied" ? "mic_denied" : code === "short" ? "mic_empty" : "mic_failed"));
         },
     });
+    // Drops the recording of an edit that has ended. A microphone still being
+    // granted, or a clip still being read, cannot be stopped from here.
+    const dropRecording = () => {
+        if (!recorderOp || !recorder.isRecording())
+            return;
+        recorderOp = null;
+        recorder.cancel();
+    };
+    // Ends the edit under way without sending: the recording is dropped, the
+    // held range let go and the pill removed. A transcription still on its way
+    // no longer matches and is ignored.
+    const abandon = () => {
+        const op = current;
+        current = null;
+        pendingRequestId = null;
+        dropRecording();
+        if (op)
+            deps.holdSelection(null);
+        removePill("hidden");
+    };
+    // isLive, and an edit that went stale without being told (its editor shows
+    // another file, the workspace changed) is ended here.
+    const stillLive = (op) => {
+        if (isLive(op))
+            return true;
+        if (op && op === current)
+            abandon();
+        return false;
+    };
     const handleTranscribeResult = (payload) => {
         if (!pendingRequestId || (payload === null || payload === void 0 ? void 0 : payload.requestId) !== pendingRequestId)
             return;
         pendingRequestId = null;
+        // The words go only into the file and workspace they were spoken in.
+        if (!stillLive(current))
+            return;
         if (payload.ok && typeof payload.text === "string" && payload.text.trim()) {
+            current = null;
             removePill("sent");
             deps.sendInstruction(payload.text.trim());
             return;
@@ -149,7 +204,7 @@ export const createVoiceEditController = (deps) => {
         failInPill(aiText(payload.code === "empty" ? "mic_empty" : "mic_failed"));
     };
     const attachEditor = (monaco, editor, file) => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e;
         const KeyMod = monaco === null || monaco === void 0 ? void 0 : monaco.KeyMod;
         const KeyCode = monaco === null || monaco === void 0 ? void 0 : monaco.KeyCode;
         const preference = (_a = monaco === null || monaco === void 0 ? void 0 : monaco.editor) === null || _a === void 0 ? void 0 : _a.ContentWidgetPositionPreference;
@@ -223,6 +278,7 @@ export const createVoiceEditController = (deps) => {
             };
         };
         const start = () => {
+            var _a;
             if (!isTexPath(file.getFilePath()))
                 return;
             if (!isVoiceRecordingSupported())
@@ -240,24 +296,30 @@ export const createVoiceEditController = (deps) => {
                 ])
                 : null;
             session = { editor, widget, setRecordingKey, onPillChange: file.onPillChange, node, timeEl, stopEl, decorations, shown: false };
+            const op = { editor, model: (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor), workspaceRoot: workspaceRoot() };
+            current = op;
+            recorderOp = op;
             deps.holdSelection(snapshot.selection);
-            void recorder.start();
+            void recorder.start().then(() => {
+                // The microphone answered after the edit ended: let it go again.
+                if (recorderOp === op && !stillLive(op))
+                    dropRecording();
+            });
         };
         const toggle = () => {
             if (recorder.isRecording()) {
-                recorder.stop();
+                // A recording being dropped is left to end on its own.
+                if (recorderOp)
+                    recorder.stop();
                 return;
             }
-            if (pendingRequestId || session)
+            if (pendingRequestId || session || recorderOp)
                 return;
             start();
         };
         const discard = () => {
-            if (!recorder.isRecording())
-                return;
-            recorder.cancel();
-            deps.holdSelection(null);
-            removePill("hidden");
+            if (recorder.isRecording() && recorderOp)
+                abandon();
         };
         editor.addAction({
             id: "tex64.voice-edit",
@@ -271,14 +333,19 @@ export const createVoiceEditController = (deps) => {
             },
         });
         (_c = editor.addCommand) === null || _c === void 0 ? void 0 : _c.call(editor, KeyCode.Escape, discard, ESCAPE_WHEN);
-        (_d = editor.onDidChangeModel) === null || _d === void 0 ? void 0 : _d.call(editor, () => {
-            if ((session === null || session === void 0 ? void 0 : session.editor) === editor && recorder.isRecording())
-                discard();
-        });
+        // Another file in this editor, or the editor going away, ends its voice
+        // edit at whatever step it has reached.
+        const endHere = () => {
+            if ((session === null || session === void 0 ? void 0 : session.editor) === editor)
+                abandon();
+        };
+        (_d = editor.onDidChangeModel) === null || _d === void 0 ? void 0 : _d.call(editor, endHere);
+        (_e = editor.onDidDispose) === null || _e === void 0 ? void 0 : _e.call(editor, endHere);
     };
     return {
         attachEditor,
         ownsRequest: (requestId) => typeof requestId === "string" && requestId.startsWith(REQUEST_PREFIX),
         handleTranscribeResult,
+        cancel: () => abandon(),
     };
 };

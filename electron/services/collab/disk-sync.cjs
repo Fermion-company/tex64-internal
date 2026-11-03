@@ -76,6 +76,19 @@ const applyTextDelta = (ytext, from, to, origin) => {
   }, origin);
 };
 
+// Two hunks (half-open line ranges of the baseline; start === end is an
+// insertion) conflict when they touch the same lines. Adjacent ranges do
+// not; an insertion conflicts with a replacement only strictly inside it,
+// and with another insertion only at the same place (the order is unknown).
+const hunksConflict = (a, b) => {
+  const aInsert = a.start === a.end;
+  const bInsert = b.start === b.end;
+  if (aInsert && bInsert) return a.start === b.start;
+  if (aInsert) return b.start < a.start && a.start < b.end;
+  if (bInsert) return a.start < b.start && b.start < a.end;
+  return a.start < b.end && b.start < a.end;
+};
+
 // Relocates baseline→disk hunks onto the current text. Returns the number of
 // hunks dropped because they overlapped unsaved edits.
 const mergeThreeWay = (ytext, baseline, current, disk, origin) => {
@@ -90,10 +103,7 @@ const mergeThreeWay = (ytext, baseline, current, disk, origin) => {
   const edits = [];
   let dropped = 0;
   for (const hunk of theirs) {
-    const overlaps = ours.some((mine) => {
-      if (mine.start === mine.end && hunk.start === hunk.end) return mine.start === hunk.start;
-      return hunk.start <= mine.end && mine.start <= hunk.end;
-    });
+    const overlaps = ours.some((mine) => hunksConflict(mine, hunk));
     if (overlaps) {
       dropped += 1;
       continue;
@@ -123,9 +133,9 @@ const mergeThreeWay = (ytext, baseline, current, disk, origin) => {
       // consume, and the preceding separator stays unless the file became empty.
       text = hunk.lines.join("\n");
       if (startLine > 0 && startLine === currentLineCount) {
-        // Pure insertion after the final line.
+        // Pure insertion after the final line (startOffset is already the end).
         text = `\n${text}`;
-        endOffset = startOffset = current.length;
+        endOffset = current.length;
       }
     }
     edits.push({ startOffset, endOffset, text });

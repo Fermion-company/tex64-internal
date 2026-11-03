@@ -1,13 +1,9 @@
 "use strict";
 
-const {
-  extractArxivId,
-  searchArxiv,
-  fetchArxivEntry,
-  buildArxivKey,
-  buildArxivBibtex,
-} = require("../services/openprism/arxiv-service.cjs");
-const { appendBibEntry } = require("../services/arxiv-bib.cjs");
+const arxivService = require("../services/openprism/arxiv-service.cjs");
+const { extractArxivId, buildArxivKey, buildArxivBibtex } = arxivService;
+const { appendBibEntry, resolveBibTarget } = require("../services/arxiv-bib.cjs");
+const { createWorkspaceGuard } = require("../services/bib-append.cjs");
 
 const MAX_QUERY_CHARS = 500;
 
@@ -29,11 +25,15 @@ const classify = (error) => {
 /**
  * IPC "tex64:arxiv": the no-LLM path from the editor to arXiv.
  *   search { query, max }        → { papers }
- *   cite   { arxivId, activeFilePath } → { bibtex, key, bibPath, created, duplicate }
+ *   cite   { arxivId, activeFilePath, documentMainFile? } → { bibtex, key, bibPath, created, duplicate }
  * One search request is in flight at a time; a newer one aborts the older.
+ * `key` is the key actually in the .bib (another paper may hold the generated
+ * one). `service` replaces the network calls in tests.
  */
-const registerArxivHandlers = ({ ipcMain, workspace, isOwner }) => {
+const registerArxivHandlers = ({ ipcMain, workspace, isOwner, state, withWorkspaceMutation, service: overrides = {} }) => {
+  const service = { ...arxivService, ...overrides };
   let inflight = null;
+  const guard = createWorkspaceGuard({ workspace, state, withWorkspaceMutation });
 
   // Words are ANDed; one request per call. The renderer relaxes an empty
   // result by dropping words, pausing between requests.
@@ -47,7 +47,7 @@ const registerArxivHandlers = ({ ipcMain, workspace, isOwner }) => {
     inflight = controller;
     try {
       const terms = query.split(/\s+/).filter(Boolean);
-      const papers = await searchArxiv(query, { max, terms, signal: controller.signal });
+      const papers = await service.searchArxiv(query, { max, terms, signal: controller.signal });
       return { papers, query: terms.join(" ") };
     } catch (error) {
       if (controller.signal.aborted && inflight !== controller) return { papers: [], superseded: true };
@@ -57,21 +57,27 @@ const registerArxivHandlers = ({ ipcMain, workspace, isOwner }) => {
     }
   };
 
+  // The target is decided before arXiv is asked; the append runs only if the
+  // same workspace session is still open when the answer arrives.
   const cite = async (payload) => {
-    if (!workspace.getRootPath()) throw new Error("No workspace is open.");
+    const session = guard.capture();
+    if (!session.root) throw new Error("No workspace is open.");
     const arxivId = extractArxivId(payload?.arxivId);
     if (!arxivId || !/^[A-Za-z0-9.\-/]+$/.test(arxivId)) throw new Error("Invalid arXiv ID.");
+    const text = (value) => (typeof value === "string" ? value : "");
+    const target = await resolveBibTarget(workspace, text(payload?.activeFilePath), {
+      documentMainFile: text(payload?.documentMainFile),
+    });
     let entry;
     try {
-      entry = await fetchArxivEntry(arxivId);
+      entry = await service.fetchArxivEntry(arxivId);
     } catch (error) {
       throw classify(error);
     }
     if (!entry) throw new Error("No arXiv metadata found.");
     const key = buildArxivKey(entry);
     const bibtex = buildArxivBibtex(entry);
-    const activeFilePath = typeof payload?.activeFilePath === "string" ? payload.activeFilePath : "";
-    const result = await appendBibEntry(workspace, { activeFilePath, key, bibtex });
+    const result = await guard.commit(session, () => appendBibEntry(workspace, { target, key, bibtex }));
     return { bibtex, key, ...result };
   };
 

@@ -274,6 +274,11 @@ class CollabHub extends EventEmitter {
       guest.on("reconnecting", () => this.pushState());
       guest.connect();
       const hello = await welcome;
+      // The welcome names the mirror folder: only a session id this app
+      // could have made (32 hex digits) and a folder inside the collab root.
+      if (typeof hello.sessionId !== "string" || !/^[0-9a-f]{32}$/.test(hello.sessionId)) {
+        throw Object.assign(new Error(text(this.deps.locale(), "The host refused this link.", "ホストがこのリンクを受け付けませんでした。")), { code: "COLLAB_REFUSED" });
+      }
       // Doc frames follow the welcome immediately; everything that decides
       // how they are written must be in place before the first await below.
       session.joining = true;
@@ -287,7 +292,15 @@ class CollabHub extends EventEmitter {
       session.rootFile = hello.rootFile || "";
       session.access = hello.access === "view" ? "view" : "edit";
       session.diskSync.readOnly = session.access === "view";
-      session.rootPath = path.join(this.deps.collabRoot(), `${safeSessionFolderName(session.name)}-${session.id.slice(0, 8)}`);
+      const collabRoot = path.resolve(this.deps.collabRoot());
+      session.rootPath = path.join(collabRoot, `${safeSessionFolderName(session.name)}-${session.id.slice(0, 8)}`);
+      if (path.dirname(session.rootPath) !== collabRoot || [".", ".."].includes(path.basename(session.rootPath))) {
+        throw Object.assign(new Error(text(this.deps.locale(), "The host refused this link.", "ホストがこのリンクを受け付けませんでした。")), { code: "COLLAB_REFUSED" });
+      }
+      await fsp.mkdir(collabRoot, { recursive: true });
+      if ((await fsp.lstat(session.rootPath).catch(() => null))?.isSymbolicLink()) {
+        throw Object.assign(new Error(text(this.deps.locale(), "The host refused this link.", "ホストがこのリンクを受け付けませんでした。")), { code: "COLLAB_REFUSED" });
+      }
       const rejoining = await fsp.readdir(session.rootPath).then((names) => names.some((name) => name !== ".tex64")).catch(() => false);
       if (rejoining) session.mirrorHashes = await this.readMirrorManifest(session);
       await fsp.mkdir(path.join(session.rootPath, ".tex64"), { recursive: true });
@@ -383,21 +396,23 @@ class CollabHub extends EventEmitter {
 
   // Guest join onto an existing mirror: keep a copy of a file edited here
   // after leaving (its hash moved from the one recorded at leave time) that
-  // the host's content is about to replace. Without a leave-time record, any
-  // file that differs from the host's copy is kept.
+  // the host's content is about to replace — or, with `incoming` null, that
+  // the host deleted meanwhile. Without a leave-time record, any file that
+  // differs from the host's copy is kept. Returns false when a copy was
+  // needed and could not be made: the caller must not replace the file then.
   async preserveLocal(session, relative, incoming) {
-    if (!session.joining || !session.rootPath) return;
+    if (!session.joining || !session.rootPath) return true;
     const absolute = path.join(session.rootPath, relative);
     let current;
     try {
       current = await fsp.readFile(absolute);
     } catch {
-      return;
+      return true;
     }
-    if (typeof incoming === "string" ? current.toString("utf8") === incoming : Buffer.from(incoming).equals(current)) return;
+    if (incoming !== null && (typeof incoming === "string" ? current.toString("utf8") === incoming : Buffer.from(incoming).equals(current))) return true;
     if (session.mirrorHashes) {
       const recorded = session.mirrorHashes[relative];
-      if (recorded && recorded === hashBuffer(current)) return;
+      if (recorded && recorded === hashBuffer(current)) return true;
     }
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const extension = path.extname(relative);
@@ -405,8 +420,10 @@ class CollabHub extends EventEmitter {
     try {
       await fsp.copyFile(absolute, target);
       session.preserved.push(path.relative(session.rootPath, target));
+      return true;
     } catch (error) {
       console.warn("[collab] preserve failed", relative, error?.message || error);
+      return false;
     }
   }
 
@@ -440,13 +457,32 @@ class CollabHub extends EventEmitter {
     });
   }
 
-  async leave() {
+  // `leaseHeld`: the caller (a project switch) already holds the workspace
+  // mutation lease, so the shared files are written directly — waiting for
+  // the lease would wait for ourselves. Every shared edit must be on disk
+  // before the docs go: if that fails, the session stays and the caller fails.
+  async leave({ leaseHeld = false } = {}) {
     const session = this.session;
     if (!session) return { ok: true };
     const role = session.role;
+    const previousPhase = session.phase;
     session.phase = "leaving";
     this.pushState();
-    await session.diskSync.flush();
+    const coordinated = session.diskSync.coordinated;
+    if (leaseHeld) session.diskSync.coordinated = false;
+    let flushed;
+    try {
+      flushed = await session.diskSync.flush();
+    } finally {
+      session.diskSync.coordinated = coordinated;
+    }
+    if (!flushed) {
+      if (this.session === session) {
+        session.phase = previousPhase;
+        this.pushState();
+      }
+      throw Object.assign(new Error(text(this.deps.locale(), "Some shared files could not be saved, so the session stays open. Try again.", "共有中のファイルを保存できなかったため、セッションを続けています。もう一度お試しください。")), { code: "COLLAB_FLUSH_FAILED" });
+    }
     if (role === "guest") await this.writeMirrorManifest(session);
     // The JSON file must hold the final line numbers before the editor reads
     // it back outside the session.
@@ -563,7 +599,9 @@ class CollabHub extends EventEmitter {
       baseline = fs.readFileSync(path.join(session.rootPath, docId), "utf8");
     } catch {}
     if (session.joining && baseline !== null && baseline !== entry.ytext.toString()) {
-      void this.preserveLocal(session, docId, entry.ytext.toString()).then(() => this.attachDoc(session, docId, baseline));
+      void this.preserveLocal(session, docId, entry.ytext.toString()).then((kept) => {
+        if (kept) this.attachDoc(session, docId, baseline);
+      });
       return;
     }
     this.attachDoc(session, docId, baseline);
@@ -712,7 +750,7 @@ class CollabHub extends EventEmitter {
     if (info?.code === 1000 && session.phase === "active") {
       // The host ended the session or closed cleanly; keep the files, stop.
       this.notice(text(this.deps.locale(), "The host ended the session. Your files stay in this folder.", "ホストがセッションを終了しました。ファイルはこのフォルダに残っています。"));
-      void this.leave();
+      void this.leave().catch((error) => this.notice(error?.message || String(error)));
     }
   }
 
@@ -740,7 +778,7 @@ class CollabHub extends EventEmitter {
   }
 
   onPeerFrame(session, conn, frame) {
-    if (this.session !== session) return;
+    if (this.session !== session || session.phase === "leaving") return;
     if (session.role === "host" && conn.access !== "edit" && !this.viewerMayApply(session, frame)) return;
     try {
       if (frame.kind === transport.FRAME_SYNC) {
@@ -801,12 +839,17 @@ class CollabHub extends EventEmitter {
       case "end":
         if (session.role === "guest") {
           this.notice(text(this.deps.locale(), "The host ended the session. Your files stay in this folder.", "ホストがセッションを終了しました。ファイルはこのフォルダに残っています。"));
-          void this.leave();
+          void this.leave().catch((error) => this.notice(error?.message || String(error)));
         }
         return;
       case "need-blob":
         if (session.role !== "host" || !Array.isArray(message.paths)) return;
-        for (const relative of message.paths.slice(0, 500)) void this.sendBlob(session, relative, conn);
+        // Only files the session shares as binaries; anything else in the
+        // host's folder is not the guest's to read.
+        for (const relative of message.paths.slice(0, 500)) {
+          const shared = typeof relative === "string" ? session.sessionDoc.getMap("files").get(relative) : null;
+          if (shared && !shared.deleted && shared.kind === "binary") void this.sendBlob(session, relative, conn);
+        }
         return;
       default:
         return;
@@ -880,6 +923,7 @@ class CollabHub extends EventEmitter {
   }
 
   async removeLocal(session, relative) {
+    if (!(await this.preserveLocal(session, relative, null))) return;
     const doc = session.docs.get(relative);
     if (doc) {
       doc.deleted = true;
@@ -935,7 +979,7 @@ class CollabHub extends EventEmitter {
     }
     const absolute = await resolveInsideRoot(session.rootPath, relative);
     if (!absolute) return;
-    await this.preserveLocal(session, relative, frame.bytes);
+    if (!(await this.preserveLocal(session, relative, frame.bytes))) return;
     const write = async () => {
       await fsp.mkdir(path.dirname(absolute), { recursive: true });
       const temporary = `${absolute}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

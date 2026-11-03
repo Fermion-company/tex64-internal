@@ -249,6 +249,8 @@ export const createCodeCommentManager = (monaco, deps) => {
     let cachedComments = [];
     let loadGeneration = 0;
     let saveTimer = null;
+    // The save waiting for its timer, bound to the folder it belongs to.
+    let pendingSave = null;
     const groupStates = new Map();
     const contextSyncers = new Map();
     const legacyStorageKey = () => { var _a; return `${STORAGE_PREFIX}${(_a = deps.getWorkspaceRoot()) !== null && _a !== void 0 ? _a : "global"}`; };
@@ -289,7 +291,7 @@ export const createCodeCommentManager = (monaco, deps) => {
         loadedRoot = root;
         if (migrated.length && (missing || comments.length === 0) && root) {
             cachedComments = migrated;
-            void persistWorkspace(cachedComments).then((ok) => {
+            void persistWorkspace(cachedComments, root).then((ok) => {
                 if (ok) {
                     try {
                         localStorage.removeItem(legacyStorageKey());
@@ -300,11 +302,11 @@ export const createCodeCommentManager = (monaco, deps) => {
         }
         refreshAllGroups();
     };
-    const persistWorkspace = async (comments) => {
-        if (!collabSession.available || !deps.getWorkspaceRoot())
+    const persistWorkspace = async (comments, root) => {
+        if (!collabSession.available || !root)
             return false;
         try {
-            await collabSession.call("comments:save", { comments: comments.map(toStoredComment) });
+            await collabSession.call("comments:save", { root, comments: comments.map(toStoredComment) });
             return true;
         }
         catch {
@@ -323,18 +325,29 @@ export const createCodeCommentManager = (monaco, deps) => {
         }
         return cachedComments;
     };
+    const flushPendingSave = async () => {
+        if (saveTimer !== null)
+            window.clearTimeout(saveTimer);
+        saveTimer = null;
+        const pending = pendingSave;
+        pendingSave = null;
+        if (pending)
+            await persistWorkspace(pending.comments, pending.root);
+    };
     const saveComments = (comments) => {
         if (inSession())
             return;
         cachedComments = comments;
         loadedRoot = deps.getWorkspaceRoot();
+        if (pendingSave && pendingSave.root !== loadedRoot)
+            void flushPendingSave();
+        pendingSave = { root: loadedRoot, comments: comments.slice() };
         if (saveTimer !== null)
             window.clearTimeout(saveTimer);
-        saveTimer = window.setTimeout(() => {
-            saveTimer = null;
-            void persistWorkspace(cachedComments);
-        }, 250);
+        saveTimer = window.setTimeout(() => void flushPendingSave(), 250);
     };
+    // Starting a session reads the comments file: write the pending save first.
+    collabSession.onBeforeStart(flushPendingSave);
     // ---- session store (Y.Map id → Y.Map comment, replies: Y.Array)
     const Y = () => { var _a, _b, _c; return (_c = (_b = (_a = deps.collab) === null || _a === void 0 ? void 0 : _a.getVendor()) === null || _b === void 0 ? void 0 : _b.Y) !== null && _c !== void 0 ? _c : null; };
     const resolveSessionRange = (entry) => {

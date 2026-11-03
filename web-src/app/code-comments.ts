@@ -393,6 +393,8 @@ export const createCodeCommentManager = (
   let cachedComments: CodeComment[] = [];
   let loadGeneration = 0;
   let saveTimer: number | null = null;
+  // The save waiting for its timer, bound to the folder it belongs to.
+  let pendingSave: { root: string | null; comments: CodeComment[] } | null = null;
   const groupStates = new Map<EditorGroupKey, GroupCommentState>();
   const contextSyncers = new Map<EditorGroupKey, () => void>();
 
@@ -431,7 +433,7 @@ export const createCodeCommentManager = (
     loadedRoot = root;
     if (migrated.length && (missing || comments.length === 0) && root) {
       cachedComments = migrated;
-      void persistWorkspace(cachedComments).then((ok) => {
+      void persistWorkspace(cachedComments, root).then((ok) => {
         if (ok) {
           try { localStorage.removeItem(legacyStorageKey()); } catch {}
         }
@@ -440,10 +442,10 @@ export const createCodeCommentManager = (
     refreshAllGroups();
   };
 
-  const persistWorkspace = async (comments: CodeComment[]) => {
-    if (!collabSession.available || !deps.getWorkspaceRoot()) return false;
+  const persistWorkspace = async (comments: CodeComment[], root: string | null) => {
+    if (!collabSession.available || !root) return false;
     try {
-      await collabSession.call("comments:save", { comments: comments.map(toStoredComment) });
+      await collabSession.call("comments:save", { root, comments: comments.map(toStoredComment) });
       return true;
     } catch {
       return false;
@@ -462,16 +464,25 @@ export const createCodeCommentManager = (
     return cachedComments;
   };
 
+  const flushPendingSave = async () => {
+    if (saveTimer !== null) window.clearTimeout(saveTimer);
+    saveTimer = null;
+    const pending = pendingSave;
+    pendingSave = null;
+    if (pending) await persistWorkspace(pending.comments, pending.root);
+  };
+
   const saveComments = (comments: CodeComment[]) => {
     if (inSession()) return;
     cachedComments = comments;
     loadedRoot = deps.getWorkspaceRoot();
+    if (pendingSave && pendingSave.root !== loadedRoot) void flushPendingSave();
+    pendingSave = { root: loadedRoot, comments: comments.slice() };
     if (saveTimer !== null) window.clearTimeout(saveTimer);
-    saveTimer = window.setTimeout(() => {
-      saveTimer = null;
-      void persistWorkspace(cachedComments);
-    }, 250);
+    saveTimer = window.setTimeout(() => void flushPendingSave(), 250);
   };
+  // Starting a session reads the comments file: write the pending save first.
+  collabSession.onBeforeStart(flushPendingSave);
 
   // ---- session store (Y.Map id → Y.Map comment, replies: Y.Array)
   const Y = () => deps.collab?.getVendor()?.Y ?? null;

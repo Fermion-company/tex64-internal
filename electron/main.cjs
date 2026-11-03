@@ -1016,9 +1016,27 @@ ipcMain.handle("tex64:wordCount", async (event, request = {}) => {
   } catch (error) { return { ok: false, code: error.code || "WORD_COUNT_ERROR", error: error.message }; }
 });
 
+// The document a file belongs to, resolved like a Build (live preview asks
+// once per fragment). Several owners come back as `candidates`.
+ipcMain.handle("tex64:documentFor", async (event, request = {}) => {
+  if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid document owner." };
+  try {
+    const file = typeof request.path === "string" ? request.path : "";
+    if (!workspace.getRootPath() || !/\.tex$/i.test(file)) return { ok: true, document: null };
+    const { resolveBuildTarget, BUILD_TARGET_CHOICE } = require("./services/tex-build-target.cjs");
+    try {
+      return { ok: true, document: await resolveBuildTarget(workspace, file) };
+    } catch (error) {
+      if (error?.code === BUILD_TARGET_CHOICE) return { ok: true, document: null, candidates: error.candidates || [] };
+      throw error;
+    }
+  } catch (error) { return { ok: false, code: error.code || "DOCUMENT_FOR_ERROR", error: error.message }; }
+});
+
 const { registerZoteroHandlers } = require("./handlers/zotero.cjs");
 registerZoteroHandlers({
   ipcMain, workspace, state, safeStorage, ensureUserSettings,
+  withWorkspaceMutation: (operation) => workspaceHandlers.withWorkspaceMutation(operation),
   afterBibWrite: async () => {
     await workspaceHandlers.updateWorkspaceIfNeeded(workspace.getRootPath(), true);
     workspaceHandlers.requestIndex(workspace.getRootPath());
@@ -1036,7 +1054,8 @@ ipcMain.handle("tex64:history", async (event, action, request) => {
 });
 
 workspaceChangeCoordinator.beforeChange = async (change = {}) => {
-  if (collabHub.session && collabHub.session.phase !== "opening") await collabHub.leave();
+  // prepareWorkspaceChange holds the workspace lease while this runs.
+  if (collabHub.session && collabHub.session.phase !== "opening") await collabHub.leave({ leaseHeld: true });
   await quiesceWorkspaceActivity();
   if (
     typeof change.fromRootPath === "string" &&
@@ -1765,6 +1784,8 @@ registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
 registerArxivHandlers({
   ipcMain,
   workspace,
+  state,
+  withWorkspaceMutation: (operation) => workspaceHandlers.withWorkspaceMutation(operation),
   isOwner: (event) => event.sender === state.mainWindow?.webContents && event.senderFrame === event.sender.mainFrame,
 });
 registerTdomEngineHandlers({

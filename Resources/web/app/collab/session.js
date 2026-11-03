@@ -4,6 +4,8 @@
 var _a;
 const bridge = (_a = window.tex64Collab) !== null && _a !== void 0 ? _a : null;
 let state = { active: false, phase: "idle", participants: [], textFiles: [] };
+// Run before the host reads the folder (pending comment saves, say).
+const beforeStart = new Set();
 const stateListeners = new Set();
 const messageListeners = new Map();
 const emitState = () => {
@@ -67,7 +69,21 @@ export const collabSession = {
     },
     call,
     status: () => call("status"),
-    start: (name) => call("start", { name }),
+    onBeforeStart: (hook) => {
+        beforeStart.add(hook);
+        return () => beforeStart.delete(hook);
+    },
+    start: async (name) => {
+        for (const hook of beforeStart) {
+            try {
+                await hook();
+            }
+            catch (error) {
+                console.error("[collab] before-start hook failed", error);
+            }
+        }
+        return call("start", { name });
+    },
     join: (link, name) => call("join", { link, name }),
     leave: () => call("leave"),
     flush: async () => {

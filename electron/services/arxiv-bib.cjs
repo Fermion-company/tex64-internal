@@ -6,8 +6,9 @@
  * the workspace's only .bib is used; with none, `references.bib` next to the
  * main file is created. In both cases the document does not load the file,
  * so `referenced:false` and the lines to add come back as `suggestion`
- * (the document itself is left alone). An entry whose key already
- * exists is not appended.
+ * (the document itself is left alone). A paper already in the file (same
+ * arXiv id, under any key) is not appended again; a key held by another
+ * paper gets a, b, … appended.
  */
 
 "use strict";
@@ -15,7 +16,14 @@
 const path = require("node:path");
 const fsp = require("node:fs/promises");
 const { BIB_RESOURCE_PATTERN, stripComment } = require("./agent-document-map.cjs");
-const { resolveBuildTarget, parseTexIncludes } = require("./tex-build-target.cjs");
+const { parseTexIncludes } = require("./tex-build-target.cjs");
+const {
+  resolveCitationDocument,
+  parseBibEntries,
+  entryIdentity,
+  placeEntry,
+  renameBibKey,
+} = require("./bib-append.cjs");
 
 const DEFAULT_BIB = "references.bib";
 
@@ -57,15 +65,22 @@ const listBibFiles = async (workspace) => {
   }
 };
 
-/** The main file of the document that contains `activeFilePath`. */
-const resolveMainFile = async (workspace, activeFilePath) => {
-  const active = normalizeRelative(activeFilePath);
+/**
+ * The main file of the document that contains `activeFilePath`, as Build
+ * decides it (bib-append's resolveCitationDocument); `documentMainFile`, the
+ * document chosen for that file, wins. Several owning documents with
+ * different .bib files are the renderer's choice (BUILD_TARGET_CHOICE).
+ */
+const resolveMainFile = async (workspace, activeFilePath, documentMainFile = "") => {
   try {
-    return normalizeRelative(await resolveBuildTarget(workspace, active));
-  } catch {
-    if (active && /\.tex$/i.test(active)) return active;
-    const root = await workspace.rootInfo().catch(() => null);
-    return normalizeRelative(root?.path || "main.tex");
+    return await resolveCitationDocument(
+      workspace,
+      { documentMainFile, activeFilePath },
+      async (candidate) => (await bibTargetFor(workspace, candidate)).bibPath
+    );
+  } catch (error) {
+    if (error?.code === "NO_MAIN_FILE" && workspace.getRootPath()) return "main.tex";
+    throw error;
   }
 };
 
@@ -73,8 +88,11 @@ const resolveMainFile = async (workspace, activeFilePath) => {
  * Decide which .bib receives new entries.
  * Returns { bibPath, exists, mainFile } with workspace-relative paths.
  */
-const resolveBibTarget = async (workspace, activeFilePath) => {
-  const mainFile = await resolveMainFile(workspace, activeFilePath);
+const resolveBibTarget = async (workspace, activeFilePath, { documentMainFile = "" } = {}) =>
+  bibTargetFor(workspace, await resolveMainFile(workspace, activeFilePath, documentMainFile));
+
+/** The .bib target of one main file. */
+const bibTargetFor = async (workspace, mainFile) => {
   const mainDir = path.posix.dirname(mainFile);
   const inMainDir = (file) => (mainDir === "." ? file : path.posix.join(mainDir, file));
   const sources = [mainFile];
@@ -120,23 +138,40 @@ const resolveBibTarget = async (workspace, activeFilePath) => {
 
 /**
  * Append `bibtex` (one entry with citation key `key`) to the document's bib.
- * Returns { bibPath, created, duplicate }.
+ * `target` is a resolveBibTarget result decided earlier; without it the
+ * target is resolved from `activeFilePath` / `documentMainFile`. The read,
+ * the check and the write hold the file's mutation queue, which the Zotero
+ * append and refresh share. Returns { bibPath, created, duplicate, key,
+ * bibtex } with the key and entry actually in the file.
  */
-const appendBibEntry = async (workspace, { activeFilePath, key, bibtex }) => {
+const appendBibEntry = async (workspace, { activeFilePath, documentMainFile, target: decided, key, bibtex }) => {
   if (!key || typeof key !== "string") throw new Error("Citation key is missing.");
   if (!bibtex || typeof bibtex !== "string") throw new Error("BibTeX entry is missing.");
-  const target = await resolveBibTarget(workspace, activeFilePath);
-  const existing = target.exists ? await readOrNull(workspace, target.bibPath) : null;
-  const created = existing === null;
-  if (!created && hasBibKey(existing, key)) {
-    return { bibPath: target.bibPath, created: false, duplicate: true };
-  }
-  const entry = bibtex.replace(/\s+$/, "") + "\n";
-  const head = created ? "" : existing.replace(/\s+$/, "");
-  const next = head ? `${head}\n\n${entry}` : entry;
-  if (created) await fsp.mkdir(path.dirname(workspace.resolvePath(target.bibPath)), { recursive: true });
-  await workspace.writeFile(target.bibPath, next);
-  return { bibPath: target.bibPath, created, duplicate: false, referenced: target.referenced !== false, ...(target.suggestion ? { suggestion: target.suggestion } : {}) };
+  const target = decided || (await resolveBibTarget(workspace, activeFilePath, { documentMainFile }));
+  const incoming = entryIdentity({ body: bibtex });
+  return workspace.withFileMutation(target.bibPath, async () => {
+    const existing = await readOrNull(workspace, target.bibPath);
+    const created = existing === null;
+    const placed = placeEntry(parseBibEntries(existing ?? ""), key, incoming);
+    if (placed.entry) {
+      return { bibPath: target.bibPath, created: false, duplicate: true, key: placed.key, bibtex: placed.entry.body };
+    }
+    const written = renameBibKey(bibtex, placed.key).replace(/\s+$/, "");
+    const entry = `${written}\n`;
+    const head = created ? "" : existing.replace(/\s+$/, "");
+    const next = head ? `${head}\n\n${entry}` : entry;
+    if (created) await fsp.mkdir(path.dirname(workspace.resolvePath(target.bibPath)), { recursive: true });
+    await workspace.writeFile(target.bibPath, next);
+    return {
+      bibPath: target.bibPath,
+      created,
+      duplicate: false,
+      key: placed.key,
+      bibtex: written,
+      referenced: target.referenced !== false,
+      ...(target.suggestion ? { suggestion: target.suggestion } : {}),
+    };
+  });
 };
 
 module.exports = { appendBibEntry, resolveBibTarget, bibResourcesOf, hasBibKey };

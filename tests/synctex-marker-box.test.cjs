@@ -51,3 +51,14 @@ test("split rows close on \\end{split}; an equation without rows is marked whole
   assert.deepEqual(analyzeDisplayMath(lines, 7), { closingLine: 7, all: true });
   assert.equal(analyzeDisplayMath(lines, 8), null);
 });
+
+test("a row separator's star and spacing belong to the separator, not to the next row", () => {
+  const lines = src(String.raw`\begin{align}
+a &= b \\[1ex]
+c &= d \\*
+e &= f \\ [2pt] g &= h
+\end{align}`);
+  assert.deepEqual(analyzeDisplayMath(lines, 2), { closingLine: 5, all: false, firstRow: 0, lastRow: 0, totalRows: 4 });
+  assert.deepEqual(analyzeDisplayMath(lines, 3), { closingLine: 5, all: false, firstRow: 1, lastRow: 1, totalRows: 4 });
+  assert.deepEqual(analyzeDisplayMath(lines, 4), { closingLine: 5, all: false, firstRow: 2, lastRow: 3, totalRows: 4 });
+});

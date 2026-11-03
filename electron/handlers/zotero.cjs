@@ -7,6 +7,8 @@
 const { createZoteroClient } = require("../services/zotero-client.cjs");
 const {
   resolveBibTarget,
+  resolveCitationDocument,
+  createWorkspaceGuard,
   appendEntry,
   replaceEntries,
   parseBibEntries,
@@ -16,7 +18,16 @@ const {
 
 const MAX_SYNC_ENTRIES = 300;
 
-const registerZoteroHandlers = ({ ipcMain, workspace, state, safeStorage, ensureUserSettings, afterBibWrite }) => {
+const registerZoteroHandlers = ({
+  ipcMain,
+  workspace,
+  state,
+  safeStorage,
+  ensureUserSettings,
+  afterBibWrite,
+  withWorkspaceMutation,
+  createClient = createZoteroClient,
+}) => {
   let apiKey = "";
   let apiKeyLoaded = false;
 
@@ -36,14 +47,19 @@ const registerZoteroHandlers = ({ ipcMain, workspace, state, safeStorage, ensure
     return apiKey;
   };
 
-  const client = createZoteroClient({ getApiKey: () => apiKey });
+  const client = createClient({ getApiKey: () => apiKey });
+  const guard = createWorkspaceGuard({ workspace, state, withWorkspaceMutation });
 
-  const mainFileFor = async (payload) => {
-    const info = await workspace.rootInfo().catch(() => null);
-    if (info && typeof info.path === "string" && info.path.toLowerCase().endsWith(".tex")) return info.path;
-    const active = typeof payload?.activeFilePath === "string" ? payload.activeFilePath : "";
-    if (active.toLowerCase().endsWith(".tex")) return active;
-    throw Object.assign(new Error("No main document."), { code: "NO_MAIN_FILE" });
+  // The .bib of the document the active file belongs to (as Build decides
+  // it), or of the document the renderer names for that file.
+  const bibTargetFor = async (payload) => {
+    const text = (value) => (typeof value === "string" ? value : "");
+    const mainFile = await resolveCitationDocument(
+      workspace,
+      { documentMainFile: text(payload?.documentMainFile), activeFilePath: text(payload?.activeFilePath) },
+      async (candidate) => (await resolveBibTarget({ workspace, mainFile: candidate })).relativePath
+    );
+    return resolveBibTarget({ workspace, mainFile });
   };
 
   // The chosen library is remembered by id, kind and name, so it survives a
@@ -115,17 +131,21 @@ const registerZoteroHandlers = ({ ipcMain, workspace, state, safeStorage, ensure
       return { transport: result.transport, library, items: result.items };
     },
 
+    // The target is decided before Zotero is asked; the append runs only if
+    // the same workspace session is still open when the answer arrives.
     cite: async (payload) => {
       const item = payload?.item;
       if (!item || typeof item !== "object") throw new Error("No item.");
-      const mainFile = await mainFileFor(payload);
+      const session = guard.capture();
+      const target = await bibTargetFor(payload);
       const fetched = await client.bibtexFor(item);
       if (!fetched.ok) throw Object.assign(new Error("Zotero export failed."), { code: fetched.code });
       const exported = String(fetched.bibtex).trim();
       if (!extractBibKey(exported)) throw Object.assign(new Error("No BibTeX entry."), { code: "NO_BIBTEX" });
       const bibtex = renameBibKey(exported, fetched.key);
-      const target = await resolveBibTarget({ workspace, mainFile });
-      const result = await appendEntry({ workspace, bibPath: target.relativePath, bibtex, zoteroRef: fetched.zoteroRef });
+      const result = await guard.commit(session, () =>
+        appendEntry({ workspace, bibPath: target.relativePath, bibtex, zoteroRef: fetched.zoteroRef })
+      );
       if (result.appended) await afterBibWrite?.().catch(() => {});
       return {
         key: result.key,
@@ -138,10 +158,11 @@ const registerZoteroHandlers = ({ ipcMain, workspace, state, safeStorage, ensure
     },
 
     sync: async (payload) => {
-      const mainFile = await mainFileFor(payload);
-      const target = await resolveBibTarget({ workspace, mainFile });
+      const session = guard.capture();
+      const target = await bibTargetFor(payload);
       if (!target.exists) return { bibPath: target.relativePath, total: 0, updated: 0, unchanged: 0, notFound: 0 };
       const content = await workspace.readFile(target.relativePath);
+      guard.assertCurrent(session);
       const entries = parseBibEntries(content).slice(0, MAX_SYNC_ENTRIES);
       const library = await effectiveLibrary();
       const refreshed = await client.refresh(entries, library);
@@ -151,7 +172,7 @@ const registerZoteroHandlers = ({ ipcMain, workspace, state, safeStorage, ensure
         const body = String(found.bibtex).trim();
         if (extractBibKey(body)) fresh.set(found.key, renameBibKey(body, found.key));
       }
-      const replaced = await replaceEntries({ workspace, bibPath: target.relativePath, fresh });
+      const replaced = await guard.commit(session, () => replaceEntries({ workspace, bibPath: target.relativePath, fresh }));
       if (replaced.updated > 0) await afterBibWrite?.().catch(() => {});
       return {
         bibPath: target.relativePath,

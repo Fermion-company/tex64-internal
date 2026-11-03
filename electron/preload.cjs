@@ -391,6 +391,7 @@ contextBridge.exposeInMainWorld("tex64Snippets", {
 
 contextBridge.exposeInMainWorld("tex64WordCount", {
   count: (request = {}) => ipcRenderer.invoke("tex64:wordCount", request),
+  documentFor: (path) => ipcRenderer.invoke("tex64:documentFor", { path }),
 });
 
 contextBridge.exposeInMainWorld("tex64Zotero", {

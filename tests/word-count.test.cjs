@@ -101,3 +101,46 @@ test("a document counts its main file and every file it reads, unsaved buffers f
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("nothing after \\end{document}; every argument of a length or colour command is left out", () => {
+  const counts = countLatex(tex`\begin{document}
+\setlength{\parindent}{12pt}\addtolength{\textwidth}{-1cm}\setcounter{page}{3}
+\definecolor{accent}{HTML}{0F766E}\textcolor{accent}{Coloured words}\kern3pt\vskip 1em plus 2pt
+\newcommand{\x}[1]{defined body}\def\y#1{also defined}\rule{1pt}{2pt}
+Kept.
+\end{document}
+Notes after the end are not printed.`);
+  // Coloured words Kept
+  assert.equal(counts.words, 3);
+  assert.equal(counts.characters, "ColouredwordsKept.".length);
+});
+
+test("characters are code points: a supplementary kanji is one character", () => {
+  assert.equal(countLatex("𠮷野家").characters, 3);
+});
+
+test("the files of a document come from the unsaved buffers first", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-wc-"));
+  try {
+    fs.writeFileSync(path.join(root, "main.tex"), "\\documentclass{article}\n\\begin{document}\n\\input{old}\n\\end{document}\n");
+    fs.writeFileSync(path.join(root, "old.tex"), "Old words here.\n");
+    fs.mkdirSync(path.join(root, "parts"));
+    fs.writeFileSync(path.join(root, "parts/inner.tex"), "Inner text.\n");
+    const workspace = {
+      getRootPath: () => root,
+      resolvePath: (relative) => path.join(root, relative),
+      readFile: async (relative) => fs.readFileSync(path.join(root, relative), "utf8"),
+    };
+    // Unsaved: main now reads new.tex (never saved) instead of old.tex, and
+    // new.tex imports parts/inner.tex.
+    const buffers = {
+      "main.tex": "\\documentclass{article}\n\\begin{document}\n\\input{new}\n\\end{document}\n",
+      "new.tex": "New.\n\\import{parts/}{inner}\n",
+    };
+    const result = await countDocument({ workspace, mainFile: "main.tex", buffers });
+    assert.deepEqual(result.files.map((file) => file.path), ["main.tex", "new.tex", "parts/inner.tex"]);
+    assert.equal(result.total.words, 3);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

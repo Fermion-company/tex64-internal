@@ -161,11 +161,14 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
   let busy = false;
   let awaitingRuntime = false;
   let sessionError = "";
-  // Progress arrives before `start` has returned the session id. Only one
-  // import runs at a time, so the first id seen while starting is adopted
-  // provisionally and the steps move while the zip is still unpacking.
-  let provisionalSessionId: string | null = null;
-  let collecting = false;
+  // The id `start` is asked to use, chosen here before the call: progress
+  // carries it while the zip is still unpacking, and closing the dialog
+  // before `start` returns can end that session on the main side.
+  let startingId: string | null = null;
+  // Bumped when the dialog closes and when a new import begins. A
+  // continuation that finds another value after an await belongs to an
+  // import that is over and leaves the state alone.
+  let generation = 0;
   let buildStartedAt = 0;
   let buildTimer: number | null = null;
   const stepStatus = new Map<Step, StepStatus>();
@@ -265,6 +268,7 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
     more.addEventListener("click", () => {
       if (!current || !sessionId) return;
       const project = current.project;
+      const gen = generation;
       void (async () => {
         let payload: { summary: string; issues: Issue[] };
         try {
@@ -272,6 +276,7 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
         } catch {
           return;
         }
+        if (gen !== generation) return;
         finish();
         if (deps.getWorkspaceRoot() !== project.root) {
           deps.openProjectPath(project.root);
@@ -459,16 +464,24 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
     renderAll();
   };
 
-  // Closing ends the session; a typeset still running is cancelled with it.
+  // Closing ends the session, also one still unpacking; a typeset still
+  // running is cancelled with it.
   const finish = () => {
     stopBuildTimer();
-    if (sessionId && !awaitingRuntime) {
-      const id = sessionId;
-      void call("end", { sessionId: id }).catch(() => {});
+    if (!awaitingRuntime) {
+      generation += 1;
+      const id = sessionId ?? startingId;
+      if (id) void call("end", { sessionId: id }).catch(() => {});
       sessionId = null;
+      startingId = null;
       busy = false;
     }
     modal?.close();
+  };
+
+  const newSessionId = () => {
+    if (typeof window.crypto?.randomUUID === "function") return window.crypto.randomUUID();
+    return `prism-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   };
 
   const fail = (step: Step, message: string) => {
@@ -496,14 +509,8 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
 
   bridge()?.onChange((payload) => {
     if (!payload || !payload.sessionId) return;
-    if (!sessionId) {
-      if (!collecting) return;
-      if (!provisionalSessionId) provisionalSessionId = payload.sessionId;
-      if (payload.sessionId !== provisionalSessionId) return;
-      applyProgress(payload);
-      return;
-    }
-    if (payload.sessionId !== sessionId) return;
+    const id = sessionId ?? startingId;
+    if (!id || payload.sessionId !== id) return;
     applyProgress(payload);
   });
 
@@ -536,6 +543,7 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
     renderAll();
     const target = current;
     const id = sessionId;
+    const gen = generation;
     try {
       const result = (await call("build", {
         sessionId: id,
@@ -544,7 +552,7 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
         engine: target.engine,
         bibTool: target.bibTool,
       })) as BuildResult;
-      if (sessionId !== id) return;
+      if (gen !== generation || sessionId !== id) return;
       stopBuildTimer();
       if (result.canceled) return;
       target.result = result;
@@ -558,8 +566,8 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
         setStep("compare", result.diff ? "done" : "failed", "");
       }
     } catch (error) {
+      if (gen !== generation || sessionId !== id) return;
       stopBuildTimer();
-      if (sessionId !== id) return;
       if (current === target) {
         const step = error instanceof ImportError && error.step ? error.step : "build";
         target.error = errorText(error);
@@ -571,8 +579,8 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
     releaseDiffHeight();
   };
 
-  const applyEnv = async () => {
-    if (!env) return;
+  const applyEnv = async (gen: number) => {
+    if (!env || gen !== generation) return;
     if (!env.ready) {
       setStep("env", "failed", envDetail());
       // Hand over to the existing TeX setup gate; `resume` continues here.
@@ -588,27 +596,30 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
   };
 
   const begin = async (zipPath: string) => {
-    if (sessionId) void call("end", { sessionId }).catch(() => {});
+    const previous = sessionId ?? startingId;
+    if (previous) void call("end", { sessionId: previous }).catch(() => {});
+    generation += 1;
+    const gen = generation;
+    const id = newSessionId();
     sessionId = null;
+    startingId = id;
     destination = "";
     env = null;
     states = [];
     current = null;
     awaitingRuntime = false;
     sessionError = "";
-    provisionalSessionId = null;
-    collecting = true;
     busy = true;
     show();
     resetSteps();
     setStep("extract", "running", "");
     try {
-      const started = await call("start", { zipPath, locale: getUiLocale() });
-      collecting = false;
+      const started = await call("start", { zipPath, locale: getUiLocale(), sessionId: id });
+      if (gen !== generation) return;
+      startingId = null;
       if (started.canceled) { busy = false; modal?.close(); return; }
       sessionId = started.sessionId as string;
       destination = started.destination as string;
-      provisionalSessionId = null;
       env = started.env as Env;
       states = (started.projects as Project[]).map((project) => ({
         project,
@@ -623,10 +634,10 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
       setStep("extract", "done", stepDetail.get("extract") || "");
       setStep("analyze", "done", `${states.length} ${words(states.length === 1 ? "project" : "projects", "プロジェクト")}`);
       renderAll();
-      await applyEnv();
+      await applyEnv(gen);
     } catch (error) {
-      collecting = false;
-      provisionalSessionId = null;
+      if (gen !== generation) return;
+      startingId = null;
       const step = error instanceof ImportError && error.step
         ? error.step
         : stepStatus.get("extract") !== "done" ? "extract" : "analyze";
@@ -654,19 +665,22 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
     if (!awaitingRuntime || !sessionId) return;
     awaitingRuntime = false;
     busy = true;
+    const gen = generation;
     show();
     setStep("env", "running", "");
     void (async () => {
       try {
         const checked = await call("recheck-env", { sessionId });
+        if (gen !== generation) return;
         env = checked.env as Env;
         const projects = checked.projects as Project[];
         for (const state of states) {
           const fresh = projects.find((project) => project.id === state.project.id);
           if (fresh) state.project.missingPackages = fresh.missingPackages;
         }
-        await applyEnv();
+        await applyEnv(gen);
       } catch (error) {
+        if (gen !== generation) return;
         fail("env", errorText(error));
       }
     })();

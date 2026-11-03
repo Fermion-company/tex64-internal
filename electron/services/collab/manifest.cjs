@@ -15,12 +15,14 @@ const { isExtendedTextFileName, looksBinary } = require("../text-file-types.cjs"
 
 const MAX_TEXT_BYTES = 10 * 1024 * 1024;
 const MAX_BINARY_BYTES = 50 * 1024 * 1024;
-const IGNORED_DIRS = new Set([".git", ".tex64", "node_modules", ".venv", "venv", "__pycache__", ".svn", ".hg", "DerivedData"]);
+// Compared in lower case: macOS volumes are case-insensitive, so `.GIT/config`
+// is `.git/config` on disk.
+const IGNORED_DIRS = new Set([".git", ".tex64", "node_modules", ".venv", "venv", "__pycache__", ".svn", ".hg", "deriveddata"]);
 const INTERMEDIATE_RE = /\.(aux|log|fdb_latexmk|fls|synctex(?:\.gz)?|out|toc|bbl|blg|lof|lot|nav|snm|vrb|run\.xml|bcf|idx|ilg|ind|glo|gls|xdv|dvi)$/i;
 const SECRET_RE = /(^|\/)(\.env(?:\..*)?|\.npmrc|\.netrc|credentials(?:\.json)?|secrets?(?:\..*)?|id_(rsa|ed25519|ecdsa)(?:\.pub)?)$|\.(pem|key|p12|pfx)$/i;
 // .local-<stamp> copies are a guest's own offline edits kept aside on rejoin;
 // they stay private to that mirror.
-const TEMP_RE = /\.tmp-[^/]+$|\.local-\d{4}-\d{2}-\d{2}T[\d-]+(\.[^/]*)?$|(^|\/)\.DS_Store$|(^|\/)~\$|\.swp$/;
+const TEMP_RE = /\.tmp-[^/]+$|\.local-\d{4}-\d{2}-\d{2}T[\d-]+(\.[^/]*)?$|(^|\/)\.DS_Store$|(^|\/)~\$|\.swp$/i;
 const TEXT_EXTENSIONS = new Set([
   "tex", "bib", "sty", "cls", "bst", "bbx", "cbx", "cfg", "def", "lbx", "ins", "dtx", "ltx", "txt",
   "tikz", "pgf", "mp", "asy", "lua", "bibtex", "md", "csv", "tsv", "json", "yaml", "yml", "xml", "svg",
@@ -33,7 +35,7 @@ const extensionOf = (relative) => {
 
 const isExcludedPath = (relative) => {
   const parts = relative.split("/");
-  if (parts.some((part) => IGNORED_DIRS.has(part))) return true;
+  if (parts.some((part) => IGNORED_DIRS.has(part.toLowerCase()))) return true;
   if (INTERMEDIATE_RE.test(relative)) return true;
   if (SECRET_RE.test(relative)) return true;
   if (TEMP_RE.test(relative)) return true;
@@ -124,7 +126,7 @@ class WorkspaceManifest {
         const relative = relativeDirectory ? `${relativeDirectory}/${dirent.name}` : dirent.name;
         if (dirent.isSymbolicLink()) continue;
         if (dirent.isDirectory()) {
-          if (IGNORED_DIRS.has(dirent.name)) continue;
+          if (IGNORED_DIRS.has(dirent.name.toLowerCase())) continue;
           await walk(path.join(directory, dirent.name), relative);
           continue;
         }

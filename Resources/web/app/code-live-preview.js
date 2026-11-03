@@ -42,12 +42,12 @@ const createDebouncedTask = (task, delayMs, maxWaitMs = 0) => {
     return schedule;
 };
 const PROJECT_SOURCE_RE = /\.(?:tex|bib|sty|cls|bst|bbx|cbx|cfg|def|lbx|ltx|dtx|ins)$/i;
-export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getWorkspaceRoot, getRootFile, getRootSource, getLastBuildTarget, getDirtyFileSnapshots, }) => {
+export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getWorkspaceRoot, getRootFile, getRootSource, getLastBuildTarget, getDocumentFor, getDirtyFileSnapshots, }) => {
     // The document the live paper follows, decided like a Build: a file that is
     // a document itself (\documentclass … \begin{document}) is its own root even
-    // when Settings names another; a fragment follows the document the last
-    // Build resolved for it (main knows which document includes it), else the
-    // root the user set, else the detected root.
+    // when Settings names another; a fragment follows the document that reads
+    // it (main resolves it as Build does), else the root the user set, else the
+    // detected root, else the last document built.
     const isStandaloneSource = (text) => /\\document(?:class|style)\s*(?:\[[^\]]*\])?\s*\{/.test(text.slice(0, 65536)) && text.includes("\\begin{document}");
     const liveRootFor = (path, text) => {
         var _a;
@@ -55,12 +55,13 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         const isTex = Boolean(path && path.toLowerCase().endsWith(".tex"));
         if (isTex && typeof text === "string" && isStandaloneSource(text))
             return path;
-        const lastBuilt = (_a = getLastBuildTarget === null || getLastBuildTarget === void 0 ? void 0 : getLastBuildTarget()) !== null && _a !== void 0 ? _a : null;
-        if (lastBuilt && /\.tex$/i.test(lastBuilt))
-            return lastBuilt;
+        const owner = isTex && path ? getDocumentFor === null || getDocumentFor === void 0 ? void 0 : getDocumentFor(path) : null;
+        if (owner && /\.tex$/i.test(owner))
+            return owner;
         if (configuredRoot && (getRootSource === null || getRootSource === void 0 ? void 0 : getRootSource()) === "manual")
             return configuredRoot;
-        return configuredRoot || (isTex ? path : null);
+        const lastBuilt = (_a = getLastBuildTarget === null || getLastBuildTarget === void 0 ? void 0 : getLastBuildTarget()) !== null && _a !== void 0 ? _a : null;
+        return configuredRoot || (lastBuilt && /\.tex$/i.test(lastBuilt) ? lastBuilt : null) || (isTex ? path : null);
     };
     const bridge = window.tex64Tdom;
     let active = false;

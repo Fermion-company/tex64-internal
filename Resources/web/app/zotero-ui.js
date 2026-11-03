@@ -2,7 +2,7 @@
 // with a .bib sync button) and the Settings → Zotero page. Everything that
 // talks to Zotero runs in the main process behind `tex64Zotero`.
 import { uiText } from "./i18n.js";
-import { insertCitation } from "./citation-insert.js";
+import { citationDocumentFor, insertCitation } from "./citation-insert.js";
 const ZOTERO_KEYS_URL = "https://www.zotero.org/settings/keys/new";
 const bridge = () => window.tex64Zotero;
 const call = async (action, payload = {}) => {
@@ -20,7 +20,8 @@ const node = (tag, className = "", text = "") => {
     return element;
 };
 const errorCode = (error) => (error === null || error === void 0 ? void 0 : error.code) || "";
-const describeError = (error) => {
+const documentChanged = () => uiText("The document changed. Close and choose the insertion point again.", "文書が変更されました。閉じて挿入位置を選び直してください。");
+const describeError = (error, activeFilePath = null) => {
     switch (errorCode(error)) {
         case "no-transport":
             return uiText("Start Zotero, or enter an API key in Settings → Zotero.", "Zotero を起動するか、設定 → Zotero で API キーを入れてください。");
@@ -38,6 +39,18 @@ const describeError = (error) => {
             return uiText("Zotero returned no BibTeX for this item.", "この項目の BibTeX を取得できませんでした。");
         case "NO_SAFE_STORAGE":
             return uiText("This computer cannot store the key securely.", "この PC では鍵を安全に保存できません。");
+        // The project closed while Zotero answered; nothing was written.
+        case "STALE_WORKSPACE":
+            return documentChanged();
+        // The .bib is written under the same lease as saves; Axiom holds it.
+        case "AGENT_WORKSPACE_BUSY":
+            return uiText("Axiom is editing this project. Try again when it finishes.", "Axiom がこのプロジェクトを編集中です。終わってからもう一度お試しください。");
+        // The file belongs to several documents with different .bib files; Build's
+        // chooser (or a % !TEX root line) settles which one.
+        case "BUILD_TARGET_CHOICE":
+            return activeFilePath
+                ? uiText(`${activeFilePath} belongs to more than one document.`, `${activeFilePath} は複数の文書から読み込まれています。`)
+                : uiText("This folder has several documents and no main file is set.", "このフォルダには文書が複数あり、メイン TeX が決まっていません。");
         default:
             return error instanceof Error && error.message ? error.message : uiText("Zotero request failed.", "Zotero への要求に失敗しました。");
     }
@@ -207,20 +220,34 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
             setStatus(describeError(error));
         }
     };
+    // The editor must still show the model the dialog opened on, writable.
+    const sameDocument = () => { var _a, _b, _c, _d; return Boolean(model) && ((_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) === model && !((_b = model === null || model === void 0 ? void 0 : model.isDisposed) === null || _b === void 0 ? void 0 : _b.call(model)) && !((_d = (_c = editor.getRawOptions) === null || _c === void 0 ? void 0 : _c.call(editor)) === null || _d === void 0 ? void 0 : _d.readOnly); };
     const insert = async (index) => {
-        var _a, _b, _c, _d;
+        var _a, _b;
         const item = items[index];
         if (!item || busy)
             return;
-        if (!model || ((_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== model || ((_b = model.isDisposed) === null || _b === void 0 ? void 0 : _b.call(model))) {
-            setStatus(uiText("The document changed. Close and choose the insertion point again.", "文書が変更されました。閉じて挿入位置を選び直してください。"));
+        if (!sameDocument()) {
+            setStatus(documentChanged());
             return;
         }
         busy = true;
         sync.disabled = true;
+        const activeFilePath = getActiveFilePath();
         try {
-            const result = await call("cite", { item, activeFilePath: getActiveFilePath() });
-            const line = (_d = (_c = editor.getPosition) === null || _c === void 0 ? void 0 : _c.call(editor)) === null || _d === void 0 ? void 0 : _d.lineNumber;
+            const result = await call("cite", { item, activeFilePath, documentMainFile: citationDocumentFor(activeFilePath) });
+            const bibNote = result.created
+                ? uiText(`created ${result.bibPath}`, `${result.bibPath} を作成`)
+                : result.appended
+                    ? uiText(`added to ${result.bibPath}`, `${result.bibPath} に追加`)
+                    : uiText(`already in ${result.bibPath}`, `${result.bibPath} に既存`);
+            // Zotero answered after the editor moved on: the .bib has the entry,
+            // the \cite is not placed in another document.
+            if (!sameDocument()) {
+                setStatus([documentChanged(), bibNote].join(" · "));
+                return;
+            }
+            const line = (_b = (_a = editor.getPosition) === null || _a === void 0 ? void 0 : _a.call(editor)) === null || _b === void 0 ? void 0 : _b.lineNumber;
             const outcome = insertCitation(editor, result.key);
             // The dialog stays open for the next citation, so keep the keyboard here.
             search.focus();
@@ -230,11 +257,6 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
                 : outcome === "present"
                     ? uiText(`\\cite already has ${result.key}`, `\\cite に ${result.key} は既にあります`)
                     : uiText(`inserted ${result.key} at ${where}`, `${where} に ${result.key} を挿入`);
-            const bibNote = result.created
-                ? uiText(`created ${result.bibPath}`, `${result.bibPath} を作成`)
-                : result.appended
-                    ? uiText(`added to ${result.bibPath}`, `${result.bibPath} に追加`)
-                    : uiText(`already in ${result.bibPath}`, `${result.bibPath} に既存`);
             // The "add \bibliography{…}" reminder is said once per dialog.
             const hint = !result.named && !hinted ? bibHint(result) : "";
             if (hint)
@@ -242,7 +264,7 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
             setStatus([citeNote, bibNote, hint].filter(Boolean).join(" · "));
         }
         catch (error) {
-            setStatus(describeError(error));
+            setStatus(describeError(error, activeFilePath));
         }
         finally {
             busy = false;
@@ -255,7 +277,8 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
         busy = true;
         sync.disabled = true;
         setStatus(uiText("Syncing…", "同期中…"));
-        void call("sync", { activeFilePath: getActiveFilePath() })
+        const activeFilePath = getActiveFilePath();
+        void call("sync", { activeFilePath, documentMainFile: citationDocumentFor(activeFilePath) })
             .then((result) => {
             if (result.total === 0) {
                 setStatus(uiText(`${result.bibPath}: no entries`, `${result.bibPath}: 項目なし`));
@@ -269,7 +292,7 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
                 parts.push(uiText(`${result.notFound} not found`, `見つからず ${result.notFound}`));
             setStatus(`${result.bibPath}: ${parts.join(" · ")}`);
         })
-            .catch((error) => setStatus(describeError(error)))
+            .catch((error) => setStatus(describeError(error, activeFilePath)))
             .finally(() => {
             busy = false;
             sync.disabled = false;

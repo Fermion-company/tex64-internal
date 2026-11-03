@@ -33,6 +33,9 @@ export const createVoiceController = (deps: VoiceControllerDeps): VoiceControlle
   const input = aiInput instanceof HTMLTextAreaElement ? aiInput : null;
 
   let pendingRequestId: string | null = null;
+  // While the microphone is being asked for, another press waits: a second
+  // request would open a second stream that nothing ever stops.
+  let starting = false;
 
   if (!button || !input || typeof navigator === "undefined" || !navigator.mediaDevices) {
     if (button) button.hidden = true;
@@ -122,7 +125,12 @@ export const createVoiceController = (deps: VoiceControllerDeps): VoiceControlle
 
   const toggle = () => {
     if (recorder.isRecording()) recorder.stop();
-    else if (!pendingRequestId && isVoiceRecordingSupported()) void recorder.start();
+    else if (!pendingRequestId && !starting && isVoiceRecordingSupported()) {
+      starting = true;
+      void recorder.start().finally(() => {
+        starting = false;
+      });
+    }
   };
 
   const handleTranscribeResult = (payload: { requestId?: string; ok?: boolean; text?: string; error?: string; code?: string }) => {
@@ -145,7 +153,7 @@ export const createVoiceController = (deps: VoiceControllerDeps): VoiceControlle
 
   return {
     toggle,
-    isBusy: () => recorder.isRecording() || pendingRequestId !== null,
+    isBusy: () => starting || recorder.isRecording() || pendingRequestId !== null,
     handleTranscribeResult,
     syncLabels,
   };

@@ -52,6 +52,7 @@ import { initBillingUi } from "./app/billing-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
 import { initZoteroSettingsUi } from "./app/zotero-ui.js";
 import { initWordCountUi } from "./app/word-count-ui.js";
+import { setCitationDocumentResolver } from "./app/citation-insert.js";
 import { initAnnouncementsUi } from "./app/announcements-ui.js";
 import { initWorkspaceController } from "./app/workspace-controller.js";
 import { getUiLocale, initI18n, onUiLocaleChange, uiText } from "./app/i18n.js";
@@ -104,6 +105,8 @@ export const initMain = () => {
         let collabBinding = null;
         let collabUi = null;
         const wordCountUi = initWordCountUi({ editorSession: () => editorSession, documentFor: (path) => buildOps === null || buildOps === void 0 ? void 0 : buildOps.documentFor(path) });
+        // Citations go to the bibliography of the document the user chose to build.
+        setCitationDocumentResolver((path) => buildOps === null || buildOps === void 0 ? void 0 : buildOps.documentFor(path));
         // Shared text files are saved by the collaboration session, not by autosave.
         const collabFileBridge = {
             isBound: (path) => Boolean(collabBinding === null || collabBinding === void 0 ? void 0 : collabBinding.isBound(path)),
@@ -439,6 +442,30 @@ export const initMain = () => {
             aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.refreshContextBar();
         };
         let lastBuildMainFile = null;
+        // Fragment → the document Build makes of it: the user's choice first, else
+        // what main resolves (asked once per fragment, forgotten after each build
+        // since includes may have changed). Ambiguous fragments stay unresolved.
+        const documentOwners = new Map();
+        const documentOwnerOf = (path) => {
+            var _a, _b;
+            const chosen = buildOps === null || buildOps === void 0 ? void 0 : buildOps.documentFor(path);
+            if (chosen)
+                return chosen;
+            const key = `${(_a = getWorkspaceRootKey()) !== null && _a !== void 0 ? _a : ""}\0${path}`;
+            if (documentOwners.has(key))
+                return (_b = documentOwners.get(key)) !== null && _b !== void 0 ? _b : undefined;
+            documentOwners.set(key, null);
+            const bridge = window.tex64WordCount;
+            void (bridge === null || bridge === void 0 ? void 0 : bridge.documentFor(path).then((result) => {
+                if (documentOwners.get(key) === null && (result === null || result === void 0 ? void 0 : result.ok) && typeof result.document === "string")
+                    documentOwners.set(key, result.document);
+            }, () => { }));
+            return undefined;
+        };
+        const noteBuildTarget = (path) => {
+            lastBuildMainFile = path;
+            documentOwners.clear();
+        };
         let blockPreviewActive = false;
         let activeBlockOriginalSnippet = null;
         let activeBlockEditMode = "none";
@@ -641,6 +668,7 @@ export const initMain = () => {
             getRootFile: getRootFilePath,
             getRootSource,
             getLastBuildTarget: () => lastBuildMainFile,
+            getDocumentFor: (path) => documentOwnerOf(path),
             getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
                 maxFiles: Number.POSITIVE_INFINITY,
                 maxChars: Number.POSITIVE_INFINITY,
@@ -914,9 +942,7 @@ export const initMain = () => {
             getRootFilePath,
             getLastBuildMainFile: () => lastBuildMainFile,
             getWorkspaceRootKey,
-            setLastBuildMainFile: (path) => {
-                lastBuildMainFile = path;
-            },
+            setLastBuildMainFile: (path) => noteBuildTarget(path),
             getStoredCursorPosition: (path) => editorSession.getStoredCursorPosition(path),
             cacheCurrentBuffer: editorSession.cacheCurrentBuffer,
             saveCurrentFile: () => editorSession.saveCurrentFile(),
@@ -1019,9 +1045,7 @@ export const initMain = () => {
             },
             envRegistry,
             rootSelectorUi,
-            setLastBuildMainFile: (path) => {
-                lastBuildMainFile = path;
-            },
+            setLastBuildMainFile: (path) => noteBuildTarget(path),
         });
         updateIssues = workspaceController.updateIssues;
         setPendingBuildIssuesFocus = workspaceController.setPendingBuildIssuesFocus;
@@ -1191,6 +1215,9 @@ export const initMain = () => {
                 workspaceController.handleWorkspaceUpdate(payload);
                 if (rootChanged)
                     postToNative({ type: "agent:state:get" }, true);
+                // A voice edit belongs to the project it started in.
+                if (rootChanged)
+                    voiceEdit.cancel();
             },
             handleIndexUpdate: workspaceController.handleIndexUpdate,
             handleLauncherStatus,
@@ -1286,7 +1313,7 @@ export const initMain = () => {
             build: {
                 handleBuildPreviewState: (payload) => buildOps.handleBuildPreviewState(payload),
                 setBuildState: (state, message) => buildOps.setBuildState(state, message),
-                setBuildTarget: (path) => { lastBuildMainFile = path; },
+                setBuildTarget: (path) => noteBuildTarget(path),
                 chooseBuildTarget: (payload) => buildOps.chooseBuildTarget(payload),
                 handleFormatResult: (payload) => buildOps.handleFormatResult(payload),
                 handleBuildLog: (log) => buildOps.handleBuildLog(log),
@@ -1402,6 +1429,7 @@ export const initMain = () => {
         postToNative({ type: "agent:state:get" }, true);
         postToNative({ type: "announcements:check" }, true);
         const voiceEdit = createVoiceEditController({
+            getWorkspaceRootKey,
             postToNative: (payload, silent) => postToNative(payload, silent),
             holdSelection: (selection) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.holdVoiceSelection(selection),
             sendInstruction: (text) => {

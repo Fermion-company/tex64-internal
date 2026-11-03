@@ -7,23 +7,36 @@
 // character of the prose except white space (the measure Japanese
 // manuscripts use). Headings and math are counted, not their contents.
 
-const { scanDocument } = require("./agent-document-map.cjs");
-const { resolveBuildTarget } = require("./tex-build-target.cjs");
+const path = require("node:path");
+const { resolveBuildTarget, parseTexIncludes } = require("./tex-build-target.cjs");
 
-// One optional [..] and one {..} after these are not prose.
-const SKIP_ARG_COMMANDS = new Set([
-  "label", "ref", "eqref", "pageref", "autoref", "cref", "Cref", "vref", "nameref", "Nameref",
-  "cite", "citep", "citet", "citeauthor", "citeyear", "citealp", "citealt", "parencite",
-  "textcite", "footcite", "autocite", "supercite", "nocite", "Cite", "Citep", "Citet",
-  "input", "include", "includeonly", "includegraphics", "includestandalone", "subfile", "InputIfFileExists",
-  "usepackage", "RequirePackage", "documentclass", "bibliography", "bibliographystyle",
-  "addbibresource", "url", "href", "hyperref", "hypersetup", "geometry", "pagestyle",
-  "thispagestyle", "definecolor", "color", "textcolor", "colorbox", "pagecolor",
-  "lstinputlisting", "bibitem", "newcommand", "renewcommand", "providecommand",
-  "newenvironment", "renewenvironment", "DeclareMathOperator", "setlength", "addtolength",
-  "setcounter", "addtocounter", "vspace", "hspace", "rule", "graphicspath", "begin", "end",
-  "newtheorem", "numberwithin", "linespread", "fontsize", "selectfont", "kern", "raisebox",
+const MAX_FILES = 40;
+const MAX_DEPTH = 16;
+
+// How many {..} arguments after these are not prose (optional [..] are
+// always skipped). \href{url}{text}: the url only; \textcolor{red}{text}:
+// the colour only.
+const SKIP_ARGS = new Map([
+  ...["label", "ref", "eqref", "pageref", "autoref", "cref", "Cref", "vref", "nameref", "Nameref",
+    "cite", "citep", "citet", "citeauthor", "citeyear", "citealp", "citealt", "parencite",
+    "textcite", "footcite", "autocite", "supercite", "nocite", "Cite", "Citep", "Citet",
+    "input", "include", "includeonly", "includegraphics", "includestandalone", "subfile", "subfileinclude",
+    "usepackage", "RequirePackage", "documentclass", "bibliography", "bibliographystyle",
+    "addbibresource", "url", "href", "hyperref", "hypersetup", "geometry", "pagestyle",
+    "thispagestyle", "color", "textcolor", "colorbox", "pagecolor", "lstinputlisting", "bibitem",
+    "vspace", "hspace", "graphicspath", "begin", "end", "linespread", "raisebox", "numberwithin",
+    "hyphenation", "pagenumbering", "setcitestyle", "bibliographystyle"].map((name) => [name, 1]),
+  ...["setlength", "addtolength", "setcounter", "addtocounter", "fontsize", "rule", "fcolorbox",
+    "InputIfFileExists", "import", "subimport", "includefrom", "inputfrom", "subincludefrom", "subinputfrom",
+    "DeclareMathOperator", "settowidth", "settoheight", "settodepth"].map((name) => [name, 2]),
+  ...["definecolor"].map((name) => [name, 3]),
+  // Definitions: every following group belongs to the definition.
+  ...["newcommand", "renewcommand", "providecommand", "newenvironment", "renewenvironment",
+    "newtheorem", "def", "let"].map((name) => [name, Infinity]),
 ]);
+// Primitives followed by a bare dimension (\kern3pt, \vskip 1em plus 2pt).
+const DIMENSION_COMMANDS = new Set(["kern", "hskip", "vskip", "mskip", "hspace", "vspace"]);
+const DIMENSION_PATTERN = /^\s*-?\s*(?:\d+(?:\.\d*)?|\.\d+)\s*(?:pt|pc|in|bp|cm|mm|dd|cc|sp|em|ex|mu|fil{1,3})(?:\s+(?:plus|minus)\s*-?\s*(?:\d+(?:\.\d*)?|\.\d+)\s*(?:pt|pc|in|bp|cm|mm|dd|cc|sp|em|ex|mu|fil{1,3}))*/;
 
 // Their bodies are not prose and are skipped whole.
 const SKIP_ENVIRONMENTS = new Set([
@@ -77,16 +90,24 @@ const skipSpaces = (text, index) => {
   return i;
 };
 
-// The body of a document: what follows \begin{document} when the file has one.
-const documentBody = (text) => {
-  const pattern = /\\begin\s*\{document\}/g;
+// First uncommented match of `pattern` (global) in `text`.
+const firstUncommented = (text, pattern) => {
   let match;
   while ((match = pattern.exec(text))) {
     const lineStart = text.lastIndexOf("\n", match.index) + 1;
     const before = text.slice(lineStart, match.index);
-    if (!/(^|[^\\])%/.test(before)) return text.slice(match.index + match[0].length);
+    if (!/(^|[^\\])%/.test(before)) return match;
   }
-  return text;
+  return null;
+};
+
+// The body of a document: between \begin{document} and \end{document} when
+// the file has them; nothing after \end{document} is printed.
+const documentBody = (text) => {
+  const begin = firstUncommented(text, /\\begin\s*\{document\}/g);
+  const body = begin ? text.slice(begin.index + begin[0].length) : text;
+  const end = firstUncommented(body, /\\end\s*\{document\}/g);
+  return end ? body.slice(0, end.index) : body;
 };
 
 // Prose text plus the counts that are not read from it.
@@ -196,25 +217,29 @@ const extractProse = (text) => {
       continue;
     }
     if (HEADING_COMMANDS.has(name)) counts.headings += 1;
+    if (DIMENSION_COMMANDS.has(name) && text[skipSpaces(text, i)] !== "{") {
+      const dimension = DIMENSION_PATTERN.exec(text.slice(i, i + 120));
+      if (dimension) i += dimension[0].length;
+    }
+    if (name === "def" || name === "let") {
+      // \def\x#1{body}, \let\a\b: the name, its parameters and its body.
+      const after = /^\s*\\(?:[A-Za-z@]+|.)[^{\\]*/.exec(text.slice(i));
+      if (after) i += after[0].length;
+    }
     // Optional arguments are short titles and options, never counted.
     let k = skipSpaces(text, i);
     while (text[k] === "[") {
       i = skipGroup(text, k, "[", "]");
       k = skipSpaces(text, i);
     }
-    if (SKIP_ARG_COMMANDS.has(name)) {
-      if (text[k] === "{") i = skipGroup(text, k, "{", "}");
-      // \href{url}{text}, \newcommand{\x}[1]{body}: the second group too.
-      if (name === "newcommand" || name === "renewcommand" || name === "providecommand" || name === "DeclareMathOperator" || name === "newenvironment" || name === "renewenvironment") {
-        let m = skipSpaces(text, i);
-        while (text[m] === "[") {
-          i = skipGroup(text, m, "[", "]");
-          m = skipSpaces(text, i);
-        }
-        while (text[m] === "{") {
-          i = skipGroup(text, m, "{", "}");
-          m = skipSpaces(text, i);
-        }
+    let skip = SKIP_ARGS.get(name) || 0;
+    while (skip > 0 && text[k] === "{") {
+      i = skipGroup(text, k, "{", "}");
+      skip -= 1;
+      k = skipSpaces(text, i);
+      while (text[k] === "[") {
+        i = skipGroup(text, k, "[", "]");
+        k = skipSpaces(text, i);
       }
     }
     prose += " ";
@@ -224,7 +249,8 @@ const extractProse = (text) => {
 
 const countProse = (prose) => {
   const words = prose.match(WORD_PATTERN);
-  const characters = prose.replace(/\s+/g, "").length;
+  // Code points, so 𠮷 (two UTF-16 units) is one character.
+  const characters = Array.from(prose.replace(/\s+/g, "")).length;
   return { words: words ? words.length : 0, characters };
 };
 
@@ -244,23 +270,70 @@ const addCounts = (total, part) => {
 
 const normalizeRelative = (value) => (typeof value === "string" ? value.replace(/\\/g, "/").replace(/^\.\//, "") : "");
 
+// The files a document reads, main first, found in the unsaved buffers
+// before the disk and resolved the way Build resolves them (plain \input is
+// relative to the main file's folder or the root; \import / \subfile set a
+// new base).
+const documentFiles = async (workspace, main, buffers) => {
+  const root = workspace.getRootPath();
+  const normalize = (file) => {
+    try {
+      const relative = path.relative(root, workspace.resolvePath(file)).split(path.sep).join("/");
+      return relative && !relative.startsWith("../") ? relative : null;
+    } catch {
+      return null;
+    }
+  };
+  const cache = new Map();
+  const read = async (file) => {
+    if (!cache.has(file)) {
+      cache.set(file, typeof buffers[file] === "string"
+        ? Promise.resolve(buffers[file])
+        : Promise.resolve(workspace.readFile(file)).then((content) => (typeof content === "string" ? content : null), () => null));
+    }
+    return cache.get(file);
+  };
+  const cwd = path.posix.dirname(main);
+  const files = [];
+  const seen = new Set();
+  const queue = [{ file: main, base: cwd, depth: 0 }];
+  while (queue.length && files.length < MAX_FILES) {
+    const entry = queue.shift();
+    if (seen.has(entry.file) || entry.depth > MAX_DEPTH) continue;
+    seen.add(entry.file);
+    const content = await read(entry.file);
+    if (content === null) continue;
+    files.push({ path: entry.file, content });
+    for (const include of parseTexIncludes(content)) {
+      const base = include.directory !== undefined
+        ? path.posix.join(include.kind.startsWith("sub") ? entry.base : cwd, include.directory)
+        : include.kind.startsWith("subfile") ? path.posix.dirname(entry.file) : entry.base;
+      const withExt = (file) => (path.posix.extname(file) ? file : `${file}.tex`);
+      const tries = [withExt(path.posix.join(base, include.file))];
+      if (include.directory === undefined && !include.kind.startsWith("subfile")) tries.push(withExt(include.file));
+      for (const attempt of tries) {
+        const candidate = normalize(attempt);
+        if (!candidate || seen.has(candidate)) continue;
+        if ((await read(candidate)) === null) continue;
+        queue.push({
+          file: candidate,
+          base: include.directory !== undefined || include.kind.startsWith("subfile") ? path.posix.dirname(candidate) : entry.base,
+          depth: entry.depth + 1,
+        });
+        break;
+      }
+    }
+  }
+  return files;
+};
+
 // The document's files (main first) with their counts. `buffers` holds the
 // unsaved editor contents by workspace-relative path.
 const countDocument = async ({ workspace, mainFile, buffers = {} }) => {
   const main = normalizeRelative(mainFile);
-  const map = main ? await scanDocument({ workspace }, main) : null;
-  const paths = map ? map.files.map((file) => file.path) : main ? [main] : [];
   const files = [];
   const total = emptyCounts();
-  for (const relative of paths) {
-    let content = typeof buffers[relative] === "string" ? buffers[relative] : null;
-    if (content === null) {
-      try {
-        content = await require("node:fs/promises").readFile(workspace.resolvePath(relative), "utf8");
-      } catch {
-        continue;
-      }
-    }
+  for (const { path: relative, content } of main ? await documentFiles(workspace, main, buffers) : []) {
     const counts = countLatex(content);
     files.push({ path: relative, ...counts });
     addCounts(total, counts);

@@ -40,12 +40,21 @@ module.exports = (BuildService) => {
     }
 
     let engineFlag = "-lualatex";
+    // `-pdfdvi` alone runs latex and dvipdf; upLaTeX's commands are named
+    // here instead of relying on the user's own latexmkrc.
+    const engineArgs = [];
     if (engine === "pdflatex") {
       engineFlag = "-pdf";
     } else if (engine === "xelatex") {
       engineFlag = "-xelatex";
     } else if (engine === "uplatex") {
-      engineFlag = "-pdfdvi"; // Basic support for uplatex via DVI
+      engineFlag = "-pdfdvi";
+      engineArgs.push(
+        "-latex=uplatex",
+        "-e", "$bibtex=q/upbibtex %O %S/",
+        "-e", "$dvipdf=q/dvipdfmx %O -o %D %S/",
+        "-e", "$makeindex=q/mendex %O -o %D %S/",
+      );
     }
 
     const args = [];
@@ -58,6 +67,7 @@ module.exports = (BuildService) => {
     }
     args.push(
       engineFlag,
+      ...engineArgs,
       "-synctex=1",
       "-interaction=nonstopmode",
       "-halt-on-error",

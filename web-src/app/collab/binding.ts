@@ -410,9 +410,12 @@ export const initCollabBinding = (deps: {
       const entry = entries.get(docId);
       const model = entry?.model;
       closeDoc(docId, { silent: true });
-      // Everything was flushed before the session ended: the buffer is saved.
-      if (model && entry) deps.editorSession.markSavedExternally(docId, contentDigest(model.getValue()));
+      // A buffer is saved only if its content is what the host last wrote;
+      // anything typed after that stays dirty and saves the ordinary way.
+      const digest = model ? contentDigest(model.getValue()) : "";
+      if (model && entry && lastSavedDigest.get(docId) === digest) deps.editorSession.markSavedExternally(docId, digest);
     }
+    lastSavedDigest.clear();
     collabCursors.reset();
     updateContextKeys();
     schedulePresence();

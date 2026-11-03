@@ -382,10 +382,54 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
   };
 
   /**
-   * Fresh BibTeX for existing .bib entries: by citekey through Better BibTeX,
-   * else by the `% zotero: <library>/<key>` note. Hand-written entries (no
-   * note, unknown to the library) are left alone and not counted; an entry
-   * with a note whose item is gone counts as notFound.
+   * Better BibTeX's current citekey for each noted entry, found by its item
+   * (`item.citationkey` takes `<libraryID>:<itemKey>`), so a key renamed in
+   * Zotero keeps refreshing. Returns Map(entry → { citekey, library } | null),
+   * or { unsupported: true } when this Better BibTeX lacks the method.
+   */
+  const bbtTrackedKeys = async (entries) => {
+    const tracked = new Map();
+    const noted = entries
+      .map((entry) => ({ entry, ref: String(entry.zoteroRef || "").match(/^(users|groups|bbt):(\d+)\/([A-Za-z0-9]+)$/) }))
+      .filter((item) => item.ref);
+    if (noted.length === 0) return { ok: true, tracked };
+    let groups = null;
+    const groupIds = async () => {
+      if (!groups) {
+        const list = await bbtLibraries();
+        groups = list.ok ? list.libraries.filter((entry) => entry.kind === "group").map((entry) => entry.id.slice(4)) : [];
+      }
+      return groups;
+    };
+    // A note written through the local or web API names a Zotero group id,
+    // which Better BibTeX numbers differently: try each group it can see.
+    const candidates = new Map();
+    for (const { entry, ref } of noted) {
+      const [, kind, id, itemKey] = ref;
+      const libraryIds = kind === "bbt" ? [id] : kind === "users" ? ["1"] : await groupIds();
+      // No library to look in: the entry falls back to its own key.
+      if (libraryIds.length) candidates.set(entry, libraryIds.map((libraryId) => `${libraryId}:${itemKey}`));
+    }
+    if (candidates.size === 0) return { ok: true, tracked };
+    const response = await bbtCall("item.citationkey", [[...new Set([...candidates.values()].flat())]]);
+    if (!response.ok) return response.code === "rpc-error" ? { ok: true, unsupported: true } : response;
+    const keys = response.result && typeof response.result === "object" && !Array.isArray(response.result) ? response.result : null;
+    if (!keys) return { ok: true, unsupported: true };
+    for (const [entry, tries] of candidates) {
+      const hit = tries.find((candidate) => typeof keys[candidate] === "string" && keys[candidate]);
+      tracked.set(entry, hit ? { citekey: keys[hit], library: `bbt:${hit.split(":")[0]}` } : null);
+    }
+    return { ok: true, tracked };
+  };
+
+  /**
+   * Fresh BibTeX for existing .bib entries. Through Better BibTeX an entry
+   * with a `% zotero: <library>/<key>` note is found by that item (its
+   * citekey may have been renamed), any other entry by its own key; through
+   * the APIs only noted entries are looked up. `found[].key` is always the
+   * document's key, which the caller keeps. Hand-written entries (no note,
+   * unknown to the library) are left alone and not counted; an entry with a
+   * note whose item is gone counts as notFound.
    */
   const refresh = async (entries, library) => {
     const status = await probe();
@@ -393,8 +437,15 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
     const found = [];
     let notFound = 0;
     if (status.transport === "bbt") {
+      const identity = await bbtTrackedKeys(entries);
+      if (!identity.ok) return identity;
       for (const entry of entries) {
-        const result = await bbtExport([entry.key], library);
+        const tracked = identity.unsupported ? undefined : identity.tracked.get(entry);
+        if (tracked === null) {
+          notFound += 1;
+          continue;
+        }
+        const result = tracked ? await bbtExport([tracked.citekey], tracked.library) : await bbtExport([entry.key], library);
         if (result.ok) found.push({ key: entry.key, bibtex: result.bibtex });
         else if (result.code === "not-found" || result.code === "rpc-error") { if (entry.zoteroRef) notFound += 1; }
         else return result;

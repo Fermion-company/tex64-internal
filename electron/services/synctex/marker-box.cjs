@@ -37,7 +37,7 @@ const stripComment = (line) => {
 
 /**
  * Environments and their top-level row separators, from the source text.
- * Returns [{ name, beginLine, endLine, rows: [{ line, col }], tail }] with
+ * Returns [{ name, beginLine, endLine, rows: [{ line, col, end }], tail }] with
  * 1-based lines; `tail` says whether text follows the last separator.
  */
 const parseEnvironments = (lines) => {
@@ -86,12 +86,16 @@ const parseEnvironments = (lines) => {
         continue;
       }
       if (rest.startsWith("\\\\")) {
+        // The separator with its star and spacing (\\*, \\[1ex]): `end` is
+        // where the next row's text starts.
+        const separator = /^\\\\\*?(?:\s*\[[^\]]*\])?/.exec(rest);
+        const end = col + separator[0].length;
         const top = stack[stack.length - 1];
         if (top && top.depth === depth) {
-          top.rows.push({ line: lineNo, col });
+          top.rows.push({ line: lineNo, col, end });
           top.tail = false;
         }
-        col += 1;
+        col = end - 1;
         continue;
       }
       const ch = text[col];
@@ -139,7 +143,7 @@ const analyzeDisplayMath = (lines, cursorLine) => {
   let firstRow = null;
   let lastRow = null;
   for (let i = 0; i < cuts.length - 1; i += 1) {
-    const segment = text.slice(i === 0 ? cuts[i] : cuts[i] + 2, cuts[i + 1]);
+    const segment = text.slice(i === 0 ? cuts[i] : onLine[i - 1].end, cuts[i + 1]);
     if (!segment.trim()) continue;
     const row = before + i;
     if (firstRow === null) firstRow = row;

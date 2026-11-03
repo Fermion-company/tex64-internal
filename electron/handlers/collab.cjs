@@ -17,14 +17,15 @@ const createCollabHandlers = ({ ipcMain, hub, state, workspace, sendCollab, getL
   const ownerOk = (event) => event.sender === state.mainWindow?.webContents && event.senderFrame === event.sender.mainFrame;
   const guestError = () => (getLocale() === "ja" ? "ホストが行います" : "The host does this");
 
-  const commentsPath = () => {
-    const root = workspace.getRootPath();
-    if (!root) return null;
-    return path.join(root, ".tex64", "comments.json");
-  };
+  // A save is addressed to the folder its comments were loaded from, so a
+  // save that lands after a project switch still goes to its own project.
+  const knownRoots = new Set();
+  const commentsPath = (root = workspace.getRootPath()) => (root ? path.join(root, ".tex64", "comments.json") : null);
 
   const loadComments = async () => {
-    const target = commentsPath();
+    const root = workspace.getRootPath();
+    if (root) knownRoots.add(root);
+    const target = commentsPath(root);
     if (!target) return { comments: [] };
     try {
       const parsed = JSON.parse(await fsp.readFile(target, "utf8"));
@@ -36,9 +37,13 @@ const createCollabHandlers = ({ ipcMain, hub, state, workspace, sendCollab, getL
   };
 
   const saveComments = async (payload) => {
-    const target = commentsPath();
-    if (!target) throw Object.assign(new Error("No workspace is open."), { code: "NO_WORKSPACE" });
-    if (hub.isActive()) throw Object.assign(new Error("Comments are shared through the session while it runs."), { code: "COLLAB_ACTIVE" });
+    const current = workspace.getRootPath();
+    const root = typeof payload?.root === "string" && payload.root ? payload.root : current;
+    if (!root) throw Object.assign(new Error("No workspace is open."), { code: "NO_WORKSPACE" });
+    if (root !== current && !knownRoots.has(root)) throw Object.assign(new Error("The workspace changed."), { code: "WORKSPACE_CHANGED" });
+    if (hub.isActive() && hub.session?.rootPath === root) throw Object.assign(new Error("Comments are shared through the session while it runs."), { code: "COLLAB_ACTIVE" });
+    knownRoots.add(root);
+    const target = commentsPath(root);
     const comments = Array.isArray(payload?.comments) ? payload.comments : [];
     const text = JSON.stringify({ schema: 1, comments }, null, 2);
     if (Buffer.byteLength(text) > MAX_COMMENT_BYTES) throw new Error("Comments file is too large.");

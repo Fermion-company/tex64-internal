@@ -65,6 +65,7 @@ export const initCodeLivePreview = ({
   getRootFile,
   getRootSource,
   getLastBuildTarget,
+  getDocumentFor,
   getDirtyFileSnapshots,
 }: {
   getActiveGroup: () => EditorGroupState;
@@ -74,23 +75,27 @@ export const initCodeLivePreview = ({
   getRootFile: () => string | null;
   getRootSource?: () => string;
   getLastBuildTarget?: () => string | null;
+  // The document Build would make of a fragment, once known (undefined while
+  // it is being resolved).
+  getDocumentFor?: (path: string) => string | null | undefined;
   getDirtyFileSnapshots: () => DirtySnapshot[];
 }) => {
   // The document the live paper follows, decided like a Build: a file that is
   // a document itself (\documentclass … \begin{document}) is its own root even
-  // when Settings names another; a fragment follows the document the last
-  // Build resolved for it (main knows which document includes it), else the
-  // root the user set, else the detected root.
+  // when Settings names another; a fragment follows the document that reads
+  // it (main resolves it as Build does), else the root the user set, else the
+  // detected root, else the last document built.
   const isStandaloneSource = (text: string) =>
     /\\document(?:class|style)\s*(?:\[[^\]]*\])?\s*\{/.test(text.slice(0, 65536)) && text.includes("\\begin{document}");
   const liveRootFor = (path: string | null, text: string | null) => {
     const configuredRoot = getRootFile();
     const isTex = Boolean(path && path.toLowerCase().endsWith(".tex"));
     if (isTex && typeof text === "string" && isStandaloneSource(text)) return path;
-    const lastBuilt = getLastBuildTarget?.() ?? null;
-    if (lastBuilt && /\.tex$/i.test(lastBuilt)) return lastBuilt;
+    const owner = isTex && path ? getDocumentFor?.(path) : null;
+    if (owner && /\.tex$/i.test(owner)) return owner;
     if (configuredRoot && getRootSource?.() === "manual") return configuredRoot;
-    return configuredRoot || (isTex ? path : null);
+    const lastBuilt = getLastBuildTarget?.() ?? null;
+    return configuredRoot || (lastBuilt && /\.tex$/i.test(lastBuilt) ? lastBuilt : null) || (isTex ? path : null);
   };
   const bridge = (window as BridgeWindow).tex64Tdom;
   let active = false;

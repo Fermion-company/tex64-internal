@@ -1,6 +1,14 @@
 // Inserts a citation into the editor. Shared by the arXiv search and Zotero
 // dialogs: \cite{key} at the cursor, or ",key" appended when the cursor is
 // already inside a \cite-like argument.
+// The document chosen for a file in Build's chooser (main-init wires it to
+// build-ops' documentFor). Both dialogs send it as `documentMainFile`, so the
+// entry goes to that document's .bib, as Build would use it.
+let chosenDocumentFor = () => undefined;
+export const setCitationDocumentResolver = (resolver) => {
+    chosenDocumentFor = resolver;
+};
+export const citationDocumentFor = (path) => { var _a; return (path ? (_a = chosenDocumentFor(path)) !== null && _a !== void 0 ? _a : "" : ""); };
 const CITE_COMMANDS = /\\(?:[cC]ite(?:p|t|author|year|yearpar|alp|alt|num|title)?|parencite|textcite|autocite|footcite|footfullcite|fullcite|smartcite|supercite|nocite)\*?\s*(?:\[[^\]]*\]\s*){0,2}\{([^{}]*)\}/g;
 /** The \cite-like argument whose braces contain `column` (1-based), if any. */
 export const findCiteArgumentAt = (lineText, column) => {
