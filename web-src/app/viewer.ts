@@ -54,6 +54,7 @@ export type PdfSyncPayload = {
   blockY?: number;
   blockWidth?: number;
   blockHeight?: number;
+  blocks?: Array<{ x: number; y: number; width: number; height: number }>;
   sourceFile?: string;
   sourceLine?: number;
   sourceColumn?: number;

@@ -211,6 +211,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     };
     if (Number.isFinite(entry.blockX)) cached.blockX = entry.blockX;
     if (Number.isFinite(entry.blockY)) cached.blockY = entry.blockY;
+    if (Array.isArray(entry.blocks)) cached.blocks = entry.blocks;
     if (Number.isFinite(entry.blockWidth) && entry.blockWidth > 0) cached.blockWidth = entry.blockWidth;
     if (Number.isFinite(entry.blockHeight) && entry.blockHeight > 0) cached.blockHeight = entry.blockHeight;
     return cached;
@@ -245,6 +246,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
 	    };
 	    if (Number.isFinite(result.blockX)) cacheEntry.blockX = result.blockX;
 	    if (Number.isFinite(result.blockY)) cacheEntry.blockY = result.blockY;
+	    if (Array.isArray(result.blocks)) cacheEntry.blocks = result.blocks;
 	    if (Number.isFinite(result.blockWidth) && result.blockWidth > 0) cacheEntry.blockWidth = result.blockWidth;
 	    if (Number.isFinite(result.blockHeight) && result.blockHeight > 0) cacheEntry.blockHeight = result.blockHeight;
 	    synctexForwardResultCache.set(key, cacheEntry);
@@ -351,6 +353,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         const windowCachedSync = { page: cached.page, x: cached.x, y: cached.y };
         if (Number.isFinite(cached.blockX)) windowCachedSync.blockX = cached.blockX;
         if (Number.isFinite(cached.blockY)) windowCachedSync.blockY = cached.blockY;
+        if (Array.isArray(cached.blocks)) windowCachedSync.blocks = cached.blocks;
         if (Number.isFinite(cached.blockWidth) && cached.blockWidth > 0) windowCachedSync.blockWidth = cached.blockWidth;
         if (Number.isFinite(cached.blockHeight) && cached.blockHeight > 0) windowCachedSync.blockHeight = cached.blockHeight;
         pdfWindowManager.queueSync(windowCachedSync);
@@ -376,6 +379,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       };
       if (Number.isFinite(cached.blockX)) cachedPayload.blockX = cached.blockX;
       if (Number.isFinite(cached.blockY)) cachedPayload.blockY = cached.blockY;
+      if (Array.isArray(cached.blocks)) cachedPayload.blocks = cached.blocks;
       if (Number.isFinite(cached.blockWidth) && cached.blockWidth > 0) cachedPayload.blockWidth = cached.blockWidth;
       if (Number.isFinite(cached.blockHeight) && cached.blockHeight > 0) cachedPayload.blockHeight = cached.blockHeight;
       sendToRenderer("synctex:forwardResult", withRequestId(cachedPayload));
@@ -698,6 +702,32 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       sendToRenderer("synctex:forwardResult", withRequestId(result));
       return;
     }
+    // The marker covers every typeset line the source line produced (and the
+    // right display row), not SyncTeX's single box (marker-box.cjs).
+    if (result.notTypeset !== true && typeof synctexService.forwardMarkerBox === "function") {
+      try {
+        const box = synctexService.forwardMarkerBox({
+          pdfPath, sourcePath, line: targetLine, page: result.page, x: result.x, y: result.y,
+        });
+        if (box && box.width > 0 && box.height > 0) {
+          const inside = box.page === result.page && Number.isFinite(result.x) && Number.isFinite(result.y) &&
+            result.x >= box.x && result.x <= box.x + box.width && result.y >= box.y && result.y <= box.y + box.height;
+          result = {
+            ...result,
+            page: box.page,
+            x: inside ? result.x : box.x,
+            y: inside ? result.y : box.y + box.height / 2,
+            blockX: box.x,
+            blockY: box.y,
+            blockWidth: box.width,
+            blockHeight: box.height,
+            ...(Array.isArray(box.rects) && box.rects.length > 1 ? { blocks: box.rects } : {}),
+          };
+        }
+      } catch {
+        /* keep SyncTeX's own box */
+      }
+    }
     if (
       result.notTypeset !== true &&
       Number.isFinite(result.page) &&
@@ -739,6 +769,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       if (Number.isFinite(result.blockY)) {
         windowSyncPayload.blockY = result.blockY;
       }
+      if (Array.isArray(result.blocks)) windowSyncPayload.blocks = result.blocks;
       pdfWindowManager.queueSync(windowSyncPayload);
     }
     const relativePdfPath = resolveWorkspaceRelativePath(rootPath, pdfPath);
@@ -763,6 +794,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     if (Number.isFinite(result.blockY)) {
       forwardPayload.blockY = result.blockY;
     }
+    if (Array.isArray(result.blocks)) forwardPayload.blocks = result.blocks;
     sendToRenderer("synctex:forwardResult", withRequestId(forwardPayload));
   };
 

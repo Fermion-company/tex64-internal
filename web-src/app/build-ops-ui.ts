@@ -150,6 +150,7 @@ export type BuildOpsApi = {
     blockY?: number;
     blockWidth?: number;
     blockHeight?: number;
+    blocks?: Array<{ x: number; y: number; width: number; height: number }>;
     pdfPath?: string | null;
     requestId?: string;
     cancelled?: boolean;
@@ -954,6 +955,7 @@ export const initBuildOpsUi = (
     blockY?: number;
     blockWidth?: number;
     blockHeight?: number;
+    blocks?: Array<{ x: number; y: number; width: number; height: number }>;
     pdfPath?: string | null;
     requestId?: string;
     cancelled?: boolean;
@@ -1051,6 +1053,9 @@ export const initBuildOpsUi = (
         }
         if (typeof payload.blockY === "number") {
           syncPayload.blockY = payload.blockY;
+        }
+        if (Array.isArray(payload.blocks) && payload.blocks.length > 1) {
+          syncPayload.blocks = payload.blocks.slice(0, 32);
         }
         openedGroup.viewer.syncPdf(syncPayload);
       }

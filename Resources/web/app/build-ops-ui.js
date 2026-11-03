@@ -817,6 +817,9 @@ export const initBuildOpsUi = (context, deps) => {
                 if (typeof payload.blockY === "number") {
                     syncPayload.blockY = payload.blockY;
                 }
+                if (Array.isArray(payload.blocks) && payload.blocks.length > 1) {
+                    syncPayload.blocks = payload.blocks.slice(0, 32);
+                }
                 openedGroup.viewer.syncPdf(syncPayload);
             }
             if (payload.notTypeset === true && (payloadMeta === null || payloadMeta === void 0 ? void 0 : payloadMeta.source) !== "auto-build") {

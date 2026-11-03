@@ -69,7 +69,10 @@ const parseForwardIndex = (text, baseDir) => {
   const pageRecords = (number) => {
     let entry = pages.get(number);
     if (!entry) {
-      entry = { glyphs: [], boxes: [] };
+      // lines: the typeset lines of the page, i.e. every hbox that sits
+      // directly in a vertical list (paragraph lines, display rows, split
+      // rows, footnote lines) — what a Jump marker should cover.
+      entry = { glyphs: [], boxes: [], lines: [] };
       pages.set(number, entry);
     }
     return entry;
@@ -83,6 +86,12 @@ const parseForwardIndex = (text, baseDir) => {
   let pageCount = 0;
   // Open boxes on the current page; the innermost hbox owns the glyphs.
   const openBoxes = [];
+  const enclosingLineIndex = () => {
+    for (let index = openBoxes.length - 1; index >= 0; index -= 1) {
+      if (Number.isInteger(openBoxes[index].lineIndex)) return openBoxes[index].lineIndex;
+    }
+    return null;
+  };
 
   const remember = (tag, line, candidate) => {
     let lines = byTag.get(tag);
@@ -97,10 +106,13 @@ const parseForwardIndex = (text, baseDir) => {
     }
     let entry = pages.get(candidate.page);
     if (!entry) {
-      entry = { page: candidate.page, glyphs: 0, records: 0, best: null, hmin: null, hmax: null, vmin: null, vmax: null };
+      entry = { page: candidate.page, glyphs: 0, records: 0, best: null, hmin: null, hmax: null, vmin: null, vmax: null, lineHits: new Map() };
       pages.set(candidate.page, entry);
     }
     entry.records += 1;
+    if (Number.isInteger(candidate.lineIndex)) {
+      entry.lineHits.set(candidate.lineIndex, (entry.lineHits.get(candidate.lineIndex) ?? 0) + 1);
+    }
     if (candidate.rank === RANK_GLYPH) entry.glyphs += 1;
     if (candidate.rank !== RANK_BOX) {
       // The extent of the line's ink on this page, for the way back from a point.
@@ -193,16 +205,31 @@ const parseForwardIndex = (text, baseDir) => {
     }
     if (kind === "(" || kind === "[") {
       const box = { kind, tag, line, h, v, page };
-      openBoxes.push(box);
-      remember(tag, line, { rank: RANK_BOX, page, h, v });
+      const parent = openBoxes.length ? openBoxes[openBoxes.length - 1] : null;
+      let lineIndex = null;
       if (kind === "(") {
         const width = Number.parseInt(match[6], 10);
         const height = Number.parseInt(match[7], 10);
         const depth = Number.parseInt(match[8], 10);
         if (Number.isFinite(width) && Number.isFinite(height)) {
-          pageRecords(page).boxes.push({ tag, line, h, v, w: width, ht: height, dp: Number.isFinite(depth) ? depth : 0 });
+          const dims = { tag, line, h, v, w: width, ht: height, dp: Number.isFinite(depth) ? depth : 0 };
+          pageRecords(page).boxes.push(dims);
+          if (parent?.kind === "[") {
+            // level: how many typeset lines enclose this one (0 for a line of
+            // the page; a split row inside its equation line is 1, the
+            // numerator of a fraction inside an align row is 1 as well).
+            const enclosing = enclosingLineIndex();
+            const pageLines = pageRecords(page).lines;
+            dims.level = enclosing === null ? 0 : (pageLines[enclosing]?.level ?? 0) + 1;
+            lineIndex = pageLines.push(dims) - 1;
+            box.lineIndex = lineIndex;
+          }
         }
       }
+      // An inner box (a \text, a fraction) belongs to the typeset line it sits in.
+      const ancestorLine = lineIndex ?? enclosingLineIndex();
+      openBoxes.push(box);
+      remember(tag, line, { rank: RANK_BOX, page, h, v, lineIndex: kind === "(" && lineIndex === null ? ancestorLine : null });
       continue;
     }
     // A leaf record: find the line box it sits in so the anchor lands on the
@@ -216,12 +243,34 @@ const parseForwardIndex = (text, baseDir) => {
     }
     const rank =
       kind === "x" ? RANK_GLYPH : kind === "g" || kind === "k" ? RANK_SPACING : RANK_INK;
+    const leafLine = enclosingLineIndex();
     remember(tag, line, {
       rank,
       page,
       h,
       v: lineBox ? lineBox.v : v,
+      lineIndex: leafLine,
     });
+    if (leafLine !== null) {
+      // Which source lines a typeset line holds, and whose record ends it:
+      // the marker follows a source line onto a typeset line whose only
+      // record LuaTeX tagged with the paragraph's end (marker-box.cjs).
+      const target = pageRecords(page).lines[leafLine];
+      if (target) {
+        const key = `${tag}:${line}`;
+        target.sources ??= new Map();
+        target.sources.set(key, (target.sources.get(key) ?? 0) + 1);
+        if (rank === RANK_GLYPH) {
+          target.glyphSources ??= new Map();
+          target.glyphSources.set(key, (target.glyphSources.get(key) ?? 0) + 1);
+        }
+        target.lastLeaf = { tag, line };
+        target.spans ??= new Map();
+        const span = target.spans.get(key);
+        if (!span) target.spans.set(key, [h, h]);
+        else { if (h < span[0]) span[0] = h; if (h > span[1]) span[1] = h; }
+      }
+    }
     if (rank !== RANK_SPACING) {
       pageRecords(page).glyphs.push({ tag, line, h, v: lineBox ? lineBox.v : v, rank });
     }

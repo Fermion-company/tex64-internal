@@ -533,6 +533,8 @@ const initPdfViewer = () => {
       state.activeMarker.remove();
       state.activeMarker = null;
     }
+    for (const marker of state.extraMarkers ?? []) marker.remove();
+    state.extraMarkers = [];
   };
 
   const sidebarVisibleKey = "tex64.pdf.sidebarVisible";
@@ -1232,6 +1234,43 @@ const initPdfViewer = () => {
       payload.blockWidth > 0 &&
       Number.isFinite(payload.blockHeight) &&
       Math.abs(payload.blockHeight) > 0;
+    // One rectangle per run of typeset lines (a line cut short beside a
+    // table is its own), else the single block.
+    const blocks = Array.isArray(payload.blocks)
+      ? payload.blocks.filter((block) => block && [block.x, block.y, block.width, block.height].every(Number.isFinite) &&
+        block.width > 0 && block.height > 0).slice(0, 32)
+      : [];
+    if (blocks.length > 1) {
+      const pad = 2;
+      const placed = [];
+      for (const block of blocks) {
+        const normTop = Number.isFinite(pagePdfHeight) && pagePdfHeight > 0 ? pagePdfHeight - block.y : block.y;
+        const normBottom = Number.isFinite(pagePdfHeight) && pagePdfHeight > 0 ? pagePdfHeight - (block.y + block.height) : block.y + block.height;
+        const [ax, ay] = pageView.viewport.convertToViewportPoint(block.x, normTop);
+        const [bx2, by2] = pageView.viewport.convertToViewportPoint(block.x + block.width, normBottom);
+        const left = Math.min(ax, bx2) * viewportScale.x;
+        const top = Math.min(ay, by2) * viewportScale.y;
+        const width = Math.abs(bx2 - ax) * viewportScale.x;
+        const height = Math.abs(by2 - ay) * viewportScale.y;
+        if (width <= 1 || height <= 1) continue;
+        const marker = document.createElement("div");
+        marker.className = "pdf-sync-highlight";
+        marker.style.left = `${left - pad}px`;
+        marker.style.top = `${top - 1}px`;
+        marker.style.width = `${width + pad * 2}px`;
+        marker.style.height = `${height + 2}px`;
+        pageView.div.appendChild(marker);
+        placed.push(marker);
+      }
+      if (placed.length) {
+        state.activeMarker = placed[0];
+        state.extraMarkers = placed.slice(1);
+        state.markerTimer = setTimeout(() => {
+          clearSyncMarker();
+        }, 2400);
+        return;
+      }
+    }
     if (hasBlock) {
       const bx = Number.isFinite(payload.blockX) ? payload.blockX : payload.x;
       const by = Number.isFinite(payload.blockY) ? payload.blockY : payload.y;
@@ -1264,9 +1303,9 @@ const initPdfViewer = () => {
         const marker = document.createElement("div");
         marker.className = "pdf-sync-highlight";
         marker.style.left = `${rectLeft - pad}px`;
-        marker.style.top = `${rectTop - pad}px`;
+        marker.style.top = `${rectTop - 1}px`;
         marker.style.width = `${rectWidth + pad * 2}px`;
-        marker.style.height = `${rectHeight + pad * 2}px`;
+        marker.style.height = `${rectHeight + 2}px`;
         pageView.div.appendChild(marker);
         state.activeMarker = marker;
         state.markerTimer = setTimeout(() => {
@@ -1562,6 +1601,20 @@ const initPdfViewer = () => {
     applySync(payload);
   });
 
+  // The Jump marker says where the jump landed; any operation of the
+  // reader's own (zoom, scroll, click, keys) ends that moment at once.
+  eventBus.on("scalechanging", () => clearSyncMarker());
+  for (const type of ["wheel", "pointerdown", "touchstart"]) {
+    pagesEl?.addEventListener(type, () => {
+      if (state.activeMarker) clearSyncMarker();
+    }, { passive: true, capture: true });
+  }
+  document.addEventListener("keydown", () => {
+    if (state.activeMarker) clearSyncMarker();
+  }, true);
+  window.addEventListener("resize", () => {
+    if (state.activeMarker) clearSyncMarker();
+  });
   eventBus.on("scalechanging", (event) => {
     if (!event || typeof event.scale !== "number") {
       return;
