@@ -116,3 +116,33 @@ test("sync keeps the document's key and note when Better BibTeX renamed the cite
   assert.deepEqual([result.updated, result.notFound], [1, 0]);
   assert.equal(await workspace.readFile("refs.bib"), "% zotero: bbt:1/ITEMAAAA\n@article{smith2020a,\n  title={New}\n}\n");
 });
+
+// Better BibTeX 9.0.77 on Zotero 10.0.7 (checked on a real install): item.search
+// answers in CSL JSON with the item URI as `id`, `citation-key`, and the
+// library's display name — no item key, no library id.
+test("Better BibTeX 9 search results carry the item key from the item URI", async () => {
+  const client = createZoteroClient({
+    getApiKey: () => "",
+    fetchImpl: bbtFetch({
+      "user.groups": () => [{ id: 1, name: "マイライブラリ", collections: null }],
+      "item.search": () => [
+        {
+          id: "http://zotero.org/users/local/nPIxyNM5/items/W8BLGYY8",
+          type: "article-journal",
+          "citation-key": "smithDeepLearningLaTeX2024",
+          title: "Deep learning for LaTeX",
+          author: [{ family: "Smith", given: "Bob" }],
+          issued: { "date-parts": [["2024"]] },
+          library: "マイライブラリ",
+          citekey: "smithDeepLearningLaTeX2024",
+        },
+      ],
+    }),
+  });
+  const result = await client.search({ query: "Smith", library: "bbt:1" });
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.items.map((item) => [item.key, item.citekey, item.library, item.creator, item.year]),
+    [["W8BLGYY8", "smithDeepLearningLaTeX2024", "bbt:1", "Smith", "2024"]],
+  );
+});

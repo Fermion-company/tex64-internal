@@ -146,13 +146,17 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
     return { ok: true, libraries };
   };
 
-  const bbtItem = (raw, libraryName) => {
-    const citekey = raw?.citationKey || raw?.citekey || raw?.citeKey || "";
-    const libraryId = Number(raw?.libraryID ?? raw?.libraryId ?? 1);
+  // Better BibTeX 9 answers item.search in CSL JSON: no item key or library
+  // id, only the item's URI (`…/items/ABCD2345`) and the library's display
+  // name. The key comes from the URI; the library is the one searched.
+  const bbtItem = (raw, libraryName, searchedLibraryId) => {
+    const citekey = raw?.citationKey || raw?.citekey || raw?.citeKey || raw?.["citation-key"] || "";
+    const libraryId = Number(searchedLibraryId ?? raw?.libraryID ?? raw?.libraryId ?? 1);
     const creators = Array.isArray(raw?.creators) ? raw.creators : Array.isArray(raw?.author) ? raw.author : [];
+    const uriKey = typeof raw?.id === "string" ? raw.id.match(/\/items\/([A-Z0-9]{8})$/)?.[1] ?? "" : "";
     return {
       transport: "bbt",
-      key: typeof raw?.key === "string" ? raw.key : "",
+      key: typeof raw?.key === "string" && raw.key ? raw.key : typeof raw?.itemKey === "string" && raw.itemKey ? raw.itemKey : uriKey,
       citekey,
       title: String(raw?.title || "").trim(),
       creator: creatorLabel(creators),
@@ -170,7 +174,7 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
     const response = await bbtCall("item.search", libraryID ? [query, libraryID] : [query]);
     if (!response.ok) return response;
     const items = (Array.isArray(response.result) ? response.result : [])
-      .map((raw) => bbtItem(raw, libraryName))
+      .map((raw) => bbtItem(raw, libraryName, libraryID))
       .filter((item) => item.citekey && !NON_CITABLE_TYPES.has(item.itemType))
       .filter((item) => !libraryID || item.library === `bbt:${libraryID}`)
       .slice(0, SEARCH_LIMIT);
