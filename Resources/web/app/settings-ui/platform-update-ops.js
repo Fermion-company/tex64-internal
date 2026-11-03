@@ -1,5 +1,6 @@
 import { TEX64_LINKS } from "../platform-links.js";
 import { formatBytes, openExternalUrl } from "./utils.js";
+import { uiText } from "../i18n.js";
 const MICROSOFT_STORE_UPDATE_MODE = "microsoft-store";
 export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
     const { settingsUpdateCurrent, settingsUpdateLatest, settingsUpdateStatus, settingsUpdateProgress, settingsUpdateProgressFill, settingsUpdateCheck, settingsUpdateApply, settingsUpdateOpen, updateButton, } = runtime.context.dom;
@@ -15,37 +16,28 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
         }
     };
     const resolveUpdateStatusText = () => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
         const phase = (_b = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _b !== void 0 ? _b : "idle";
-        const latest = (_f = (_d = (_c = runtime.state.platformUpdate) === null || _c === void 0 ? void 0 : _c.latestVersion) !== null && _d !== void 0 ? _d : (_e = runtime.state.platformUpdateStatus) === null || _e === void 0 ? void 0 : _e.latestVersion) !== null && _f !== void 0 ? _f : null;
-        if (((_g = runtime.state.platformUpdateStatus) === null || _g === void 0 ? void 0 : _g.message) && runtime.state.platformUpdateStatus.message.trim()) {
-            return runtime.state.platformUpdateStatus.message.trim();
-        }
+        // The version badges and buttons already say what idle, up-to-date,
+        // available and downloaded mean; only progress and failures get a line.
         if (phase === "checking") {
-            return "Checking for updates.";
-        }
-        if (phase === "up-to-date") {
-            return latest ? `Latest version ${latest}.` : "Up to date.";
-        }
-        if (phase === "available") {
-            return latest ? `A new version of ${latest} is available.` : "A new version is available.";
+            return uiText("Checking…", "確認中…");
         }
         if (phase === "downloading") {
-            const transferred = formatBytes((_j = (_h = runtime.state.platformUpdateStatus) === null || _h === void 0 ? void 0 : _h.transferredBytes) !== null && _j !== void 0 ? _j : 0);
-            const total = formatBytes((_l = (_k = runtime.state.platformUpdateStatus) === null || _k === void 0 ? void 0 : _k.totalBytes) !== null && _l !== void 0 ? _l : 0);
-            return `Downloading updates (${transferred} / ${total}).`;
-        }
-        if (phase === "downloaded") {
-            return "Download completed. You can launch the installer with the Apply button.";
+            const transferred = formatBytes((_d = (_c = runtime.state.platformUpdateStatus) === null || _c === void 0 ? void 0 : _c.transferredBytes) !== null && _d !== void 0 ? _d : 0);
+            const total = formatBytes((_f = (_e = runtime.state.platformUpdateStatus) === null || _e === void 0 ? void 0 : _e.totalBytes) !== null && _f !== void 0 ? _f : 0);
+            return `${transferred} / ${total}`;
         }
         if (phase === "installing") {
-            return "I started the installer. Follow the on-screen instructions to update.";
+            return uiText("Installer started.", "インストーラを起動しました。");
         }
+        // The main process's own wording is kept for failures only.
         if (phase === "error") {
-            const message = (_o = (_m = runtime.state.platformUpdateStatus) === null || _m === void 0 ? void 0 : _m.error) === null || _o === void 0 ? void 0 : _o.message;
-            return message && message.trim() ? message.trim() : "Update processing failed.";
+            const message = ((_h = (_g = runtime.state.platformUpdateStatus) === null || _g === void 0 ? void 0 : _g.message) === null || _h === void 0 ? void 0 : _h.trim()) ||
+                ((_l = (_k = (_j = runtime.state.platformUpdateStatus) === null || _j === void 0 ? void 0 : _j.error) === null || _k === void 0 ? void 0 : _k.message) === null || _l === void 0 ? void 0 : _l.trim());
+            return message || "Update processing failed.";
         }
-        return "Waiting for update check.";
+        return "";
     };
     const updatePlatformUpdateUi = () => {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;

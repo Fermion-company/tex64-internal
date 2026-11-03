@@ -161,7 +161,6 @@ export const getDomRefs = () => ({
   settingsBuildEngine: document.getElementById("settings-build-engine"),
   settingsBuildProfileAdd: document.getElementById("settings-build-profile-add"),
   settingsBuildProfileDelete: document.getElementById("settings-build-profile-delete"),
-  settingsBuildProfileHint: document.getElementById("settings-build-profile-hint"),
   settingsBuildCleanButton: document.getElementById("settings-build-clean"),
   settingsBuildCleanAllButton: document.getElementById("settings-build-clean-all"),
   settingsUpdateCurrent: document.getElementById("settings-update-current"),
@@ -183,7 +182,6 @@ export const getDomRefs = () => ({
   settingsUsageFill: document.getElementById("settings-usage-fill"),
   settingsUsageUsed: document.getElementById("settings-usage-used"),
   settingsUsagePct: document.getElementById("settings-usage-pct"),
-  settingsUsageNote: document.getElementById("settings-usage-note"),
   settingsRuntimeInstallStatus: document.getElementById("settings-runtime-install-status"),
   settingsRuntimeSetupStatus: document.getElementById("settings-runtime-setup-status"),
   settingsRuntimeOnboardingStatus: document.getElementById(
@@ -196,7 +194,6 @@ export const getDomRefs = () => ({
     "settings-runtime-open-getting-started"
   ),
   settingsRuntimeOpenInstallDocs: document.getElementById("settings-runtime-open-install-docs"),
-  settingsRuntimeOpenTexDocs: document.getElementById("settings-runtime-open-tex-docs"),
   settingsEnvRefresh: document.getElementById("settings-env-refresh"),
   settingsFeedbackCategory: document.getElementById("settings-feedback-category"),
   settingsFeedbackMessage: document.getElementById("settings-feedback-message"),

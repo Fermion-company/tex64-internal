@@ -1,8 +1,6 @@
 import { createEnvStatusManager, type EnvStatusSummary } from "../settings-env.js";
-import { TEX64_LINKS } from "../platform-links.js";
 import type { SettingsUiRuntime } from "./runtime.js";
 import type { SettingsAttentionOps } from "./attention.js";
-import { openExternalUrl } from "./utils.js";
 import { uiText } from "../i18n.js";
 import {
   describeCoverage,
@@ -42,11 +40,9 @@ export const createSettingsEnvOps = (
   const {
     settingsRuntimeSetupStatus,
     settingsRuntimeInstallStatus,
-    settingsRuntimeOpenTexDocs,
   } = runtime.context.dom;
 
   const heroEl = document.getElementById("env-hero");
-  const heroSubEl = document.getElementById("env-hero-sub");
   const setupBtn = document.getElementById("settings-env-setup");
   const progressEl = document.getElementById("env-progress");
   const progressFill = document.getElementById("env-progress-fill");
@@ -69,12 +65,9 @@ export const createSettingsEnvOps = (
     heroEl.classList.add(`is-${state}`);
   };
 
-  const setHeroText = (title: string, sub: string) => {
+  const setHeroText = (title: string) => {
     if (settingsRuntimeSetupStatus instanceof HTMLElement) {
       settingsRuntimeSetupStatus.textContent = title;
-    }
-    if (heroSubEl instanceof HTMLElement) {
-      heroSubEl.textContent = sub;
     }
   };
 
@@ -216,21 +209,10 @@ export const createSettingsEnvOps = (
     runtime.deps.onRuntimeSetupNeeded?.(summary);
   };
 
-  const showInstalling = (variant: TexInstallVariant = "light") => {
+  const showInstalling = () => {
     installing = true;
     setHeroState("installing");
-    setHeroText(
-      "Setting up your TeX environment…",
-      variant === "full"
-        ? uiText(
-            "Downloading and installing the full TeX Live (several GB). This usually takes 30 minutes to 2 hours — you can keep working in the meantime.",
-            "フルセットの TeX Live をダウンロード・導入中（数 GB）。通常 30 分〜2 時間かかります。その間も作業を続けられます。"
-          )
-        : uiText(
-            "Downloading a lightweight TeX environment. This usually takes 1–3 minutes.",
-            "軽量な TeX 環境をダウンロードしています。通常 1〜3 分で完了します。"
-          )
-    );
+    setHeroText("Setting up your TeX environment…");
     setSetupButton({ visible: false });
     setChoiceVisible(false);
     setInstallNote("");
@@ -248,39 +230,25 @@ export const createSettingsEnvOps = (
     const summary = runtime.state.runtimeStatusSummary;
     if (!summary || !summary.hasAnyResult) {
       setHeroState("checking");
-      setHeroText("Checking your TeX environment…", "This only takes a moment.");
+      setHeroText("Checking your TeX environment…");
       setSetupButton({ visible: false });
       setChoiceVisible(false);
       setDetail("");
       return;
     }
-    const detectionLine = [describeDetection(detection), describeCoverage(detection)]
+    // Coverage is spelled out only when it stops documents from building.
+    const coverage =
+      detection?.coverage.level === "minimal" || detection?.coverage.level === "broken"
+        ? describeCoverage(detection)
+        : "";
+    const detectionLine = [describeDetection(detection), coverage]
       .filter(Boolean)
       .join("\n");
     setDetail(detectionLine);
 
     if (summary.runtimeReady) {
       setHeroState("ready");
-      const optionalMissing = summary.missingRecommended.includes("latexindent");
-      // A user who already had MacTeX should be told we are using *their* TeX
-      // rather than being offered a multi-gigabyte download they do not need.
-      const usingExisting = detection?.source === "system";
-      setHeroText(
-        "Your TeX environment is ready.",
-        detection?.source === "managed" && detection?.managedVariant === "light"
-          ? uiText(
-              "You can build now. Missing packages will be installed automatically when needed.",
-              "すぐにビルドできます。足りないパッケージは必要になったとき自動で追加します。"
-            )
-          : usingExisting
-          ? uiText(
-              "TeX64 found the TeX already installed on this computer and will use it as it is.",
-              "この環境に既にある TeX を検出しました。そのまま使います。"
-            )
-          : optionalMissing
-          ? "You can build, format, and use SyncTeX. (Optional: latexindent was not detected.)"
-          : "You can build, format, and use SyncTeX right away."
-      );
+      setHeroText("Your TeX environment is ready.");
       setSetupButton({ visible: false });
       setInstallNote("");
       setChoiceVisible(false);
@@ -288,18 +256,6 @@ export const createSettingsEnvOps = (
       // renewing is urged; a full one keeps working and is only offered it.
       const renew = detection?.source === "managed" ? detection.renew : null;
       if (renew && setupBtn instanceof HTMLButtonElement) {
-        setHeroText(
-          "Your TeX environment is ready.",
-          detection?.managedVariant === "light"
-            ? uiText(
-                `TeX Live ${renew.to} is out. The ${renew.from} tree can no longer add packages; renew it to ${renew.to} (the ${renew.from} tree is removed afterwards).`,
-                `TeX Live ${renew.to} が出ました。${renew.from}年版には、もうパッケージを追加できません。${renew.to}年版に入れ直してください（入れ直したあと ${renew.from}年版は消します）。`
-              )
-            : uiText(
-                `TeX Live ${renew.to} is out. The ${renew.from} tree still builds; renewing moves it to ${renew.to}.`,
-                `TeX Live ${renew.to} が出ました。${renew.from}年版のままでもビルドできます。入れ直すと ${renew.to}年版になります。`
-              )
-        );
         setSetupButton({
           visible: true,
           disabled: false,
@@ -325,13 +281,6 @@ export const createSettingsEnvOps = (
       // cannot add packages to a tree we do not own, so the honest offer is to
       // install ours alongside it — their TeX stays exactly as it is.
       if (detection?.source === "system" && detection.recommendation.action === "expand") {
-        setHeroText(
-          "Your TeX environment is ready.",
-          uiText(
-            "It builds, but its package set is thin. TeX64 can install its own TeX Live alongside it — yours is left untouched.",
-            "ビルドはできますが、パッケージが不足しています。TeX64 専用の TeX Live を別途導入できます（既存の TeX はそのままです）。"
-          )
-        );
         if (choiceEl instanceof HTMLElement) {
           renderChoiceLabels();
           setChoiceVisible(true);
@@ -340,13 +289,7 @@ export const createSettingsEnvOps = (
       return;
     }
     setHeroState("missing");
-    setHeroText(
-      "TeX environment is not set up yet.",
-      uiText(
-        "TeX64 installs a lightweight TeX environment privately, without admin rights, and adds packages automatically when needed.",
-        "TeX64 専用の場所に軽量な TeX 環境を管理者権限なしで導入し、必要なパッケージを自動で追加します。"
-      )
-    );
+    setHeroText("TeX environment is not set up yet.");
     // The choice replaces the old single button; the button stays as the fallback
     // for a renderer whose markup predates the choice block.
     if (choiceEl instanceof HTMLElement) {
@@ -397,7 +340,7 @@ export const createSettingsEnvOps = (
   };
 
   const startInstall = (variant: TexInstallVariant, renew = false) => {
-    showInstalling(variant);
+    showInstalling();
     runtime.deps.postToNative({ type: "env:install", target: "basictex", variant, renew });
   };
 
@@ -407,7 +350,7 @@ export const createSettingsEnvOps = (
 
   const handleEnvInstallStart = (payload: { target?: string; variant?: string }) => {
     installingVariant = payload?.variant === "full" ? "full" : "light";
-    showInstalling(installingVariant);
+    showInstalling();
     runtime.deps.onRuntimeInstallEvent?.({ kind: "start", variant: installingVariant });
   };
 
@@ -423,14 +366,8 @@ export const createSettingsEnvOps = (
       typeof payload?.message === "string" && payload.message.trim()
         ? payload.message.trim()
         : "";
-    if (success) {
-      setInstallNote(rawMessage || "TeX environment installed successfully.", "success");
-    } else {
-      setInstallNote(
-        rawMessage || "Setup did not finish. Please try again, or open the guide.",
-        "error"
-      );
-    }
+    // Success shows in the hero; only a failure leaves a note.
+    setInstallNote(success ? "" : rawMessage || uiText("Setup did not finish. Please try again.", "セットアップが完了しませんでした。もう一度お試しください。"), "error");
     runtime.deps.onRuntimeInstallEvent?.({
       kind: "result",
       variant: installingVariant,
@@ -488,12 +425,6 @@ export const createSettingsEnvOps = (
 
   if (lightBtn instanceof HTMLButtonElement) {
     lightBtn.addEventListener("click", () => startInstall("light"));
-  }
-
-  if (settingsRuntimeOpenTexDocs instanceof HTMLButtonElement) {
-    settingsRuntimeOpenTexDocs.addEventListener("click", () => {
-      openExternalUrl(runtime, TEX64_LINKS.docsTexDistribution);
-    });
   }
 
   const getRuntimeStatusSummary = () =>

@@ -3,6 +3,7 @@ import { TEX64_LINKS } from "../platform-links.js";
 import type { SettingsUiRuntime } from "./runtime.js";
 import type { SettingsAttentionOps } from "./attention.js";
 import { formatBytes, openExternalUrl } from "./utils.js";
+import { uiText } from "../i18n.js";
 
 const MICROSOFT_STORE_UPDATE_MODE = "microsoft-store";
 
@@ -46,36 +47,27 @@ export const createSettingsPlatformUpdateOps = (
 
   const resolveUpdateStatusText = () => {
     const phase = runtime.state.platformUpdateStatus?.phase ?? "idle";
-    const latest =
-      runtime.state.platformUpdate?.latestVersion ?? runtime.state.platformUpdateStatus?.latestVersion ?? null;
-    if (runtime.state.platformUpdateStatus?.message && runtime.state.platformUpdateStatus.message.trim()) {
-      return runtime.state.platformUpdateStatus.message.trim();
-    }
+    // The version badges and buttons already say what idle, up-to-date,
+    // available and downloaded mean; only progress and failures get a line.
     if (phase === "checking") {
-      return "Checking for updates.";
-    }
-    if (phase === "up-to-date") {
-      return latest ? `Latest version ${latest}.` : "Up to date.";
-    }
-    if (phase === "available") {
-      return latest ? `A new version of ${latest} is available.` : "A new version is available.";
+      return uiText("Checking…", "確認中…");
     }
     if (phase === "downloading") {
       const transferred = formatBytes(runtime.state.platformUpdateStatus?.transferredBytes ?? 0);
       const total = formatBytes(runtime.state.platformUpdateStatus?.totalBytes ?? 0);
-      return `Downloading updates (${transferred} / ${total}).`;
-    }
-    if (phase === "downloaded") {
-      return "Download completed. You can launch the installer with the Apply button.";
+      return `${transferred} / ${total}`;
     }
     if (phase === "installing") {
-      return "I started the installer. Follow the on-screen instructions to update.";
+      return uiText("Installer started.", "インストーラを起動しました。");
     }
+    // The main process's own wording is kept for failures only.
     if (phase === "error") {
-      const message = runtime.state.platformUpdateStatus?.error?.message;
-      return message && message.trim() ? message.trim() : "Update processing failed.";
+      const message =
+        runtime.state.platformUpdateStatus?.message?.trim() ||
+        runtime.state.platformUpdateStatus?.error?.message?.trim();
+      return message || "Update processing failed.";
     }
-    return "Waiting for update check.";
+    return "";
   };
 
   const updatePlatformUpdateUi = () => {

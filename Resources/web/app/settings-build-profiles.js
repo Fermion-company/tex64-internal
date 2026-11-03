@@ -27,34 +27,13 @@ const normalizeBuildProfiles = (profiles) => {
     return cleaned.slice(0, 20);
 };
 export const initBuildProfilesUi = (context, deps) => {
-    const { settingsBuildProfileSelect, settingsBuildProfileName, settingsBuildOutDir, settingsBuildExtraArgs, settingsBuildEngine, settingsBuildProfileAdd, settingsBuildProfileDelete, settingsBuildProfileHint, settingsBuildCleanButton, settingsBuildCleanAllButton, } = context.dom;
+    const { settingsBuildProfileSelect, settingsBuildProfileName, settingsBuildOutDir, settingsBuildExtraArgs, settingsBuildEngine, settingsBuildProfileAdd, settingsBuildProfileDelete, settingsBuildCleanButton, settingsBuildCleanAllButton, } = context.dom;
     let buildProfiles = [];
     let activeProfileId = null;
     let saveTimer = null;
     let hasPendingSave = false;
     let lastRenderedSelectedId = null;
     const isWorkspaceReady = () => Boolean(deps.getWorkspaceRootKey());
-    const updateHint = () => {
-        var _a;
-        if (!(settingsBuildProfileHint instanceof HTMLElement)) {
-            return;
-        }
-        const enabled = isWorkspaceReady();
-        const selectedId = settingsBuildProfileSelect instanceof HTMLSelectElement
-            ? settingsBuildProfileSelect.value
-            : "";
-        const selected = selectedId && selectedId !== ""
-            ? (_a = buildProfiles.find((profile) => profile.id === selectedId)) !== null && _a !== void 0 ? _a : null
-            : null;
-        const isCustom = Boolean(selected);
-        settingsBuildProfileHint.textContent = enabled
-            ? isCustom
-                ? hasPendingSave
-                    ? "Saving..."
-                    : "Changes are saved automatically."
-                : ""
-            : "You can edit the build profile by opening the workspace.";
-    };
     const getSelectedBuildProfileId = () => {
         if (!(settingsBuildProfileSelect instanceof HTMLSelectElement)) {
             return "";
@@ -134,7 +113,6 @@ export const initBuildProfilesUi = (context, deps) => {
         if (settingsBuildProfileSelect instanceof HTMLSelectElement) {
             settingsBuildProfileSelect.disabled = !enabled;
         }
-        updateHint();
     };
     const loadStateFromDeps = () => {
         buildProfiles = normalizeBuildProfiles(deps.getBuildProfiles());
@@ -171,7 +149,6 @@ export const initBuildProfilesUi = (context, deps) => {
             return;
         }
         hasPendingSave = false;
-        updateHint();
     };
     const scheduleBuildProfilesSave = () => {
         if (saveTimer !== null) {
@@ -179,11 +156,9 @@ export const initBuildProfilesUi = (context, deps) => {
             saveTimer = null;
         }
         hasPendingSave = true;
-        updateHint();
         saveTimer = window.setTimeout(() => {
             saveTimer = null;
             hasPendingSave = false;
-            updateHint();
             postBuildProfilesUpdate(true);
         }, 320);
     };

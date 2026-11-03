@@ -80,29 +80,6 @@ export const describeStatus = (status) => {
     }
     return head;
 };
-/** The per-door breakdown, shown on the settings page only. */
-const describeDoors = (status) => {
-    const doors = [
-        status.probe.bbt.ok
-            ? uiText("Better BibTeX: connected", "Better BibTeX: 接続中")
-            : status.probe.bbt.code === "timeout"
-                ? uiText("Better BibTeX: no answer", "Better BibTeX: 応答なし")
-                : uiText("Better BibTeX: not running", "Better BibTeX: 未起動"),
-        status.probe.local.ok
-            ? uiText("Local API: connected", "ローカル API: 接続中")
-            : status.probe.local.code === "not-found" || (status.probe.local.code || "").startsWith("http-")
-                ? uiText("Local API: off in Zotero settings", "ローカル API: Zotero の設定で無効")
-                : uiText("Local API: Zotero not running", "ローカル API: Zotero 未起動"),
-        status.probe.web.ok
-            ? uiText("Web API: connected", "Web API: 接続中")
-            : status.probe.web.code === "no-key"
-                ? uiText("Web API: no API key", "Web API: API キー未設定")
-                : status.probe.web.code === "forbidden"
-                    ? uiText("Web API: key rejected", "Web API: キーが拒否されました")
-                    : uiText("Web API: no connection", "Web API: 接続できません"),
-    ];
-    return doors.join(" · ");
-};
 const bibHint = (result) => {
     const file = result.bibPath;
     const stem = file.replace(/\.bib$/i, "");
@@ -365,14 +342,10 @@ export const initZoteroSettingsUi = () => {
     const apiKeyInput = document.getElementById("settings-zotero-api-key");
     const librarySelect = document.getElementById("settings-zotero-library");
     const statusLine = document.getElementById("settings-zotero-status");
-    const explainer = document.getElementById("settings-zotero-explainer");
     const keysLink = document.getElementById("settings-zotero-open-keys");
     const navItem = document.querySelector('.settings-nav-item[data-settings-target="zotero"]');
     if (!bridge() || !(apiKeyInput instanceof HTMLInputElement) || !(librarySelect instanceof HTMLSelectElement) || !(statusLine instanceof HTMLElement))
         return;
-    if (explainer instanceof HTMLElement) {
-        explainer.textContent = uiText("With Zotero 7 or Better BibTeX running on this computer, no key is needed. An API key reaches your library and groups through zotero.org.", "この PC で Zotero 7 か Better BibTeX が動いていれば API キーは不要です。API キーを入れると zotero.org 経由でライブラリとグループを使えます。");
-    }
     if (keysLink instanceof HTMLButtonElement) {
         keysLink.textContent = uiText("Create an API key", "API キーを発行");
         keysLink.addEventListener("click", () => {
@@ -394,12 +367,11 @@ export const initZoteroSettingsUi = () => {
         if (status.libraries.length === 0) {
             const option = document.createElement("option");
             option.value = "";
-            option.textContent = uiText("Not connected", "未接続");
             librarySelect.append(option);
         }
         librarySelect.value = status.library;
         apiKeyInput.placeholder = status.hasApiKey ? "••••••••••••" : uiText("Paste a Zotero API key", "Zotero の API キーを貼り付け");
-        statusLine.textContent = status.transport ? describeStatus(status) : `${describeStatus(status)} — ${describeDoors(status)}`;
+        statusLine.textContent = status.transport ? describeStatus(status) : uiText("Not connected", "未接続");
         statusLine.classList.toggle("is-error", !status.transport);
         statusLine.classList.toggle("is-success", Boolean(status.transport));
     };

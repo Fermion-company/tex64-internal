@@ -62,7 +62,6 @@ export const initBuildProfilesUi = (
     settingsBuildEngine,
     settingsBuildProfileAdd,
     settingsBuildProfileDelete,
-    settingsBuildProfileHint,
     settingsBuildCleanButton,
     settingsBuildCleanAllButton,
   } = context.dom;
@@ -74,29 +73,6 @@ export const initBuildProfilesUi = (
   let lastRenderedSelectedId: string | null = null;
 
   const isWorkspaceReady = () => Boolean(deps.getWorkspaceRootKey());
-
-  const updateHint = () => {
-    if (!(settingsBuildProfileHint instanceof HTMLElement)) {
-      return;
-    }
-    const enabled = isWorkspaceReady();
-    const selectedId =
-      settingsBuildProfileSelect instanceof HTMLSelectElement
-        ? settingsBuildProfileSelect.value
-        : "";
-    const selected =
-      selectedId && selectedId !== ""
-        ? buildProfiles.find((profile) => profile.id === selectedId) ?? null
-        : null;
-    const isCustom = Boolean(selected);
-    settingsBuildProfileHint.textContent = enabled
-      ? isCustom
-        ? hasPendingSave
-          ? "Saving..."
-          : "Changes are saved automatically."
-        : ""
-      : "You can edit the build profile by opening the workspace.";
-  };
 
   const getSelectedBuildProfileId = () => {
     if (!(settingsBuildProfileSelect instanceof HTMLSelectElement)) {
@@ -203,7 +179,6 @@ export const initBuildProfilesUi = (
     if (settingsBuildProfileSelect instanceof HTMLSelectElement) {
       settingsBuildProfileSelect.disabled = !enabled;
     }
-    updateHint();
   };
 
   const loadStateFromDeps = () => {
@@ -247,7 +222,6 @@ export const initBuildProfilesUi = (
       return;
     }
     hasPendingSave = false;
-    updateHint();
   };
 
   const scheduleBuildProfilesSave = () => {
@@ -256,11 +230,9 @@ export const initBuildProfilesUi = (
       saveTimer = null;
     }
     hasPendingSave = true;
-    updateHint();
     saveTimer = window.setTimeout(() => {
       saveTimer = null;
       hasPendingSave = false;
-      updateHint();
       postBuildProfilesUpdate(true);
     }, 320);
   };
