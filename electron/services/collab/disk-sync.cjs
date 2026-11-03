@@ -263,6 +263,22 @@ class DiskSync {
     await fsp.rename(temporary, absolute);
   }
 
+  // A doc whose path leads out of the project is never written: it is let go
+  // before any guard sees it (the workspace's file guard would refuse it and
+  // leave it dirty for ever). Returns whether the doc may be written.
+  async keepIfSafe(docId, entry) {
+    try {
+      await this.safeAbsolute(docId);
+      return true;
+    } catch (error) {
+      if (error?.code !== "UNSAFE_PATH") throw error;
+      console.warn("[collab]", error.message);
+      entry.dirty = false;
+      this.detach(docId);
+      return false;
+    }
+  }
+
   // One write of a doc's text to disk (merging what changed there first).
   async writeOperation(docId, entry) {
     if (!this.docs.has(docId)) return;
@@ -306,6 +322,7 @@ class DiskSync {
     const entry = this.docs.get(docId);
     if (!entry || this.stopped) return;
     try {
+      if (!(await this.keepIfSafe(docId, entry))) return;
       await this.guarded(docId, () => this.writeOperation(docId, entry));
     } catch (error) {
       if (!this.docs.has(docId) || this.stopped) return;
@@ -402,6 +419,7 @@ class DiskSync {
       clearTimeout(entry.timer);
       entry.timer = null;
       try {
+        if (!(await this.keepIfSafe(docId, entry))) continue;
         if (this.coordinated) await this.deps.withFileMutation(docId, () => this.writeOperation(docId, entry));
         else await this.writeOperation(docId, entry);
       } catch (error) {

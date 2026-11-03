@@ -159,3 +159,17 @@ test("files read after \\end{document} are not part of the document", async () =
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a preamble macro that contains \\end{document} does not end the document early", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-wc-"));
+  try {
+    fs.writeFileSync(path.join(root, "main.tex"), "\\documentclass{article}\n\\newcommand{\\finish}{\\end{document}}\n\\begin{document}\n\\input{chapter}\n\\end{document}\n");
+    fs.writeFileSync(path.join(root, "chapter.tex"), "These words are printed.\n");
+    const workspace = { getRootPath: () => root, resolvePath: (r) => path.join(root, r), readFile: async (r) => fs.readFileSync(path.join(root, r), "utf8") };
+    const result = await countDocument({ workspace, mainFile: "main.tex" });
+    assert.deepEqual(result.files.map((file) => file.path), ["main.tex", "chapter.tex"]);
+    assert.equal(result.total.words, 4);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -304,9 +304,13 @@ const documentFiles = async (workspace, main, buffers) => {
     const content = await read(entry.file);
     if (content === null) continue;
     files.push({ path: entry.file, content });
-    // Only what TeX reads: nothing after \end{document} (the preamble's
-    // \input files are read).
-    const end = firstUncommented(content, /\\end\s*\{document\}/g);
+    // Only what TeX reads: nothing after the \end{document} that closes the
+    // body (the preamble's \input files are read; a macro defined there may
+    // contain \end{document} itself).
+    const begin = firstUncommented(content, /\\begin\s*\{document\}/g);
+    const endPattern = /\\end\s*\{document\}/g;
+    endPattern.lastIndex = begin ? begin.index + begin[0].length : 0;
+    const end = firstUncommented(content, endPattern);
     for (const include of parseTexIncludes(end ? content.slice(0, end.index) : content)) {
       const base = include.directory !== undefined
         ? path.posix.join(include.kind.startsWith("sub") ? entry.base : cwd, include.directory)

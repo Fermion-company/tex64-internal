@@ -250,3 +250,34 @@ test("an offline-edited file that cannot be read is kept, not deleted, when the 
   assert.equal(await hub.preserveLocal(session, "notes.tex", null), false);
   assert.equal(await hub.preserveLocal(session, "missing.tex", null), true);
 });
+
+test("with the real workspace guard, a symlinked shared path is let go and leaving still succeeds", async (t) => {
+  const { WorkspaceManager } = require("../electron/services/workspace.cjs");
+  const base = tempBase(t);
+  const root = path.join(base, "paper");
+  const outside = path.join(base, "outside");
+  fs.mkdirSync(root);
+  fs.mkdirSync(outside);
+  fs.symlinkSync(outside, path.join(root, "linked"));
+  const workspace = new WorkspaceManager();
+  workspace.setRootPath(root);
+  for (const held of [false, true]) {
+    const sync = new DiskSync({
+      rootPath: () => root,
+      withWorkspaceMutation: (operation) => operation(),
+      withFileMutation: (relative, operation) => workspace.withFileMutation(relative, operation),
+    });
+    sync.coordinated = true;
+    const doc = new Y.Doc();
+    const text = doc.getText("content");
+    text.insert(0, "planted\n");
+    sync.attach("linked/outside.tex", text, null);
+    const started = Date.now();
+    const flushed = held ? await sync.flushHeld() : await sync.flush(3000);
+    assert.equal(flushed, true, held ? "flushHeld" : "flush");
+    assert.ok(Date.now() - started < 2500, "did not wait for the timeout");
+    assert.equal(sync.has("linked/outside.tex"), false);
+    assert.equal(fs.existsSync(path.join(outside, "outside.tex")), false);
+    sync.stop();
+  }
+});
