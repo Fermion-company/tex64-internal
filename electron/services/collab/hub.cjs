@@ -28,6 +28,9 @@ const SESSION_DOC = "$session";
 const RENDERER = "renderer";
 const LOCAL = "local";
 const SCAN_INTERVAL_MS = 3000;
+// A guest asks again for a file it still lacks only this often: a 50 MB figure
+// on a slow link takes longer than a scan, and each request would send it anew.
+const BLOB_REREQUEST_MS = 30000;
 const UPDATE_LOG_MAX_BYTES = 200 * 1024 * 1024;
 const JOIN_TIMEOUT_MS = 90000;
 const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#db2777", "#0891b2", "#65a30d", "#ea580c", "#4f46e5"];
@@ -750,8 +753,10 @@ class CollabHub extends EventEmitter {
         sendWelcome(session.rootFileCache);
       }, () => sendWelcome(""));
     } else {
-      // (Re)connected to the host: ask for everything we know about.
+      // (Re)connected to the host: ask for everything we know about, and
+      // for every missing file again at the next scan.
       session.reconnected = Boolean(session.id);
+      session.blobRequests?.clear();
       this.pushState();
     }
   }
@@ -916,7 +921,18 @@ class CollabHub extends EventEmitter {
         }
       }
     });
-    if (needed.length) session.transport.broadcast(transport.encodeControl({ type: "need-blob", paths: needed }));
+    this.requestBlobs(session, needed);
+  }
+
+  // `repeat`: the scan asking again for what is still missing; a path asked
+  // for within BLOB_REREQUEST_MS is left out.
+  requestBlobs(session, paths, { repeat = false } = {}) {
+    session.blobRequests ||= new Map();
+    const now = Date.now();
+    const due = repeat ? paths.filter((relative) => now - (session.blobRequests.get(relative) || 0) >= BLOB_REREQUEST_MS) : paths;
+    if (!due.length) return;
+    for (const relative of due) session.blobRequests.set(relative, now);
+    session.transport.broadcast(transport.encodeControl({ type: "need-blob", paths: due }));
   }
 
   onRemoteFileEntry(session, relative, entry) {
@@ -943,7 +959,7 @@ class CollabHub extends EventEmitter {
     if (entry.kind === "binary" && entry.hash && session.knownBinaryHashes.get(relative) !== entry.hash) {
       if (session.role === "guest") {
         session.pendingBlobs?.add(relative);
-        session.transport.broadcast(transport.encodeControl({ type: "need-blob", paths: [relative] }));
+        this.requestBlobs(session, [relative]);
       }
       // The host receives the bytes directly from the guest that changed them.
     }
@@ -978,18 +994,31 @@ class CollabHub extends EventEmitter {
 
   async sendBlob(session, relative, conn = null, except = null) {
     if (!safeRelativePath(relative) || !session.rootPath) return;
-    const absolute = await resolveInsideRoot(session.rootPath, relative);
-    if (!absolute) return;
-    let bytes;
-    try {
-      bytes = await fsp.readFile(absolute);
-    } catch {
-      return;
+    // Guests that ask for the same file while it is still being sent share
+    // one frame: a 50 MB figure for ten guests is one buffer, not ten.
+    session.blobFrames ||= new Map();
+    const known = session.knownBinaryHashes.get(relative);
+    let frame = known ? session.blobFrames.get(`${relative}\0${known}`)?.deref() : null;
+    let hash = frame ? known : null;
+    if (!frame) {
+      const absolute = await resolveInsideRoot(session.rootPath, relative);
+      if (!absolute) return;
+      let bytes;
+      try {
+        bytes = await fsp.readFile(absolute);
+      } catch {
+        return;
+      }
+      hash = hashBuffer(bytes);
+      frame = transport.encodeBlob(relative, hash, new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+      for (const [key, ref] of session.blobFrames) if (!ref.deref()) session.blobFrames.delete(key);
+      session.blobFrames.set(`${relative}\0${hash}`, new WeakRef(frame));
     }
-    const hash = hashBuffer(bytes);
-    const frame = transport.encodeBlob(relative, hash, new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
-    if (conn) session.transport.send(conn, frame);
-    else session.transport.broadcast(frame, except);
+    // A request repeated while the file is still on its way to that peer is
+    // not queued again (the relay route honours the key).
+    const options = { key: `blob:${relative}\0${hash}` };
+    if (conn) session.transport.send(conn, frame, options);
+    else session.transport.broadcast(frame, except, options);
   }
 
   async onBlob(session, conn, frame) {
@@ -1002,6 +1031,7 @@ class CollabHub extends EventEmitter {
     if (hash !== frame.hash) return;
     if (session.knownBinaryHashes.get(relative) === hash) {
       session.pendingBlobs?.delete(relative);
+      session.blobRequests?.delete(relative);
       return;
     }
     const absolute = await resolveInsideRoot(session.rootPath, relative);
@@ -1019,6 +1049,7 @@ class CollabHub extends EventEmitter {
       session.knownBinaryHashes.set(relative, hash);
       await session.manifest?.refresh(relative);
       session.pendingBlobs?.delete(relative);
+      session.blobRequests?.delete(relative);
       if (session.role === "host") {
         session.transport.broadcast(transport.encodeBlob(relative, hash, frame.bytes), conn);
         session.sessionDoc.transact(() => {
@@ -1088,6 +1119,7 @@ class CollabHub extends EventEmitter {
           if (shared && shared.hash === entry.hash) {
             session.knownBinaryHashes.set(relative, entry.hash);
             session.pendingBlobs?.delete(relative);
+            session.blobRequests?.delete(relative);
             continue;
           }
           session.knownBinaryHashes.set(relative, entry.hash);
@@ -1119,7 +1151,7 @@ class CollabHub extends EventEmitter {
         files.forEach((entry, relative) => {
           if (entry && !entry.deleted && entry.kind === "binary" && entry.hash && session.knownBinaryHashes.get(relative) !== entry.hash) needed.push(relative);
         });
-        if (needed.length) session.transport.broadcast(transport.encodeControl({ type: "need-blob", paths: needed }));
+        this.requestBlobs(session, needed, { repeat: true });
       }
     } catch (error) {
       console.warn("[collab] scan failed", error?.message || error);

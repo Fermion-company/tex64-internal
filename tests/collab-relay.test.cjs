@@ -13,6 +13,7 @@ const WebSocket = require("ws");
 const { CollabHub } = require("../electron/services/collab/hub.cjs");
 const invite = require("../electron/services/collab/invite.cjs");
 const relay = require("../electron/services/collab/relay-transport.cjs");
+const transportKinds = require("../electron/services/collab/transport-ws.cjs");
 const { createLocalRelay } = require("../services/collab-relay/local-server.cjs");
 const { Room, KIND, encodeEnvelope, hostSecretMatches, updateQuota, ROOM_LEASE_MS, LEASE_RENEW_MS } = require("../services/collab-relay/room.mjs");
 
@@ -91,16 +92,31 @@ const channelPair = ({ receiverOptions = {} } = {}) => {
   return { sender, receiver, wire, deliver };
 };
 
-test("a channel keeps to the window, and a replayed, reordered or foreign piece closes it", () => {
-  const frame = crypto.randomBytes(10 * 1024 * 1024 + 5);
-  const { sender, wire, deliver } = channelPair();
-  sender.enqueue(frame);
-  const firstBurst = wire.toReceiver.reduce((sum, bytes) => sum + bytes.length - 5 - 16, 0);
-  assert.equal(firstBurst, relay.WINDOW_BYTES, "no more than the window goes out before an acknowledgement");
-  deliver();
-  assert.equal(wire.frames.length, 1);
-  assert.ok(wire.frames[0].equals(frame), "10 MiB arrives whole once the acknowledgements flow");
-  assert.deepEqual(wire.failures, []);
+// A frame of the given kind (its first byte): blob frames take the bulk lane.
+const frameOf = (kind, bytes) => Buffer.concat([Buffer.from([kind]), crypto.randomBytes(bytes - 1)]);
+const payload = (pieces) => pieces.reduce((sum, bytes) => sum + bytes.length - 6 - 16, 0);
+
+test("a channel keeps to each lane's window, and a replayed, reordered or foreign piece closes it", () => {
+  for (const [kind, lane] of [[transportKinds.FRAME_SYNC, relay.URGENT], [transportKinds.FRAME_BLOB, relay.BULK]]) {
+    const frame = frameOf(kind, 10 * 1024 * 1024 + 5);
+    const { sender, wire, deliver } = channelPair();
+    sender.enqueue(frame);
+    assert.equal(payload(wire.toReceiver), relay.WINDOW_BYTES[lane], "no more than the lane's window goes out before an acknowledgement");
+    deliver();
+    assert.equal(wire.frames.length, 1);
+    assert.ok(wire.frames[0].equals(frame), "10 MiB arrives whole once the acknowledgements flow");
+    assert.deepEqual(wire.failures, []);
+  }
+
+  // An edit queued behind a figure overtakes it.
+  const lanes = channelPair();
+  const figure = frameOf(transportKinds.FRAME_BLOB, 3 * 1024 * 1024);
+  const edit = frameOf(transportKinds.FRAME_SYNC, 100);
+  lanes.sender.enqueue(figure);
+  lanes.sender.enqueue(edit);
+  lanes.deliver();
+  assert.deepEqual(lanes.wire.frames.map((frame) => frame.length), [edit.length, figure.length], "the edit arrives before the figure is complete");
+  assert.ok(lanes.wire.frames[1].equals(figure));
 
   // The relay sends a piece again: its counter is spent, so it does not open.
   const replayed = channelPair();
@@ -152,12 +168,12 @@ test("acknowledgements are cumulative and wait for room on the socket", () => {
   for (let index = 0; index < 5000; index += 1) tiny.sender.enqueue(Buffer.from("x"));
   tiny.deliver();
   assert.equal(tiny.wire.frames.length, 5000);
-  assert.equal(tiny.receiver.ackedConsumed, 0, "no acknowledgement for 5000 bytes");
+  assert.deepEqual(tiny.receiver.ackedConsumed, [0, 0], "no acknowledgement for 5000 bytes");
 
   // A full window still flows, and an acknowledgement waits while the socket is backed up.
   let roomy = false;
   const backed = channelPair({ receiverOptions: { canWrite: () => roomy } });
-  backed.sender.enqueue(crypto.randomBytes(2 * relay.WINDOW_BYTES));
+  backed.sender.enqueue(frameOf(transportKinds.FRAME_SYNC, 2 * relay.WINDOW_BYTES[relay.URGENT]));
   while (backed.wire.toReceiver.length) backed.receiver.receive(backed.wire.toReceiver.shift());
   assert.equal(backed.wire.toSender.length, 0, "nothing written while the socket has no room");
   roomy = true;

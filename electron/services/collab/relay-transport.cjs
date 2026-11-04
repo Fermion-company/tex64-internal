@@ -12,17 +12,23 @@
 // it — can neither read a guest's hello (its token) nor speak for the host.
 // Frames travel in sealed pieces (AES-256-GCM, the nonce is a per-direction
 // counter): a replayed, dropped or reordered piece fails to open and the
-// channel is closed, so the guest reconnects and resyncs. The receiver
-// acknowledges what it consumed (cumulatively, every quarter window) and the
-// sender keeps at most WINDOW_BYTES unacknowledged, so neither the relay nor
-// the host buffers a 50 MB figure per guest. See docs/collab-relay.md.
+// channel is closed, so the guest reconnects and resyncs.
+//
+// A channel has two lanes. File bytes (blob frames) go in the bulk lane;
+// everything else — edits, presence, control — in the urgent lane, which is
+// served first, so typing is not stuck behind a 50 MB figure. Each lane keeps
+// to its own window of unacknowledged bytes (the receiver acknowledges every
+// ACK_EVERY bytes it consumed), and the bulk window is small, so the relay
+// never holds much file data in front of an edit. The socket is kept short
+// too (SOCKET_HIGH_WATER): on a 1 MB/s uplink nothing waits long in it. The
+// host sends one piece per guest in turn. See docs/collab-relay.md.
 //
 // The two transports keep the interface of HostTransport / GuestTransport, so
 // the hub does not know which route a session uses.
 
 const crypto = require("node:crypto");
 const { EventEmitter } = require("node:events");
-const { decodeFrame, encodeControl, FRAME_CONTROL, MAX_FRAME_BYTES, MAX_CLIENTS } = require("./transport-ws.cjs");
+const { decodeFrame, encodeControl, FRAME_BLOB, FRAME_CONTROL, MAX_FRAME_BYTES, MAX_CLIENTS } = require("./transport-ws.cjs");
 
 // Relay envelopes; services/collab-relay/room.mjs has the other side.
 const SEND = 0x01;
@@ -40,12 +46,17 @@ const REFUSED = 0x24;
 // Channel messages between a guest and the host, opaque to the relay.
 const HANDSHAKE_GUEST = 0x01; // · guest ephemeral public key (32)
 const HANDSHAKE_HOST = 0x02; // · host ephemeral public key (32)
-const PIECE = 0x03; // · index u16 · count u16 · sealed piece (the 5-byte head is the AAD)
-const ACK = 0x04; // · plaintext bytes consumed so far (u64)
+const PIECE = 0x03; // · lane u8 · index u16 · count u16 · sealed piece (the 6-byte head is the AAD)
+const ACK = 0x04; // · plaintext bytes consumed so far per lane (urgent u64 · bulk u64)
 const KEEPALIVE = 0x05;
 
-const PIECE_BYTES = 512 * 1024;
-const WINDOW_BYTES = 4 * 1024 * 1024;
+const URGENT = 0;
+const BULK = 1;
+const PIECE_HEAD = 6;
+const PIECE_BYTES = 256 * 1024;
+// Unacknowledged bytes per lane: room for edits, and little file data in flight.
+const WINDOW_BYTES = [4 * 1024 * 1024, 1024 * 1024];
+const ACK_EVERY = 256 * 1024;
 const TAG_BYTES = 16;
 const KEY_BYTES = 32;
 // A peer that lets this much pile up for it counts as stuck: its connection
@@ -57,8 +68,9 @@ const HOST_REASSEMBLY_BUDGET = 256 * 1024 * 1024;
 // (it may only send state requests, presence and file requests).
 const PRE_HELLO_FRAME_BYTES = 64 * 1024;
 const VIEWER_FRAME_BYTES = 1024 * 1024;
-// The host's one relay socket carries every guest's channel.
-const SOCKET_HIGH_WATER = 16 * 1024 * 1024;
+// The host's one relay socket carries every guest's channel; a short queue
+// keeps a ping or an edit from waiting behind seconds of file data.
+const SOCKET_HIGH_WATER = 1024 * 1024;
 
 // Tests shorten these.
 const TIMING = {
@@ -107,11 +119,14 @@ const counterNonce = (counter) => {
 };
 
 const ackMessage = (consumed) => {
-  const out = Buffer.alloc(9);
+  const out = Buffer.alloc(17);
   out[0] = ACK;
-  out.writeBigUInt64BE(BigInt(consumed), 1);
+  out.writeBigUInt64BE(BigInt(consumed[URGENT]), 1);
+  out.writeBigUInt64BE(BigInt(consumed[BULK]), 9);
   return out;
 };
+
+const laneOf = (frame) => (frame[0] === FRAME_BLOB ? BULK : URGENT);
 
 const createBudget = (limit) => ({
   used: 0,
@@ -125,81 +140,113 @@ const createBudget = (limit) => ({
   },
 });
 
-// One direction pair of an authenticated channel: queues frames, cuts and
-// seals them within the peer's window, and opens and joins what arrives.
+// One direction pair of an authenticated channel: queues frames in two lanes,
+// cuts and seals them within each lane's window, and opens and joins what
+// arrives. `wake` asks for a send turn (the host's transport runs turns for
+// all its guests); on its own the channel sends as much as it may.
 class Channel {
-  constructor({ sendKey, recvKey, write, onFrame, onFail, canWrite = () => true, maxFrameBytes = MAX_FRAME_BYTES, budget = null, timing = TIMING }) {
+  constructor({ sendKey, recvKey, write, onFrame, onFail, canWrite = () => true, wake = null, maxFrameBytes = MAX_FRAME_BYTES, budget = null, timing = TIMING }) {
     this.sendKey = sendKey;
     this.recvKey = recvKey;
     this.write = write;
     this.onFrame = onFrame;
     this.onFail = onFail;
     this.canWrite = canWrite;
+    this.wake = wake || (() => this.pump());
     this.maxFrameBytes = maxFrameBytes;
     this.budget = budget;
     this.timing = timing;
     this.failed = false;
-    this.queue = [];
+    this.queues = [[], []];
+    this.queuedKeys = new Set();
     this.queuedBytes = 0;
-    this.nextIndex = 0;
+    this.nextIndex = [0, 0];
     this.sendCounter = 0;
-    this.sentBytes = 0;
-    this.ackedBytes = 0;
+    this.sent = [0, 0];
+    this.acked = [0, 0];
     this.retryTimer = null;
     this.recvCounter = 0;
-    this.parts = [];
-    this.partBytes = 0;
-    this.partCount = 0;
-    this.consumed = 0;
-    this.ackedConsumed = 0;
-    this.lastPiece = 0;
+    this.incoming = [this.emptyIncoming(), this.emptyIncoming()];
+    this.consumed = [0, 0];
+    this.ackedConsumed = [0, 0];
+    this.ackPending = false;
     this.lastSent = Date.now();
     this.lastHeard = Date.now();
   }
 
-  enqueue(frame) {
+  emptyIncoming() {
+    return { parts: [], bytes: 0, count: 0, lastPiece: 0 };
+  }
+
+  // `key` names what the frame carries (a file at a hash): while one with
+  // the same key is still queued or on its way, another is not added.
+  enqueue(frame, key = null) {
     if (this.failed) return false;
+    if (key && this.queuedKeys.has(key)) return true;
     const bytes = Buffer.isBuffer(frame) ? frame : Buffer.from(frame.buffer, frame.byteOffset, frame.byteLength);
     if (this.queuedBytes + bytes.length > MAX_QUEUED_BYTES) {
       this.fail(CODE.OVERLOAD);
       return false;
     }
-    this.queue.push(bytes);
+    this.queues[laneOf(bytes)].push({ bytes, key });
+    if (key) this.queuedKeys.add(key);
     this.queuedBytes += bytes.length;
-    this.pump();
+    this.wake();
     return true;
   }
 
-  pump() {
-    while (!this.failed && this.queue.length) {
-      const frame = this.queue[0];
+  // Writes one piece if a lane's window and the socket allow, urgent lane
+  // first. Returns whether it wrote.
+  sendOne() {
+    if (this.failed || !this.canWrite()) return false;
+    for (const lane of [URGENT, BULK]) {
+      const queue = this.queues[lane];
+      if (!queue.length) continue;
+      const frame = queue[0].bytes;
       const count = Math.max(1, Math.ceil(frame.length / PIECE_BYTES));
-      const index = this.nextIndex;
+      const index = this.nextIndex[lane];
       const piece = frame.subarray(index * PIECE_BYTES, (index + 1) * PIECE_BYTES);
-      const inFlight = this.sentBytes - this.ackedBytes;
-      if (inFlight > 0 && inFlight + piece.length > WINDOW_BYTES) return;
-      if (!this.canWrite()) {
-        this.retryLater();
-        return;
-      }
-      const head = Buffer.alloc(5);
+      const inFlight = this.sent[lane] - this.acked[lane];
+      if (inFlight > 0 && inFlight + piece.length > WINDOW_BYTES[lane]) continue;
+      const head = Buffer.alloc(PIECE_HEAD);
       head[0] = PIECE;
-      head.writeUInt16BE(index, 1);
-      head.writeUInt16BE(count, 3);
+      head[1] = lane;
+      head.writeUInt16BE(index, 2);
+      head.writeUInt16BE(count, 4);
       const cipher = crypto.createCipheriv("aes-256-gcm", this.sendKey, counterNonce(this.sendCounter));
       this.sendCounter += 1;
       cipher.setAAD(head);
       this.write(Buffer.concat([head, cipher.update(piece), cipher.final(), cipher.getAuthTag()]));
       this.lastSent = Date.now();
-      this.sentBytes += piece.length;
+      this.sent[lane] += piece.length;
       if (index + 1 < count) {
-        this.nextIndex = index + 1;
+        this.nextIndex[lane] = index + 1;
       } else {
-        this.queue.shift();
+        const { key } = queue.shift();
+        if (key) this.queuedKeys.delete(key);
         this.queuedBytes -= frame.length;
-        this.nextIndex = 0;
+        this.nextIndex[lane] = 0;
       }
+      return true;
     }
+    return false;
+  }
+
+  // Whether a piece could go out once the socket has room.
+  hasWork() {
+    if (this.failed) return false;
+    if (this.ackPending) return true;
+    return [URGENT, BULK].some((lane) => {
+      if (!this.queues[lane].length) return false;
+      const inFlight = this.sent[lane] - this.acked[lane];
+      return inFlight === 0 || inFlight + Math.min(PIECE_BYTES, this.queues[lane][0].bytes.length) <= WINDOW_BYTES[lane];
+    });
+  }
+
+  pump() {
+    this.flushAck();
+    while (this.sendOne());
+    if (this.hasWork() && !this.canWrite()) this.retryLater();
   }
 
   retryLater() {
@@ -207,7 +254,6 @@ class Channel {
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       this.pump();
-      this.acknowledge();
     }, 20);
     this.retryTimer.unref?.();
   }
@@ -218,18 +264,23 @@ class Channel {
     this.lastSent = Date.now();
   }
 
-  // Acknowledgements are cumulative: one is written per quarter window
-  // consumed, and only when the socket has room, so a stream of tiny frames
-  // cannot pile them up. The sender stops at a full window, well past the
-  // quarter, so it always gets one.
+  // Acknowledgements are cumulative: one is due per ACK_EVERY bytes consumed
+  // in a lane, and it is written only when the socket has room, so a stream
+  // of tiny frames cannot pile them up. Each lane's sender stops at a full
+  // window, past ACK_EVERY, so it always gets one.
   acknowledge() {
-    if (this.failed || this.consumed - this.ackedConsumed < WINDOW_BYTES / 4) return;
-    if (!this.canWrite()) {
-      this.retryLater();
-      return;
-    }
-    this.ackedConsumed = this.consumed;
+    if (this.failed) return;
+    if (this.consumed.some((consumed, lane) => consumed - this.ackedConsumed[lane] >= ACK_EVERY)) this.ackPending = true;
+    if (!this.ackPending) return;
+    if (!this.flushAck()) this.wake();
+  }
+
+  flushAck() {
+    if (this.failed || !this.ackPending || !this.canWrite()) return false;
+    this.ackPending = false;
+    this.ackedConsumed = [...this.consumed];
     this.write(ackMessage(this.consumed));
+    return true;
   }
 
   receive(bytes) {
@@ -238,40 +289,42 @@ class Channel {
     const type = bytes[0];
     if (type === KEEPALIVE) return;
     if (type === ACK) {
-      if (bytes.length !== 9) {
+      if (bytes.length !== 17) {
         this.fail(CODE.BAD_FRAME);
         return;
       }
-      const consumed = Number(bytes.readBigUInt64BE(1));
-      if (consumed >= this.ackedBytes && consumed <= this.sentBytes) {
-        this.ackedBytes = consumed;
-        this.pump();
-      }
+      [URGENT, BULK].forEach((lane) => {
+        const consumed = Number(bytes.readBigUInt64BE(1 + 8 * lane));
+        if (consumed >= this.acked[lane] && consumed <= this.sent[lane]) this.acked[lane] = consumed;
+      });
+      this.wake();
       return;
     }
-    if (type !== PIECE || bytes.length < 5 + TAG_BYTES) {
+    if (type !== PIECE || bytes.length < PIECE_HEAD + TAG_BYTES || bytes[1] > BULK) {
       this.fail(CODE.BAD_FRAME);
       return;
     }
-    const index = bytes.readUInt16BE(1);
-    const count = bytes.readUInt16BE(3);
+    const lane = bytes[1];
+    const incoming = this.incoming[lane];
+    const index = bytes.readUInt16BE(2);
+    const count = bytes.readUInt16BE(4);
     const maxPieces = Math.max(1, Math.ceil(this.maxFrameBytes / PIECE_BYTES));
-    if (count === 0 || count > maxPieces || index !== this.parts.length || (index > 0 && count !== this.partCount)) {
+    if (count === 0 || count > maxPieces || index !== incoming.parts.length || (index > 0 && count !== incoming.count)) {
       this.fail(CODE.BAD_FRAME);
       return;
     }
     let plain;
     try {
       const decipher = crypto.createDecipheriv("aes-256-gcm", this.recvKey, counterNonce(this.recvCounter));
-      decipher.setAAD(bytes.subarray(0, 5));
+      decipher.setAAD(bytes.subarray(0, PIECE_HEAD));
       decipher.setAuthTag(bytes.subarray(bytes.length - TAG_BYTES));
-      plain = Buffer.concat([decipher.update(bytes.subarray(5, bytes.length - TAG_BYTES)), decipher.final()]);
+      plain = Buffer.concat([decipher.update(bytes.subarray(PIECE_HEAD, bytes.length - TAG_BYTES)), decipher.final()]);
     } catch {
       this.fail(CODE.BAD_FRAME);
       return;
     }
     this.recvCounter += 1;
-    if (this.partBytes + plain.length > this.maxFrameBytes) {
+    if (incoming.bytes + plain.length > this.maxFrameBytes) {
       this.fail(CODE.BAD_FRAME);
       return;
     }
@@ -279,15 +332,15 @@ class Channel {
       this.fail(CODE.OVERLOAD);
       return;
     }
-    this.parts.push(plain);
-    this.partBytes += plain.length;
-    this.partCount = count;
-    this.lastPiece = Date.now();
-    this.consumed += plain.length;
+    incoming.parts.push(plain);
+    incoming.bytes += plain.length;
+    incoming.count = count;
+    incoming.lastPiece = Date.now();
+    this.consumed[lane] += plain.length;
     let frame = null;
-    if (this.parts.length === count) {
-      frame = this.parts.length === 1 ? this.parts[0] : Buffer.concat(this.parts);
-      this.releaseParts();
+    if (incoming.parts.length === count) {
+      frame = incoming.parts.length === 1 ? incoming.parts[0] : Buffer.concat(incoming.parts);
+      this.releaseParts(lane);
     }
     this.acknowledge();
     if (frame) this.onFrame(frame);
@@ -296,24 +349,24 @@ class Channel {
   // Returns a close code when the channel is overdue, else null.
   overdue(now) {
     if (this.failed) return null;
-    if (this.parts.length && now - this.lastPiece >= this.timing.stallMs) return CODE.OVERLOAD;
+    if (this.incoming.some((incoming) => incoming.parts.length && now - incoming.lastPiece >= this.timing.stallMs)) return CODE.OVERLOAD;
     if (now - this.lastHeard >= this.timing.silenceMs) return CODE.SILENT;
     return null;
   }
 
-  releaseParts() {
-    this.budget?.give(this.partBytes);
-    this.parts = [];
-    this.partBytes = 0;
-    this.partCount = 0;
+  releaseParts(lane) {
+    this.budget?.give(this.incoming[lane].bytes);
+    this.incoming[lane] = this.emptyIncoming();
   }
 
   close() {
     this.failed = true;
     clearTimeout(this.retryTimer);
     this.retryTimer = null;
-    this.releaseParts();
-    this.queue = [];
+    this.releaseParts(URGENT);
+    this.releaseParts(BULK);
+    this.queues = [[], []];
+    this.queuedKeys.clear();
     this.queuedBytes = 0;
   }
 
@@ -383,6 +436,8 @@ class RelayHostTransport extends EventEmitter {
     this.lastPing = 0;
     this.socketOpenedAt = 0;
     this.budget = createBudget(HOST_REASSEMBLY_BUDGET);
+    this.turn = 0;
+    this.flushTimer = null;
     // Relay connection id → conn, from PEER_OPEN until PEER_CLOSE; a conn
     // joins `connections` once its hello checks out.
     this.peers = new Map();
@@ -558,7 +613,8 @@ class RelayHostTransport extends EventEmitter {
       sendKey: keys.toGuest,
       recvKey: keys.toHost,
       write: (bytes) => safeSend(this.socket, envelope(SEND, conn.peer, bytes)),
-      canWrite: () => (this.socket?.bufferedAmount ?? 0) < SOCKET_HIGH_WATER,
+      canWrite: () => this.canWrite(),
+      wake: () => this.flush(),
       onFrame: (plain) => this.onChannelFrame(conn, plain),
       // Before the hello, any failure is a wrong link: 4004 makes the guest
       // give up instead of retrying.
@@ -596,6 +652,42 @@ class RelayHostTransport extends EventEmitter {
     this.emit("open", conn);
   }
 
+  canWrite() {
+    return Boolean(this.socket) && this.socket.readyState === 1 && this.socket.bufferedAmount < SOCKET_HIGH_WATER;
+  }
+
+  // Send turns for every guest's channel: one piece each, in rotation, while
+  // the socket has room, so one guest's figure does not crowd out the rest.
+  flush() {
+    const channels = [...this.peers.values()].map((conn) => conn.channel).filter((channel) => channel && !channel.failed);
+    if (!channels.length) return;
+    let wrote = true;
+    while (wrote) {
+      wrote = false;
+      for (let offset = 0; offset < channels.length; offset += 1) {
+        if (!this.canWrite()) {
+          this.turn = (this.turn + offset) % channels.length;
+          if (channels.some((channel) => channel.hasWork())) this.flushLater();
+          return;
+        }
+        const channel = channels[(this.turn + offset) % channels.length];
+        const acknowledged = channel.flushAck();
+        const sent = channel.sendOne();
+        if (acknowledged || sent) wrote = true;
+      }
+      this.turn = (this.turn + 1) % channels.length;
+    }
+  }
+
+  flushLater() {
+    if (this.flushTimer || this.closed) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      this.flush();
+    }, 20);
+    this.flushTimer.unref?.();
+  }
+
   forgetPeer(peerId) {
     const conn = this.peers.get(peerId);
     if (!conn) return;
@@ -617,14 +709,15 @@ class RelayHostTransport extends EventEmitter {
     for (const peerId of [...this.peers.keys()]) this.forgetPeer(peerId);
   }
 
-  send(conn, data) {
+  // options.key: see Channel.enqueue (the LAN route ignores it).
+  send(conn, data, options = {}) {
     if (!this.connections.has(conn)) return false;
-    return conn.channel.enqueue(data);
+    return conn.channel.enqueue(data, options.key);
   }
 
-  broadcast(data, except = null) {
+  broadcast(data, except = null, options = {}) {
     for (const conn of [...this.connections]) {
-      if (conn !== except) conn.channel.enqueue(data);
+      if (conn !== except) conn.channel.enqueue(data, options.key);
     }
   }
 
@@ -632,8 +725,10 @@ class RelayHostTransport extends EventEmitter {
     this.closed = true;
     clearTimeout(this.timer);
     clearInterval(this.ticker);
+    clearTimeout(this.flushTimer);
     this.timer = null;
     this.ticker = null;
+    this.flushTimer = null;
     const socket = this.socket;
     // 1000 tells each guest the session ended, as the LAN route does.
     for (const conn of [...this.peers.values()]) {
@@ -854,13 +949,13 @@ class RelayGuestTransport extends EventEmitter {
     this.timer.unref?.();
   }
 
-  send(_conn, data) {
+  send(_conn, data, options = {}) {
     if (!this.connected || !this.channel) return false;
-    return this.channel.enqueue(data);
+    return this.channel.enqueue(data, options.key);
   }
 
-  broadcast(data) {
-    this.send(this.conn, data);
+  broadcast(data, _except = null, options = {}) {
+    this.send(this.conn, data, options);
   }
 
   close() {
@@ -884,6 +979,9 @@ class RelayGuestTransport extends EventEmitter {
 module.exports = {
   PIECE_BYTES,
   WINDOW_BYTES,
+  ACK_EVERY,
+  URGENT,
+  BULK,
   TIMING,
   CODE,
   Channel,
