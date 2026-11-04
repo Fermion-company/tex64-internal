@@ -466,7 +466,8 @@ export const attachZoteroEditor = (
     label: uiText("Insert citation from Zotero…", "Zotero から引用を挿入…"),
     contextMenuGroupId: "9_cite",
     contextMenuOrder: 1,
-    precondition: isTex ? "tex64.isTexFile" : undefined,
+    // A view-only guest's .bib is the host's; nothing is cited from there.
+    precondition: isTex ? "tex64.isTexFile && !tex64CollabViewer" : "!tex64CollabViewer",
     run: () => openZoteroDialog(editor, getActiveFilePath),
   });
 };

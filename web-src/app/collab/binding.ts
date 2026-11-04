@@ -14,6 +14,7 @@ import { collabSession, type CollabState } from "./session.js";
 import { collabCursors } from "./cursors.js";
 import { contentDigest } from "./digest.js";
 import { getEditorOperationGuard } from "../editor-operation-guard.js";
+import { uiText } from "../i18n.js";
 
 type Vendor = {
   Y: any;
@@ -424,8 +425,14 @@ export const initCollabBinding = (deps: {
   // View-only guest: every editor is read-only for the whole session (the
   // mirror is the host's folder). New editors (split view) follow.
   const viewGuard = getEditorOperationGuard(deps.editorSession);
-  const syncViewLock = () => viewGuard.setLocked("collab-view", collabSession.isViewer());
-  window.addEventListener("tex64:editor-created", () => { if (collabSession.isViewer()) viewGuard.refresh(); });
+  const syncViewLock = () => {
+    const viewer = collabSession.isViewer();
+    viewGuard.setLocked("collab-view", viewer);
+    // Typing in a locked editor says why, in the user's language.
+    const message = viewer ? { value: uiText("You joined to view, so you cannot edit.", "閲覧のみで参加しているため、編集できません。") } : undefined;
+    for (const group of deps.editorSession.getEditorGroups()) (group.editor as any)?.updateOptions?.({ readOnlyMessage: message });
+  };
+  window.addEventListener("tex64:editor-created", () => { if (collabSession.isViewer()) syncViewLock(); });
 
   collabSession.onChange((state) => {
     syncViewLock();

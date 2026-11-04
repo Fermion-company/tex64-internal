@@ -73,7 +73,8 @@ export const attachArxivSearch = (editor, group) => {
         label: uiText("Find related papers on arXiv…", "arXiv で関連文献を探す…"),
         contextMenuGroupId: "9_cite",
         contextMenuOrder: 1,
-        precondition: texKey ? CONTEXT_KEY : undefined,
+        // A view-only guest's .bib is the host's; nothing is cited from there.
+        precondition: texKey ? `${CONTEXT_KEY} && !tex64CollabViewer` : "!tex64CollabViewer",
         run: () => openArxivSearch(editor, group),
     });
 };
