@@ -2,12 +2,23 @@
 
 // The internet route for a session: the host and every guest dial out to the
 // collab relay (services/collab-relay), which pairs them up by room and moves
-// bytes. Each frame is sealed end to end with the room key from the invite
-// link (AES-256-GCM, a fresh nonce per message), so the relay sees only who is
-// connected and how long each message is. Sealed messages larger than one
-// relay message are cut into pieces:  msgId(u32) · index(u16) · count(u16) · piece.
-// The two classes keep the interface of HostTransport / GuestTransport, so the
-// hub does not know which route a session uses. See docs/collab-relay.md.
+// bytes. The relay is trusted to stay up, not with the content.
+//
+// Each guest connection is its own channel to the host (Noise NK in shape):
+// the invite link carries the host's static X25519 public key; the guest
+// sends a fresh ephemeral key, the host answers with one of its own, and both
+// derive this connection's two traffic keys from DH(eₘ, eₕ) and DH(eₘ, S).
+// Only the host can derive them, so the relay — or a link holder working with
+// it — can neither read a guest's hello (its token) nor speak for the host.
+// Frames travel in sealed pieces (AES-256-GCM, the nonce is a per-direction
+// counter): a replayed, dropped or reordered piece fails to open and the
+// channel is closed, so the guest reconnects and resyncs. The receiver
+// acknowledges what it consumed and the sender keeps at most WINDOW_BYTES
+// unacknowledged, so neither the relay nor the host buffers a 50 MB figure
+// per guest. See docs/collab-relay.md.
+//
+// The two transports keep the interface of HostTransport / GuestTransport, so
+// the hub does not know which route a session uses.
 
 const crypto = require("node:crypto");
 const { EventEmitter } = require("node:events");
@@ -19,110 +30,282 @@ const CLOSE_PEER = 0x03;
 const PEER_OPEN = 0x11;
 const PEER_DATA = 0x12;
 const PEER_CLOSE = 0x13;
+const REFUSED_HOST = 0x14;
 const HOST_DATA = 0x21;
 const HOST_OPEN = 0x22;
 const HOST_GONE = 0x23;
+const REFUSED = 0x24;
+
+// Channel messages between a guest and the host, opaque to the relay.
+const HANDSHAKE_GUEST = 0x01; // · guest ephemeral public key (32)
+const HANDSHAKE_HOST = 0x02; // · host ephemeral public key (32)
+const PIECE = 0x03; // · index u16 · count u16 · sealed piece (the 5-byte head is the AAD)
+const ACK = 0x04; // · plaintext bytes consumed so far (u64)
+const KEEPALIVE = 0x05;
 
 const PIECE_BYTES = 512 * 1024;
-const PIECE_HEADER = 8;
-const NONCE_BYTES = 12;
+const WINDOW_BYTES = 4 * 1024 * 1024;
 const TAG_BYTES = 16;
-const MAX_SEALED_BYTES = MAX_FRAME_BYTES + NONCE_BYTES + TAG_BYTES;
-// Each direction has its own associated data, so the relay cannot reflect a
-// host's message back to it as if a guest had sent it.
-const AAD_TO_GUEST = Buffer.from("tex64-collab-relay-v1 host>guest");
-const AAD_TO_HOST = Buffer.from("tex64-collab-relay-v1 guest>host");
+const KEY_BYTES = 32;
+// A peer that lets this much pile up for it counts as stuck: its connection
+// is closed and it resyncs when it comes back.
+const MAX_QUEUED_BYTES = 512 * 1024 * 1024;
+// Partial frames the host holds for all guests together.
+const HOST_REASSEMBLY_BUDGET = 256 * 1024 * 1024;
+// Largest frame before the hello checks out, and from a view-only guest
+// (it may only send state requests, presence and file requests).
+const PRE_HELLO_FRAME_BYTES = 64 * 1024;
+const VIEWER_FRAME_BYTES = 1024 * 1024;
+// The host's one relay socket carries every guest's channel.
+const SOCKET_HIGH_WATER = 16 * 1024 * 1024;
+
+// Tests shorten these.
+const TIMING = {
+  tickMs: 5000,
+  keepaliveMs: 25000, // send something at least this often (relay ping, channel keepalive)
+  socketSilenceMs: 60000, // nothing from the relay for this long: the socket is dead
+  silenceMs: 75000, // nothing from the other end of a channel for this long: it is gone
+  handshakeMs: 15000, // from PEER_OPEN / HOST_OPEN to an authenticated channel
+  stallMs: 60000, // a partial frame with no new piece for this long
+};
+
+const CODE = {
+  HELLO_TIMEOUT: 4001,
+  BAD_FRAME: 4003,
+  UNAUTHORIZED: 4004,
+  FULL: 4005,
+  OVERLOAD: 4008,
+  SILENT: 4012,
+};
 
 const toBuffer = (data) => (Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data));
 
-const seal = (key, aad, plain) => {
-  const nonce = crypto.randomBytes(NONCE_BYTES);
-  const cipher = crypto.createCipheriv("aes-256-gcm", key, nonce);
-  cipher.setAAD(aad);
-  const body = Buffer.concat([cipher.update(plain), cipher.final()]);
-  return Buffer.concat([nonce, body, cipher.getAuthTag()]);
+const rawPublicKey = (keyObject) => Buffer.from(keyObject.export({ format: "jwk" }).x, "base64url");
+const publicKeyFromRaw = (raw) => crypto.createPublicKey({ key: { kty: "OKP", crv: "X25519", x: Buffer.from(raw).toString("base64url") }, format: "jwk" });
+const newKeyPair = () => crypto.generateKeyPairSync("x25519");
+// Throws for a low-order public key (the shared secret would be all zeros).
+const dh = (privateKey, publicRaw) => crypto.diffieHellman({ privateKey, publicKey: publicKeyFromRaw(publicRaw) });
+
+const deriveKeys = ({ ee, es, hostStatic, guestEphemeral, hostEphemeral }) => {
+  const okm = Buffer.from(crypto.hkdfSync(
+    "sha256",
+    Buffer.concat([ee, es]),
+    Buffer.from("tex64-collab-relay-v2"),
+    Buffer.concat([hostStatic, guestEphemeral, hostEphemeral]),
+    2 * KEY_BYTES,
+  ));
+  return { toHost: okm.subarray(0, KEY_BYTES), toGuest: okm.subarray(KEY_BYTES) };
 };
 
-// Returns the plaintext, or null when the message was not sealed with this key.
-const unseal = (key, aad, sealed) => {
-  if (sealed.length < NONCE_BYTES + TAG_BYTES) return null;
-  try {
-    const decipher = crypto.createDecipheriv("aes-256-gcm", key, sealed.subarray(0, NONCE_BYTES));
-    decipher.setAAD(aad);
-    decipher.setAuthTag(sealed.subarray(sealed.length - TAG_BYTES));
-    return Buffer.concat([decipher.update(sealed.subarray(NONCE_BYTES, sealed.length - TAG_BYTES)), decipher.final()]);
-  } catch {
+const counterNonce = (counter) => {
+  const nonce = Buffer.alloc(12);
+  nonce.writeBigUInt64BE(BigInt(counter), 4);
+  return nonce;
+};
+
+const ackMessage = (consumed) => {
+  const out = Buffer.alloc(9);
+  out[0] = ACK;
+  out.writeBigUInt64BE(BigInt(consumed), 1);
+  return out;
+};
+
+const createBudget = (limit) => ({
+  used: 0,
+  take(bytes) {
+    if (this.used + bytes > limit) return false;
+    this.used += bytes;
+    return true;
+  },
+  give(bytes) {
+    this.used = Math.max(0, this.used - bytes);
+  },
+});
+
+// One direction pair of an authenticated channel: queues frames, cuts and
+// seals them within the peer's window, and opens and joins what arrives.
+class Channel {
+  constructor({ sendKey, recvKey, write, onFrame, onFail, canWrite = () => true, maxFrameBytes = MAX_FRAME_BYTES, budget = null, timing = TIMING }) {
+    this.sendKey = sendKey;
+    this.recvKey = recvKey;
+    this.write = write;
+    this.onFrame = onFrame;
+    this.onFail = onFail;
+    this.canWrite = canWrite;
+    this.maxFrameBytes = maxFrameBytes;
+    this.budget = budget;
+    this.timing = timing;
+    this.failed = false;
+    this.queue = [];
+    this.queuedBytes = 0;
+    this.nextIndex = 0;
+    this.sendCounter = 0;
+    this.sentBytes = 0;
+    this.ackedBytes = 0;
+    this.retryTimer = null;
+    this.recvCounter = 0;
+    this.parts = [];
+    this.partBytes = 0;
+    this.partCount = 0;
+    this.consumed = 0;
+    this.ackedConsumed = 0;
+    this.lastPiece = 0;
+    this.lastSent = Date.now();
+    this.lastHeard = Date.now();
+  }
+
+  enqueue(frame) {
+    if (this.failed) return false;
+    const bytes = Buffer.isBuffer(frame) ? frame : Buffer.from(frame.buffer, frame.byteOffset, frame.byteLength);
+    if (this.queuedBytes + bytes.length > MAX_QUEUED_BYTES) {
+      this.fail(CODE.OVERLOAD);
+      return false;
+    }
+    this.queue.push(bytes);
+    this.queuedBytes += bytes.length;
+    this.pump();
+    return true;
+  }
+
+  pump() {
+    while (!this.failed && this.queue.length) {
+      const frame = this.queue[0];
+      const count = Math.max(1, Math.ceil(frame.length / PIECE_BYTES));
+      const index = this.nextIndex;
+      const piece = frame.subarray(index * PIECE_BYTES, (index + 1) * PIECE_BYTES);
+      const inFlight = this.sentBytes - this.ackedBytes;
+      if (inFlight > 0 && inFlight + piece.length > WINDOW_BYTES) return;
+      if (!this.canWrite()) {
+        this.retryLater();
+        return;
+      }
+      const head = Buffer.alloc(5);
+      head[0] = PIECE;
+      head.writeUInt16BE(index, 1);
+      head.writeUInt16BE(count, 3);
+      const cipher = crypto.createCipheriv("aes-256-gcm", this.sendKey, counterNonce(this.sendCounter));
+      this.sendCounter += 1;
+      cipher.setAAD(head);
+      this.write(Buffer.concat([head, cipher.update(piece), cipher.final(), cipher.getAuthTag()]));
+      this.lastSent = Date.now();
+      this.sentBytes += piece.length;
+      if (index + 1 < count) {
+        this.nextIndex = index + 1;
+      } else {
+        this.queue.shift();
+        this.queuedBytes -= frame.length;
+        this.nextIndex = 0;
+      }
+    }
+  }
+
+  retryLater() {
+    if (this.retryTimer) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.pump();
+    }, 20);
+    this.retryTimer.unref?.();
+  }
+
+  keepalive() {
+    if (this.failed) return;
+    this.write(Buffer.from([KEEPALIVE]));
+    this.lastSent = Date.now();
+  }
+
+  receive(bytes) {
+    if (this.failed || !bytes.length) return;
+    this.lastHeard = Date.now();
+    const type = bytes[0];
+    if (type === KEEPALIVE) return;
+    if (type === ACK) {
+      if (bytes.length !== 9) {
+        this.fail(CODE.BAD_FRAME);
+        return;
+      }
+      const consumed = Number(bytes.readBigUInt64BE(1));
+      if (consumed >= this.ackedBytes && consumed <= this.sentBytes) {
+        this.ackedBytes = consumed;
+        this.pump();
+      }
+      return;
+    }
+    if (type !== PIECE || bytes.length < 5 + TAG_BYTES) {
+      this.fail(CODE.BAD_FRAME);
+      return;
+    }
+    const index = bytes.readUInt16BE(1);
+    const count = bytes.readUInt16BE(3);
+    const maxPieces = Math.max(1, Math.ceil(this.maxFrameBytes / PIECE_BYTES));
+    if (count === 0 || count > maxPieces || index !== this.parts.length || (index > 0 && count !== this.partCount)) {
+      this.fail(CODE.BAD_FRAME);
+      return;
+    }
+    let plain;
+    try {
+      const decipher = crypto.createDecipheriv("aes-256-gcm", this.recvKey, counterNonce(this.recvCounter));
+      decipher.setAAD(bytes.subarray(0, 5));
+      decipher.setAuthTag(bytes.subarray(bytes.length - TAG_BYTES));
+      plain = Buffer.concat([decipher.update(bytes.subarray(5, bytes.length - TAG_BYTES)), decipher.final()]);
+    } catch {
+      this.fail(CODE.BAD_FRAME);
+      return;
+    }
+    this.recvCounter += 1;
+    if (this.partBytes + plain.length > this.maxFrameBytes) {
+      this.fail(CODE.BAD_FRAME);
+      return;
+    }
+    if (this.budget && !this.budget.take(plain.length)) {
+      this.fail(CODE.OVERLOAD);
+      return;
+    }
+    this.parts.push(plain);
+    this.partBytes += plain.length;
+    this.partCount = count;
+    this.lastPiece = Date.now();
+    this.consumed += plain.length;
+    let frame = null;
+    if (this.parts.length === count) {
+      frame = this.parts.length === 1 ? this.parts[0] : Buffer.concat(this.parts);
+      this.releaseParts();
+    }
+    if (frame || this.consumed - this.ackedConsumed >= WINDOW_BYTES / 4) {
+      this.ackedConsumed = this.consumed;
+      this.write(ackMessage(this.consumed));
+    }
+    if (frame) this.onFrame(frame);
+  }
+
+  // Returns a close code when the channel is overdue, else null.
+  overdue(now) {
+    if (this.failed) return null;
+    if (this.parts.length && now - this.lastPiece >= this.timing.stallMs) return CODE.OVERLOAD;
+    if (now - this.lastHeard >= this.timing.silenceMs) return CODE.SILENT;
     return null;
   }
-};
 
-class Sealer {
-  constructor(key, aad) {
-    this.key = key;
-    this.aad = aad;
-    this.msgId = 0;
-  }
-
-  // One frame → the relay messages that carry it, in order.
-  pieces(frame) {
-    const sealed = seal(this.key, this.aad, frame);
-    this.msgId = (this.msgId + 1) >>> 0;
-    const count = Math.max(1, Math.ceil(sealed.length / PIECE_BYTES));
-    const out = [];
-    for (let index = 0; index < count; index += 1) {
-      const head = Buffer.alloc(PIECE_HEADER);
-      head.writeUInt32BE(this.msgId, 0);
-      head.writeUInt16BE(index, 4);
-      head.writeUInt16BE(count, 6);
-      out.push(Buffer.concat([head, sealed.subarray(index * PIECE_BYTES, (index + 1) * PIECE_BYTES)]));
-    }
-    return out;
-  }
-}
-
-// A sender's pieces arrive in order and never interleave, so one partial
-// message per sender is enough; anything out of order drops it.
-class Reassembler {
-  constructor() {
-    this.reset();
-  }
-
-  reset() {
-    this.msgId = -1;
-    this.count = 0;
+  releaseParts() {
+    this.budget?.give(this.partBytes);
     this.parts = [];
-    this.size = 0;
+    this.partBytes = 0;
+    this.partCount = 0;
   }
 
-  // Returns the whole sealed message once its last piece is in, else null.
-  push(bytes) {
-    if (bytes.length < PIECE_HEADER) return null;
-    const msgId = bytes.readUInt32BE(0);
-    const index = bytes.readUInt16BE(4);
-    const count = bytes.readUInt16BE(6);
-    if (count === 0 || index >= count) {
-      this.reset();
-      return null;
-    }
-    if (index === 0) {
-      this.reset();
-      this.msgId = msgId;
-      this.count = count;
-    } else if (msgId !== this.msgId || count !== this.count || index !== this.parts.length) {
-      this.reset();
-      return null;
-    }
-    const piece = bytes.subarray(PIECE_HEADER);
-    this.size += piece.length;
-    if (this.size > MAX_SEALED_BYTES) {
-      this.reset();
-      return null;
-    }
-    this.parts.push(piece);
-    if (this.parts.length < this.count) return null;
-    const whole = this.parts.length === 1 ? this.parts[0] : Buffer.concat(this.parts);
-    this.reset();
-    return whole;
+  close() {
+    this.failed = true;
+    clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.releaseParts();
+    this.queue = [];
+    this.queuedBytes = 0;
+  }
+
+  fail(code) {
+    if (this.failed) return;
+    this.close();
+    this.onFail(code);
   }
 }
 
@@ -147,19 +330,13 @@ const roomUrl = (server, roomId, params) => {
   return url.toString();
 };
 
-const keyBytes = (key) => {
-  const bytes = Buffer.isBuffer(key) ? key : Buffer.from(String(key || ""), "base64url");
-  if (bytes.length !== 32) throw new Error("The room key must be 32 bytes.");
-  return bytes;
-};
-
 // The socket's own limit: one piece plus its envelope, with room to spare.
 const SOCKET_MAX_PAYLOAD = 2 * PIECE_BYTES;
 
 const safeSend = (socket, data) => {
   if (!socket || socket.readyState !== 1) return false;
   try {
-    socket.send(data, { binary: true });
+    socket.send(data, { binary: typeof data !== "string" });
     return true;
   } catch {
     return false;
@@ -169,31 +346,38 @@ const safeSend = (socket, data) => {
 const backoff = (attempt) => Math.min(5000, 500 * 2 ** Math.min(attempt, 4));
 
 class RelayHostTransport extends EventEmitter {
-  constructor({ server, roomId, key, secret, token, viewToken = null, maxClients = MAX_CLIENTS }) {
+  constructor({ server, roomId, secret, privateKey, token, viewToken = null, maxClients = MAX_CLIENTS }) {
     super();
     this.server = server;
     this.roomId = roomId;
-    this.key = keyBytes(key);
     this.secret = secret;
+    this.staticPrivate = privateKey;
+    this.staticPublic = rawPublicKey(crypto.createPublicKey(privateKey));
     this.token = token;
     this.viewToken = viewToken;
     this.maxClients = maxClients;
+    this.timing = { ...TIMING };
     this.socket = null;
     this.connected = false;
     this.closed = false;
     this.attempt = 0;
     this.timer = null;
+    this.ticker = null;
     this.firstConnect = null;
+    this.lastSocketHeard = 0;
+    this.lastPing = 0;
+    this.budget = createBudget(HOST_REASSEMBLY_BUDGET);
     // Relay connection id → conn, from PEER_OPEN until PEER_CLOSE; a conn
     // joins `connections` once its hello checks out.
     this.peers = new Map();
     this.connections = new Set();
-    this.sealer = new Sealer(this.key, AAD_TO_GUEST);
   }
 
   // Resolves once the relay gave this host the room. Later drops reconnect on
-  // their own; every guest then says hello again.
+  // their own; every guest then makes a new channel.
   start() {
+    this.ticker = setInterval(() => this.tick(), this.timing.tickMs);
+    this.ticker.unref?.();
     return new Promise((resolve, reject) => {
       this.firstConnect = { resolve, reject };
       this.connect();
@@ -212,6 +396,8 @@ class RelayHostTransport extends EventEmitter {
     socket.on("open", () => {
       this.attempt = 0;
       this.connected = true;
+      this.lastSocketHeard = Date.now();
+      this.lastPing = Date.now();
       if (this.firstConnect) {
         this.firstConnect.resolve(0);
         this.firstConnect = null;
@@ -220,6 +406,7 @@ class RelayHostTransport extends EventEmitter {
       }
     });
     socket.on("message", (data, isBinary) => {
+      this.lastSocketHeard = Date.now();
       if (isBinary) this.onRelay(socket, toBuffer(data));
     });
     const onDown = (code, reasonBuffer) => {
@@ -230,7 +417,7 @@ class RelayHostTransport extends EventEmitter {
       if (this.firstConnect) {
         this.firstConnect.reject(Object.assign(new Error("Could not reach the collaboration relay."), { code: "COLLAB_RELAY_UNREACHABLE" }));
         this.firstConnect = null;
-        this.closed = true;
+        this.close();
         return;
       }
       if (this.closed) return;
@@ -242,6 +429,12 @@ class RelayHostTransport extends EventEmitter {
         return;
       }
       this.schedule();
+    };
+    // The relay says why before it closes; act on that at once (its own
+    // close can take seconds to finish).
+    socket.refused = (code) => {
+      onDown(code, Buffer.from("refused by the relay"));
+      socket.terminate();
     };
     socket.on("close", onDown);
     socket.on("error", () => {
@@ -260,17 +453,43 @@ class RelayHostTransport extends EventEmitter {
     this.timer.unref?.();
   }
 
+  tick(now = Date.now()) {
+    const socket = this.socket;
+    if (!socket || !this.connected) return;
+    // A link that went silent (sleep, lost NAT mapping) is dropped and redialled.
+    if (now - this.lastSocketHeard >= this.timing.socketSilenceMs) {
+      socket.terminate();
+      return;
+    }
+    if (now - this.lastPing >= this.timing.keepaliveMs) {
+      safeSend(socket, "ping");
+      this.lastPing = now;
+    }
+    for (const conn of [...this.peers.values()]) {
+      if (!conn.hello && now - conn.openedAt >= this.timing.handshakeMs) {
+        this.closePeer(conn, CODE.HELLO_TIMEOUT);
+        continue;
+      }
+      if (!conn.channel) continue;
+      const overdue = conn.channel.overdue(now);
+      if (overdue) {
+        this.closePeer(conn, overdue);
+        continue;
+      }
+      if (now - conn.channel.lastSent >= this.timing.keepaliveMs) conn.channel.keepalive();
+    }
+  }
+
   onRelay(socket, bytes) {
     const message = readEnvelope(bytes);
     if (!message) return;
+    if (message.kind === REFUSED_HOST) {
+      if (message.body.length >= 2) socket.refused(message.body.readUInt16BE(0));
+      return;
+    }
     if (message.kind === PEER_OPEN) {
       this.forgetPeer(message.id);
-      const conn = { id: null, peer: message.id, socket, hello: null, access: null, address: "relay", reassembler: new Reassembler(), helloTimer: null };
-      conn.helloTimer = setTimeout(() => {
-        if (!conn.hello) this.closePeer(conn, 4001);
-      }, 10000);
-      conn.helloTimer.unref?.();
-      this.peers.set(message.id, conn);
+      this.peers.set(message.id, { id: null, peer: message.id, socket, hello: null, access: null, address: "relay", channel: null, openedAt: Date.now() });
       return;
     }
     const conn = this.peers.get(message.id);
@@ -280,89 +499,122 @@ class RelayHostTransport extends EventEmitter {
       return;
     }
     if (message.kind !== PEER_DATA) return;
-    const sealed = conn.reassembler.push(message.body);
-    if (!sealed) return;
-    const plain = unseal(this.key, AAD_TO_HOST, sealed);
-    const frame = plain ? decodeFrame(plain) : null;
-    if (!conn.hello) {
-      // A hello that does not open with the room key is a wrong link, not a
-      // network fault: 4004 makes the guest give up instead of retrying.
-      clearTimeout(conn.helloTimer);
-      const token = frame && frame.kind === FRAME_CONTROL && frame.message.type === "hello" ? frame.message.token : null;
-      const access = typeof token === "string" && token === this.token ? "edit" : typeof token === "string" && this.viewToken && token === this.viewToken ? "view" : null;
-      const clientId = access ? String(frame.message.clientId || "").slice(0, 64) : "";
-      if (!access || !clientId) {
-        this.closePeer(conn, 4004);
-        return;
-      }
-      if (this.connections.size >= this.maxClients) {
-        this.closePeer(conn, 4005);
-        return;
-      }
-      conn.hello = frame.message;
-      conn.access = access;
-      conn.id = clientId;
-      this.connections.add(conn);
-      this.emit("open", conn);
+    if (conn.channel) {
+      conn.channel.receive(message.body);
       return;
     }
-    if (!frame) {
-      this.closePeer(conn, 4003);
+    this.handshake(conn, message.body);
+  }
+
+  handshake(conn, body) {
+    if (body.length !== 1 + KEY_BYTES || body[0] !== HANDSHAKE_GUEST) {
+      this.closePeer(conn, CODE.UNAUTHORIZED);
       return;
     }
-    this.emit("message", conn, frame);
+    let keys;
+    let hostEphemeral;
+    try {
+      const guestEphemeral = Buffer.from(body.subarray(1));
+      const ephemeral = newKeyPair();
+      hostEphemeral = rawPublicKey(ephemeral.publicKey);
+      keys = deriveKeys({
+        ee: dh(ephemeral.privateKey, guestEphemeral),
+        es: dh(this.staticPrivate, guestEphemeral),
+        hostStatic: this.staticPublic,
+        guestEphemeral,
+        hostEphemeral,
+      });
+    } catch {
+      this.closePeer(conn, CODE.UNAUTHORIZED);
+      return;
+    }
+    conn.channel = new Channel({
+      sendKey: keys.toGuest,
+      recvKey: keys.toHost,
+      write: (bytes) => safeSend(this.socket, envelope(SEND, conn.peer, bytes)),
+      canWrite: () => (this.socket?.bufferedAmount ?? 0) < SOCKET_HIGH_WATER,
+      onFrame: (plain) => this.onChannelFrame(conn, plain),
+      // Before the hello, any failure is a wrong link: 4004 makes the guest
+      // give up instead of retrying.
+      onFail: (code) => this.closePeer(conn, conn.hello ? code : CODE.UNAUTHORIZED),
+      maxFrameBytes: PRE_HELLO_FRAME_BYTES,
+      budget: this.budget,
+      timing: this.timing,
+    });
+    safeSend(this.socket, envelope(SEND, conn.peer, Buffer.concat([Buffer.from([HANDSHAKE_HOST]), hostEphemeral])));
+  }
+
+  onChannelFrame(conn, plain) {
+    const frame = decodeFrame(plain);
+    if (conn.hello) {
+      if (frame) this.emit("message", conn, frame);
+      else this.closePeer(conn, CODE.BAD_FRAME);
+      return;
+    }
+    const token = frame && frame.kind === FRAME_CONTROL && frame.message.type === "hello" ? frame.message.token : null;
+    const access = typeof token === "string" && token === this.token ? "edit" : typeof token === "string" && this.viewToken && token === this.viewToken ? "view" : null;
+    const clientId = access ? String(frame.message.clientId || "").slice(0, 64) : "";
+    if (!access || !clientId) {
+      this.closePeer(conn, CODE.UNAUTHORIZED);
+      return;
+    }
+    if (this.connections.size >= this.maxClients) {
+      this.closePeer(conn, CODE.FULL);
+      return;
+    }
+    conn.hello = frame.message;
+    conn.access = access;
+    conn.id = clientId;
+    conn.channel.maxFrameBytes = access === "view" ? VIEWER_FRAME_BYTES : MAX_FRAME_BYTES;
+    this.connections.add(conn);
+    this.emit("open", conn);
   }
 
   forgetPeer(peerId) {
     const conn = this.peers.get(peerId);
     if (!conn) return;
     this.peers.delete(peerId);
-    clearTimeout(conn.helloTimer);
+    conn.channel?.close();
     if (this.connections.delete(conn)) this.emit("close", conn);
   }
 
   closePeer(conn, code) {
+    if (this.peers.get(conn.peer) !== conn) return;
     const reason = Buffer.alloc(2);
     reason.writeUInt16BE(code, 0);
     safeSend(this.socket, envelope(CLOSE_PEER, conn.peer, reason));
     this.forgetPeer(conn.peer);
   }
 
-  // The relay link dropped: every guest is gone until it says hello again.
+  // The relay link dropped: every guest is gone until it makes a new channel.
   dropPeers() {
     for (const peerId of [...this.peers.keys()]) this.forgetPeer(peerId);
   }
 
-  sendPieces(conn, pieces) {
-    let ok = true;
-    for (const piece of pieces) ok = safeSend(this.socket, envelope(SEND, conn.peer, piece)) && ok;
-    return ok;
-  }
-
   send(conn, data) {
     if (!this.connections.has(conn)) return false;
-    return this.sendPieces(conn, this.sealer.pieces(data));
+    return conn.channel.enqueue(data);
   }
 
   broadcast(data, except = null) {
-    if (!this.connections.size) return;
-    const pieces = this.sealer.pieces(data);
-    for (const conn of this.connections) {
-      if (conn !== except) this.sendPieces(conn, pieces);
+    for (const conn of [...this.connections]) {
+      if (conn !== except) conn.channel.enqueue(data);
     }
   }
 
   close() {
     this.closed = true;
     clearTimeout(this.timer);
+    clearInterval(this.ticker);
     this.timer = null;
+    this.ticker = null;
     const socket = this.socket;
     // 1000 tells each guest the session ended, as the LAN route does.
     for (const conn of [...this.peers.values()]) {
       const reason = Buffer.alloc(2);
       reason.writeUInt16BE(1000, 0);
       safeSend(socket, envelope(CLOSE_PEER, conn.peer, reason));
-      clearTimeout(conn.helloTimer);
+      conn.channel?.close();
     }
     this.peers.clear();
     this.connections.clear();
@@ -380,42 +632,63 @@ class RelayGuestTransport extends EventEmitter {
   constructor({ server, roomId, key, token, hello }) {
     super();
     this.url = roomUrl(server, roomId, { role: "guest" });
-    this.key = keyBytes(key);
+    this.hostStatic = Buffer.from(String(key || ""), "base64url");
+    if (this.hostStatic.length !== KEY_BYTES) throw new Error("The host key must be 32 bytes.");
     this.token = token;
     this.hello = hello;
+    this.timing = { ...TIMING };
     this.socket = null;
     this.closed = false;
     this.attempt = 0;
     this.timer = null;
-    // Connected means the host is there, not just the relay.
+    this.ticker = null;
+    this.lastSocketHeard = 0;
+    this.lastPing = 0;
+    // idle → handshake (sent our key) → keyed (sent the hello) → connected
+    // (the host's first frame opened: it holds the key from the link).
+    this.phase = "idle";
+    this.phaseSince = 0;
+    this.ephemeral = null;
+    this.channel = null;
     this.connected = false;
     this.conn = { id: "host", socket: null };
-    this.sealer = new Sealer(this.key, AAD_TO_HOST);
-    this.reassembler = new Reassembler();
   }
 
   connect() {
     if (this.closed) return;
+    if (!this.ticker) {
+      this.ticker = setInterval(() => this.tick(), this.timing.tickMs);
+      this.ticker.unref?.();
+    }
     const WebSocket = require("ws");
     const socket = new WebSocket(this.url, { maxPayload: SOCKET_MAX_PAYLOAD, perMessageDeflate: false, handshakeTimeout: 10000 });
     this.socket = socket;
     socket.on("open", () => {
       this.attempt = 0;
+      this.lastSocketHeard = Date.now();
+      this.lastPing = Date.now();
     });
     socket.on("message", (data, isBinary) => {
+      this.lastSocketHeard = Date.now();
       if (isBinary) this.onRelay(socket, toBuffer(data));
     });
     const onDown = (code, reasonBuffer) => {
       if (this.socket !== socket) return;
       this.socket = null;
       const reason = reasonBuffer ? reasonBuffer.toString() : "";
+      this.resetChannel();
       this.hostGone(code, reason);
       // Refusals (4004 wrong link, 4005 full) and the host's 1000 are final.
       if (this.closed || code === 4004 || code === 4005 || code === 1000) {
         if (!this.closed) this.emit("gaveUp", { code, reason });
         return;
       }
-      this.schedule();
+      // 4010: no host in the room yet; ask again less often.
+      this.schedule(code === 4010 ? 15000 : 0);
+    };
+    socket.refused = (code) => {
+      onDown(code, Buffer.from("refused by the relay"));
+      socket.terminate();
     };
     socket.on("close", onDown);
     socket.on("error", () => {
@@ -425,30 +698,114 @@ class RelayGuestTransport extends EventEmitter {
 
   onRelay(socket, bytes) {
     if (!bytes.length) return;
+    if (bytes[0] === REFUSED) {
+      if (bytes.length >= 3) socket.refused(bytes.readUInt16BE(1));
+      return;
+    }
     if (bytes[0] === HOST_OPEN) {
       // A host that (re)joined the room knows nothing of us yet.
       this.hostGone(1006, "host reconnected");
-      this.reassembler.reset();
-      this.conn.socket = socket;
-      for (const piece of this.sealer.pieces(this.helloFrame())) safeSend(socket, piece);
-      this.connected = true;
-      this.emit("open", this.conn);
+      this.resetChannel();
+      this.ephemeral = newKeyPair();
+      this.phase = "handshake";
+      this.phaseSince = Date.now();
+      safeSend(socket, Buffer.concat([Buffer.from([HANDSHAKE_GUEST]), rawPublicKey(this.ephemeral.publicKey)]));
       return;
     }
     if (bytes[0] === HOST_GONE) {
+      this.resetChannel();
       if (this.hostGone(1006, "host away")) this.emit("reconnecting", { attempt: 0, delay: 0 });
       return;
     }
-    if (bytes[0] !== HOST_DATA || !this.connected) return;
-    const sealed = this.reassembler.push(bytes.subarray(1));
-    if (!sealed) return;
-    const plain = unseal(this.key, AAD_TO_GUEST, sealed);
-    const frame = plain ? decodeFrame(plain) : null;
-    if (frame) this.emit("message", this.conn, frame);
+    if (bytes[0] !== HOST_DATA) return;
+    const body = bytes.subarray(1);
+    if (this.phase === "keyed") {
+      this.channel.receive(body);
+      return;
+    }
+    if (this.phase !== "handshake") return;
+    if (body.length !== 1 + KEY_BYTES || body[0] !== HANDSHAKE_HOST) {
+      this.drop();
+      return;
+    }
+    let keys;
+    try {
+      const guestEphemeral = rawPublicKey(this.ephemeral.publicKey);
+      const hostEphemeral = Buffer.from(body.subarray(1));
+      keys = deriveKeys({
+        ee: dh(this.ephemeral.privateKey, hostEphemeral),
+        es: dh(this.ephemeral.privateKey, this.hostStatic),
+        hostStatic: this.hostStatic,
+        guestEphemeral,
+        hostEphemeral,
+      });
+    } catch {
+      this.drop();
+      return;
+    }
+    this.ephemeral = null;
+    this.channel = new Channel({
+      sendKey: keys.toHost,
+      recvKey: keys.toGuest,
+      write: (out) => safeSend(socket, out),
+      canWrite: () => socket.bufferedAmount < SOCKET_HIGH_WATER,
+      onFrame: (plain) => this.onChannelFrame(plain),
+      onFail: () => this.drop(),
+      timing: this.timing,
+    });
+    this.phase = "keyed";
+    this.channel.enqueue(encodeControl({ type: "hello", token: this.token, ...this.hello }));
   }
 
-  helloFrame() {
-    return encodeControl({ type: "hello", token: this.token, ...this.hello });
+  onChannelFrame(plain) {
+    const frame = decodeFrame(plain);
+    if (!frame) {
+      this.drop();
+      return;
+    }
+    if (!this.connected) {
+      this.connected = true;
+      this.conn.socket = this.socket;
+      this.emit("open", this.conn);
+    }
+    this.emit("message", this.conn, frame);
+  }
+
+  tick(now = Date.now()) {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== 1) return;
+    if (now - this.lastSocketHeard >= this.timing.socketSilenceMs) {
+      socket.terminate();
+      return;
+    }
+    if (now - this.lastPing >= this.timing.keepaliveMs) {
+      safeSend(socket, "ping");
+      this.lastPing = now;
+    }
+    if (this.phase !== "idle" && !this.connected && now - this.phaseSince >= this.timing.handshakeMs) {
+      this.drop();
+      return;
+    }
+    if (!this.channel) return;
+    if (this.channel.overdue(now)) {
+      this.drop();
+      return;
+    }
+    if (now - this.channel.lastSent >= this.timing.keepaliveMs) this.channel.keepalive();
+  }
+
+  // Something on this connection cannot be trusted or is stuck: start over
+  // with a new socket (and so a new channel and a resync).
+  drop() {
+    this.resetChannel();
+    this.socket?.terminate();
+  }
+
+  resetChannel() {
+    this.channel?.close();
+    this.channel = null;
+    this.ephemeral = null;
+    this.phase = "idle";
   }
 
   // Returns true when this ended a live connection to the host.
@@ -459,9 +816,9 @@ class RelayGuestTransport extends EventEmitter {
     return true;
   }
 
-  schedule() {
+  schedule(minDelay = 0) {
     if (this.closed || this.timer) return;
-    const delay = backoff(this.attempt);
+    const delay = Math.max(minDelay, backoff(this.attempt));
     this.attempt += 1;
     this.emit("reconnecting", { attempt: this.attempt, delay });
     this.timer = setTimeout(() => {
@@ -472,10 +829,8 @@ class RelayGuestTransport extends EventEmitter {
   }
 
   send(_conn, data) {
-    if (!this.connected) return false;
-    let ok = true;
-    for (const piece of this.sealer.pieces(data)) ok = safeSend(this.socket, piece) && ok;
-    return ok;
+    if (!this.connected || !this.channel) return false;
+    return this.channel.enqueue(data);
   }
 
   broadcast(data) {
@@ -485,7 +840,10 @@ class RelayGuestTransport extends EventEmitter {
   close() {
     this.closed = true;
     clearTimeout(this.timer);
+    clearInterval(this.ticker);
     this.timer = null;
+    this.ticker = null;
+    this.resetChannel();
     this.connected = false;
     const socket = this.socket;
     this.socket = null;
@@ -499,10 +857,13 @@ class RelayGuestTransport extends EventEmitter {
 
 module.exports = {
   PIECE_BYTES,
-  seal,
-  unseal,
-  Sealer,
-  Reassembler,
+  WINDOW_BYTES,
+  TIMING,
+  CODE,
+  Channel,
+  createBudget,
+  deriveKeys,
+  rawPublicKey,
   RelayHostTransport,
   RelayGuestTransport,
 };

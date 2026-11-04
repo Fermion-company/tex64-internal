@@ -9,3 +9,11 @@ class_name = "CollabRoom"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["CollabRoom"]
+
+# Connection attempts per client address: 120 a minute leaves room for a lab
+# behind one NAT (a TeX64 window dials once, then backs off up to 5 s) and
+# caps how fast anyone can churn rooms.
+[[ratelimits]]
+name = "CONNECT_LIMIT"
+namespace_id = "1001"
+simple = { limit = 120, period = 60 }

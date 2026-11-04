@@ -10,13 +10,15 @@ const INVITE_PATH = "/join";
 const createToken = () => crypto.randomBytes(32).toString("base64url");
 const createSessionId = () => crypto.randomUUID().replace(/-/g, "");
 
-// A room on the relay: the secret stays with the host, the room ID is derived
-// from it (services/collab-relay/room.mjs checks the same), and the key that
-// seals every frame travels only in the invite link.
+// A room on the relay: the secret stays with the host, and the room ID is
+// derived from it (services/collab-relay/room.mjs checks the same). `key` is
+// the host's X25519 public key for the invite link; its private half stays in
+// this process (relay-transport.cjs).
 const relayRoomIdFor = (secret) => crypto.createHash("sha256").update(secret).digest().subarray(0, 16).toString("base64url");
 const createRelayRoom = () => {
   const secret = crypto.randomBytes(32).toString("base64url");
-  return { secret, roomId: relayRoomIdFor(secret), key: crypto.randomBytes(32).toString("base64url") };
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("x25519");
+  return { secret, roomId: relayRoomIdFor(secret), key: publicKey.export({ format: "jwk" }).x, privateKey };
 };
 
 // The relay a setting names, as ws(s)://host[:port], or null.
