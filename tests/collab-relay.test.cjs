@@ -14,7 +14,7 @@ const { CollabHub } = require("../electron/services/collab/hub.cjs");
 const invite = require("../electron/services/collab/invite.cjs");
 const relay = require("../electron/services/collab/relay-transport.cjs");
 const { createLocalRelay } = require("../services/collab-relay/local-server.cjs");
-const { Room, KIND, encodeEnvelope, hostSecretMatches } = require("../services/collab-relay/room.mjs");
+const { Room, KIND, encodeEnvelope, hostSecretMatches, updateQuota, ROOM_LEASE_MS, LEASE_RENEW_MS } = require("../services/collab-relay/room.mjs");
 
 const waitFor = async (predicate, timeoutMs = 8000, label = "condition") => {
   const deadline = Date.now() + timeoutMs;
@@ -395,6 +395,68 @@ test("one address hosts a bounded number of rooms", async (t) => {
     }
   }, 4000, "the room freed when the first host left");
   assert.equal(second.status().active, true);
+});
+
+test("reservations: a live room stays counted, and only its own seat gives it back", () => {
+  const rooms = {};
+  let now = 0;
+  const run = (action, roomId, seat) => updateQuota(rooms, { action, roomId, seat, now, max: 2 });
+  assert.equal(run("acquire", "A", "a1"), true);
+  assert.equal(run("acquire", "B", "b1"), true);
+  assert.equal(run("acquire", "C", "c1"), false, "the address is full");
+  // A seated host renews every LEASE_RENEW_MS, so its room outlives the first lease.
+  for (now = LEASE_RENEW_MS; now <= 2 * ROOM_LEASE_MS; now += LEASE_RENEW_MS) {
+    assert.equal(run("renew", "A", "a1"), true);
+    assert.equal(run("renew", "B", "b1"), true);
+  }
+  assert.equal(run("acquire", "C", "c1"), false, "two days on, both live rooms still count");
+  // A reconnect takes the seat; the replaced host's release and renewal leave it alone.
+  assert.equal(run("acquire", "A", "a2"), true);
+  run("release", "A", "a1");
+  assert.equal(run("renew", "A", "a1"), true);
+  assert.equal(rooms.A.seat, "a2");
+  assert.equal(run("acquire", "C", "c1"), false);
+  run("release", "A", "a2");
+  assert.equal(run("acquire", "C", "c1"), true, "the seat's own release frees the room");
+  // A room whose host stopped renewing (a lost close) frees itself after the lease.
+  now += ROOM_LEASE_MS;
+  assert.equal(run("renew", "C", "c1"), true);
+  assert.deepEqual(Object.keys(rooms), ["C"], "B expired");
+  // Renewing a reservation that expired needs a free slot like a new one.
+  const full = { X: { seat: "x", until: 10 }, Y: { seat: "y", until: 10 } };
+  assert.equal(updateQuota(full, { action: "renew", roomId: "Z", seat: "z", now: 5, max: 2 }), false);
+});
+
+test("a replaced host's close keeps its successor counted; a host that moves gives the old address back", async (t) => {
+  const { server } = await setup(t, { maxHostRooms: 1 });
+  const room = invite.createRelayRoom();
+  const other = invite.createRelayRoom();
+  const dial = (secret, roomId, address) => new Promise((resolve) => {
+    const socket = new WebSocket(`${server.url}/rooms/${roomId}?role=host&secret=${secret}`, { headers: { "x-test-address": address } });
+    const events = [];
+    socket.on("message", (data) => events.push(Buffer.from(data)[0]));
+    socket.on("close", (code) => events.push(`close:${code}`));
+    socket.on("open", () => setTimeout(() => resolve({ socket, events }), 100));
+  });
+  const first = await dial(room.secret, room.roomId, "10.0.0.1");
+  assert.equal(first.events[0], KIND.HOST_READY);
+  // A reconnect from the same address replaces the first host…
+  const second = await dial(room.secret, room.roomId, "10.0.0.1");
+  assert.equal(second.events[0], KIND.HOST_READY);
+  first.socket.terminate();
+  await sleep(100);
+  // …and the first host's close does not free the room: the address is still full.
+  const extra = await dial(other.secret, other.roomId, "10.0.0.1");
+  assert.equal(extra.events[0], KIND.REFUSED_HOST);
+  extra.socket.terminate();
+  // The host moves to another network: the old address gets its slot back at once.
+  const moved = await dial(room.secret, room.roomId, "10.0.0.2");
+  assert.equal(moved.events[0], KIND.HOST_READY);
+  assert.deepEqual(Object.keys(server.hosted.get("10.0.0.1")), [], "the old address holds nothing");
+  assert.deepEqual(Object.keys(server.hosted.get("10.0.0.2")), [room.roomId]);
+  const again = await dial(other.secret, other.roomId, "10.0.0.1");
+  assert.equal(again.events[0], KIND.HOST_READY);
+  for (const item of [second, moved, again]) item.socket.terminate();
 });
 
 test("a link with the wrong host key is refused at once; no host, no room; an unreachable relay stops the start", async (t) => {

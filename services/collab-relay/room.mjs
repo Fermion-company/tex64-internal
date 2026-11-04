@@ -31,6 +31,37 @@ export const ROOM_ID = /^[A-Za-z0-9_-]{22}$/;
 export const HOST_GRACE_MS = 2 * 60 * 1000;
 // Rooms one client address may host at once (a lab behind one NAT included).
 export const MAX_HOST_ROOMS_PER_ADDRESS = 20;
+// A seated host's reservation lasts ROOM_LEASE_MS and is renewed every
+// LEASE_RENEW_MS while it stays, so a live room always counts and a count a
+// lost close left behind frees itself.
+export const ROOM_LEASE_MS = 24 * 60 * 60 * 1000;
+export const LEASE_RENEW_MS = 6 * 60 * 60 * 1000;
+
+// One client address's reservations, { roomId: { seat, until } }, changed in
+// place. Each host connection has its own seat: acquiring (or renewing) puts
+// it on the room, and only the same seat can release it, so the close of a
+// host that was just replaced cannot free its successor's reservation.
+// Returns whether the action was granted.
+export const updateQuota = (rooms, { action, roomId, seat, now, max = MAX_HOST_ROOMS_PER_ADDRESS, leaseMs = ROOM_LEASE_MS }) => {
+  for (const [id, entry] of Object.entries(rooms)) {
+    if (!entry || typeof entry !== "object" || entry.until <= now) delete rooms[id];
+  }
+  if (action === "acquire") {
+    if (!(roomId in rooms) && Object.keys(rooms).length >= max) return false;
+    rooms[roomId] = { seat, until: now + leaseMs };
+    return true;
+  }
+  if (action === "renew") {
+    // A newer seat already holds the room: leave its reservation alone.
+    const entry = rooms[roomId];
+    if (entry && entry.seat !== seat) return true;
+    if (!entry && Object.keys(rooms).length >= max) return false;
+    rooms[roomId] = { seat, until: now + leaseMs };
+    return true;
+  }
+  if (action === "release" && rooms[roomId]?.seat === seat) delete rooms[roomId];
+  return true;
+};
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

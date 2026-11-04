@@ -3,14 +3,15 @@
 // hibernation API, so an idle room costs nothing: TeX64's "ping" is answered
 // without waking the object, and the Room is rebuilt from the sockets'
 // attachments when a message wakes it. A second Durable Object per client
-// address counts the rooms that address hosts.
+// address keeps that address's room reservations (room.mjs updateQuota).
+//
+// ROOM_LEASE_MS / LEASE_RENEW_MS may be set as vars to shorten the lease in a
+// trial (`wrangler dev --var LEASE_RENEW_MS:3000 --var ROOM_LEASE_MS:6000`).
 
-import { Room, ROOM_ID, MAX_HOST_ROOMS_PER_ADDRESS, hostSecretMatches, refuse } from "./room.mjs";
+import { Room, ROOM_ID, ROOM_LEASE_MS, LEASE_RENEW_MS, hostSecretMatches, refuse, updateQuota } from "./room.mjs";
 
 const roomOf = (url) => url.pathname.match(/^\/rooms\/([^/]+)$/)?.[1] || "";
-// A lease outlives any real session's link; a count that a lost close left
-// behind (a deploy resets objects without close events) frees itself.
-const ROOM_LEASE_MS = 24 * 60 * 60 * 1000;
+const setting = (env, name, fallback) => Number(env?.[name]) || fallback;
 
 export default {
   async fetch(request, env) {
@@ -31,25 +32,23 @@ export default {
   },
 };
 
-// Rooms hosted from one client address: { roomId: lease end }.
+// One client address's reservations: /acquire, /renew or /release ?room=&seat=.
 export class AddressQuota {
-  constructor(ctx) {
+  constructor(ctx, env) {
     this.ctx = ctx;
+    this.leaseMs = setting(env, "ROOM_LEASE_MS", ROOM_LEASE_MS);
   }
 
   async fetch(request) {
     const url = new URL(request.url);
-    const roomId = url.searchParams.get("room") || "";
-    const now = Date.now();
     const rooms = (await this.ctx.storage.get("rooms")) || {};
-    for (const [id, until] of Object.entries(rooms)) if (until <= now) delete rooms[id];
-    let granted = true;
-    if (url.pathname === "/acquire") {
-      if (!(roomId in rooms) && Object.keys(rooms).length >= MAX_HOST_ROOMS_PER_ADDRESS) granted = false;
-      else rooms[roomId] = now + ROOM_LEASE_MS;
-    } else if (url.pathname === "/release") {
-      delete rooms[roomId];
-    }
+    const granted = updateQuota(rooms, {
+      action: url.pathname.slice(1),
+      roomId: url.searchParams.get("room") || "",
+      seat: url.searchParams.get("seat") || "",
+      now: Date.now(),
+      leaseMs: this.leaseMs,
+    });
     if (Object.keys(rooms).length) await this.ctx.storage.put("rooms", rooms);
     else await this.ctx.storage.deleteAll();
     return new Response(granted ? "ok" : "full", { status: granted ? 200 : 429 });
@@ -60,6 +59,7 @@ export class CollabRoom {
   constructor(ctx, env) {
     this.ctx = ctx;
     this.env = env;
+    this.renewMs = setting(env, "LEASE_RENEW_MS", LEASE_RENEW_MS);
     this.room = null;
     this.wrapped = new WeakMap();
     this.handled = new WeakSet();
@@ -72,6 +72,10 @@ export class CollabRoom {
       socket = {
         get closed() {
           return ws.readyState >= 2;
+        },
+        // { roomId, role, address, seat } for a host, { roomId, role, id } for a guest.
+        get tag() {
+          return ws.deserializeAttachment();
         },
         send: (bytes) => {
           try {
@@ -89,10 +93,11 @@ export class CollabRoom {
     return socket;
   }
 
-  quota(address, action, roomId) {
+  quota(address, action, roomId, seat) {
     if (!this.env?.QUOTAS) return Promise.resolve(true);
-    const stub = this.env.QUOTAS.get(this.env.QUOTAS.idFromName(address));
-    return stub.fetch(`https://quota/${action}?room=${roomId}`).then((response) => response.ok, () => action !== "acquire");
+    const stub = this.env.QUOTAS.get(this.env.QUOTAS.idFromName(address || "unknown"));
+    const query = new URLSearchParams({ room: roomId, seat });
+    return stub.fetch(`https://quota/${action}?${query}`).then((response) => response.ok, () => action === "release");
   }
 
   // The Room lives in memory; after hibernation it is rebuilt from the
@@ -119,10 +124,12 @@ export class CollabRoom {
     const roomId = roomOf(url);
     const role = url.searchParams.get("role") === "host" ? "host" : "guest";
     const address = request.headers.get("X-Relay-Address") || "unknown";
-    // The secret and the address's room count are checked before the socket
+    // Each host connection is its own seat on the reservation.
+    const seat = crypto.randomUUID();
+    // The secret and the address's reservation are settled before the socket
     // is accepted, so no message can arrive ahead of the decision.
     const allowed = role === "guest" || (await hostSecretMatches(roomId, url.searchParams.get("secret") || ""));
-    const granted = role === "guest" || !allowed || (await this.quota(address, "acquire", roomId));
+    const granted = role === "guest" || !allowed || (await this.quota(address, "acquire", roomId, seat));
     const room = await this.roomFor(roomId);
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
@@ -133,10 +140,14 @@ export class CollabRoom {
     } else if (!granted) {
       refuse(socket, "host", 4029, "too many rooms");
     } else if (role === "host") {
-      server.serializeAttachment({ roomId, role, address });
+      server.serializeAttachment({ roomId, role, address, seat });
+      const previous = room.host?.tag || null;
       room.attachHost(socket);
       await this.ctx.storage.delete("hostLeftAt");
-      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.setAlarm(Date.now() + this.renewMs);
+      // The host it replaced (a reconnect, maybe from another network) gives
+      // its reservation back now: its own close will not end this seat.
+      if (previous && previous.seat !== seat) await this.quota(previous.address, "release", roomId, previous.seat);
     } else {
       const id = room.attachGuest(socket);
       if (id) server.serializeAttachment({ roomId, role, id });
@@ -176,16 +187,35 @@ export class CollabRoom {
     if (left !== "host") return;
     await this.ctx.storage.put("hostLeftAt", room.hostLeftAt);
     await this.ctx.storage.setAlarm(room.hostLeftAt + room.graceMs);
-    await this.quota(tag.address || "unknown", "release", tag.roomId);
+    await this.quota(tag.address, "release", tag.roomId, tag.seat);
   }
 
+  // While a host is seated: renew its reservation (a reservation that cannot
+  // be kept ends the seat). Once it left: send waiting guests away after the
+  // grace period.
   async alarm() {
-    const tags = this.ctx.getWebSockets().map((ws) => ws.deserializeAttachment()).filter(Boolean);
+    const tags = this.ctx.getWebSockets().filter((ws) => ws.readyState === 1).map((ws) => ws.deserializeAttachment()).filter(Boolean);
     if (!tags.length) {
       await this.ctx.storage.deleteAll();
       return;
     }
     const room = await this.roomFor(tags[0].roomId);
-    if (room.sweep()) await this.ctx.storage.delete("hostLeftAt");
+    const host = room.host;
+    if (host) {
+      const tag = host.tag;
+      const kept = await this.quota(tag.address, "renew", tag.roomId, tag.seat);
+      if (room.host !== host) return;
+      if (!kept) {
+        refuse(host, "host", 4029, "too many rooms");
+        return;
+      }
+      await this.ctx.storage.setAlarm(Date.now() + this.renewMs);
+      return;
+    }
+    if (room.sweep()) {
+      await this.ctx.storage.delete("hostLeftAt");
+      return;
+    }
+    if (room.hostLeftAt !== null) await this.ctx.storage.setAlarm(room.hostLeftAt + room.graceMs);
   }
 }

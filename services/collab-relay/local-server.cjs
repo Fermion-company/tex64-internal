@@ -5,9 +5,10 @@
 //   node services/collab-relay/local-server.cjs [port]
 // Then start TeX64 with TEX64_COLLAB_RELAY_URL=ws://127.0.0.1:<port>
 
+const crypto = require("node:crypto");
 const http = require("node:http");
 const { WebSocketServer } = require("ws");
-const { Room, ROOM_ID, HOST_GRACE_MS, MAX_HOST_ROOMS_PER_ADDRESS, hostSecretMatches, refuse } = require("./room.mjs");
+const { Room, ROOM_ID, HOST_GRACE_MS, MAX_HOST_ROOMS_PER_ADDRESS, hostSecretMatches, refuse, updateQuota } = require("./room.mjs");
 
 // For tests, which play a relay that misbehaves:
 //   onTraffic({ role, direction, bytes }) sees every binary message;
@@ -16,14 +17,12 @@ const { Room, ROOM_ID, HOST_GRACE_MS, MAX_HOST_ROOMS_PER_ADDRESS, hostSecretMatc
 const createLocalRelay = async ({ port = 0, onTraffic = null, filter = null, graceMs = HOST_GRACE_MS, maxHostRooms = MAX_HOST_ROOMS_PER_ADDRESS } = {}) => {
   const rooms = new Map();
   const sweeps = new Map();
-  // Client address → ids of the rooms it hosts (the Worker's AddressQuota).
+  // Client address → its reservations, as the Worker's AddressQuota keeps
+  // them (no lease renewal here: a test relay does not live for a day).
   const hosted = new Map();
-  const acquire = (address, roomId) => {
-    const set = hosted.get(address) || new Set();
-    if (!set.has(roomId) && set.size >= maxHostRooms) return false;
-    set.add(roomId);
-    hosted.set(address, set);
-    return true;
+  const quota = (address, action, roomId, seat) => {
+    if (!hosted.has(address)) hosted.set(address, {});
+    return updateQuota(hosted.get(address), { action, roomId, seat, now: Date.now(), max: maxHostRooms });
   };
   const server = http.createServer((request, response) => {
     response.statusCode = request.url === "/health" ? 200 : 404;
@@ -38,15 +37,19 @@ const createLocalRelay = async ({ port = 0, onTraffic = null, filter = null, gra
       return;
     }
     const role = url.searchParams.get("role") === "host" ? "host" : "guest";
-    const address = request.socket.remoteAddress || "unknown";
+    // A test may name the client address (the Worker reads CF-Connecting-IP).
+    const address = request.headers["x-test-address"] || request.socket.remoteAddress || "unknown";
+    const seat = crypto.randomUUID();
     const allowed = role === "guest" || (await hostSecretMatches(roomId, url.searchParams.get("secret") || ""));
-    const granted = role === "guest" || !allowed || acquire(address, roomId);
+    const granted = role === "guest" || !allowed || quota(address, "acquire", roomId, seat);
     wss.handleUpgrade(request, socket, head, (ws) => {
       if (!rooms.has(roomId)) rooms.set(roomId, new Room({ roomId, graceMs }));
       const room = rooms.get(roomId);
       const passes = (direction, bytes, text = null) => !filter || filter({ role, direction, bytes, text, ws }) !== false;
       const wrapped = {
         ws,
+        address,
+        seat,
         get closed() {
           return ws.readyState >= 2;
         },
@@ -70,7 +73,7 @@ const createLocalRelay = async ({ port = 0, onTraffic = null, filter = null, gra
       });
       ws.on("close", () => {
         if (room.detach(wrapped) !== "host") return;
-        hosted.get(address)?.delete(roomId);
+        quota(address, "release", roomId, seat);
         clearTimeout(sweeps.get(roomId));
         const timer = setTimeout(() => room.sweep(), graceMs + 10);
         timer.unref?.();
@@ -79,7 +82,12 @@ const createLocalRelay = async ({ port = 0, onTraffic = null, filter = null, gra
       ws.on("error", () => {});
       if (!allowed) refuse(wrapped, "host", 4004, "unauthorized");
       else if (!granted) refuse(wrapped, "host", 4029, "too many rooms");
-      else if (role === "host") room.attachHost(wrapped);
+      else if (role === "host") {
+        const previous = room.host;
+        room.attachHost(wrapped);
+        // The host it replaced gives its reservation back now.
+        if (previous && previous.seat !== seat) quota(previous.address, "release", roomId, previous.seat);
+      }
       else room.attachGuest(wrapped);
     });
   });
@@ -87,6 +95,7 @@ const createLocalRelay = async ({ port = 0, onTraffic = null, filter = null, gra
   return {
     url: `ws://127.0.0.1:${server.address().port}`,
     rooms,
+    hosted,
     close: () => new Promise((resolve) => {
       for (const timer of sweeps.values()) clearTimeout(timer);
       for (const client of wss.clients) client.terminate();
