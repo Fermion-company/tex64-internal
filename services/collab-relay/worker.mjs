@@ -12,6 +12,8 @@ import { Room, ROOM_ID, ROOM_LEASE_MS, LEASE_RENEW_MS, hostSecretMatches, refuse
 
 const roomOf = (url) => url.pathname.match(/^\/rooms\/([^/]+)$/)?.[1] || "";
 const setting = (env, name, fallback) => Number(env?.[name]) || fallback;
+// A renewal the quota object could not answer is tried again this soon.
+const RENEW_RETRY_MS = 5 * 60 * 1000;
 
 export default {
   async fetch(request, env) {
@@ -93,11 +95,12 @@ export class CollabRoom {
     return socket;
   }
 
+  // true granted, false refused, null when the quota object did not answer.
   quota(address, action, roomId, seat) {
     if (!this.env?.QUOTAS) return Promise.resolve(true);
     const stub = this.env.QUOTAS.get(this.env.QUOTAS.idFromName(address || "unknown"));
     const query = new URLSearchParams({ room: roomId, seat });
-    return stub.fetch(`https://quota/${action}?${query}`).then((response) => response.ok, () => action === "release");
+    return stub.fetch(`https://quota/${action}?${query}`).then((response) => response.ok, () => null);
   }
 
   // The Room lives in memory; after hibernation it is rebuilt from the
@@ -129,7 +132,7 @@ export class CollabRoom {
     // The secret and the address's reservation are settled before the socket
     // is accepted, so no message can arrive ahead of the decision.
     const allowed = role === "guest" || (await hostSecretMatches(roomId, url.searchParams.get("secret") || ""));
-    const granted = role === "guest" || !allowed || (await this.quota(address, "acquire", roomId, seat));
+    const granted = role === "guest" || !allowed ? true : await this.quota(address, "acquire", roomId, seat);
     const room = await this.roomFor(roomId);
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
@@ -137,8 +140,11 @@ export class CollabRoom {
     const socket = this.wrap(server);
     if (!allowed) {
       refuse(socket, "host", 4004, "unauthorized");
-    } else if (!granted) {
+    } else if (granted === false) {
       refuse(socket, "host", 4029, "too many rooms");
+    } else if (granted === null) {
+      // The quota object did not answer: the host tries again shortly.
+      refuse(socket, "host", 4013, "try again");
     } else if (role === "host") {
       server.serializeAttachment({ roomId, role, address, seat });
       const previous = room.host?.tag || null;
@@ -205,11 +211,12 @@ export class CollabRoom {
       const tag = host.tag;
       const kept = await this.quota(tag.address, "renew", tag.roomId, tag.seat);
       if (room.host !== host) return;
-      if (!kept) {
+      if (kept === false) {
         refuse(host, "host", 4029, "too many rooms");
         return;
       }
-      await this.ctx.storage.setAlarm(Date.now() + this.renewMs);
+      // No answer: keep the seat and try again soon; the lease has hours left.
+      await this.ctx.storage.setAlarm(Date.now() + (kept === null ? Math.min(RENEW_RETRY_MS, this.renewMs) : this.renewMs));
       return;
     }
     if (room.sweep()) {
