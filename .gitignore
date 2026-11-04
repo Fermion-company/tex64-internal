@@ -99,3 +99,6 @@ yarn-error.log*
 !/testing/evidence/
 !/testing/prism-import-20261031/
 !/testing/zotero-20261031/
+
+# Cloudflare wrangler state for the collab relay
+/services/collab-relay/.wrangler/

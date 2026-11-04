@@ -15,6 +15,8 @@ export const initCollabUi = () => {
   let errorText = "";
   let defaultName = "";
   let infoText = "";
+  // The route a new session takes, from the last status call.
+  let idleRoute: "lan" | "relay" = "lan";
   // Which invite link the host is showing: the edit link or the view link.
   let linkAccess: "edit" | "view" = "edit";
 
@@ -97,10 +99,15 @@ export const initCollabUi = () => {
       nameField.addEventListener("input", () => { defaultName = nameField.value; });
       nameRow.append(nameField);
       const start = button(uiText("Start a session", "セッションを開始"), () => void run(() => collabSession.start(nameField.value.trim())));
-      const hostNote = el("p", "tool-dialog-note", uiText(
-        "Starting a session opens a port on this computer; macOS may ask to allow incoming connections. Only people on the same network (LAN / VPN) can join.",
-        "セッションを開始するとこの Mac がポートを開きます。macOS が接続の許可を確認することがあります。参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。",
-      ));
+      const hostNote = el("p", "tool-dialog-note", idleRoute === "relay"
+        ? uiText(
+          "People can join over the internet. Everything is encrypted between the computers; the relay in between cannot read it.",
+          "インターネット越しに参加できます。内容は参加者の間で暗号化され、間の中継サーバーには読めません。",
+        )
+        : uiText(
+          "Starting a session opens a port on this computer; macOS may ask to allow incoming connections. Only people on the same network (LAN / VPN) can join.",
+          "セッションを開始するとこの Mac がポートを開きます。macOS が接続の許可を確認することがあります。参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。",
+        ));
       const joinSection = el("div", "collab-section collab-join");
       joinSection.append(el("p", "tool-dialog-label", uiText("Join with a link", "招待リンクで参加")));
       const linkField = field("collab-join-input", uiText("Paste an invite link", "招待リンクを貼り付け"));
@@ -160,7 +167,9 @@ export const initCollabUi = () => {
         }
         const row = el("div", "collab-link-row collab-dialog-link");
         row.append(link, copy);
-        invite.append(row, el("p", "tool-dialog-note", uiText("Only people on the same network (LAN / VPN) can join.", "参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。")));
+        invite.append(row, el("p", "tool-dialog-note", state.route === "relay"
+          ? uiText("Anyone with the link can join from anywhere.", "リンクを知っている人は、どこからでも参加できます。")
+          : uiText("Only people on the same network (LAN / VPN) can join.", "参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。")));
         content.append(invite);
       }
       const people = el("div", "collab-section");
@@ -196,6 +205,7 @@ export const initCollabUi = () => {
         content.append(where);
       }
       if (state.role === "guest" && state.connected === false) content.append(el("p", "tool-dialog-note", uiText("Reconnecting to the host…", "ホストに再接続しています…")));
+      if (state.role === "host" && state.connected === false) content.append(el("p", "tool-dialog-note", uiText("Reconnecting to the relay…", "中継サーバーに再接続しています…")));
       if (infoText) content.append(el("p", "tool-dialog-note", infoText));
     }
     const actions = el("div", "tool-dialog-actions");
@@ -254,6 +264,7 @@ export const initCollabUi = () => {
       try {
         const status = await collabSession.status();
         defaultName = String(status.defaultName || "");
+        idleRoute = status.route === "relay" ? "relay" : "lan";
       } catch {}
       if (!dialog) return;
       renderDialog();

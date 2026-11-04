@@ -21,6 +21,8 @@ export type CollabState = {
   name?: string;
   inviteLink?: string | null;
   viewInviteLink?: string | null;
+  // "relay": through the collab relay (internet); "lan": straight to the host.
+  route?: "lan" | "relay";
   // "view": joined with the view link; the host drops anything this side sends.
   access?: "edit" | "view";
   selfId?: string;

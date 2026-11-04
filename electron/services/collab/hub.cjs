@@ -19,6 +19,7 @@ const syncProtocol = require("y-protocols/sync");
 const encoding = require("lib0/encoding");
 const decoding = require("lib0/decoding");
 const transport = require("./transport-ws.cjs");
+const relay = require("./relay-transport.cjs");
 const invite = require("./invite.cjs");
 const { WorkspaceManifest, safeRelativePath, resolveInsideRoot, looksTextByName, hashBuffer, MAX_TEXT_BYTES } = require("./manifest.cjs");
 const { DiskSync, DISK_ORIGIN } = require("./disk-sync.cjs");
@@ -75,9 +76,15 @@ class CollabHub extends EventEmitter {
     return Boolean(entry && !entry.deleted && entry.attached);
   }
 
+  // The relay a new session would use (TEX64_COLLAB_RELAY_URL), or null for
+  // the LAN route.
+  relayServer() {
+    return invite.relayServerOrigin(this.deps.relayUrl?.() || "");
+  }
+
   status() {
     const session = this.session;
-    if (!session) return { active: false, phase: "idle" };
+    if (!session) return { active: false, phase: "idle", route: this.relayServer() ? "relay" : "lan" };
     const participants = [];
     for (const peer of session.peers.values()) {
       participants.push({ id: peer.id, name: peer.name, color: peer.color, connected: peer.connected, host: peer.host, viewer: peer.viewer === true, self: peer.id === session.selfId });
@@ -91,9 +98,11 @@ class CollabHub extends EventEmitter {
       name: session.name,
       inviteLink: session.inviteLink || null,
       viewInviteLink: session.viewInviteLink || null,
+      route: session.route || "lan",
       access: session.access,
       selfId: session.selfId,
-      connected: session.role === "host" ? true : Boolean(session.transport?.connected),
+      // A LAN host is always reachable; a relay host is while its link to the relay is up.
+      connected: session.role === "host" ? session.transport?.connected !== false : Boolean(session.transport?.connected),
       participants,
       rootPath: session.rootPath,
       preserved: session.preserved ? session.preserved.length : 0,
@@ -208,12 +217,31 @@ class CollabHub extends EventEmitter {
       }, LOCAL);
       await this.loadCommentsFromDisk(session);
       session.diskSync.coordinated = true;
-      const host = new transport.HostTransport({ token: session.token, viewToken: session.viewToken });
-      const port = await host.start();
-      session.transport = host;
-      const hosts = invite.localHostAddresses();
-      session.inviteLink = invite.buildInviteLink({ hosts, port, token: session.token, name: sessionName });
-      session.viewInviteLink = invite.buildInviteLink({ hosts, port, token: session.viewToken, name: sessionName });
+      const server = this.relayServer();
+      let host;
+      if (server) {
+        const room = invite.createRelayRoom();
+        host = new relay.RelayHostTransport({ server, ...room, token: session.token, viewToken: session.viewToken });
+        session.transport = host;
+        try {
+          await host.start();
+        } catch (error) {
+          throw Object.assign(new Error(text(this.deps.locale(), "Could not reach the collaboration relay. Check the internet connection.", "共同編集の中継サーバーに接続できませんでした。インターネット接続を確かめてください。")), { code: error?.code || "COLLAB_RELAY_UNREACHABLE" });
+        }
+        session.route = "relay";
+        const linkRelay = { server, roomId: room.roomId, key: room.key };
+        session.inviteLink = invite.buildInviteLink({ relay: linkRelay, token: session.token, name: sessionName });
+        session.viewInviteLink = invite.buildInviteLink({ relay: linkRelay, token: session.viewToken, name: sessionName });
+        host.on("relay", () => this.pushState());
+      } else {
+        host = new transport.HostTransport({ token: session.token, viewToken: session.viewToken });
+        const port = await host.start();
+        session.transport = host;
+        session.route = "lan";
+        const hosts = invite.localHostAddresses();
+        session.inviteLink = invite.buildInviteLink({ hosts, port, token: session.token, name: sessionName });
+        session.viewInviteLink = invite.buildInviteLink({ hosts, port, token: session.viewToken, name: sessionName });
+      }
       host.on("open", (conn) => this.onPeerOpen(session, conn));
       host.on("close", (conn) => this.onPeerClose(session, conn));
       host.on("message", (conn, frame) => this.onPeerFrame(session, conn, frame));
@@ -245,14 +273,12 @@ class CollabHub extends EventEmitter {
     session.joinWaiters = [];
     this.pushState();
     try {
-      const guest = new transport.GuestTransport({
-        host: parsed.host,
-        hosts: parsed.hosts,
-        port: parsed.port,
-        token: parsed.token,
-        hello: { clientId: session.selfId, name: displayName },
-      });
+      const greeting = { clientId: session.selfId, name: displayName };
+      const guest = parsed.relay
+        ? new relay.RelayGuestTransport({ ...parsed.relay, token: parsed.token, hello: greeting })
+        : new transport.GuestTransport({ host: parsed.host, hosts: parsed.hosts, port: parsed.port, token: parsed.token, hello: greeting });
       session.transport = guest;
+      session.route = parsed.relay ? "relay" : "lan";
       let welcomeTimer = null;
       const welcome = new Promise((resolve, reject) => {
         session.resolveWelcome = (message) => {
