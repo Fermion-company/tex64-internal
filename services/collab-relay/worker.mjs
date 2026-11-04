@@ -34,7 +34,7 @@ export default {
   },
 };
 
-// One client address's reservations: /acquire, /renew or /release ?room=&seat=.
+// One client address's reservations: /acquire or /release ?room=&seat=.
 export class AddressQuota {
   constructor(ctx, env) {
     this.ctx = ctx;
@@ -65,6 +65,7 @@ export class CollabRoom {
     this.room = null;
     this.wrapped = new WeakMap();
     this.handled = new WeakSet();
+    this.steps = Promise.resolve();
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
@@ -93,6 +94,15 @@ export class CollabRoom {
       this.wrapped.set(ws, socket);
     }
     return socket;
+  }
+
+  // A host's admission, its renewals and its departure each talk to the quota
+  // object across awaits, where other events may run. They take turns here,
+  // so the reservation always follows the order hosts are seated and leave in.
+  serially(step) {
+    const run = this.steps.then(step);
+    this.steps = run.catch(() => {});
+    return run;
   }
 
   // true granted, false refused, null when the quota object did not answer.
@@ -126,12 +136,18 @@ export class CollabRoom {
     const url = new URL(request.url);
     const roomId = roomOf(url);
     const role = url.searchParams.get("role") === "host" ? "host" : "guest";
+    const allowed = role === "guest" || (await hostSecretMatches(roomId, url.searchParams.get("secret") || ""));
+    // A host is admitted in turn with renewals and departures (serially).
+    return role === "host" && allowed ? this.serially(() => this.admit(request, roomId)) : this.admit(request, roomId, allowed);
+  }
+
+  // The secret and the address's reservation are settled before the socket
+  // is accepted, so no message can arrive ahead of the decision.
+  async admit(request, roomId, allowed = true) {
+    const role = new URL(request.url).searchParams.get("role") === "host" ? "host" : "guest";
     const address = request.headers.get("X-Relay-Address") || "unknown";
     // Each host connection is its own seat on the reservation.
     const seat = crypto.randomUUID();
-    // The secret and the address's reservation are settled before the socket
-    // is accepted, so no message can arrive ahead of the decision.
-    const allowed = role === "guest" || (await hostSecretMatches(roomId, url.searchParams.get("secret") || ""));
     const granted = role === "guest" || !allowed ? true : await this.quota(address, "acquire", roomId, seat);
     const room = await this.roomFor(roomId);
     const pair = new WebSocketPair();
@@ -185,6 +201,11 @@ export class CollabRoom {
     this.handled.add(ws);
     const tag = ws.deserializeAttachment();
     if (!tag) return;
+    if (tag.role === "host") return this.serially(() => this.leave(ws, tag));
+    return this.leave(ws, tag);
+  }
+
+  async leave(ws, tag) {
     const room = await this.roomFor(tag.roomId);
     const socket = this.wrap(ws);
     // A close that woke the object comes for a socket already left out of
@@ -199,7 +220,11 @@ export class CollabRoom {
   // While a host is seated: renew its reservation (a reservation that cannot
   // be kept ends the seat). Once it left: send waiting guests away after the
   // grace period.
-  async alarm() {
+  alarm() {
+    return this.serially(() => this.tend());
+  }
+
+  async tend() {
     const tags = this.ctx.getWebSockets().filter((ws) => ws.readyState === 1).map((ws) => ws.deserializeAttachment()).filter(Boolean);
     if (!tags.length) {
       await this.ctx.storage.deleteAll();
@@ -208,9 +233,16 @@ export class CollabRoom {
     const room = await this.roomFor(tags[0].roomId);
     const host = room.host;
     if (host) {
+      // Acquiring again renews the lease, and takes the room back from a seat
+      // that an admission which never completed left on it.
       const tag = host.tag;
-      const kept = await this.quota(tag.address, "renew", tag.roomId, tag.seat);
-      if (room.host !== host) return;
+      const kept = await this.quota(tag.address, "acquire", tag.roomId, tag.seat);
+      if (room.host !== host) {
+        // Cannot happen while steps take turns; if it ever does, give back
+        // what this renewal may have put back.
+        await this.quota(tag.address, "release", tag.roomId, tag.seat);
+        return;
+      }
       if (kept === false) {
         refuse(host, "host", 4029, "too many rooms");
         return;

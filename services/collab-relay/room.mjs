@@ -38,9 +38,10 @@ export const ROOM_LEASE_MS = 24 * 60 * 60 * 1000;
 export const LEASE_RENEW_MS = 6 * 60 * 60 * 1000;
 
 // One client address's reservations, { roomId: { seat, until } }, changed in
-// place. Each host connection has its own seat: acquiring (or renewing) puts
-// it on the room, and only the same seat can release it, so the close of a
-// host that was just replaced cannot free its successor's reservation.
+// place. Each host connection has its own seat: acquiring puts it on the room
+// (a seated host renews by acquiring again), and only the same seat can
+// release it. The room object runs its admissions, renewals and departures
+// one at a time, so acquiring may take the room from whatever seat holds it.
 // Returns whether the action was granted.
 export const updateQuota = (rooms, { action, roomId, seat, now, max = MAX_HOST_ROOMS_PER_ADDRESS, leaseMs = ROOM_LEASE_MS }) => {
   for (const [id, entry] of Object.entries(rooms)) {
@@ -48,14 +49,6 @@ export const updateQuota = (rooms, { action, roomId, seat, now, max = MAX_HOST_R
   }
   if (action === "acquire") {
     if (!(roomId in rooms) && Object.keys(rooms).length >= max) return false;
-    rooms[roomId] = { seat, until: now + leaseMs };
-    return true;
-  }
-  if (action === "renew") {
-    // A newer seat already holds the room: leave its reservation alone.
-    const entry = rooms[roomId];
-    if (entry && entry.seat !== seat) return true;
-    if (!entry && Object.keys(rooms).length >= max) return false;
     rooms[roomId] = { seat, until: now + leaseMs };
     return true;
   }

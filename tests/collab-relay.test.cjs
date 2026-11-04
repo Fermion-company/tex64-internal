@@ -404,27 +404,31 @@ test("reservations: a live room stays counted, and only its own seat gives it ba
   assert.equal(run("acquire", "A", "a1"), true);
   assert.equal(run("acquire", "B", "b1"), true);
   assert.equal(run("acquire", "C", "c1"), false, "the address is full");
-  // A seated host renews every LEASE_RENEW_MS, so its room outlives the first lease.
+  // A seated host renews (acquires again) every LEASE_RENEW_MS, so its room outlives the first lease.
   for (now = LEASE_RENEW_MS; now <= 2 * ROOM_LEASE_MS; now += LEASE_RENEW_MS) {
-    assert.equal(run("renew", "A", "a1"), true);
-    assert.equal(run("renew", "B", "b1"), true);
+    assert.equal(run("acquire", "A", "a1"), true);
+    assert.equal(run("acquire", "B", "b1"), true);
   }
   assert.equal(run("acquire", "C", "c1"), false, "two days on, both live rooms still count");
-  // A reconnect takes the seat; the replaced host's release and renewal leave it alone.
+  // A reconnect takes the seat; the replaced host's release leaves it alone.
   assert.equal(run("acquire", "A", "a2"), true);
   run("release", "A", "a1");
-  assert.equal(run("renew", "A", "a1"), true);
   assert.equal(rooms.A.seat, "a2");
   assert.equal(run("acquire", "C", "c1"), false);
+  // An admission that never completed (its answer was lost) left seat a3 on A
+  // while a2 stayed seated: a2's next renewal takes the room back.
+  run("acquire", "A", "a3");
+  assert.equal(run("acquire", "A", "a2"), true);
+  assert.equal(rooms.A.seat, "a2");
   run("release", "A", "a2");
   assert.equal(run("acquire", "C", "c1"), true, "the seat's own release frees the room");
   // A room whose host stopped renewing (a lost close) frees itself after the lease.
   now += ROOM_LEASE_MS;
-  assert.equal(run("renew", "C", "c1"), true);
+  assert.equal(run("acquire", "C", "c1"), true);
   assert.deepEqual(Object.keys(rooms), ["C"], "B expired");
   // Renewing a reservation that expired needs a free slot like a new one.
   const full = { X: { seat: "x", until: 10 }, Y: { seat: "y", until: 10 } };
-  assert.equal(updateQuota(full, { action: "renew", roomId: "Z", seat: "z", now: 5, max: 2 }), false);
+  assert.equal(updateQuota(full, { action: "acquire", roomId: "Z", seat: "z", now: 5, max: 2 }), false);
 });
 
 test("a replaced host's close keeps its successor counted; a host that moves gives the old address back", async (t) => {
