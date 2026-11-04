@@ -4,7 +4,7 @@
 // the main process (electron/services/word-count.cjs) on the saved files,
 // with the unsaved editor buffers sent along.
 
-import { uiText } from "./i18n.js";
+import { getUiLocale, uiText } from "./i18n.js";
 import type { EditorSessionApi } from "./editor-session.js";
 
 type Counts = { words: number; characters: number; headings: number; inlineMath: number; displayMath: number };
@@ -32,60 +32,88 @@ export const initWordCountUi = (deps: {
   };
   const number = (value: number) => value.toLocaleString();
 
+  // The scope shown when the dialog last rendered; kept across re-renders.
+  let scope: "document" | "file" | "selection" = "document";
+
+  const stat = (value: string, name: string, major = false, unit = "") => {
+    const box = el("div", `word-count-stat${major ? " is-major" : ""}`);
+    const figure = el("span", "word-count-value", value);
+    if (unit) figure.append(el("small", "", unit));
+    box.append(figure, el("span", "word-count-name", name));
+    return box;
+  };
+
   const render = (result: CountResult | null, activePath: string | null) => {
     if (!dialog) return;
-    const title = el("h2", "", uiText("Word Count", "文字数"));
+    const eyebrow = el("p", "tool-dialog-eyebrow", "Word count");
+    const title = el("h2", "tool-dialog-title", uiText("Word Count", "文字数"));
     title.id = "word-count-title";
     dialog.setAttribute("aria-labelledby", title.id);
     const body = el("div", "word-count-body");
     if (!result) {
-      body.append(el("p", "history-local", uiText("Counting…", "数えています…")));
+      body.append(el("p", "tool-dialog-note", uiText("Counting…", "数えています…")));
     } else if (!result.ok) {
-      body.append(el("p", "history-error", result.error || uiText("Could not count.", "数えられませんでした。")));
+      body.append(el("p", "tool-dialog-error", result.error || uiText("Could not count.", "数えられませんでした。")));
     } else if (!result.document && !result.selection) {
-      body.append(el("p", "history-local", uiText("Open a .tex file first.", ".tex ファイルを開いてください。")));
+      body.append(el("p", "tool-dialog-note", uiText("Open a .tex file first.", ".tex ファイルを開いてください。")));
     } else {
-      const columns: Array<{ label: string; counts: Counts }> = [];
-      const documentCounts = result.document;
-      if (documentCounts && documentCounts.files.length) {
-        columns.push({ label: uiText("Document", "文書全体"), counts: documentCounts.total });
-        const active = documentCounts.files.find((file) => file.path === activePath);
-        if (active && documentCounts.files.length > 1) columns.push({ label: uiText("This file", "このファイル"), counts: active });
-      }
-      if (result.selection) columns.push({ label: uiText("Selection", "選択範囲"), counts: result.selection });
-      const table = el("table", "word-count-table");
-      const head = el("tr");
-      head.append(el("th"));
-      for (const column of columns) head.append(el("th", "", column.label));
-      table.append(head);
-      const rows: Array<[string, (counts: Counts) => string]> = [
-        [uiText("Words", "単語"), (counts) => number(counts.words)],
-        [uiText("Characters (no spaces)", "文字（空白を除く）"), (counts) => number(counts.characters)],
-        [uiText("Headings", "見出し"), (counts) => number(counts.headings)],
-        [uiText("Math (inline / display)", "数式（行内 / 別行）"), (counts) => `${number(counts.inlineMath)} / ${number(counts.displayMath)}`],
-      ];
-      for (const [label, value] of rows) {
-        const row = el("tr");
-        row.append(el("th", "", label));
-        for (const column of columns) row.append(el("td", "", value(column.counts)));
-        table.append(row);
-      }
-      body.append(table);
-      if (documentCounts && documentCounts.files.length) {
+      const documentCounts = result.document && result.document.files.length ? result.document : null;
+      // "This file" only for a part of the document, not for its main file.
+      const active = documentCounts && activePath !== documentCounts.mainFile
+        ? documentCounts.files.find((file) => file.path === activePath) ?? null
+        : null;
+      const scopes: Array<{ id: typeof scope; label: string; counts: Counts }> = [];
+      if (documentCounts) scopes.push({ id: "document", label: uiText("Document", "文書全体"), counts: documentCounts.total });
+      if (active) scopes.push({ id: "file", label: uiText("This file", "このファイル"), counts: active });
+      if (result.selection) scopes.push({ id: "selection", label: uiText("Selection", "選択範囲"), counts: result.selection });
+      if (!scopes.some((entry) => entry.id === scope)) scope = scopes[0].id;
+      if (documentCounts) {
         const others = documentCounts.files.length - 1;
-        const scope = el("p", "history-local", others > 0
-          ? uiText(`${documentCounts.mainFile} and the ${others} file${others === 1 ? "" : "s"} it reads. Comments, math and commands are not counted.`, `${documentCounts.mainFile} と読み込み先 ${others} ファイル。コメント・数式・コマンドは数えません。`)
-          : uiText(`${documentCounts.mainFile}. Comments, math and commands are not counted.`, `${documentCounts.mainFile}。コメント・数式・コマンドは数えません。`));
-        scope.dataset.noI18n = "true";
-        body.append(scope);
+        const detail = el("span", "tool-dialog-eyebrow-detail", others > 0
+          ? `· ${documentCounts.mainFile} + ${others}`
+          : `· ${documentCounts.mainFile}`);
+        detail.dataset.noI18n = "true";
+        eyebrow.append(detail);
       }
+      if (scopes.length > 1) {
+        const switcher = el("div", "tool-segmented word-count-scopes");
+        switcher.setAttribute("role", "group");
+        for (const entry of scopes) {
+          const option = el("button", "", entry.label);
+          option.type = "button";
+          option.setAttribute("aria-pressed", String(entry.id === scope));
+          option.addEventListener("click", () => {
+            scope = entry.id;
+            render(result, activePath);
+          });
+          switcher.append(option);
+        }
+        body.append(switcher);
+      }
+      const counts = scopes.find((entry) => entry.id === scope)!.counts;
+      const characters = stat(number(counts.characters), uiText("Characters (no spaces)", "文字（空白を除く）"), true);
+      const words = stat(number(counts.words), uiText("Words", "単語"), true);
+      const grid = el("div", "word-count-stats");
+      // The measure Japanese manuscripts use comes first in Japanese.
+      grid.append(...(getUiLocale() === "ja" ? [characters, words] : [words, characters]));
+      grid.append(
+        stat(number(counts.headings), uiText("Headings", "見出し")),
+        stat(`${number(counts.inlineMath)} / ${number(counts.displayMath)}`, uiText("Math (inline / display)", "数式（行内 / 別行）")),
+      );
+      body.append(grid);
+      const scopeNote = scope === "document" && documentCounts && documentCounts.files.length > 1
+        ? uiText(`${documentCounts.mainFile} and the ${documentCounts.files.length - 1} file${documentCounts.files.length === 2 ? "" : "s"} it reads. `, `${documentCounts.mainFile} と読み込み先 ${documentCounts.files.length - 1} ファイル。`)
+        : "";
+      const note = el("p", "tool-dialog-note", `${scopeNote}${uiText("Comments, math and commands are not counted.", "コメント・数式・コマンドは数えません。")}`);
+      note.dataset.noI18n = "true";
+      body.append(note);
     }
-    const actions = el("div", "history-confirm-actions");
-    const close = el("button", "history-button", uiText("Close", "閉じる"));
+    const actions = el("div", "tool-dialog-actions");
+    const close = el("button", "tool-button", uiText("Close", "閉じる"));
     close.type = "button";
     close.addEventListener("click", () => dialog?.close());
     actions.append(close);
-    dialog.replaceChildren(title, body, actions);
+    dialog.replaceChildren(eyebrow, title, body, actions);
     close.focus();
   };
 
@@ -99,7 +127,7 @@ export const initWordCountUi = (deps: {
       if (!snapshot.truncated) buffers[snapshot.path] = snapshot.content;
     }
     if (!dialog) {
-      dialog = el("dialog", "history-confirm word-count-dialog");
+      dialog = el("dialog", "tool-dialog word-count-dialog");
       dialog.addEventListener("close", () => {
         dialog?.remove();
         dialog = null;
@@ -107,6 +135,7 @@ export const initWordCountUi = (deps: {
       document.body.append(dialog);
       dialog.showModal();
     }
+    scope = "document";
     render(null, activePath);
     let result: CountResult;
     try {

@@ -131,6 +131,13 @@ const registerZoteroHandlers = ({
       return { transport: result.transport, library, items: result.items };
     },
 
+    recent: async () => {
+      const library = await effectiveLibrary();
+      const result = await client.recent({ library });
+      if (!result.ok) throw Object.assign(new Error("Zotero request failed."), { code: result.code });
+      return { transport: result.transport, library, items: result.items };
+    },
+
     // The target is decided before Zotero is asked; the append runs only if
     // the same workspace session is still open when the answer arrives.
     cite: async (payload) => {

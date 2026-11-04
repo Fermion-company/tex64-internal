@@ -21,6 +21,7 @@ const WEB_BASE = "https://api.zotero.org";
 const LOCAL_TIMEOUT_MS = 4000;
 const WEB_TIMEOUT_MS = 15000;
 const SEARCH_LIMIT = 25;
+const RECENT_LIMIT = 10;
 const PROBE_TTL_MS = 5000;
 const NON_CITABLE_TYPES = new Set(["attachment", "note", "annotation"]);
 
@@ -269,6 +270,25 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
     return { ok: true, items };
   };
 
+  // The library's most recently added items, for the dialog before a search.
+  const apiRecent = async ({ base, apiKey, timeoutMs, transport, library, userId, libraryName }) => {
+    const prefix = apiLibraryPath(library, userId);
+    const params = new URLSearchParams({
+      sort: "dateAdded",
+      direction: "desc",
+      limit: String(RECENT_LIMIT),
+      format: "json",
+      itemType: "-attachment || note || annotation",
+    });
+    const result = await apiJson(base, `${prefix}/items/top?${params.toString()}`, { apiKey, timeoutMs });
+    if (!result.ok) return result;
+    const fallbackLibrary = prefix.startsWith("/groups/") ? `groups:${prefix.split("/")[2]}` : `users:${userId}`;
+    const items = (Array.isArray(result.json) ? result.json : [])
+      .map((raw) => apiItem(raw, transport, fallbackLibrary, libraryName))
+      .filter((item) => item.key && !NON_CITABLE_TYPES.has(item.itemType));
+    return { ok: true, items };
+  };
+
   const apiBibtex = async ({ base, apiKey, timeoutMs, library, key, userId }) => {
     const prefix = apiLibraryPath(library, userId);
     const result = await apiText(base, `${prefix}/items/${encodeURIComponent(key)}?format=bibtex`, { apiKey, timeoutMs });
@@ -361,6 +381,17 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
     }
     const context = status.transport === "local" ? localContext() : webContext(status);
     const result = await apiSearch({ ...context, query: term, library, libraryName: name });
+    return result.ok ? { ...result, transport: status.transport } : result;
+  };
+
+  // Recently added items; Better BibTeX has no such query, so none there.
+  const recent = async ({ library }) => {
+    const status = await probe();
+    if (!status.transport) return failure("no-transport");
+    if (status.transport === "bbt") return { ok: true, transport: "bbt", items: [] };
+    const name = await libraryName(status, library);
+    const context = status.transport === "local" ? localContext() : webContext(status);
+    const result = await apiRecent({ ...context, library, libraryName: name });
     return result.ok ? { ...result, transport: status.transport } : result;
   };
 
@@ -482,7 +513,7 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
     return { ok: true, transport: status.transport, found, notFound };
   };
 
-  return { probe, libraries, search, bibtexFor, refresh };
+  return { probe, libraries, search, recent, bibtexFor, refresh };
 };
 
 module.exports = { createZoteroClient, parseLibraryId, generateCitekey, LOCAL_BASE, WEB_BASE };
