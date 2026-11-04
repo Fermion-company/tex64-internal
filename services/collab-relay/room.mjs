@@ -15,6 +15,7 @@ export const KIND = Object.freeze({
   PEER_DATA: 0x12,
   PEER_CLOSE: 0x13,
   REFUSED_HOST: 0x14, // empty id · close code (u16)
+  HOST_READY: 0x15, // empty id: the host has the seat
   // relay → guest: kind · body
   HOST_DATA: 0x21,
   HOST_OPEN: 0x22,
@@ -28,6 +29,8 @@ export const ROOM_ID = /^[A-Za-z0-9_-]{22}$/;
 // How long guests may wait for a host that left (a network change, a restart)
 // before the room sends them away. A room whose host never came takes none.
 export const HOST_GRACE_MS = 2 * 60 * 1000;
+// Rooms one client address may host at once (a lab behind one NAT included).
+export const MAX_HOST_ROOMS_PER_ADDRESS = 20;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -95,6 +98,7 @@ export class Room {
     if (this.host && this.host !== socket) refuse(this.host, "host", 4009, "replaced");
     this.host = socket;
     this.hostLeftAt = null;
+    socket.send(encodeEnvelope(KIND.HOST_READY, ""));
     // Guests that waited for the host meet it now; each makes a new channel.
     for (const [id, guest] of this.guests) {
       socket.send(encodeEnvelope(KIND.PEER_OPEN, id));
@@ -141,6 +145,25 @@ export class Room {
       return "guest";
     }
     return null;
+  }
+
+  // The same as detach() for a socket the room no longer lists — in the
+  // Worker, a close that wakes a hibernated room arrives for a socket that is
+  // already CLOSED and so left out of the rebuilt room. `tag` is the socket's
+  // attachment: { role, id }. A host that was replaced does not end the seat.
+  departed(tag, socket) {
+    if (tag.role === "host") {
+      if (this.host && this.host !== socket && !this.host.closed) return null;
+      this.host = null;
+      this.hostLeftAt = this.now();
+      for (const guest of this.guests.values()) guest.send(toGuest(KIND.HOST_GONE));
+      return "host";
+    }
+    const current = this.guests.get(tag.id);
+    if (current && current !== socket && !current.closed) return null;
+    this.guests.delete(tag.id);
+    this.host?.send(encodeEnvelope(KIND.PEER_CLOSE, tag.id));
+    return "guest";
   }
 
   // Sends the guests away once the host has been gone for the grace period.

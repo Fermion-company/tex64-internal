@@ -6,9 +6,14 @@ compatibility_date = "2026-10-01"
 name = "ROOMS"
 class_name = "CollabRoom"
 
+# Rooms hosted per client address (room.mjs MAX_HOST_ROOMS_PER_ADDRESS).
+[[durable_objects.bindings]]
+name = "QUOTAS"
+class_name = "AddressQuota"
+
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["CollabRoom"]
+new_sqlite_classes = ["CollabRoom", "AddressQuota"]
 
 # Connection attempts per client address: 120 a minute leaves room for a lab
 # behind one NAT (a TeX64 window dials once, then backs off up to 5 s) and

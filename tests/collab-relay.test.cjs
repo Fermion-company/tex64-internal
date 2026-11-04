@@ -145,6 +145,28 @@ test("a channel keeps to the window, and a replayed, reordered or foreign piece 
   assert.equal(stalled.receiver.overdue(Date.now() + relay.TIMING.stallMs + 1), relay.CODE.OVERLOAD);
 });
 
+test("acknowledgements are cumulative and wait for room on the socket", () => {
+  // A stream of tiny frames (all a view-only guest may send) costs the host
+  // no acknowledgement until a quarter window has been consumed.
+  const tiny = channelPair();
+  for (let index = 0; index < 5000; index += 1) tiny.sender.enqueue(Buffer.from("x"));
+  tiny.deliver();
+  assert.equal(tiny.wire.frames.length, 5000);
+  assert.equal(tiny.receiver.ackedConsumed, 0, "no acknowledgement for 5000 bytes");
+
+  // A full window still flows, and an acknowledgement waits while the socket is backed up.
+  let roomy = false;
+  const backed = channelPair({ receiverOptions: { canWrite: () => roomy } });
+  backed.sender.enqueue(crypto.randomBytes(2 * relay.WINDOW_BYTES));
+  while (backed.wire.toReceiver.length) backed.receiver.receive(backed.wire.toReceiver.shift());
+  assert.equal(backed.wire.toSender.length, 0, "nothing written while the socket has no room");
+  roomy = true;
+  backed.receiver.acknowledge();
+  backed.deliver();
+  assert.equal(backed.wire.frames.length, 1, "the window opened once the acknowledgement went out");
+  assert.deepEqual(backed.wire.failures, []);
+});
+
 test("the relay room seats only the secret's holder and admits guests only around a host", async () => {
   let now = 1000;
   const room = invite.createRelayRoom();
@@ -156,12 +178,13 @@ test("the relay room seats only the secret's holder and admits guests only aroun
   assert.equal(early.closedWith, 4010, "no host has come: nobody can wait in the room");
   const host = fakeSocket();
   subject.attachHost(host);
+  assert.equal(host.sent[0][0], KIND.HOST_READY, "the host learns it has the seat");
   const guest = fakeSocket();
   assert.equal(subject.attachGuest(guest), "g1");
-  assert.equal(host.sent[0][0], KIND.PEER_OPEN);
+  assert.equal(host.sent[1][0], KIND.PEER_OPEN);
   assert.deepEqual([...guest.sent[0]], [KIND.HOST_OPEN]);
   subject.onMessage(guest, new Uint8Array([9, 9, 9]));
-  assert.equal(host.sent[1][0], KIND.PEER_DATA);
+  assert.equal(host.sent[2][0], KIND.PEER_DATA);
   subject.onMessage(host, encodeEnvelope(KIND.SEND, "g1", new Uint8Array([7])));
   assert.deepEqual([...guest.sent[1]], [KIND.HOST_DATA, 7]);
   assert.equal(subject.detach(host), "host");
@@ -183,6 +206,26 @@ test("the relay room seats only the secret's holder and admits guests only aroun
   subject.onMessage(back, encodeEnvelope(KIND.CLOSE_PEER, "g3", new Uint8Array([0x0f, 0xa4])));
   assert.equal(again.closedWith, 4004);
   assert.equal(subject.guests.size, 0);
+
+  // A close that wakes a hibernated Worker names a socket the rebuilt room
+  // no longer lists; its attachment still ends the seat or the guest.
+  const woke = new Room({ roomId: room.roomId, graceMs: 60000, now: () => now });
+  const waiting = fakeSocket();
+  woke.guests.set("g4", waiting);
+  const closingHost = fakeSocket();
+  closingHost.closed = true;
+  assert.equal(woke.detach(closingHost), null);
+  assert.equal(woke.departed({ role: "host" }, closingHost), "host");
+  assert.deepEqual([...waiting.sent[0]], [KIND.HOST_GONE]);
+  assert.equal(woke.hostLeftAt, now, "the grace period starts");
+  const newHost = fakeSocket();
+  woke.attachHost(newHost);
+  assert.equal(woke.departed({ role: "host" }, fakeSocket()), null, "a replaced host's close leaves the new host seated");
+  assert.equal(woke.host, newHost);
+  assert.equal(woke.departed({ role: "guest", id: "g4" }, fakeSocket()), null, "a live guest under that id stays");
+  waiting.closed = true;
+  assert.equal(woke.departed({ role: "guest", id: "g4" }, waiting), "guest");
+  assert.equal(newHost.sent.at(-1)[0], KIND.PEER_CLOSE);
 });
 
 test("two hubs meet through the relay, which never sees the text, the files or the tokens", async (t) => {
@@ -332,6 +375,26 @@ test("a silent link is noticed on both sides and redialled", async (t) => {
   await waitFor(() => host.status().connected === true && guest.status().connected === true, 10000, "host redialled and the guest rejoined it");
   guest.session.docs.get("main.tex").ytext.insert(0, "% after\n");
   await waitFor(() => host.session.docs.get("main.tex").ytext.toString().startsWith("% after\n"), 8000, "edits flow again");
+});
+
+test("one address hosts a bounded number of rooms", async (t) => {
+  const { server, hostRoot, hub } = await setup(t, { maxHostRooms: 1 });
+  fs.writeFileSync(path.join(hostRoot, "main.tex"), "Hello\n");
+  const first = hub("First", { path: hostRoot }, server.url);
+  const second = hub("Second", { path: hostRoot }, server.url);
+  await first.start({ name: "First" });
+  await assert.rejects(second.start({ name: "Second" }), { code: "COLLAB_RELAY_BUSY" });
+  assert.equal(second.session, null);
+  await first.leave();
+  await waitFor(async () => {
+    try {
+      await second.start({ name: "Second" });
+      return true;
+    } catch {
+      return false;
+    }
+  }, 4000, "the room freed when the first host left");
+  assert.equal(second.status().active, true);
 });
 
 test("a link with the wrong host key is refused at once; no host, no room; an unreachable relay stops the start", async (t) => {

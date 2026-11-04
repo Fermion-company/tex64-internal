@@ -7,15 +7,24 @@
 
 const http = require("node:http");
 const { WebSocketServer } = require("ws");
-const { Room, ROOM_ID, HOST_GRACE_MS, hostSecretMatches, refuse } = require("./room.mjs");
+const { Room, ROOM_ID, HOST_GRACE_MS, MAX_HOST_ROOMS_PER_ADDRESS, hostSecretMatches, refuse } = require("./room.mjs");
 
 // For tests, which play a relay that misbehaves:
 //   onTraffic({ role, direction, bytes }) sees every binary message;
 //   filter({ role, direction, bytes, text }) returning false drops a message
 //   (binary or the "ping"/"pong" text) as a black hole would.
-const createLocalRelay = async ({ port = 0, onTraffic = null, filter = null, graceMs = HOST_GRACE_MS } = {}) => {
+const createLocalRelay = async ({ port = 0, onTraffic = null, filter = null, graceMs = HOST_GRACE_MS, maxHostRooms = MAX_HOST_ROOMS_PER_ADDRESS } = {}) => {
   const rooms = new Map();
   const sweeps = new Map();
+  // Client address → ids of the rooms it hosts (the Worker's AddressQuota).
+  const hosted = new Map();
+  const acquire = (address, roomId) => {
+    const set = hosted.get(address) || new Set();
+    if (!set.has(roomId) && set.size >= maxHostRooms) return false;
+    set.add(roomId);
+    hosted.set(address, set);
+    return true;
+  };
   const server = http.createServer((request, response) => {
     response.statusCode = request.url === "/health" ? 200 : 404;
     response.end(request.url === "/health" ? "ok" : "");
@@ -29,7 +38,9 @@ const createLocalRelay = async ({ port = 0, onTraffic = null, filter = null, gra
       return;
     }
     const role = url.searchParams.get("role") === "host" ? "host" : "guest";
+    const address = request.socket.remoteAddress || "unknown";
     const allowed = role === "guest" || (await hostSecretMatches(roomId, url.searchParams.get("secret") || ""));
+    const granted = role === "guest" || !allowed || acquire(address, roomId);
     wss.handleUpgrade(request, socket, head, (ws) => {
       if (!rooms.has(roomId)) rooms.set(roomId, new Room({ roomId, graceMs }));
       const room = rooms.get(roomId);
@@ -59,6 +70,7 @@ const createLocalRelay = async ({ port = 0, onTraffic = null, filter = null, gra
       });
       ws.on("close", () => {
         if (room.detach(wrapped) !== "host") return;
+        hosted.get(address)?.delete(roomId);
         clearTimeout(sweeps.get(roomId));
         const timer = setTimeout(() => room.sweep(), graceMs + 10);
         timer.unref?.();
@@ -66,6 +78,7 @@ const createLocalRelay = async ({ port = 0, onTraffic = null, filter = null, gra
       });
       ws.on("error", () => {});
       if (!allowed) refuse(wrapped, "host", 4004, "unauthorized");
+      else if (!granted) refuse(wrapped, "host", 4029, "too many rooms");
       else if (role === "host") room.attachHost(wrapped);
       else room.attachGuest(wrapped);
     });

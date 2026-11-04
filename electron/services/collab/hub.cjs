@@ -226,7 +226,10 @@ class CollabHub extends EventEmitter {
         try {
           await host.start();
         } catch (error) {
-          throw Object.assign(new Error(text(this.deps.locale(), "Could not reach the collaboration relay. Check the internet connection.", "共同編集の中継サーバーに接続できませんでした。インターネット接続を確かめてください。")), { code: error?.code || "COLLAB_RELAY_UNREACHABLE" });
+          const message = error?.code === "COLLAB_RELAY_BUSY"
+            ? text(this.deps.locale(), "Too many sessions are open from this network. End one you no longer use.", "このネットワークから開いているセッションが多すぎます。使っていないセッションを終了してください。")
+            : text(this.deps.locale(), "Could not reach the collaboration relay. Check the internet connection.", "共同編集の中継サーバーに接続できませんでした。インターネット接続を確かめてください。");
+          throw Object.assign(new Error(message), { code: error?.code || "COLLAB_RELAY_UNREACHABLE" });
         }
         session.route = "relay";
         const linkRelay = { server, roomId: room.roomId, key: room.key };

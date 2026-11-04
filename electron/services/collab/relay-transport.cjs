@@ -13,9 +13,9 @@
 // Frames travel in sealed pieces (AES-256-GCM, the nonce is a per-direction
 // counter): a replayed, dropped or reordered piece fails to open and the
 // channel is closed, so the guest reconnects and resyncs. The receiver
-// acknowledges what it consumed and the sender keeps at most WINDOW_BYTES
-// unacknowledged, so neither the relay nor the host buffers a 50 MB figure
-// per guest. See docs/collab-relay.md.
+// acknowledges what it consumed (cumulatively, every quarter window) and the
+// sender keeps at most WINDOW_BYTES unacknowledged, so neither the relay nor
+// the host buffers a 50 MB figure per guest. See docs/collab-relay.md.
 //
 // The two transports keep the interface of HostTransport / GuestTransport, so
 // the hub does not know which route a session uses.
@@ -31,6 +31,7 @@ const PEER_OPEN = 0x11;
 const PEER_DATA = 0x12;
 const PEER_CLOSE = 0x13;
 const REFUSED_HOST = 0x14;
+const HOST_READY = 0x15;
 const HOST_DATA = 0x21;
 const HOST_OPEN = 0x22;
 const HOST_GONE = 0x23;
@@ -76,6 +77,8 @@ const CODE = {
   FULL: 4005,
   OVERLOAD: 4008,
   SILENT: 4012,
+  // The relay holds as many rooms for this address as it allows.
+  BUSY: 4029,
 };
 
 const toBuffer = (data) => (Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data));
@@ -204,14 +207,29 @@ class Channel {
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       this.pump();
+      this.acknowledge();
     }, 20);
     this.retryTimer.unref?.();
   }
 
   keepalive() {
-    if (this.failed) return;
+    if (this.failed || !this.canWrite()) return;
     this.write(Buffer.from([KEEPALIVE]));
     this.lastSent = Date.now();
+  }
+
+  // Acknowledgements are cumulative: one is written per quarter window
+  // consumed, and only when the socket has room, so a stream of tiny frames
+  // cannot pile them up. The sender stops at a full window, well past the
+  // quarter, so it always gets one.
+  acknowledge() {
+    if (this.failed || this.consumed - this.ackedConsumed < WINDOW_BYTES / 4) return;
+    if (!this.canWrite()) {
+      this.retryLater();
+      return;
+    }
+    this.ackedConsumed = this.consumed;
+    this.write(ackMessage(this.consumed));
   }
 
   receive(bytes) {
@@ -271,10 +289,7 @@ class Channel {
       frame = this.parts.length === 1 ? this.parts[0] : Buffer.concat(this.parts);
       this.releaseParts();
     }
-    if (frame || this.consumed - this.ackedConsumed >= WINDOW_BYTES / 4) {
-      this.ackedConsumed = this.consumed;
-      this.write(ackMessage(this.consumed));
-    }
+    this.acknowledge();
     if (frame) this.onFrame(frame);
   }
 
@@ -366,6 +381,7 @@ class RelayHostTransport extends EventEmitter {
     this.firstConnect = null;
     this.lastSocketHeard = 0;
     this.lastPing = 0;
+    this.socketOpenedAt = 0;
     this.budget = createBudget(HOST_REASSEMBLY_BUDGET);
     // Relay connection id → conn, from PEER_OPEN until PEER_CLOSE; a conn
     // joins `connections` once its hello checks out.
@@ -373,8 +389,8 @@ class RelayHostTransport extends EventEmitter {
     this.connections = new Set();
   }
 
-  // Resolves once the relay gave this host the room. Later drops reconnect on
-  // their own; every guest then makes a new channel.
+  // Resolves once the relay gave this host the room (HOST_READY). Later drops
+  // reconnect on their own; every guest then makes a new channel.
   start() {
     this.ticker = setInterval(() => this.tick(), this.timing.tickMs);
     this.ticker.unref?.();
@@ -394,16 +410,9 @@ class RelayHostTransport extends EventEmitter {
     });
     this.socket = socket;
     socket.on("open", () => {
-      this.attempt = 0;
-      this.connected = true;
+      this.socketOpenedAt = Date.now();
       this.lastSocketHeard = Date.now();
       this.lastPing = Date.now();
-      if (this.firstConnect) {
-        this.firstConnect.resolve(0);
-        this.firstConnect = null;
-      } else {
-        this.emit("relay", { connected: true });
-      }
     });
     socket.on("message", (data, isBinary) => {
       this.lastSocketHeard = Date.now();
@@ -415,7 +424,9 @@ class RelayHostTransport extends EventEmitter {
       this.connected = false;
       this.dropPeers();
       if (this.firstConnect) {
-        this.firstConnect.reject(Object.assign(new Error("Could not reach the collaboration relay."), { code: "COLLAB_RELAY_UNREACHABLE" }));
+        this.firstConnect.reject(code === CODE.BUSY
+          ? Object.assign(new Error("The collaboration relay holds too many sessions for this network."), { code: "COLLAB_RELAY_BUSY" })
+          : Object.assign(new Error("Could not reach the collaboration relay."), { code: "COLLAB_RELAY_UNREACHABLE" }));
         this.firstConnect = null;
         this.close();
         return;
@@ -428,7 +439,8 @@ class RelayHostTransport extends EventEmitter {
         this.emit("error", new Error(`collab relay refused the host (${code} ${reasonBuffer ? reasonBuffer.toString() : ""})`));
         return;
       }
-      this.schedule();
+      // 4029: this address holds too many rooms; ask again in a minute.
+      this.schedule(code === CODE.BUSY ? 60000 : 0);
     };
     // The relay says why before it closes; act on that at once (its own
     // close can take seconds to finish).
@@ -442,9 +454,9 @@ class RelayHostTransport extends EventEmitter {
     });
   }
 
-  schedule() {
+  schedule(minDelay = 0) {
     if (this.closed || this.timer) return;
-    const delay = backoff(this.attempt);
+    const delay = Math.max(minDelay, backoff(this.attempt));
     this.attempt += 1;
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -455,9 +467,10 @@ class RelayHostTransport extends EventEmitter {
 
   tick(now = Date.now()) {
     const socket = this.socket;
-    if (!socket || !this.connected) return;
-    // A link that went silent (sleep, lost NAT mapping) is dropped and redialled.
-    if (now - this.lastSocketHeard >= this.timing.socketSilenceMs) {
+    if (!socket || socket.readyState !== 1) return;
+    // A link that went silent (sleep, lost NAT mapping), or a relay that
+    // never seats us, is dropped and redialled.
+    if (now - this.lastSocketHeard >= this.timing.socketSilenceMs || (!this.connected && now - this.socketOpenedAt >= this.timing.handshakeMs)) {
       socket.terminate();
       return;
     }
@@ -465,6 +478,7 @@ class RelayHostTransport extends EventEmitter {
       safeSend(socket, "ping");
       this.lastPing = now;
     }
+    if (!this.connected) return;
     for (const conn of [...this.peers.values()]) {
       if (!conn.hello && now - conn.openedAt >= this.timing.handshakeMs) {
         this.closePeer(conn, CODE.HELLO_TIMEOUT);
@@ -485,6 +499,18 @@ class RelayHostTransport extends EventEmitter {
     if (!message) return;
     if (message.kind === REFUSED_HOST) {
       if (message.body.length >= 2) socket.refused(message.body.readUInt16BE(0));
+      return;
+    }
+    if (message.kind === HOST_READY) {
+      if (this.connected) return;
+      this.connected = true;
+      this.attempt = 0;
+      if (this.firstConnect) {
+        this.firstConnect.resolve(0);
+        this.firstConnect = null;
+      } else {
+        this.emit("relay", { connected: true });
+      }
       return;
     }
     if (message.kind === PEER_OPEN) {
