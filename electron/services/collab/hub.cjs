@@ -1014,9 +1014,9 @@ class CollabHub extends EventEmitter {
       for (const [key, ref] of session.blobFrames) if (!ref.deref()) session.blobFrames.delete(key);
       session.blobFrames.set(`${relative}\0${hash}`, new WeakRef(frame));
     }
-    // A request repeated while the file is still on its way to that peer is
-    // not queued again (the relay route honours the key).
-    const options = { key: `blob:${relative}\0${hash}` };
+    // A request repeated while the same version of the file is the last one
+    // on its way to that peer is not queued again (the relay route honours it).
+    const options = { slot: `blob:${relative}`, version: hash };
     if (conn) session.transport.send(conn, frame, options);
     else session.transport.broadcast(frame, except, options);
   }

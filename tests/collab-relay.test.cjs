@@ -77,11 +77,11 @@ const fakeSocket = () => {
 };
 
 // Two channel ends whose writes land in inboxes the test delivers by hand.
-const channelPair = ({ receiverOptions = {} } = {}) => {
+const channelPair = ({ receiverOptions = {}, senderOptions = {} } = {}) => {
   const toHost = crypto.randomBytes(32);
   const toGuest = crypto.randomBytes(32);
   const wire = { toReceiver: [], toSender: [], frames: [], failures: [] };
-  const sender = new relay.Channel({ sendKey: toHost, recvKey: toGuest, write: (bytes) => wire.toReceiver.push(bytes), onFrame: () => {}, onFail: (code) => wire.failures.push(["sender", code]) });
+  const sender = new relay.Channel({ sendKey: toHost, recvKey: toGuest, write: (bytes) => wire.toReceiver.push(bytes), onFrame: () => {}, onFail: (code) => wire.failures.push(["sender", code]), ...senderOptions });
   const receiver = new relay.Channel({ sendKey: toGuest, recvKey: toHost, write: (bytes) => wire.toSender.push(bytes), onFrame: (frame) => wire.frames.push(frame), onFail: (code) => wire.failures.push(["receiver", code]), ...receiverOptions });
   const deliver = () => {
     while (wire.toReceiver.length || wire.toSender.length) {
@@ -159,6 +159,43 @@ test("a channel keeps to each lane's window, and a replayed, reordered or foreig
   stalled.sender.enqueue(crypto.randomBytes(relay.PIECE_BYTES + 10));
   stalled.receiver.receive(stalled.wire.toReceiver[0]);
   assert.equal(stalled.receiver.overdue(Date.now() + relay.TIMING.stallMs + 1), relay.CODE.OVERLOAD);
+});
+
+test("the latest version of a file always goes out, and file data keeps moving under a run of edits", () => {
+  // A, B, then A again, all queued before anything leaves: the repeat of a
+  // version still last in line is dropped; going back to A is not.
+  let open = false;
+  const versions = channelPair({ senderOptions: { canWrite: () => open } });
+  const a = frameOf(transportKinds.FRAME_BLOB, 300 * 1024);
+  const b = frameOf(transportKinds.FRAME_BLOB, 300 * 1024);
+  versions.sender.enqueue(a, "blob:fig.png", "hashA");
+  versions.sender.enqueue(a, "blob:fig.png", "hashA");
+  versions.sender.enqueue(b, "blob:fig.png", "hashB");
+  versions.sender.enqueue(a, "blob:fig.png", "hashA");
+  open = true;
+  versions.sender.pump();
+  versions.deliver();
+  assert.deepEqual(versions.wire.frames.map((frame) => (frame.equals(a) ? "A" : frame.equals(b) ? "B" : "?")), ["A", "B", "A"]);
+
+  // A slow socket (it holds two pieces) and 20 MiB of edits queued behind a
+  // 3 MiB figure: urgent first would finish every edit before the figure;
+  // with a send turn for file data every bulkTurnMs, it completes early.
+  let now = 0;
+  let busy = null;
+  busy = channelPair({ senderOptions: { clock: () => (now += 250), canWrite: () => busy.wire.toReceiver.length < 2 } });
+  const figure = frameOf(transportKinds.FRAME_BLOB, 3 * 1024 * 1024);
+  busy.sender.enqueue(figure);
+  for (let index = 0; index < 200; index += 1) busy.sender.enqueue(frameOf(transportKinds.FRAME_SYNC, 100 * 1024));
+  for (let guard = 0; guard < 100000 && (busy.wire.toReceiver.length || busy.wire.toSender.length || busy.sender.hasWork()); guard += 1) {
+    if (busy.wire.toReceiver.length) busy.receiver.receive(busy.wire.toReceiver.shift());
+    while (busy.wire.toSender.length) busy.sender.receive(busy.wire.toSender.shift());
+    busy.sender.pump();
+  }
+  clearTimeout(busy.sender.retryTimer);
+  const at = busy.wire.frames.findIndex((frame) => frame.equals(figure));
+  assert.equal(busy.wire.frames.length, 201);
+  assert.ok(at >= 0 && at < 100, `the figure arrived as frame ${at + 1} of ${busy.wire.frames.length}`);
+  assert.deepEqual(busy.wire.failures, []);
 });
 
 test("acknowledgements are cumulative and wait for room on the socket", () => {

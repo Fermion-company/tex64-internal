@@ -80,6 +80,7 @@ const TIMING = {
   silenceMs: 75000, // nothing from the other end of a channel for this long: it is gone
   handshakeMs: 15000, // from PEER_OPEN / HOST_OPEN to an authenticated channel
   stallMs: 60000, // a partial frame with no new piece for this long
+  bulkTurnMs: 1000, // file data gets a send turn at least this often, however busy the urgent lane
 };
 
 const CODE = {
@@ -145,7 +146,7 @@ const createBudget = (limit) => ({
 // arrives. `wake` asks for a send turn (the host's transport runs turns for
 // all its guests); on its own the channel sends as much as it may.
 class Channel {
-  constructor({ sendKey, recvKey, write, onFrame, onFail, canWrite = () => true, wake = null, maxFrameBytes = MAX_FRAME_BYTES, budget = null, timing = TIMING }) {
+  constructor({ sendKey, recvKey, write, onFrame, onFail, canWrite = () => true, wake = null, maxFrameBytes = MAX_FRAME_BYTES, budget = null, timing = TIMING, clock = Date.now }) {
     this.sendKey = sendKey;
     this.recvKey = recvKey;
     this.write = write;
@@ -156,9 +157,10 @@ class Channel {
     this.maxFrameBytes = maxFrameBytes;
     this.budget = budget;
     this.timing = timing;
+    this.clock = clock;
     this.failed = false;
     this.queues = [[], []];
-    this.queuedKeys = new Set();
+    this.lastBulkTurn = clock();
     this.queuedBytes = 0;
     this.nextIndex = [0, 0];
     this.sendCounter = 0;
@@ -178,28 +180,39 @@ class Channel {
     return { parts: [], bytes: 0, count: 0, lastPiece: 0 };
   }
 
-  // `key` names what the frame carries (a file at a hash): while one with
-  // the same key is still queued or on its way, another is not added.
-  enqueue(frame, key = null) {
+  // `slot` names what the frame carries (a file) and `version` which state
+  // of it (its hash): when the last frame queued for the slot — still waiting
+  // or on its way — is the same version, another is not added. A newer
+  // version, or going back to an older one, is always queued behind it.
+  enqueue(frame, slot = null, version = null) {
     if (this.failed) return false;
-    if (key && this.queuedKeys.has(key)) return true;
+    if (slot && this.lastQueued(slot)?.version === version) return true;
     const bytes = Buffer.isBuffer(frame) ? frame : Buffer.from(frame.buffer, frame.byteOffset, frame.byteLength);
     if (this.queuedBytes + bytes.length > MAX_QUEUED_BYTES) {
       this.fail(CODE.OVERLOAD);
       return false;
     }
-    this.queues[laneOf(bytes)].push({ bytes, key });
-    if (key) this.queuedKeys.add(key);
+    this.queues[laneOf(bytes)].push({ bytes, slot, version });
     this.queuedBytes += bytes.length;
     this.wake();
     return true;
   }
 
-  // Writes one piece if a lane's window and the socket allow, urgent lane
-  // first. Returns whether it wrote.
+  lastQueued(slot) {
+    for (const queue of this.queues) {
+      for (let index = queue.length - 1; index >= 0; index -= 1) if (queue[index].slot === slot) return queue[index];
+    }
+    return null;
+  }
+
+  // Writes one piece if a lane's window and the socket allow. The urgent lane
+  // goes first, except that file data gets a turn every bulkTurnMs, so a long
+  // run of edits cannot stall a half-sent figure. Returns whether it wrote.
   sendOne() {
     if (this.failed || !this.canWrite()) return false;
-    for (const lane of [URGENT, BULK]) {
+    const now = this.clock();
+    const order = now - this.lastBulkTurn >= this.timing.bulkTurnMs ? [BULK, URGENT] : [URGENT, BULK];
+    for (const lane of order) {
       const queue = this.queues[lane];
       if (!queue.length) continue;
       const frame = queue[0].bytes;
@@ -218,12 +231,12 @@ class Channel {
       cipher.setAAD(head);
       this.write(Buffer.concat([head, cipher.update(piece), cipher.final(), cipher.getAuthTag()]));
       this.lastSent = Date.now();
+      if (lane === BULK) this.lastBulkTurn = now;
       this.sent[lane] += piece.length;
       if (index + 1 < count) {
         this.nextIndex[lane] = index + 1;
       } else {
-        const { key } = queue.shift();
-        if (key) this.queuedKeys.delete(key);
+        queue.shift();
         this.queuedBytes -= frame.length;
         this.nextIndex[lane] = 0;
       }
@@ -366,7 +379,6 @@ class Channel {
     this.releaseParts(URGENT);
     this.releaseParts(BULK);
     this.queues = [[], []];
-    this.queuedKeys.clear();
     this.queuedBytes = 0;
   }
 
@@ -709,15 +721,15 @@ class RelayHostTransport extends EventEmitter {
     for (const peerId of [...this.peers.keys()]) this.forgetPeer(peerId);
   }
 
-  // options.key: see Channel.enqueue (the LAN route ignores it).
+  // options.slot / options.version: see Channel.enqueue (the LAN route ignores them).
   send(conn, data, options = {}) {
     if (!this.connections.has(conn)) return false;
-    return conn.channel.enqueue(data, options.key);
+    return conn.channel.enqueue(data, options.slot, options.version);
   }
 
   broadcast(data, except = null, options = {}) {
     for (const conn of [...this.connections]) {
-      if (conn !== except) conn.channel.enqueue(data, options.key);
+      if (conn !== except) conn.channel.enqueue(data, options.slot, options.version);
     }
   }
 
@@ -951,7 +963,7 @@ class RelayGuestTransport extends EventEmitter {
 
   send(_conn, data, options = {}) {
     if (!this.connected || !this.channel) return false;
-    return this.channel.enqueue(data, options.key);
+    return this.channel.enqueue(data, options.slot, options.version);
   }
 
   broadcast(data, _except = null, options = {}) {
