@@ -1,6 +1,7 @@
 import { uiText } from "./i18n.js";
 import { countMarkedLines, renderBuildLog, segmentBuildLog } from "./build-log-view.js";
 import { hideEditorNotice, showEditorNotice } from "./editor-notice.js";
+import { collabSession } from "./collab/session.js";
 export const resolveBuildProgressPhase = (message, cancelRequested = false) => {
     if (cancelRequested || /cancel/i.test(message !== null && message !== void 0 ? message : ""))
         return "cancelling";
@@ -541,12 +542,47 @@ export const initBuildOpsUi = (context, deps) => {
         chooserDialog = dialog;
         dialog.showModal();
     };
+    // A guest who just joined may still be receiving the host's figures: the
+    // build waits for them and starts when they are in. "Build now" (or Build
+    // pressed again) does not wait.
+    let awaitingFiles = null;
+    let buildWithoutWaiting = false;
+    const stopAwaitingFiles = () => {
+        awaitingFiles === null || awaitingFiles === void 0 ? void 0 : awaitingFiles();
+        awaitingFiles = null;
+        hideEditorNotice("build-files");
+    };
+    const incomingFiles = (state) => (state.active && state.role === "guest" && state.incoming && state.incoming.files > 0 ? state.incoming : null);
+    const awaitFiles = (explicitTarget, incoming) => {
+        const megabytes = incoming.bytes >= 1048576 ? `${(incoming.bytes / 1048576).toFixed(incoming.bytes >= 10 * 1048576 ? 0 : 1)} MB` : `${Math.max(1, Math.round(incoming.bytes / 1024))} KB`;
+        const unsubscribe = collabSession.onChange((state) => {
+            if (incomingFiles(state))
+                return;
+            stopAwaitingFiles();
+            if (state.active)
+                void startBuild(explicitTarget);
+        });
+        awaitingFiles = () => unsubscribe();
+        showEditorNotice(buildButton instanceof HTMLElement ? buildButton : null, uiText(`Waiting for ${incoming.files} file(s) from the host (${megabytes}); the build starts when they arrive.`, `ホストからのファイルを待っています（残り ${incoming.files} 件・${megabytes}）。届きしだいビルドします。`), {
+            owner: "build-files",
+            durationMs: 10000,
+            action: { label: uiText("Build now", "今すぐビルド"), run: () => { stopAwaitingFiles(); buildWithoutWaiting = true; void startBuild(explicitTarget); } },
+        });
+    };
     const startBuild = async (explicitTarget) => {
         var _a, _b, _c, _d, _e, _f, _g;
         // File-selection actions may outlive the idle state in which their context
         // menu opened. Only a normal button click is allowed to cancel a build.
         if (preparingBuild || currentBuildState === "building")
             return;
+        const now = buildWithoutWaiting || awaitingFiles !== null;
+        buildWithoutWaiting = false;
+        stopAwaitingFiles();
+        const incoming = now ? null : incomingFiles(collabSession.getState());
+        if (incoming) {
+            awaitFiles(explicitTarget, incoming);
+            return;
+        }
         const runtimeSummary = deps.settings.getRuntimeStatusSummary();
         if (!runtimeSummary || !runtimeSummary.hasAnyResult) {
             // Environment hasn't been checked yet — trigger an async check but

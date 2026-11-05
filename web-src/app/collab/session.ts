@@ -25,6 +25,11 @@ export type CollabState = {
   route?: "lan" | "relay";
   // "view": joined with the view link; the host drops anything this side sends.
   access?: "edit" | "view";
+  // A guest: files the host shares that have not arrived yet (figures keep
+  // arriving after the mirror opens).
+  incoming?: { files: number; bytes: number } | null;
+  preserved?: number;
+  preservedFiles?: string[];
   selfId?: string;
   connected?: boolean;
   participants: CollabParticipant[];

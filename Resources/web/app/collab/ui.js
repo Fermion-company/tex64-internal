@@ -11,7 +11,6 @@ export const initCollabUi = () => {
     let busy = false;
     let errorText = "";
     let defaultName = "";
-    let infoText = "";
     // The route a new session takes, from the last status call.
     let idleRoute = "lan";
     // Which invite link the host is showing: the edit link or the view link.
@@ -53,10 +52,29 @@ export const initCollabUi = () => {
             more.dataset.noI18n = "true";
             dots.append(more);
         }
+        const incoming = state.role === "guest" && state.incoming && state.incoming.files > 0
+            ? uiText(` · receiving ${state.incoming.files} file(s)`, `・ファイルを受け取り中（残り ${state.incoming.files} 件）`)
+            : "";
         dots.title = state.connected === false
             ? uiText("Reconnecting…", "再接続中…")
-            : participants.map((participant) => participant.name).join(", ");
+            : participants.map((participant) => participant.name).join(", ") + incoming;
         dots.setAttribute("aria-label", uiText("Collaboration session", "共同編集のセッション"));
+    };
+    const megabytes = (bytes) => (bytes >= 1024 * 1024 ? `${(bytes / 1048576).toFixed(bytes >= 10 * 1048576 ? 0 : 1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+    const incomingText = (state) => {
+        const incoming = state.role === "guest" ? state.incoming : null;
+        if (!incoming || incoming.files <= 0)
+            return "";
+        return uiText(`Receiving files from the host: ${incoming.files} left (${megabytes(incoming.bytes)}). You can edit meanwhile.`, `ホストからファイルを受け取っています（残り ${incoming.files} 件・${megabytes(incoming.bytes)}）。そのあいだも編集できます。`);
+    };
+    const preservedText = (state) => {
+        const preserved = Number(state.preserved || 0);
+        if (state.role !== "guest" || preserved <= 0)
+            return "";
+        const names = (state.preservedFiles || []).slice(0, 3);
+        const rest = preserved - names.length;
+        const list = names.join(", ") + (rest > 0 ? uiText(` and ${rest} more`, ` ほか ${rest} 件`) : "");
+        return uiText(`Edited after you left, kept as: ${list}`, `退出後に編集した分を退避しました: ${list}`);
     };
     const field = (className, label) => {
         const input = el("input", `tool-input ${className}`);
@@ -196,12 +214,14 @@ export const initCollabUi = () => {
                 where.dataset.noI18n = "true";
                 content.append(where);
             }
+            if (incomingText(state))
+                content.append(el("p", "tool-dialog-note collab-incoming", incomingText(state)));
             if (state.role === "guest" && state.connected === false)
                 content.append(el("p", "tool-dialog-note", uiText("Reconnecting to the host…", "ホストに再接続しています…")));
             if (state.role === "host" && state.connected === false)
                 content.append(el("p", "tool-dialog-note", uiText("Reconnecting to the relay…", "中継サーバーに再接続しています…")));
-            if (infoText)
-                content.append(el("p", "tool-dialog-note", infoText));
+            if (preservedText(state))
+                content.append(el("p", "tool-dialog-note", preservedText(state)));
         }
         const actions = el("div", "tool-dialog-actions");
         if (state.active) {
@@ -232,14 +252,6 @@ export const initCollabUi = () => {
         try {
             await action();
             pendingLink = "";
-            const state = collabSession.getState();
-            const preserved = Number(state.preserved || 0);
-            const names = (state.preservedFiles || []).slice(0, 3);
-            const rest = preserved - names.length;
-            const list = names.join(", ") + (rest > 0 ? uiText(` and ${rest} more`, ` ほか ${rest} 件`) : "");
-            infoText = preserved > 0
-                ? uiText(`Edited after you left, kept as: ${list}`, `退出後に編集した分を退避しました: ${list}`)
-                : "";
         }
         catch (reason) {
             // The link and the name stay in the fields for a retry.

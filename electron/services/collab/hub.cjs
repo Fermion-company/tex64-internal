@@ -109,6 +109,9 @@ class CollabHub extends EventEmitter {
       participants,
       rootPath: session.rootPath,
       preserved: session.preserved ? session.preserved.length : 0,
+      // A guest: files the host shares that have not arrived yet (figures
+      // keep arriving after the mirror opens).
+      incoming: session.role === "guest" ? this.incomingFiles(session) : null,
       preservedFiles: session.preserved ? session.preserved.slice(0, 3) : [],
       textFiles: [...session.docs.keys()].filter((id) => id !== SESSION_DOC && !session.docs.get(id).deleted),
     };
@@ -361,9 +364,12 @@ class CollabHub extends EventEmitter {
       }
       this.createSessionDoc(session);
       this.sendSyncStep1(session, SESSION_DOC);
-      // The session doc tells us which files exist; wait for every text doc
-      // and every blob, then write the mirror and open it.
+      // The session doc tells us which files exist; wait for every text doc,
+      // then write the mirror and open it. Files (figures) that are still on
+      // their way arrive afterwards: over the internet a 50 MB figure would
+      // otherwise hold the whole project back.
       await this.waitForInitialSync(session);
+      session.initialBlobs = new Set(session.pendingBlobs);
       session.diskSync.resume();
       await session.diskSync.flush(60000);
       session.joining = false;
@@ -433,7 +439,9 @@ class CollabHub extends EventEmitter {
   // differs from the host's copy is kept. Returns false when a copy was
   // needed and could not be made: the caller must not replace the file then.
   async preserveLocal(session, relative, incoming) {
-    if (!session.joining || !session.rootPath) return true;
+    // While joining, and for files of the join that arrive after the mirror
+    // opened (session.initialBlobs).
+    if ((!session.joining && !session.initialBlobs?.has(relative)) || !session.rootPath) return true;
     const absolute = path.join(session.rootPath, relative);
     let current;
     try {
@@ -453,6 +461,12 @@ class CollabHub extends EventEmitter {
     try {
       await fsp.copyFile(absolute, target);
       session.preserved.push(path.relative(session.rootPath, target));
+      // A file of the join that arrived after the mirror opened: the join's
+      // own report has already been shown.
+      if (!session.joining) {
+        const kept = path.relative(session.rootPath, target);
+        this.notice(text(this.deps.locale(), `${relative}: edited after you left, kept as ${kept}.`, `${relative}: 退出後に編集した分を ${kept} として退避しました。`));
+      }
       return true;
     } catch (error) {
       console.warn("[collab] preserve failed", relative, error?.message || error);
@@ -470,17 +484,11 @@ class CollabHub extends EventEmitter {
         }
         const sessionReady = Boolean(session.docs.get(SESSION_DOC)?.synced);
         const docsReady = sessionReady && [...session.docs.values()].every((doc) => doc.docId === SESSION_DOC || doc.deleted || doc.synced);
-        const blobsReady = sessionReady && session.pendingBlobs.size === 0;
-        if (sessionReady && docsReady && blobsReady) {
+        if (sessionReady && docsReady) {
           resolve();
           return;
         }
         if (Date.now() > deadline) {
-          if (sessionReady && docsReady) {
-            // Missing blobs are refetched by the manifest scan later.
-            resolve();
-            return;
-          }
           reject(Object.assign(new Error(text(this.deps.locale(), "The host did not send the project in time.", "ホストからプロジェクトを受け取れませんでした。")), { code: "COLLAB_TIMEOUT" }));
           return;
         }
@@ -933,12 +941,30 @@ class CollabHub extends EventEmitter {
     if (!due.length) return;
     for (const relative of due) session.blobRequests.set(relative, now);
     session.transport.broadcast(transport.encodeControl({ type: "need-blob", paths: due }));
+    this.pushState();
+  }
+
+  // What a guest still waits for: { files, bytes } (sizes from the session doc).
+  incomingFiles(session) {
+    const files = session.sessionDoc?.getMap("files");
+    let bytes = 0;
+    for (const relative of session.pendingBlobs || []) bytes += Number(files?.get(relative)?.size) || 0;
+    return { files: session.pendingBlobs?.size || 0, bytes };
+  }
+
+  // A file the guest waited for is in (or no longer needed).
+  blobSettled(session, relative) {
+    session.pendingBlobs?.delete(relative);
+    session.blobRequests?.delete(relative);
+    session.initialBlobs?.delete(relative);
+    this.pushState();
   }
 
   onRemoteFileEntry(session, relative, entry) {
     if (!safeRelativePath(relative)) return;
     if (!entry) return;
     if (entry.deleted) {
+      if (session.pendingBlobs?.has(relative)) this.blobSettled(session, relative);
       void this.removeLocal(session, relative);
       return;
     }
@@ -1030,8 +1056,7 @@ class CollabHub extends EventEmitter {
     const hash = hashBuffer(Buffer.from(frame.bytes));
     if (hash !== frame.hash) return;
     if (session.knownBinaryHashes.get(relative) === hash) {
-      session.pendingBlobs?.delete(relative);
-      session.blobRequests?.delete(relative);
+      this.blobSettled(session, relative);
       return;
     }
     const absolute = await resolveInsideRoot(session.rootPath, relative);
@@ -1048,8 +1073,7 @@ class CollabHub extends EventEmitter {
       else await write();
       session.knownBinaryHashes.set(relative, hash);
       await session.manifest?.refresh(relative);
-      session.pendingBlobs?.delete(relative);
-      session.blobRequests?.delete(relative);
+      this.blobSettled(session, relative);
       if (session.role === "host") {
         session.transport.broadcast(transport.encodeBlob(relative, hash, frame.bytes), conn);
         session.sessionDoc.transact(() => {
@@ -1118,10 +1142,13 @@ class CollabHub extends EventEmitter {
           }
           if (shared && shared.hash === entry.hash) {
             session.knownBinaryHashes.set(relative, entry.hash);
-            session.pendingBlobs?.delete(relative);
-            session.blobRequests?.delete(relative);
+            if (session.pendingBlobs?.has(relative)) this.blobSettled(session, relative);
             continue;
           }
+          // A file of the join that has not arrived yet: what is on disk is
+          // an old copy (a rejoin), not this guest's change to share. When
+          // the host's bytes arrive, an edited old copy is kept beside them.
+          if (session.initialBlobs?.has(relative)) continue;
           session.knownBinaryHashes.set(relative, entry.hash);
           session.sessionDoc.transact(() => files.set(relative, { kind: "binary", hash: entry.hash, size: entry.size, by: session.selfId }), LOCAL);
           void this.sendBlob(session, relative);
@@ -1130,6 +1157,8 @@ class CollabHub extends EventEmitter {
       for (const relative of removed) {
         const shared = files.get(relative);
         if (shared?.deleted) continue;
+        // Removing the old copy of a file still on its way deletes nothing for others.
+        if (session.initialBlobs?.has(relative)) continue;
         const doc = session.docs.get(relative);
         if (viewOnly) {
           if (doc?.attached) session.diskSync.noteUpdate(relative);
