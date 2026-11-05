@@ -6,6 +6,7 @@
 
 import { getUiLocale, uiText } from "./i18n.js";
 import { explainedHeading } from "./explain.js";
+import { markFocus, restoreFocus } from "./focus-key.js";
 import type { EditorSessionApi } from "./editor-session.js";
 
 type Counts = { words: number; characters: number; headings: number; inlineMath: number; displayMath: number };
@@ -86,6 +87,7 @@ export const initWordCountUi = (deps: {
           const option = el("button", "", entry.label);
           option.type = "button";
           option.setAttribute("aria-pressed", String(entry.id === scope));
+          option.dataset.focusKey = `scope-${entry.id}`;
           option.addEventListener("click", () => {
             scope = entry.id;
             render(result, activePath);
@@ -120,9 +122,13 @@ export const initWordCountUi = (deps: {
     const close = el("button", "tool-button", uiText("Close", "閉じる"));
     close.type = "button";
     close.addEventListener("click", () => dialog?.close());
+    close.dataset.focusKey = "close";
     actions.append(close);
+    // Changing the scope rebuilds the dialog: focus stays on the control the
+    // user was on; Close takes it on opening.
+    const focusMark = markFocus(dialog);
     dialog.replaceChildren(eyebrow, ...(titleExplain ? explainedHeading(title, titleExplain, { memory: explainOpen, key: "title" }) : [title]), body, actions);
-    close.focus();
+    if (!restoreFocus(dialog, focusMark)) close.focus();
   };
 
   const open = async () => {

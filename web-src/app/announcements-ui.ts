@@ -76,6 +76,9 @@ export const initAnnouncementsUi = (
   const inputWrap = document.getElementById("announcement-modal-input-wrap");
   const inputEl = document.getElementById("announcement-modal-input");
   const statusEl = document.getElementById("announcement-modal-status");
+  const card = modal?.querySelector<HTMLElement>(".announcement-card") ?? null;
+  // A closed announcement keeps its buttons out of the Tab order.
+  if (modal instanceof HTMLElement) modal.inert = true;
 
   const queue: AnnouncementSnapshot[] = [];
   const seenInThisSession = new Set<string>();
@@ -84,6 +87,9 @@ export const initAnnouncementsUi = (
   let isOpen = false;
   let isSubmitting = false;
   let axiomView: AxiomTryView | null = null;
+  // Where focus was before the first announcement opened; it goes back there
+  // when the last one closes.
+  let returnFocus: HTMLElement | null = null;
 
   // The "Try Axiom" screen: its demo in place of the body, and Open Axiom as
   // the main action (the plans link steps back beside it).
@@ -150,6 +156,7 @@ export const initAnnouncementsUi = (
     if (!modal) return;
     modal.classList.remove("is-open");
     modal.setAttribute("aria-hidden", "true");
+    modal.inert = true;
     isOpen = false;
     activeId = null;
     activeEntry = null;
@@ -209,11 +216,13 @@ export const initAnnouncementsUi = (
     const isFeedback = next.kind === "feedback";
     setInputMode(isFeedback);
 
+    const focused = document.activeElement;
+    if (!returnFocus && focused instanceof HTMLElement && !modal.contains(focused)) returnFocus = focused;
+    modal.inert = false;
     modal.classList.add("is-open");
     modal.setAttribute("aria-hidden", "false");
     isOpen = true;
 
-    const card = modal.querySelector<HTMLElement>(".announcement-card");
     if (isFeedback && inputEl instanceof HTMLTextAreaElement) {
       inputEl.focus();
     } else if (axiomView && card) {
@@ -230,13 +239,45 @@ export const initAnnouncementsUi = (
     deps.postToNative({ type: "announcement:dismiss", id }, true);
   };
 
+  const giveFocusBack = () => {
+    const target = returnFocus;
+    returnFocus = null;
+    if (target?.isConnected && target.getClientRects().length && !target.closest("[inert]")) {
+      target.focus({ preventScroll: true });
+    }
+  };
+
+  // The next queued announcement, or focus back where it was.
+  const showNextOrReturn = () => {
+    showNext();
+    if (!isOpen) giveFocusBack();
+  };
+
   const closeAndDismiss = () => {
     if (isSubmitting) return;
     if (activeId) {
       persistDismiss(activeId);
     }
     hide();
-    showNext();
+    showNextOrReturn();
+  };
+
+  // Tab and Shift+Tab stay inside the open announcement.
+  const keepTabInside = (event: KeyboardEvent) => {
+    if (!card) return;
+    // tabIndex -1 leaves out the card itself and the tabs not selected.
+    const items = Array.from(card.querySelectorAll<HTMLElement>("button, [href], input, textarea, select, [tabindex]")).filter(
+      (node) => node.tabIndex >= 0 && !node.matches(":disabled") && node.getClientRects().length > 0 && !node.closest("[hidden]")
+    );
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    const inside = active instanceof HTMLElement && active !== card && card.contains(active);
+    if (!inside || active === (event.shiftKey ? first : last)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    }
   };
 
   const submitFeedback = () => {
@@ -271,7 +312,7 @@ export const initAnnouncementsUi = (
     );
     window.setTimeout(() => {
       hide();
-      showNext();
+      showNextOrReturn();
     }, 900);
   };
 
@@ -295,7 +336,11 @@ export const initAnnouncementsUi = (
 
   if (primaryBtn instanceof HTMLButtonElement) {
     primaryBtn.addEventListener("click", () => {
-      closeAndDismiss();
+      // Focus goes to the Axiom chat. Another announcement opening now would
+      // lose it at once, so the rest stay undismissed for the next check.
+      if (activeId) persistDismiss(activeId);
+      hide();
+      returnFocus = null;
       deps.openAxiom();
     });
   }
@@ -320,6 +365,8 @@ export const initAnnouncementsUi = (
     if (event.key === "Escape") {
       event.preventDefault();
       closeAndDismiss();
+    } else if (event.key === "Tab") {
+      keepTabInside(event);
     }
   });
 

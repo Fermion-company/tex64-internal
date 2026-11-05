@@ -2,7 +2,8 @@
 // left of Build only while a session runs.
 import { uiText } from "../i18n.js";
 import { showEditorNotice } from "../editor-notice.js";
-import { createExplain, explainedHeading, focusExplain, focusedExplainKey } from "../explain.js";
+import { createExplain, explainedHeading } from "../explain.js";
+import { markFocus, restoreFocus } from "../focus-key.js";
 import { collabSession } from "./session.js";
 const MAX_DOTS = 5;
 export const initCollabUi = () => {
@@ -104,7 +105,9 @@ export const initCollabUi = () => {
         return input;
     };
     const initialOf = (name) => (Array.from(name.trim())[0] || "?").toUpperCase();
-    const renderDialog = () => {
+    // `resetFocus`: the dialog is opening, or an action (start, join, leave)
+    // has just finished, so focus starts over.
+    const renderDialog = (resetFocus = false) => {
         if (!dialog)
             return;
         const state = collabSession.getState();
@@ -118,6 +121,7 @@ export const initCollabUi = () => {
         title.id = "collab-dialog-title";
         dialog.setAttribute("aria-labelledby", title.id);
         const content = el("div", "collab-dialog-body");
+        let firstFocus = null;
         const error = el("p", "tool-dialog-error", errorText);
         error.setAttribute("role", "status");
         if (state.phase === "starting" || state.phase === "opening" || (busy && !state.active)) {
@@ -130,10 +134,12 @@ export const initCollabUi = () => {
             nameRow.append(el("span", "tool-dialog-label", uiText("Your name", "表示名")));
             const nameField = field("collab-name-input", uiText("Your name", "表示名"));
             nameField.maxLength = 40;
+            nameField.dataset.focusKey = "name";
             nameField.value = defaultName;
             nameField.addEventListener("input", () => { defaultName = nameField.value; });
             nameRow.append(nameField);
             const start = button(uiText("Start a session", "セッションを開始"), () => void run(() => collabSession.start(nameField.value.trim())));
+            start.dataset.focusKey = "start-session";
             const startExplain = createExplain(idleRoute === "relay"
                 ? uiText("People can join over the internet. Everything is encrypted between the computers; the relay in between cannot read it.", "インターネット越しに参加できます。内容は参加者の間で暗号化され、間の中継サーバーには読めません。")
                 : uiText("Starting a session opens a port on this computer; macOS may ask to allow incoming connections. Only people on the same network (LAN / VPN) can join.", "セッションを開始するとこの Mac がポートを開きます。macOS が接続の許可を確認することがあります。参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。"), { topic: uiText("starting a session", "セッションの開始"), memory: explainOpen, key: "start" });
@@ -145,7 +151,9 @@ export const initCollabUi = () => {
             linkField.placeholder = uiText("Paste an invite link", "招待リンクを貼り付け");
             linkField.value = pendingLink;
             linkField.dataset.noI18n = "true";
+            linkField.dataset.focusKey = "join-link";
             const join = button(uiText("Join", "参加"), () => void run(() => collabSession.join(linkField.value.trim(), nameField.value.trim())));
+            join.dataset.focusKey = "join";
             const row = el("div", "collab-link-row");
             row.append(linkField, join);
             joinSection.append(row);
@@ -160,7 +168,7 @@ export const initCollabUi = () => {
             linkField.addEventListener("input", () => { pendingLink = linkField.value; syncPrimary(); });
             syncPrimary();
             content.append(nameRow, startSection, joinSection);
-            window.requestAnimationFrame(() => (pendingLink ? linkField : nameField).focus());
+            firstFocus = pendingLink ? linkField : nameField;
         }
         else {
             if (state.inviteLink) {
@@ -173,10 +181,12 @@ export const initCollabUi = () => {
                 link.readOnly = true;
                 link.value = linkFor();
                 link.dataset.noI18n = "true";
+                link.dataset.focusKey = "invite-link";
                 const copy = button(uiText("Copy", "コピー"), () => {
                     var _a;
                     void ((_a = navigator.clipboard) === null || _a === void 0 ? void 0 : _a.writeText(linkFor()).then(() => { copy.textContent = uiText("Copied", "コピーしました"); }, () => { link.select(); }));
                 }, true);
+                copy.dataset.focusKey = "copy";
                 if (state.viewInviteLink) {
                     const access = el("div", "tool-segmented collab-access");
                     access.setAttribute("role", "group");
@@ -186,6 +196,7 @@ export const initCollabUi = () => {
                         const option = el("button", "", label);
                         option.type = "button";
                         option.dataset.access = value;
+                        option.dataset.focusKey = `access-${value}`;
                         option.setAttribute("aria-pressed", String(linkAccess === value));
                         option.addEventListener("click", () => {
                             linkAccess = value;
@@ -268,15 +279,30 @@ export const initCollabUi = () => {
                 : button(uiText("Leave", "退出"), () => void run(() => collabSession.leave()));
             if (state.role === "host")
                 leave.classList.add("is-danger");
+            leave.dataset.focusKey = "leave";
             actions.append(leave, el("span", "tool-dialog-spacer"));
         }
         const close = button(uiText("Close", "閉じる"), () => dialog === null || dialog === void 0 ? void 0 : dialog.close());
         close.dataset.role = "close";
+        close.dataset.focusKey = "close";
         actions.append(close);
-        const focusedKey = focusedExplainKey();
+        // A rebuild (a participant joining, a transfer's progress) gives focus
+        // back to the control the user was on. When that control is gone, or
+        // focus starts over, it goes to the field to fill in, else Close.
+        const focusMark = markFocus(dialog);
         dialog.replaceChildren(eyebrow, title, content, error, actions);
-        window.requestAnimationFrame(() => { if (focusExplain(dialog || document, focusedKey) || (!state.active && !busy))
-            return; close.focus(); });
+        window.requestAnimationFrame(() => {
+            if (!dialog)
+                return;
+            if (!resetFocus) {
+                if (restoreFocus(dialog, focusMark))
+                    return;
+                const active = document.activeElement;
+                if (active && active !== dialog && dialog.contains(active))
+                    return;
+            }
+            (firstFocus !== null && firstFocus !== void 0 ? firstFocus : close).focus();
+        });
     };
     async function run(action) {
         if (busy)
@@ -294,7 +320,7 @@ export const initCollabUi = () => {
         }
         finally {
             busy = false;
-            renderDialog();
+            renderDialog(true);
         }
     }
     const openDialog = async (link = "") => {
@@ -318,7 +344,7 @@ export const initCollabUi = () => {
             catch { }
             if (!dialog)
                 return;
-            renderDialog();
+            renderDialog(true);
             dialog.showModal();
             return;
         }

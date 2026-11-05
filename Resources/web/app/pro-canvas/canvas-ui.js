@@ -1,5 +1,6 @@
 import { uiText } from "../i18n.js";
 import { createExplain } from "../explain.js";
+import { markFocus, restoreFocus } from "../focus-key.js";
 import { insertAtEditorCursor } from "../pro-editor-insert.js";
 import { encodeFigureBlock } from "./figure-codec.js";
 import { planFigureInsert } from "./insert-plan.js";
@@ -405,6 +406,7 @@ export const initProCanvasUi = (deps) => {
         } plotCard.style.left = `${x}px`; const footer = overlay.querySelector(".pro-canvas-footer"), limit = ((_a = footer === null || footer === void 0 ? void 0 : footer.getBoundingClientRect().top) !== null && _a !== void 0 ? _a : innerHeight) - 8; plotCard.style.top = `${Math.max(8, Math.min(limit - plotCard.offsetHeight, y))}px`; };
         const buildPlotCard = (object, focusIndex = -1) => {
             var _a;
+            const plotFocus = plotCard ? markFocus(plotCard) : null;
             plotCard === null || plotCard === void 0 ? void 0 : plotCard.remove();
             const hasMathLive = ensurePlotMathLive(), card = document.createElement("div");
             card.className = "pro-canvas-plot-card";
@@ -676,6 +678,7 @@ export const initProCanvasUi = (deps) => {
             }
             card.append(disclosure);
             overlay.append(card);
+            restoreFocus(card, plotFocus);
             plotCard = card;
             plotCardSignature = `${object.id}:${object.series.length}:${object.series.map(plotKind).join(",")}:${autoInput.checked}:${object.axis.axisLines}:${object.axis.grid}`;
             requestAnimationFrame(positionPlotCard);

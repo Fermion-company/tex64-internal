@@ -100,7 +100,7 @@ const tex = (expr: string): string => {
     if (typeof katex !== "undefined") return katex.renderToString(`\\displaystyle ${expr}`, { throwOnError: false });
   } catch {}
   const fallback = document.createElement("span");
-  fallback.textContent = expr;
+  fallback.textContent = expr.replace(/^\{\}/, "");
   return fallback.innerHTML;
 };
 
@@ -130,10 +130,21 @@ const page = (rows: Array<[string, string]>, changed: number[]) => {
   return grid;
 };
 
+// Steps the stage to a phase. What is not on screen yet, or any more, is not
+// read out either.
+const setPhase = (stage: HTMLElement, phase: number) => {
+  stage.dataset.phase = String(phase);
+  const hide = (selector: string, hidden: boolean) =>
+    stage.querySelectorAll(selector).forEach((node) => node.setAttribute("aria-hidden", String(hidden)));
+  hide(".axiom-try-ask", phase < 1);
+  hide(".axiom-try-delta, .axiom-try-lines li.is-added", phase < 2);
+  hide(".axiom-try-page.is-before", phase >= 3);
+  hide(".axiom-try-page.is-after", phase < 3);
+};
+
 const stageFor = (example: Example) => {
   const stage = el("div", "axiom-try-stage");
   stage.dataset.example = example.id;
-  stage.dataset.phase = "0";
 
   const ask = el("div", "axiom-try-ask");
   const mark = el("span", "axiom-try-ask-mark");
@@ -154,7 +165,9 @@ const stageFor = (example: Example) => {
   example.lines.forEach((line) => {
     const item = el("li", line.change ? `is-${line.change}` : "");
     if (line.change === "added") item.style.setProperty("--i", String(addedIndex++));
-    item.append(el("span", "axiom-try-gutter", line.change === "added" ? "+" : line.change === "removed" ? "−" : ""), el("code", "", line.text));
+    const gutter = el("span", "axiom-try-gutter", line.change === "added" ? "+" : line.change === "removed" ? "−" : "");
+    gutter.setAttribute("aria-hidden", "true");
+    item.append(gutter, el("code", "", line.text));
     lines.append(item);
   });
   source.append(sourceHead, lines);
@@ -174,6 +187,7 @@ const stageFor = (example: Example) => {
   const panes = el("div", "axiom-try-panes");
   panes.append(source, pdf);
   stage.append(ask, panes);
+  setPhase(stage, 0);
   return stage;
 };
 
@@ -189,6 +203,8 @@ export const renderAxiomTry = (allowanceParagraphs: string[]): AxiomTryView => {
   const holder = el("div", "axiom-try-holder");
   holder.setAttribute("role", "tabpanel");
   holder.id = `axiom-try-panel-${Date.now().toString(36)}`;
+  // Tab stops on the demo too; it is named by the selected tab.
+  holder.tabIndex = 0;
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   const timers: number[] = [];
   let current = 0;
@@ -198,6 +214,7 @@ export const renderAxiomTry = (allowanceParagraphs: string[]): AxiomTryView => {
   const buttons = EXAMPLES.map((example, index) => {
     const tab = el("button", "axiom-try-tab", pick(example.tab));
     tab.type = "button";
+    tab.id = `${holder.id}-${example.id}`;
     tab.setAttribute("role", "tab");
     tab.setAttribute("aria-controls", holder.id);
     tab.addEventListener("click", () => { autoplay = false; show(index); });
@@ -213,8 +230,8 @@ export const renderAxiomTry = (allowanceParagraphs: string[]): AxiomTryView => {
     return tab;
   });
 
-  // Request → changed lines → typeset page, then the next example while
-  // nobody has picked one.
+  // Request → changed lines → typeset page, then the next example until
+  // someone picks one or looks closer.
   const show = (index: number) => {
     clearTimers();
     current = index;
@@ -222,16 +239,22 @@ export const renderAxiomTry = (allowanceParagraphs: string[]): AxiomTryView => {
       tab.setAttribute("aria-selected", String(at === index));
       tab.tabIndex = at === index ? 0 : -1;
     });
+    holder.setAttribute("aria-labelledby", buttons[index].id);
     const stage = stageFor(EXAMPLES[index]);
     holder.replaceChildren(stage);
-    if (reduceMotion) { stage.dataset.phase = "3"; return; }
-    const at = (ms: number, phase: string) => timers.push(window.setTimeout(() => { stage.dataset.phase = phase; }, ms));
-    at(60, "1");
-    at(900, "2");
-    at(1700, "3");
+    if (reduceMotion) { setPhase(stage, 3); return; }
+    const at = (ms: number, phase: number) => timers.push(window.setTimeout(() => setPhase(stage, phase), ms));
+    at(60, 1);
+    at(900, 2);
+    at(1700, 3);
     if (autoplay) timers.push(window.setTimeout(() => { if (autoplay) show((current + 1) % EXAMPLES.length); }, 5600));
   };
 
+  // Someone looking closer (focus or pointer in the demo) keeps the example
+  // they are on; the examples stop taking turns for good.
+  const stopAutoplay = () => { autoplay = false; };
+  root.addEventListener("focusin", stopAutoplay);
+  root.addEventListener("pointerenter", stopAutoplay);
   root.append(tabs, holder);
   if (allowanceParagraphs.length) {
     const explain = createExplain(allowanceParagraphs, { topic: pick(TEXT.allowance) });

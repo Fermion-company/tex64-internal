@@ -5240,7 +5240,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   margin-right: auto;
   margin-left: -12px;
   padding: 0 12px;
-  color: var(--muted);
+  color: var(--text-soft);
 }
 
 .announcement-card #announcement-modal-close:hover {
@@ -5267,6 +5267,11 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .announcement-card #announcement-modal-submit:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+/* --focus-ring is too faint on the light card; the actions use the strong accent. */
+#announcement-modal .panel-button:focus-visible {
+  outline-color: var(--accent-strong);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -11088,7 +11093,11 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
    The announcement shows Axiom at work: the request, the lines it changes in
    main.tex, and the typeset page. `data-phase` on the stage steps through
    0 (nothing yet) → 1 (the request) → 2 (the changed lines) → 3 (the page). */
-#announcement-modal[data-template="axiom-try"] .announcement-card { width: min(780px, 94vw); padding: 32px 36px 26px; }
+/* The card never outgrows the window: between the title and the actions, the
+   demo scrolls. The body's 4px padding keeps focus rings inside that scroller. */
+#announcement-modal[data-template="axiom-try"] .announcement-card { width: min(780px, 94vw); max-height: calc(100dvh - 24px); grid-template-rows: auto minmax(0, 1fr) auto; padding: 32px 36px 26px; }
+#announcement-modal[data-template="axiom-try"] .modal-body { min-height: 0; overflow-y: auto; margin: -4px; padding: 4px; }
+#announcement-modal[data-template="axiom-try"] .modal-actions { flex-wrap: wrap; }
 #announcement-modal[data-template="axiom-try"] .announcement-card .announcement-title { font-size: 34px; }
 #announcement-modal[data-template="axiom-try"] #announcement-modal-link { color: var(--text); background: transparent; border: 1px solid var(--panel-border-strong); }
 #announcement-modal[data-template="axiom-try"] #announcement-modal-link:hover { color: var(--text); background: var(--control-bg); }
@@ -11097,16 +11106,18 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .axiom-try { display: grid; gap: 14px; margin-top: 4px; }
 #announcement-modal[data-template="axiom-try"] .announcement-card:focus { outline: none; }
 .axiom-try-tabs { display: inline-flex; justify-self: start; gap: 2px; padding: 3px; border: 1px solid var(--panel-border); border-radius: 999px; background: var(--control-bg); }
-button.axiom-try-tab { height: 30px; padding: 0 16px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-family: var(--announce-sans); font-size: 13px; font-weight: 500; line-height: 1; cursor: pointer; transition: background var(--duration-fast), color var(--duration-fast); }
+button.axiom-try-tab { height: 30px; padding: 0 16px; border: 0; border-radius: 999px; background: transparent; color: var(--text-soft); font-family: var(--announce-sans); font-size: 13px; font-weight: 500; line-height: 1; cursor: pointer; transition: background var(--duration-fast), color var(--duration-fast); }
 button.axiom-try-tab:hover { color: var(--text); }
 button.axiom-try-tab[aria-selected="true"] { background: var(--panel-strong); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 22%), 0 0 0 1px var(--panel-border); }
 button.axiom-try-tab:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
+.axiom-try-holder { border-radius: var(--radius-md); }
+.axiom-try-holder:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
 .axiom-try-stage { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--panel-border); border-radius: var(--radius-md); background: var(--panel-muted); }
 
 /* The request, typed into Axiom. */
-.axiom-try-ask { display: inline-flex; justify-self: start; align-items: center; gap: 8px; max-width: 100%; height: 34px; padding: 0 14px 0 11px; border: 1px solid color-mix(in srgb, var(--accent-strong) 55%, transparent); border-radius: 999px; background: var(--panel-strong); color: var(--text); font-size: 14px; font-weight: 500; opacity: 0; transform: translateY(4px); transition: opacity 0.25s ease, transform 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
+.axiom-try-ask { display: inline-flex; justify-self: start; align-items: center; gap: 8px; max-width: 100%; min-height: 34px; padding: 6px 14px 6px 11px; line-height: 20px; border: 1px solid color-mix(in srgb, var(--accent-strong) 55%, transparent); border-radius: 999px; background: var(--panel-strong); color: var(--text); font-size: 14px; font-weight: 500; opacity: 0; transform: translateY(4px); transition: opacity 0.25s ease, transform 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
 .axiom-try-ask-mark { display: inline-flex; color: var(--accent-strong); }
-.axiom-try-ask-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; clip-path: inset(0 100% 0 0); transition: clip-path 0.7s steps(18, end) 0.15s; }
+.axiom-try-ask-text { clip-path: inset(0 100% 0 0); transition: clip-path 0.7s steps(18, end) 0.15s; }
 .axiom-try-stage:not([data-phase="0"]) .axiom-try-ask { opacity: 1; transform: none; }
 .axiom-try-stage:not([data-phase="0"]) .axiom-try-ask-text { clip-path: inset(0 0 0 0); }
 
@@ -11134,7 +11145,7 @@ button.axiom-try-tab:focus-visible { outline: 2px solid var(--accent-strong); ou
 .axiom-try-stage[data-phase="2"] .axiom-try-lines li.is-added, .axiom-try-stage[data-phase="3"] .axiom-try-lines li.is-added { max-height: 21px; opacity: 1; }
 .axiom-try-lines li.is-removed code { text-decoration: underline wavy var(--danger); text-decoration-thickness: 1px; text-underline-offset: 4px; }
 .axiom-try-lines li.is-removed .axiom-try-gutter { color: transparent; }
-.axiom-try-stage[data-phase="2"] .axiom-try-lines li.is-removed, .axiom-try-stage[data-phase="3"] .axiom-try-lines li.is-removed { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--muted); }
+.axiom-try-stage[data-phase="2"] .axiom-try-lines li.is-removed, .axiom-try-stage[data-phase="3"] .axiom-try-lines li.is-removed { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--text-soft); }
 .axiom-try-stage[data-phase="2"] .axiom-try-lines li.is-removed code, .axiom-try-stage[data-phase="3"] .axiom-try-lines li.is-removed code { text-decoration: line-through; text-decoration-color: var(--danger-text); }
 .axiom-try-stage[data-phase="2"] .axiom-try-lines li.is-removed .axiom-try-gutter, .axiom-try-stage[data-phase="3"] .axiom-try-lines li.is-removed .axiom-try-gutter { color: var(--danger-text); }
 
@@ -11157,8 +11168,13 @@ button.axiom-try-tab:focus-visible { outline: 2px solid var(--accent-strong); ou
 
 .axiom-try-allowance { font-size: 12.5px; font-weight: 500; color: var(--text-soft); }
 .axiom-try-allowance + .explain-panel { margin: -6px 0 0; }
-@media (max-width: 640px) {
+/* Narrow windows stack the panes. The source pane keeps the height of its
+   longest example, so the added lines do not push the page down. */
+@media (max-width: 700px) {
+  #announcement-modal[data-template="axiom-try"] .announcement-card { padding: 24px; }
+  #announcement-modal[data-template="axiom-try"] .announcement-card .announcement-title { font-size: 28px; }
   .axiom-try-panes { grid-template-columns: minmax(0, 1fr); }
+  .axiom-try-source { min-height: 174px; }
   .axiom-try-paper { min-height: 120px; }
 }
 @media (prefers-reduced-motion: reduce) {

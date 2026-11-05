@@ -11,7 +11,7 @@ export const createExplain = (content, options = {}) => {
     button.type = "button";
     button.className = "explain-toggle";
     button.innerHTML = CHEVRON;
-    button.setAttribute("aria-label", label || (topic ? uiText(`About ${topic}`, `${topic}の説明`) : uiText("Explanation", "説明")));
+    button.setAttribute("aria-label", label || (topic ? uiText("About {topic}", "{topic}の説明").replace("{topic}", topic) : uiText("Explanation", "説明")));
     const open = Boolean(memory && key && memory.has(key));
     button.setAttribute("aria-expanded", String(open));
     if (key)
@@ -52,14 +52,4 @@ export const explainedHeading = (heading, content, options = {}) => {
     heading.classList.add("has-explain");
     heading.append(button);
     return [heading, panel];
-};
-// The ▾ that had focus before a view rebuilt itself, by key, so the caller can
-// give focus back to its replacement.
-export const focusedExplainKey = () => { var _a, _b, _c; return (_c = (_b = (_a = document.activeElement) === null || _a === void 0 ? void 0 : _a.closest) === null || _b === void 0 ? void 0 : _b.call(_a, ".explain-toggle")) === null || _c === void 0 ? void 0 : _c.dataset.explainKey; };
-export const focusExplain = (root, key) => {
-    if (!key)
-        return false;
-    const button = Array.from(root.querySelectorAll(".explain-toggle")).find((item) => item.dataset.explainKey === key);
-    button === null || button === void 0 ? void 0 : button.focus();
-    return Boolean(button);
 };

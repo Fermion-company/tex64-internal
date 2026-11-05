@@ -21,7 +21,8 @@ export type ExplainOptions = {
   topic?: string;
   label?: string;
   // Views that rebuild themselves while open keep each explanation's state
-  // here under `key`, so an update does not close what the user is reading.
+  // here under `key`, so an update does not close what the user is reading
+  // (the key also brings focus back to the ▾, see focus-key.ts).
   memory?: Set<string>;
   key?: string;
 };
@@ -33,7 +34,7 @@ export const createExplain = (content: string | Node | Array<string | Node>, opt
   button.type = "button";
   button.className = "explain-toggle";
   button.innerHTML = CHEVRON;
-  button.setAttribute("aria-label", label || (topic ? uiText(`About ${topic}`, `${topic}の説明`) : uiText("Explanation", "説明")));
+  button.setAttribute("aria-label", label || (topic ? uiText("About {topic}", "{topic}の説明").replace("{topic}", topic) : uiText("Explanation", "説明")));
   const open = Boolean(memory && key && memory.has(key));
   button.setAttribute("aria-expanded", String(open));
   if (key) button.dataset.explainKey = key;
@@ -70,16 +71,4 @@ export const explainedHeading = (heading: HTMLElement, content: string | Node | 
   heading.classList.add("has-explain");
   heading.append(button);
   return [heading, panel];
-};
-
-// The ▾ that had focus before a view rebuilt itself, by key, so the caller can
-// give focus back to its replacement.
-export const focusedExplainKey = (): string | undefined =>
-  (document.activeElement as HTMLElement | null)?.closest?.<HTMLElement>(".explain-toggle")?.dataset.explainKey;
-
-export const focusExplain = (root: ParentNode, key: string | undefined): boolean => {
-  if (!key) return false;
-  const button = Array.from(root.querySelectorAll<HTMLElement>(".explain-toggle")).find((item) => item.dataset.explainKey === key);
-  button?.focus();
-  return Boolean(button);
 };

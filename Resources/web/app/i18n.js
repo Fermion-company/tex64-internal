@@ -1040,6 +1040,9 @@ const normalizeUiLocaleValue = (value) => {
 // untranslated strings fall back to the EN source — the same behaviour the
 // original JA-only implementation provided for any non-JA locale.
 const EN_TO_ZH = {
+    // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
+    "About {topic}": "说明：{topic}",
+    "Explanation": "说明",
     "TeX is not installed yet": "尚未安装 TeX",
     "Start with a lightweight TeX environment. Missing packages are added automatically.": "先安装轻量级 TeX 环境；缺少的宏包会自动添加。",
     "Recommended": "推荐",
@@ -1949,6 +1952,9 @@ const EN_TO_ZH = {
     "This line does not appear in the PDF, so the first page is shown.": "此行不会输出到 PDF 中，因此显示第一页。",
 };
 const EN_TO_KO = {
+    // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
+    "About {topic}": "설명: {topic}",
+    "Explanation": "설명",
     "TeX is not installed yet": "TeX가 아직 설치되지 않았습니다",
     "Start with a lightweight TeX environment. Missing packages are added automatically.": "가벼운 TeX 환경으로 시작하고 필요한 패키지는 자동으로 추가합니다.",
     "Recommended": "추천",
@@ -2858,6 +2864,9 @@ const EN_TO_KO = {
     "This line does not appear in the PDF, so the first page is shown.": "이 줄은 PDF에 출력되지 않으므로 첫 페이지를 표시했습니다.",
 };
 const EN_TO_FR = {
+    // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
+    "About {topic}": "Explication : {topic}",
+    "Explanation": "Explication",
     "TeX is not installed yet": "TeX n’est pas encore installé",
     "Start with a lightweight TeX environment. Missing packages are added automatically.": "Commencez avec un environnement TeX léger ; les paquets manquants sont ajoutés automatiquement.",
     "Recommended": "Recommandé",
@@ -3767,6 +3776,9 @@ const EN_TO_FR = {
     "This line does not appear in the PDF, so the first page is shown.": "Cette ligne n’apparaît pas dans le PDF ; la première page est affichée.",
 };
 const EN_TO_DE = {
+    // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
+    "About {topic}": "Erklärung: {topic}",
+    "Explanation": "Erklärung",
     "TeX is not installed yet": "TeX ist noch nicht installiert",
     "Start with a lightweight TeX environment. Missing packages are added automatically.": "Starten Sie mit einer schlanken TeX-Umgebung; fehlende Pakete werden automatisch ergänzt.",
     "Recommended": "Empfohlen",
@@ -4675,6 +4687,9 @@ const EN_TO_DE = {
     "This line does not appear in the PDF, so the first page is shown.": "Diese Zeile erscheint nicht im PDF, daher wird die erste Seite angezeigt.",
 };
 const EN_TO_ES = {
+    // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
+    "About {topic}": "Explicación: {topic}",
+    "Explanation": "Explicación",
     "TeX is not installed yet": "TeX aún no está instalado",
     "Start with a lightweight TeX environment. Missing packages are added automatically.": "Empieza con un entorno TeX ligero; los paquetes que falten se añadirán automáticamente.",
     "Recommended": "Recomendado",

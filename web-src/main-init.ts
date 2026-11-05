@@ -417,6 +417,8 @@ export const initMain = () => {
   const announcementsUi = initAnnouncementsUi({
     postToNative: (payload, silent) => postToNative(payload, silent),
     openAxiom: () => {
+      // The chat lives in the sidebar, which may be collapsed.
+      if (!bottomPanelUi.isSidebarVisible()) bottomPanelUi.toggleSidebar();
       setActiveTab("ai");
       window.requestAnimationFrame(() => document.getElementById("ai-input")?.focus());
     },
