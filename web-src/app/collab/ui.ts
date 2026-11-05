@@ -3,7 +3,7 @@
 
 import { uiText } from "../i18n.js";
 import { showEditorNotice } from "../editor-notice.js";
-import { createExplain, explainedHeading } from "../explain.js";
+import { createExplain, explainedHeading, focusExplain, focusedExplainKey } from "../explain.js";
 import { collabSession, type CollabState } from "./session.js";
 
 const MAX_DOTS = 5;
@@ -11,6 +11,8 @@ const MAX_DOTS = 5;
 export const initCollabUi = () => {
   const dots = document.getElementById("collab-participants") as HTMLButtonElement | null;
   let dialog: HTMLDialogElement | null = null;
+  // Which ▾ are open while the dialog stays open; updates rebuild the dialog.
+  const explainOpen = new Set<string>();
   let pendingLink = "";
   let busy = false;
   let errorText = "";
@@ -147,7 +149,7 @@ export const initCollabUi = () => {
         : uiText(
           "Starting a session opens a port on this computer; macOS may ask to allow incoming connections. Only people on the same network (LAN / VPN) can join.",
           "セッションを開始するとこの Mac がポートを開きます。macOS が接続の許可を確認することがあります。参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。",
-        ));
+        ), { topic: uiText("starting a session", "セッションの開始"), memory: explainOpen, key: "start" });
       const startRow = el("div", "collab-start-row has-explain");
       startRow.append(start, startExplain.button);
       const joinSection = el("div", "collab-section collab-join");
@@ -177,7 +179,7 @@ export const initCollabUi = () => {
         const invite = el("div", "collab-section");
         invite.append(...explainedHeading(el("p", "tool-dialog-label", uiText("Invite link", "招待リンク")), state.route === "relay"
           ? uiText("Anyone with the link can join from anywhere.", "リンクを知っている人は、どこからでも参加できます。")
-          : uiText("Only people on the same network (LAN / VPN) can join.", "参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。")));
+          : uiText("Only people on the same network (LAN / VPN) can join.", "参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。"), { memory: explainOpen, key: "invite" }));
         const linkFor = () => (linkAccess === "view" && state.viewInviteLink ? state.viewInviteLink : state.inviteLink || "");
         const link = field("", uiText("Invite link", "招待リンク"));
         link.readOnly = true;
@@ -227,7 +229,7 @@ export const initCollabUi = () => {
         where.dataset.noI18n = "true";
         guestExplain.push(where);
       }
-      if (guestExplain.length) people.append(...explainedHeading(peopleHeading, guestExplain));
+      if (guestExplain.length) people.append(...explainedHeading(peopleHeading, guestExplain, { memory: explainOpen, key: "people" }));
       else people.append(peopleHeading);
       const list = el("ul", "collab-people collab-dialog-participants");
       for (const participant of state.participants) {
@@ -274,8 +276,9 @@ export const initCollabUi = () => {
     const close = button(uiText("Close", "閉じる"), () => dialog?.close());
     close.dataset.role = "close";
     actions.append(close);
+    const focusedKey = focusedExplainKey();
     dialog.replaceChildren(eyebrow, title, content, error, actions);
-    window.requestAnimationFrame(() => { if (!state.active && !busy) return; close.focus(); });
+    window.requestAnimationFrame(() => { if (focusExplain(dialog || document, focusedKey) || (!state.active && !busy)) return; close.focus(); });
   };
 
   async function run(action: () => Promise<unknown>) {
@@ -303,6 +306,7 @@ export const initCollabUi = () => {
       dialog.addEventListener("close", () => {
         dialog?.remove();
         dialog = null;
+        explainOpen.clear();
       });
       document.body.append(dialog);
       try {

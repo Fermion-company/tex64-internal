@@ -82,20 +82,25 @@ export const openSnippets = (editor = activeEditor) => {
         [uiText("LaTeX code", "LaTeXコード"), body, uiText("Use ${1:placeholder}, ${2} and $0. After insertion, Tab moves between placeholders.", "${1:初期値}、${2}、$0 を使用。挿入後、Tabで入力箇所を移動します。")],
     ];
     for (const [text, input, explanation] of fields) {
-        const head = node("span", text);
-        const label = node("label");
-        label.append(head, input);
-        form.append(label);
-        if (explanation) {
-            // The ▾ sits inside the label, so the label names its field explicitly.
-            const explain = createExplain(explanation);
-            input.id = `${explain.panel.id}-field`;
-            label.htmlFor = input.id;
-            input.setAttribute("aria-label", text);
-            head.className = "has-explain";
-            head.append(explain.button);
-            form.append(explain.panel);
+        if (!explanation) {
+            const label = node("label");
+            label.append(node("span", text), input);
+            form.append(label);
+            continue;
         }
+        // The ▾ sits beside the field's name and its text opens between the name
+        // and the field, so the name is a sibling label pointing at the field.
+        const explain = createExplain(explanation, { topic: text });
+        const label = node("label", text);
+        input.id = `${explain.panel.id}-field`;
+        label.htmlFor = input.id;
+        const head = node("div");
+        head.className = "has-explain";
+        head.append(label, explain.button);
+        const field = node("div");
+        field.className = "snippets-field";
+        field.append(head, explain.panel, input);
+        form.append(field);
     }
     const saveState = node("p");
     saveState.setAttribute("role", "status");
@@ -200,7 +205,7 @@ export const openSnippets = (editor = activeEditor) => {
     const header = node("div");
     header.className = "snippets-heading";
     header.append(heading, createActionsMenu([remove, reload], lifecycle.signal));
-    const scope = createExplain(uiText("Available in all projects on this computer", "このPCの全プロジェクトで使用"));
+    const scope = createExplain(uiText("Available in all projects on this computer", "このPCの全プロジェクトで使用"), { topic: uiText("snippets", "スニペット") });
     heading.classList.add("has-explain");
     heading.append(scope.button);
     const columns = node("div");

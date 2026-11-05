@@ -141,19 +141,19 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
   function field(label: string, placeholder = "") {
     const wrapper = el("label", "git-field", label), input = el("input", "history-name"); input.placeholder = placeholder; wrapper.append(input); return {wrapper, input};
   }
-  // A ▾ after a field's label that opens `text` below the field.
+  // A ▾ after a field's label whose text opens between the label and the
+  // field. The label stays a sibling that names the field by id, and a
+  // dialog's first field keeps the initial focus it had before the ▾.
   function explainField(target: {wrapper: HTMLElement; input: HTMLElement}, text: string) {
-    const explain = createExplain(text);
-    const head = el("span", "has-explain");
-    // The ▾ sits inside the label, so the label names its field explicitly,
-    // and a dialog's first field keeps the focus it had before the ▾.
-    target.input.id = `${explain.panel.id}-field`; (target.wrapper as HTMLLabelElement).htmlFor = target.input.id;
-    target.input.setAttribute("aria-label", target.wrapper.textContent || "");
-    if (!target.wrapper.previousElementSibling) target.input.autofocus = true;
-    if (target.wrapper.firstChild && target.wrapper.firstChild !== target.input) head.append(target.wrapper.firstChild);
-    head.append(explain.button);
-    target.wrapper.prepend(head);
-    target.wrapper.after(explain.panel);
+    const label = target.wrapper as HTMLLabelElement;
+    const explain = createExplain(text, {topic: label.textContent?.trim() || undefined});
+    const field = el("div", "git-field"), head = el("div", "has-explain");
+    target.input.id = `${explain.panel.id}-field`;
+    label.replaceWith(field);
+    label.className = ""; label.htmlFor = target.input.id;
+    head.append(label, explain.button);
+    field.append(head, explain.panel, target.input);
+    if (!field.previousElementSibling) target.input.autofocus = true;
   }
   function refSelect(prefix: string, excludeCurrent = false) {
     const select = el("select", "history-name"); select.setAttribute("aria-label", uiText("Branch or tag", "ブランチ・タグ"));
@@ -225,7 +225,7 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
       const {shelves} = await call("shelves"), content = el("div"), select = el("select", "history-name");
       select.setAttribute("aria-label", uiText("Saved changes", "退避した変更"));
       for (const shelf of shelves) { const option = el("option", "", `${shelf.branch || "—"} · ${new Date(shelf.createdAt).toLocaleString()}`); option.value = shelf.id; select.append(option); }
-      const explain = createExplain(uiText("Return to the original branch and commit before restoring.", "退避したときのブランチとコミットに戻してから復帰できます。"));
+      const explain = createExplain(uiText("Return to the original branch and commit before restoring.", "退避したときのブランチとコミットに戻してから復帰できます。"), {topic: uiText("saved changes", "退避した変更")});
       const row = el("div", "has-explain"); row.append(select, explain.button);
       content.append(row, explain.panel);
       dialog(uiText("Restore saved changes", "退避した変更を戻す"), content, uiText("Restore", "戻す"), async () => {

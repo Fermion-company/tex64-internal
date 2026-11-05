@@ -9,6 +9,8 @@ import { explainedHeading } from "./explain.js";
 const bridge = (_a = window.tex64WordCount) !== null && _a !== void 0 ? _a : null;
 export const initWordCountUi = (deps) => {
     let dialog = null;
+    // Changing the scope rebuilds the dialog; the title's ▾ stays as the user left it.
+    const explainOpen = new Set();
     const el = (tag, className = "", text = "") => {
         const node = document.createElement(tag);
         if (className)
@@ -108,7 +110,7 @@ export const initWordCountUi = (deps) => {
         close.type = "button";
         close.addEventListener("click", () => dialog === null || dialog === void 0 ? void 0 : dialog.close());
         actions.append(close);
-        dialog.replaceChildren(eyebrow, ...(titleExplain ? explainedHeading(title, titleExplain) : [title]), body, actions);
+        dialog.replaceChildren(eyebrow, ...(titleExplain ? explainedHeading(title, titleExplain, { memory: explainOpen, key: "title" }) : [title]), body, actions);
         close.focus();
     };
     const open = async () => {
@@ -128,6 +130,7 @@ export const initWordCountUi = (deps) => {
             dialog.addEventListener("close", () => {
                 dialog === null || dialog === void 0 ? void 0 : dialog.remove();
                 dialog = null;
+                explainOpen.clear();
             });
             document.body.append(dialog);
             dialog.showModal();

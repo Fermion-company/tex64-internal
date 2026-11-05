@@ -10838,7 +10838,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .snippets-dialog::backdrop { background: #0007; }
 .snippets-dialog h2 { margin: 0 0 18px; font-size: 18px; }
 .snippets-columns { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(250px, 2fr); gap: 20px; }
-.snippets-library, .snippets-form, .snippets-form label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.snippets-library, .snippets-form, .snippets-form label, .snippets-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .snippets-form { gap: 12px; }
 .snippets-form p { font-size: 13px; line-height: 1.5; color: var(--text-soft); margin: 0; }
 .snippets-dialog input, .snippets-dialog textarea { box-sizing: border-box; width: 100%; border: 1px solid #8885; border-radius: 6px; padding: 8px; background: transparent; color: inherit; font: inherit; }
@@ -10983,19 +10983,28 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 /* An explanation the user asks for (web-src/app/explain.ts): a small ▾ beside a
    heading opens readable text below it, instead of a faint sentence that is
    always there. */
-.has-explain { display: flex; align-items: center; gap: 4px; }
-/* Doubled class: dialogs style their buttons broadly (.snippets-dialog button …). */
-button.explain-toggle.explain-toggle { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 18px; height: 18px; min-width: 0; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font: inherit; line-height: 1; cursor: pointer; transition: color var(--duration-fast), background var(--duration-fast); }
+.has-explain { display: flex; align-items: center; gap: 2px; }
+/* Doubled class: dialogs style their buttons broadly (.snippets-dialog button …).
+   A 24px target; the negative margin keeps label rows at their text height. */
+button.explain-toggle.explain-toggle { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; min-width: 0; min-height: 0; margin: -3px 0; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font: inherit; line-height: 1; cursor: pointer; transition: color var(--duration-fast), background var(--duration-fast); }
 button.explain-toggle.explain-toggle:hover { color: var(--text); background: var(--control-bg); }
-button.explain-toggle.explain-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+button.explain-toggle.explain-toggle:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
 button.explain-toggle.explain-toggle[hidden] { display: none; }
 .explain-toggle svg { flex: none; transition: transform var(--duration-fast); }
 button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text); }
 .explain-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
 .explain-panel { margin: 4px 0 10px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--panel-muted); color: var(--text-soft); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .explain-panel[hidden] { display: none; }
-.explain-panel p { margin: 0; }
-.explain-panel p + p { margin-top: 6px; }
+/* A ▾ on its own line, at the end of the control above it (setup choices). */
+.explain-row { display: flex; justify-content: flex-end; }
+.env-choice-more { margin-top: -8px; }
+/* The settings card is the same tone as a panel; an edge keeps the text a box. */
+.env-choice-more > .explain-panel { margin: 2px 0 0; border: 1px solid var(--panel-border); }
+/* Dialogs style their paragraphs (.snippets-form p, popover p); the panel keeps its own type. */
+.explain-panel.explain-panel p { margin: 0; font-size: inherit; line-height: inherit; color: inherit; }
+.explain-panel.explain-panel p + p { margin-top: 6px; }
+/* Inside a column that already spaces its children, the gap is the margin. */
+.git-field > .explain-panel, .snippets-field > .explain-panel, .snippets-form > .explain-panel, .pro-canvas-canvas-popover > .explain-panel { margin: 0; }
 .explain-panel code { font-family: var(--tool-mono); font-size: 11.5px; }
 .tool-dialog-error:empty { display: none; }
 .tool-dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 24px; }

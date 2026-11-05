@@ -24,6 +24,8 @@ export const initWordCountUi = (deps: {
   documentFor: (path: string) => string | undefined;
 }) => {
   let dialog: HTMLDialogElement | null = null;
+  // Changing the scope rebuilds the dialog; the title's ▾ stays as the user left it.
+  const explainOpen = new Set<string>();
 
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = "") => {
     const node = document.createElement(tag);
@@ -119,7 +121,7 @@ export const initWordCountUi = (deps: {
     close.type = "button";
     close.addEventListener("click", () => dialog?.close());
     actions.append(close);
-    dialog.replaceChildren(eyebrow, ...(titleExplain ? explainedHeading(title, titleExplain) : [title]), body, actions);
+    dialog.replaceChildren(eyebrow, ...(titleExplain ? explainedHeading(title, titleExplain, { memory: explainOpen, key: "title" }) : [title]), body, actions);
     close.focus();
   };
 
@@ -137,6 +139,7 @@ export const initWordCountUi = (deps: {
       dialog.addEventListener("close", () => {
         dialog?.remove();
         dialog = null;
+        explainOpen.clear();
       });
       document.body.append(dialog);
       dialog.showModal();

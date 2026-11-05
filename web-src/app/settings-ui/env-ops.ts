@@ -6,6 +6,7 @@ import {
   describeCoverage,
   describeDetection,
   INSTALL_VARIANT_LABELS,
+  renderInstallExplain,
   type TexEnvReport,
   type TexInstallVariant,
 } from "../tex-env-report.js";
@@ -177,6 +178,7 @@ export const createSettingsEnvOps = (
       if (size) {
         size.textContent = labels.size;
       }
+      renderInstallExplain(button, variant);
     }
   };
 

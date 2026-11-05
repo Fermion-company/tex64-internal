@@ -15,18 +15,32 @@ export type Explain = {
   panel: HTMLElement;
 };
 
-export const createExplain = (content: string | Node | Array<string | Node>, label = uiText("Explanation", "説明")): Explain => {
+export type ExplainOptions = {
+  // What the explanation is about, for the button's accessible name
+  // ("<topic>の説明"); `label` replaces that name outright.
+  topic?: string;
+  label?: string;
+  // Views that rebuild themselves while open keep each explanation's state
+  // here under `key`, so an update does not close what the user is reading.
+  memory?: Set<string>;
+  key?: string;
+};
+
+export const createExplain = (content: string | Node | Array<string | Node>, options: ExplainOptions = {}): Explain => {
   explainCount += 1;
+  const { topic, label, memory, key } = options;
   const button = document.createElement("button");
   button.type = "button";
   button.className = "explain-toggle";
   button.innerHTML = CHEVRON;
-  button.setAttribute("aria-label", label);
-  button.setAttribute("aria-expanded", "false");
+  button.setAttribute("aria-label", label || (topic ? uiText(`About ${topic}`, `${topic}の説明`) : uiText("Explanation", "説明")));
+  const open = Boolean(memory && key && memory.has(key));
+  button.setAttribute("aria-expanded", String(open));
+  if (key) button.dataset.explainKey = key;
   const panel = document.createElement("div");
   panel.className = "explain-panel";
   panel.id = `explain-${explainCount}`;
-  panel.hidden = true;
+  panel.hidden = !open;
   for (const part of Array.isArray(content) ? content : [content]) {
     if (typeof part === "string") {
       const paragraph = document.createElement("p");
@@ -39,17 +53,33 @@ export const createExplain = (content: string | Node | Array<string | Node>, lab
   button.setAttribute("aria-controls", panel.id);
   button.addEventListener("click", (event) => {
     event.stopPropagation();
-    const open = panel.hidden;
-    panel.hidden = !open;
-    button.setAttribute("aria-expanded", String(open));
+    const opening = panel.hidden;
+    panel.hidden = !opening;
+    button.setAttribute("aria-expanded", String(opening));
+    if (memory && key) {
+      if (opening) memory.add(key);
+      else memory.delete(key);
+    }
   });
   return { button, panel };
 };
 
 // A heading row with its ▾ at the end, followed by the hidden explanation.
-export const explainedHeading = (heading: HTMLElement, content: string | Node | Array<string | Node>): HTMLElement[] => {
-  const { button, panel } = createExplain(content);
+export const explainedHeading = (heading: HTMLElement, content: string | Node | Array<string | Node>, options: ExplainOptions = {}): HTMLElement[] => {
+  const { button, panel } = createExplain(content, { topic: heading.textContent?.trim() || undefined, ...options });
   heading.classList.add("has-explain");
   heading.append(button);
   return [heading, panel];
+};
+
+// The ▾ that had focus before a view rebuilt itself, by key, so the caller can
+// give focus back to its replacement.
+export const focusedExplainKey = (): string | undefined =>
+  (document.activeElement as HTMLElement | null)?.closest?.<HTMLElement>(".explain-toggle")?.dataset.explainKey;
+
+export const focusExplain = (root: ParentNode, key: string | undefined): boolean => {
+  if (!key) return false;
+  const button = Array.from(root.querySelectorAll<HTMLElement>(".explain-toggle")).find((item) => item.dataset.explainKey === key);
+  button?.focus();
+  return Boolean(button);
 };

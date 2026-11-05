@@ -1,4 +1,5 @@
 import { uiText } from "./i18n.js";
+import { createExplain } from "./explain.js";
 
 // Mirror of the report produced by EnvService.detectEnvironment() in the main
 // process. The setup screen renders this instead of guessing from per-command
@@ -128,4 +129,22 @@ export const INSTALL_VARIANT_LABELS: Record<
       size: uiText("about 5 GB · 30 min–2 h", "約 5 GB・30 分〜2 時間"),
     };
   },
+};
+
+// What a setup choice does and costs (the download and disk size), behind a ▾
+// right under its button. Rebuilt with the labels, so it follows the UI
+// language; whether it is open survives the rebuild.
+const installExplainOpen = new Set<string>();
+export const renderInstallExplain = (button: HTMLElement, variant: TexInstallVariant) => {
+  const labels = INSTALL_VARIANT_LABELS[variant];
+  const { button: toggle, panel } = createExplain([labels.detail, labels.size], { topic: labels.title, memory: installExplainOpen, key: `${button.id}:${variant}` });
+  const more = document.createElement("div");
+  more.className = "env-choice-more";
+  const row = document.createElement("div");
+  row.className = "explain-row";
+  row.append(toggle);
+  more.append(row, panel);
+  const previous = button.nextElementSibling;
+  if (previous?.classList.contains("env-choice-more")) previous.replaceWith(more);
+  else button.after(more);
 };

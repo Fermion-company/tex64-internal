@@ -1,5 +1,5 @@
 import { uiText } from "./i18n.js";
-import { INSTALL_VARIANT_LABELS } from "./tex-env-report.js";
+import { INSTALL_VARIANT_LABELS, renderInstallExplain } from "./tex-env-report.js";
 // First-run gate. If TeX is already usable this never appears and the app opens
 // straight into the editor; if it is not, this is the only thing the user sees
 // until an install finishes.
@@ -167,6 +167,7 @@ export const initOnboardingUi = (deps) => {
             if (size) {
                 size.textContent = labels.size;
             }
+            renderInstallExplain(button, variant);
         }
     };
     const showChoice = () => {

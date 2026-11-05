@@ -257,7 +257,7 @@ export const initProCanvasUi = (deps) => {
         let editingSymbolId = null, editingNodeId = null, anchorEdit = null, plotEdit = null, selectedAnchorIndex = 0, tool = "select", nodePlacementSnap = NODE_PLACEMENT_SNAP_DEFAULT, zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null, paintRegions = null, paintPreview = null;
         let nodeEditor = null, nodeEditorOriginal = "", nodeEditorNew = false, nodeEditorBefore = null, nodeMenu = null, plotCard = null, plotCardPos = null, plotCardSignature = "", plotCompileTimer = null, wheelUndoTimer = null, wheelBefore = null;
         let undo = [], redo = [];
-        const plotPreviewCache = new Map(), plotTextModes = new Set(), plotDetailsOpen = new Set();
+        const plotPreviewCache = new Map(), plotTextModes = new Set(), plotDetailsOpen = new Set(), plotExplainOpen = new Set();
         const overlay = document.createElement("div");
         overlay.className = "pro-canvas-overlay";
         overlay.tabIndex = -1;
@@ -274,7 +274,7 @@ export const initProCanvasUi = (deps) => {
         const status = overlay.querySelector(".pro-canvas-status");
         const hintbar = overlay.querySelector(".pro-canvas-hintbar");
         // The current tool's keys and gestures, behind a ▾ rather than always shown.
-        const hintExplain = createExplain("", uiText("Tool tips", "操作のヒント"));
+        const hintExplain = createExplain("", { label: uiText("Tool tips", "操作のヒント") });
         hintbar.append(hintExplain.panel, hintExplain.button);
         const setHint = (text) => {
             const paragraph = document.createElement("p");
@@ -651,7 +651,7 @@ export const initProCanvasUi = (deps) => {
             }
             range.append(rangeTitle, xmin.row, xmax.row, ymin.row, ymax.row, auto);
             (_a = (card.querySelector(".pro-canvas-plot-add") || card.lastElementChild)) === null || _a === void 0 ? void 0 : _a.before(range); // 系列ラッパの外に置く（中だと複数系列で「系列1専用の軸設定」に見え、is-muted も巻き添えになる）
-            const plotExplain = createExplain(uiText("On the curve: scroll to change the range · drag to pan · use the selection handles to scale", "曲線上: スクロールで範囲変更 / ドラッグで移動 / 選択ハンドルで拡大縮小"), uiText("How to adjust", "操作のヒント"));
+            const plotExplain = createExplain(uiText("On the curve: scroll to change the range · drag to pan · use the selection handles to scale", "曲線上: スクロールで範囲変更 / ドラッグで移動 / 選択ハンドルで拡大縮小"), { label: uiText("How to adjust", "操作のヒント"), memory: plotExplainOpen, key: "plot" });
             const plotExplainRow = document.createElement("div");
             plotExplainRow.className = "pro-canvas-explain-row";
             plotExplainRow.append(plotExplain.button);
@@ -802,7 +802,7 @@ export const initProCanvasUi = (deps) => {
             gridRow.append(gridInput, gridUnit, gridPresets);
             const outputTitle = document.createElement("strong");
             outputTitle.textContent = uiText("Width on the page", "紙面上の幅");
-            const outputExplain = createExplain(uiText("Canvas coordinates control drawing space. Page width can independently use 0.8\\linewidth, \\textwidth, and similar LaTeX-relative widths.", "キャンバス座標は作図空間です。紙面上の幅は 0.8\\linewidth や \\textwidth などで独立して指定できます。"));
+            const outputExplain = createExplain(uiText("Canvas coordinates control drawing space. Page width can independently use 0.8\\linewidth, \\textwidth, and similar LaTeX-relative widths.", "キャンバス座標は作図空間です。紙面上の幅は 0.8\\linewidth や \\textwidth などで独立して指定できます。"), { topic: uiText("width on the page", "紙面上の幅") });
             outputTitle.classList.add("has-explain");
             outputTitle.append(outputExplain.button);
             const outputRow = document.createElement("div");
@@ -2174,6 +2174,8 @@ export const initProCanvasUi = (deps) => {
                 return;
             const target = e.target;
             if (target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,math-field,[contenteditable=true]"))
+                return;
+            if ((e.key === " " || e.key === "Enter") && (target === null || target === void 0 ? void 0 : target.matches(".explain-toggle:focus-visible")))
                 return;
             e.stopPropagation();
             const command = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();

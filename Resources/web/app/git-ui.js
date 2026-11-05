@@ -202,22 +202,22 @@ export function initGitUi(editor, diff) {
         wrapper.append(input);
         return { wrapper, input };
     }
-    // A ▾ after a field's label that opens `text` below the field.
+    // A ▾ after a field's label whose text opens between the label and the
+    // field. The label stays a sibling that names the field by id, and a
+    // dialog's first field keeps the initial focus it had before the ▾.
     function explainField(target, text) {
-        const explain = createExplain(text);
-        const head = el("span", "has-explain");
-        // The ▾ sits inside the label, so the label names its field explicitly,
-        // and a dialog's first field keeps the focus it had before the ▾.
+        var _a;
+        const label = target.wrapper;
+        const explain = createExplain(text, { topic: ((_a = label.textContent) === null || _a === void 0 ? void 0 : _a.trim()) || undefined });
+        const field = el("div", "git-field"), head = el("div", "has-explain");
         target.input.id = `${explain.panel.id}-field`;
-        target.wrapper.htmlFor = target.input.id;
-        target.input.setAttribute("aria-label", target.wrapper.textContent || "");
-        if (!target.wrapper.previousElementSibling)
+        label.replaceWith(field);
+        label.className = "";
+        label.htmlFor = target.input.id;
+        head.append(label, explain.button);
+        field.append(head, explain.panel, target.input);
+        if (!field.previousElementSibling)
             target.input.autofocus = true;
-        if (target.wrapper.firstChild && target.wrapper.firstChild !== target.input)
-            head.append(target.wrapper.firstChild);
-        head.append(explain.button);
-        target.wrapper.prepend(head);
-        target.wrapper.after(explain.panel);
     }
     function refSelect(prefix, excludeCurrent = false) {
         const select = el("select", "history-name");
@@ -309,7 +309,7 @@ export function initGitUi(editor, diff) {
                 option.value = shelf.id;
                 select.append(option);
             }
-            const explain = createExplain(uiText("Return to the original branch and commit before restoring.", "退避したときのブランチとコミットに戻してから復帰できます。"));
+            const explain = createExplain(uiText("Return to the original branch and commit before restoring.", "退避したときのブランチとコミットに戻してから復帰できます。"), { topic: uiText("saved changes", "退避した変更") });
             const row = el("div", "has-explain");
             row.append(select, explain.button);
             content.append(row, explain.panel);

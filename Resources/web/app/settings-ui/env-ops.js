@@ -1,6 +1,6 @@
 import { createEnvStatusManager } from "../settings-env.js";
 import { uiText } from "../i18n.js";
-import { describeCoverage, describeDetection, INSTALL_VARIANT_LABELS, } from "../tex-env-report.js";
+import { describeCoverage, describeDetection, INSTALL_VARIANT_LABELS, renderInstallExplain, } from "../tex-env-report.js";
 // The full-screen Environment screen answers one question for the user: "can I
 // build right now, and if not, what do I press?" New installs use the quick
 // lightweight profile; an already-ready lightweight tree can be expanded to the
@@ -128,6 +128,7 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
             if (size) {
                 size.textContent = labels.size;
             }
+            renderInstallExplain(button, variant);
         }
     };
     const hasPromptedRuntimeSetup = () => {

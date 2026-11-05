@@ -68,7 +68,7 @@ export const initHistoryUi = (editor: EditorSessionApi, diff: DiffModalApi) => {
   const storageExplain = createExplain([
     uiText("Stored on this computer. Not a cloud backup.", "このPCに保存。クラウドバックアップではありません。"),
     uiText("Private files, Git settings and build logs are excluded. Source files and input images are kept. Files over 128 MiB stop recording; nothing is silently omitted.", "秘密情報・Git設定・組版ログは対象外です。ソースと入力画像は記録します。128 MiBを超えるファイルがあれば記録を中止し、黙って除外しません。"),
-  ]);
+  ], {topic: uiText("history storage", "履歴の保存")});
   const usageRow = el("div", "has-explain"); usageRow.append(usage, storageExplain.button);
   storage.append(usageRow, storageExplain.panel, limit,
     button(uiText("Set limit (GiB)", "上限を変更（GiB）"), () => void run(async () => { await call("limit", { gib: Number(limit.value) }); await refresh(); })));
