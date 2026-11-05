@@ -21,7 +21,7 @@ const decoding = require("lib0/decoding");
 const transport = require("./transport-ws.cjs");
 const relay = require("./relay-transport.cjs");
 const invite = require("./invite.cjs");
-const { WorkspaceManifest, safeRelativePath, resolveInsideRoot, looksTextByName, hashBuffer, MAX_TEXT_BYTES } = require("./manifest.cjs");
+const { WorkspaceManifest, safeRelativePath, resolveInsideRoot, looksTextByName, hashBuffer, extensionOf, MAX_TEXT_BYTES, MAX_BINARY_BYTES } = require("./manifest.cjs");
 const { DiskSync, DISK_ORIGIN } = require("./disk-sync.cjs");
 
 const SESSION_DOC = "$session";
@@ -31,6 +31,12 @@ const SCAN_INTERVAL_MS = 3000;
 // A guest asks again for a file it still lacks only this often: a 50 MB figure
 // on a slow link takes longer than a scan, and each request would send it anew.
 const BLOB_REREQUEST_MS = 30000;
+
+const formatBytes = (bytes) => {
+  const value = Number(bytes) || 0;
+  if (value >= 1024 * 1024) return `${(value / 1048576).toFixed(value >= 10 * 1048576 ? 0 : 1)} MB`;
+  return `${Math.max(1, Math.round(value / 1024))} KB`;
+};
 const UPDATE_LOG_MAX_BYTES = 200 * 1024 * 1024;
 const JOIN_TIMEOUT_MS = 90000;
 const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#db2777", "#0891b2", "#65a30d", "#ea580c", "#4f46e5"];
@@ -112,6 +118,8 @@ class CollabHub extends EventEmitter {
       // A guest: files the host shares that have not arrived yet (figures
       // keep arriving after the mirror opens).
       incoming: session.role === "guest" ? this.incomingFiles(session) : null,
+      // Files over the size limit: shared as a smaller copy, or not shared.
+      limitedFiles: this.limitedFiles(session),
       preservedFiles: session.preserved ? session.preserved.slice(0, 3) : [],
       textFiles: [...session.docs.keys()].filter((id) => id !== SESSION_DOC && !session.docs.get(id).deleted),
     };
@@ -199,9 +207,15 @@ class CollabHub extends EventEmitter {
     try {
       session.peers.set(session.selfId, { id: session.selfId, name: displayName, color: this.nextColor(session), connected: true, host: true, conn: null });
       this.createSessionDoc(session);
-      session.manifest = new WorkspaceManifest(rootPath);
+      session.manifest = this.newManifest(rootPath);
       await session.manifest.scan();
       const files = session.sessionDoc.getMap("files");
+      // What is shared for each non-text file (a smaller copy of an image
+      // over the limit is made here, once).
+      const shared = new Map();
+      for (const [relative, entry] of session.manifest.entries) {
+        if (entry.kind !== "text") shared.set(relative, await this.sharedEntry(session, relative, entry));
+      }
       session.sessionDoc.transact(() => {
         for (const [relative, entry] of session.manifest.entries) {
           if (entry.kind === "text") {
@@ -216,8 +230,8 @@ class CollabHub extends EventEmitter {
             files.set(relative, { kind: "text", by: session.selfId });
             this.attachDoc(session, relative, content);
           } else {
-            session.knownBinaryHashes.set(relative, entry.hash);
-            files.set(relative, { kind: "binary", hash: entry.hash, size: entry.size, by: session.selfId });
+            if (entry.hash) session.knownBinaryHashes.set(relative, entry.hash);
+            files.set(relative, shared.get(relative));
           }
         }
       }, LOCAL);
@@ -381,7 +395,7 @@ class CollabHub extends EventEmitter {
       } else {
         this.deps.refreshTree?.();
       }
-      session.manifest = new WorkspaceManifest(session.rootPath);
+      session.manifest = this.newManifest(session.rootPath);
       await session.manifest.scan();
       for (const [relative, entry] of session.manifest.entries) {
         if (entry.kind === "binary") session.knownBinaryHashes.set(relative, entry.hash);
@@ -411,6 +425,7 @@ class CollabHub extends EventEmitter {
       const files = {};
       for (const [relative, entry] of session.manifest.entries) {
         if (entry.kind === "binary") files[relative] = entry.hash;
+        else if (entry.kind === "skipped") continue;
         else {
           try {
             files[relative] = hashBuffer(await fsp.readFile(path.join(session.rootPath, relative)));
@@ -888,7 +903,7 @@ class CollabHub extends EventEmitter {
         // host's folder is not the guest's to read.
         for (const relative of message.paths.slice(0, 500)) {
           const shared = typeof relative === "string" ? session.sessionDoc.getMap("files").get(relative) : null;
-          if (shared && !shared.deleted && shared.kind === "binary") void this.sendBlob(session, relative, conn);
+          if (shared && !shared.deleted && shared.kind === "binary" && shared.hash) void this.sendBlob(session, relative, conn);
         }
         return;
       default:
@@ -914,6 +929,8 @@ class CollabHub extends EventEmitter {
   onSessionDocSynced(session) {
     const files = session.sessionDoc.getMap("files");
     const needed = [];
+    let reduced = 0;
+    let skipped = 0;
     files.forEach((entry, relative) => {
       if (!entry || entry.deleted) return;
       if (!safeRelativePath(relative)) return;
@@ -922,14 +939,132 @@ class CollabHub extends EventEmitter {
           this.createDoc(session, relative, null);
           this.sendSyncStep1(session, relative);
         }
-      } else if (entry.kind === "binary" && entry.hash) {
-        if (session.knownBinaryHashes.get(relative) !== entry.hash) {
-          needed.push(relative);
-          session.pendingBlobs?.add(relative);
-        }
+      } else if (this.lacksFile(session, relative, entry)) {
+        needed.push(relative);
+        session.pendingBlobs?.add(relative);
       }
+      // Told once, together, below; not again file by file.
+      if (entry.kind === "skipped") skipped += Number(this.markLimitNotice(session, relative, entry));
+      else if (entry.from) reduced += Number(this.markLimitNotice(session, relative, entry));
     });
     this.requestBlobs(session, needed);
+    if (reduced || skipped) {
+      const parts = [];
+      if (reduced) parts.push(text(this.deps.locale(), `${reduced} shared as a smaller copy`, `画質を落として共有されているファイルが ${reduced} 件`));
+      if (skipped) parts.push(text(this.deps.locale(), `${skipped} too large to share`, `大きすぎて共有されていないファイルが ${skipped} 件`));
+      this.notice(text(this.deps.locale(), `Large files: ${parts.join(", ")}. The Collaborate dialog lists them.`, `${parts.join("、")}あります。共同編集のダイアログに一覧があります。`));
+    }
+  }
+
+  // A file shared as `entry` that this peer does not have: neither that
+  // version nor — for a smaller copy — the original it was made from.
+  lacksFile(session, relative, entry) {
+    if (!entry || entry.deleted || entry.kind !== "binary" || !entry.hash) return false;
+    const known = session.knownBinaryHashes.get(relative);
+    return known !== entry.hash && !(entry.from && known === entry.from);
+  }
+
+  fileLimit() {
+    const limit = Number(this.deps.fileLimitBytes?.());
+    return Number.isFinite(limit) && limit > 0 ? limit : MAX_BINARY_BYTES;
+  }
+
+  newManifest(rootPath) {
+    return new WorkspaceManifest(rootPath, { binaryLimit: this.fileLimit() });
+  }
+
+  // The session-doc entry for a non-text file on this peer's disk: the file
+  // itself; for an image over the limit, a smaller copy (`from` names the
+  // original, which stays untouched); otherwise a note that it is not shared.
+  // The owner is told about each smaller copy and each file left out.
+  async sharedEntry(session, relative, entry) {
+    const by = session.selfId;
+    const limit = formatBytes(this.fileLimit());
+    if (entry.kind === "binary" && !entry.oversize) return { kind: "binary", hash: entry.hash, size: entry.size, by };
+    const reduced = entry.kind === "binary" ? await this.reducedCopy(session, relative, entry) : null;
+    if (!reduced) {
+      if (this.markLimitNotice(session, relative, { kind: "skipped", size: entry.size })) {
+        this.notice(text(this.deps.locale(), `${relative} (${formatBytes(entry.size)}) is larger than ${limit} and is not shared.`, `${relative}（${formatBytes(entry.size)}）は ${limit} を超えるため共有していません。`));
+      }
+      return { kind: "skipped", size: entry.size, by };
+    }
+    if (this.markLimitNotice(session, relative, { hash: reduced.hash })) {
+      this.notice(text(
+        this.deps.locale(),
+        `${relative} is larger than ${limit}, so a smaller copy (${formatBytes(entry.size)} → ${formatBytes(reduced.size)}) is shared; your file is unchanged.`,
+        `${relative} は ${limit} を超えるため、画質を落とした写し（${formatBytes(entry.size)} → ${formatBytes(reduced.size)}）を共有しています。手元のファイルはそのままです。`,
+      ));
+    }
+    return { kind: "binary", hash: reduced.hash, size: reduced.size, from: entry.hash, original: entry.size, by };
+  }
+
+  // A smaller copy of an image over the limit, made once per original and
+  // kept in .tex64/collab-reduced/ (outside what is shared).
+  reducedCopy(session, relative, entry) {
+    session.reducedCopies ||= new Map();
+    if (!session.reducedCopies.has(entry.hash)) {
+      const making = (async () => {
+        const limit = this.fileLimit();
+        const extension = extensionOf(relative);
+        const cache = path.join(session.rootPath, ".tex64", "collab-reduced", `${entry.hash}.${extension}`);
+        let bytes = await fsp.readFile(cache).catch(() => null);
+        if (!bytes || bytes.length > limit) {
+          const absolute = await resolveInsideRoot(session.rootPath, relative);
+          if (!absolute || !this.deps.reduceImage) return null;
+          try {
+            bytes = await this.deps.reduceImage({ path: absolute, extension, maxBytes: limit });
+          } catch (error) {
+            console.warn("[collab] image reduce failed", relative, error?.message || error);
+            bytes = null;
+          }
+          if (!bytes || bytes.length > limit) return null;
+          await fsp.mkdir(path.dirname(cache), { recursive: true });
+          await fsp.writeFile(cache, bytes);
+        }
+        return { hash: hashBuffer(bytes), size: bytes.length, path: cache };
+      })();
+      session.reducedCopies.set(entry.hash, making);
+      // A failure is not remembered: the next scan may try again.
+      making.then((copy) => { if (!copy) session.reducedCopies.delete(entry.hash); }, () => session.reducedCopies.delete(entry.hash));
+    }
+    return session.reducedCopies.get(entry.hash);
+  }
+
+  // Each smaller copy and each file left out is told once per session.
+  markLimitNotice(session, relative, entry) {
+    session.limitNotices ||= new Set();
+    const key = `${relative}\0${entry.kind === "skipped" ? `skip:${entry.size}` : entry.hash}`;
+    if (session.limitNotices.has(key)) return false;
+    session.limitNotices.add(key);
+    return true;
+  }
+
+  // A peer's large file, told once (after the join, which tells them together).
+  noticeRemoteLimit(session, relative, entry) {
+    if (session.joining || !entry || entry.by === session.selfId) return;
+    if (entry.kind === "skipped") {
+      if (this.markLimitNotice(session, relative, entry)) {
+        this.notice(text(this.deps.locale(), `${relative} (${formatBytes(entry.size)}) is too large to be shared.`, `${relative}（${formatBytes(entry.size)}）は大きすぎるため共有されていません。`));
+      }
+    } else if (entry.kind === "binary" && entry.from && this.markLimitNotice(session, relative, entry)) {
+      this.notice(text(
+        this.deps.locale(),
+        `${relative} is shared as a smaller copy (${formatBytes(entry.original)} → ${formatBytes(entry.size)}); its owner keeps the full file.`,
+        `${relative} は元のファイルが大きいため、画質を落として共有されています（${formatBytes(entry.original)} → ${formatBytes(entry.size)}）。`,
+      ));
+    }
+  }
+
+  // Files over the limit in this session: { reduced: [{ path, size, original }], skipped: [{ path, size }] }.
+  limitedFiles(session) {
+    const reduced = [];
+    const skipped = [];
+    session.sessionDoc?.getMap("files").forEach((entry, relative) => {
+      if (!entry || entry.deleted) return;
+      if (entry.kind === "skipped") skipped.push({ path: relative, size: entry.size });
+      else if (entry.kind === "binary" && entry.from) reduced.push({ path: relative, size: entry.size, original: entry.original });
+    });
+    return { reduced, skipped };
   }
 
   // `repeat`: the scan asking again for what is still missing; a path asked
@@ -982,7 +1117,8 @@ class CollabHub extends EventEmitter {
       }
       return;
     }
-    if (entry.kind === "binary" && entry.hash && session.knownBinaryHashes.get(relative) !== entry.hash) {
+    this.noticeRemoteLimit(session, relative, entry);
+    if (this.lacksFile(session, relative, entry)) {
       if (session.role === "guest") {
         session.pendingBlobs?.add(relative);
         this.requestBlobs(session, [relative]);
@@ -1023,11 +1159,17 @@ class CollabHub extends EventEmitter {
     // Guests that ask for the same file while it is still being sent share
     // one frame: a 50 MB figure for ten guests is one buffer, not ten.
     session.blobFrames ||= new Map();
-    const known = session.knownBinaryHashes.get(relative);
+    // An image over the limit goes out as its smaller copy; a file that is
+    // not shared does not go out at all.
+    const entry = session.manifest?.get(relative);
+    if (entry?.kind === "skipped") return;
+    const reduced = entry?.oversize ? await this.reducedCopy(session, relative, entry) : null;
+    if (entry?.oversize && !reduced) return;
+    const known = reduced ? reduced.hash : session.knownBinaryHashes.get(relative);
     let frame = known ? session.blobFrames.get(`${relative}\0${known}`)?.deref() : null;
     let hash = frame ? known : null;
     if (!frame) {
-      const absolute = await resolveInsideRoot(session.rootPath, relative);
+      const absolute = reduced ? reduced.path : await resolveInsideRoot(session.rootPath, relative);
       if (!absolute) return;
       let bytes;
       try {
@@ -1035,6 +1177,8 @@ class CollabHub extends EventEmitter {
       } catch {
         return;
       }
+      // Grown past the limit since the last scan: the next scan decides.
+      if (bytes.length > this.fileLimit()) return;
       hash = hashBuffer(bytes);
       frame = transport.encodeBlob(relative, hash, new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
       for (const [key, ref] of session.blobFrames) if (!ref.deref()) session.blobFrames.delete(key);
@@ -1055,7 +1199,10 @@ class CollabHub extends EventEmitter {
     }
     const hash = hashBuffer(Buffer.from(frame.bytes));
     if (hash !== frame.hash) return;
-    if (session.knownBinaryHashes.get(relative) === hash) {
+    const shared = session.sessionDoc?.getMap("files").get(relative);
+    const known = session.knownBinaryHashes.get(relative);
+    // The same version, or a smaller copy of the original this peer holds.
+    if (known === hash || (shared?.from && shared.hash === hash && known === shared.from)) {
       this.blobSettled(session, relative);
       return;
     }
@@ -1076,8 +1223,11 @@ class CollabHub extends EventEmitter {
       this.blobSettled(session, relative);
       if (session.role === "host") {
         session.transport.broadcast(transport.encodeBlob(relative, hash, frame.bytes), conn);
+        // A guest's smaller copy keeps naming the original it came from, so
+        // that guest is not sent its own copy back.
+        const copyOf = shared?.hash === hash && shared.from ? { from: shared.from, original: shared.original } : {};
         session.sessionDoc.transact(() => {
-          session.sessionDoc.getMap("files").set(relative, { kind: "binary", hash, size: frame.bytes.length, by: session.selfId });
+          session.sessionDoc.getMap("files").set(relative, { kind: "binary", hash, size: frame.bytes.length, by: session.selfId, ...copyOf });
         }, LOCAL);
       }
       this.deps.refreshTree?.();
@@ -1132,15 +1282,16 @@ class CollabHub extends EventEmitter {
           } else {
             this.attachIfReady(session, relative);
           }
-        } else if (entry.kind === "binary") {
-          if (session.knownBinaryHashes.get(relative) === entry.hash) continue;
+        } else {
+          // A binary, or a file over the limit that is not shared.
+          if (entry.kind === "binary" && session.knownBinaryHashes.get(relative) === entry.hash) continue;
           const shared = files.get(relative);
           if (viewOnly) {
             // The request below fetches the host's bytes again.
-            if (shared && !shared.deleted) session.knownBinaryHashes.set(relative, entry.hash);
+            if (entry.kind === "binary" && shared && !shared.deleted) session.knownBinaryHashes.set(relative, entry.hash);
             continue;
           }
-          if (shared && shared.hash === entry.hash) {
+          if (entry.kind === "binary" && shared && (shared.hash === entry.hash || shared.from === entry.hash)) {
             session.knownBinaryHashes.set(relative, entry.hash);
             if (session.pendingBlobs?.has(relative)) this.blobSettled(session, relative);
             continue;
@@ -1149,14 +1300,23 @@ class CollabHub extends EventEmitter {
           // an old copy (a rejoin), not this guest's change to share. When
           // the host's bytes arrive, an edited old copy is kept beside them.
           if (session.initialBlobs?.has(relative)) continue;
-          session.knownBinaryHashes.set(relative, entry.hash);
-          session.sessionDoc.transact(() => files.set(relative, { kind: "binary", hash: entry.hash, size: entry.size, by: session.selfId }), LOCAL);
-          void this.sendBlob(session, relative);
+          if (entry.kind === "skipped" && shared?.kind === "skipped" && shared.size === entry.size) continue;
+          if (entry.hash) session.knownBinaryHashes.set(relative, entry.hash);
+          else session.knownBinaryHashes.delete(relative);
+          const next = await this.sharedEntry(session, relative, entry);
+          if (this.session !== session) return;
+          session.sessionDoc.transact(() => files.set(relative, next), LOCAL);
+          if (next.kind === "binary") void this.sendBlob(session, relative);
         }
       }
       for (const relative of removed) {
         const shared = files.get(relative);
         if (shared?.deleted) continue;
+        // A file that was never shared: nobody has a copy to remove.
+        if (shared?.kind === "skipped") {
+          if (!viewOnly) session.sessionDoc.transact(() => files.delete(relative), LOCAL);
+          continue;
+        }
         // Removing the old copy of a file still on its way deletes nothing for others.
         if (session.initialBlobs?.has(relative)) continue;
         const doc = session.docs.get(relative);
@@ -1178,7 +1338,7 @@ class CollabHub extends EventEmitter {
       if (session.role === "guest") {
         const needed = [];
         files.forEach((entry, relative) => {
-          if (entry && !entry.deleted && entry.kind === "binary" && entry.hash && session.knownBinaryHashes.get(relative) !== entry.hash) needed.push(relative);
+          if (this.lacksFile(session, relative, entry)) needed.push(relative);
         });
         this.requestBlobs(session, needed, { repeat: true });
       }

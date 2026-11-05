@@ -74,6 +74,25 @@ export const initCollabUi = () => {
       `ホストからファイルを受け取っています（残り ${incoming.files} 件・${megabytes(incoming.bytes)}）。そのあいだも編集できます。`,
     );
   };
+  // Every file over the size limit stays listed here: a smaller copy is
+  // shared, or nothing is.
+  const limitedText = (state: CollabState) => {
+    const limited = state.limitedFiles;
+    const list = <T,>(items: T[], label: (item: T) => string) => {
+      const shown = items.slice(0, 3).map(label).join(uiText(", ", "、"));
+      return items.length > 3 ? shown + uiText(` and ${items.length - 3} more`, ` ほか ${items.length - 3} 件`) : shown;
+    };
+    const lines: string[] = [];
+    if (limited?.reduced.length) {
+      const files = list(limited.reduced, (item) => `${item.path}（${megabytes(item.original)} → ${megabytes(item.size)}）`);
+      lines.push(uiText(`Shared as a smaller copy (over the size limit): ${files}`, `大きすぎるため画質を落として共有: ${files}`));
+    }
+    if (limited?.skipped.length) {
+      const files = list(limited.skipped, (item) => `${item.path}（${megabytes(item.size)}）`);
+      lines.push(uiText(`Too large to share: ${files}`, `大きすぎて共有されていない: ${files}`));
+    }
+    return lines;
+  };
   const preservedText = (state: CollabState) => {
     const preserved = Number(state.preserved || 0);
     if (state.role !== "guest" || preserved <= 0) return "";
@@ -225,6 +244,11 @@ export const initCollabUi = () => {
         content.append(where);
       }
       if (incomingText(state)) content.append(el("p", "tool-dialog-note collab-incoming", incomingText(state)));
+      for (const line of limitedText(state)) {
+        const note = el("p", "tool-dialog-note collab-limited", line);
+        note.dataset.noI18n = "true";
+        content.append(note);
+      }
       if (state.role === "guest" && state.connected === false) content.append(el("p", "tool-dialog-note", uiText("Reconnecting to the host…", "ホストに再接続しています…")));
       if (state.role === "host" && state.connected === false) content.append(el("p", "tool-dialog-note", uiText("Reconnecting to the relay…", "中継サーバーに再接続しています…")));
       if (preservedText(state)) content.append(el("p", "tool-dialog-note", preservedText(state)));

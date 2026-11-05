@@ -14,7 +14,11 @@ const crypto = require("node:crypto");
 const { isExtendedTextFileName, looksBinary } = require("../text-file-types.cjs");
 
 const MAX_TEXT_BYTES = 10 * 1024 * 1024;
+// The free limit for one shared file (a paid plan may pass a larger one).
+// Over it, a PNG or JPEG is shared as a smaller copy (image-reduce.cjs) and
+// anything else is not shared; both are listed so that everyone is told.
 const MAX_BINARY_BYTES = 50 * 1024 * 1024;
+const REDUCIBLE_EXTENSIONS = new Set(["png", "jpg", "jpeg"]);
 // Compared in lower case: macOS volumes are case-insensitive, so `.GIT/config`
 // is `.git/config` on disk.
 const IGNORED_DIRS = new Set([".git", ".tex64", "node_modules", ".venv", "venv", "__pycache__", ".svn", ".hg", "deriveddata"]);
@@ -45,6 +49,15 @@ const isExcludedPath = (relative) => {
 const looksTextByName = (relative) => TEXT_EXTENSIONS.has(extensionOf(relative)) || isExtendedTextFileName(relative);
 
 const hashBuffer = (buffer) => crypto.createHash("sha256").update(buffer).digest("hex");
+
+// Without holding the whole file: images over the limit can be large.
+const hashFile = (absolute) => new Promise((resolve, reject) => {
+  const hash = crypto.createHash("sha256");
+  fs.createReadStream(absolute)
+    .on("data", (chunk) => hash.update(chunk))
+    .on("error", reject)
+    .on("end", () => resolve(hash.digest("hex")));
+});
 
 // A tiny, synchronous digest shared with the renderer (web-src/app/collab/session.ts)
 // so the save ACK can be matched against the editor buffer without async crypto.
@@ -85,9 +98,11 @@ const resolveInsideRoot = async (rootPath, relative) => {
 };
 
 class WorkspaceManifest {
-  constructor(rootPath) {
+  constructor(rootPath, { binaryLimit = MAX_BINARY_BYTES } = {}) {
     this.rootPath = rootPath;
-    // relative path -> { kind, size, mtimeMs, hash? }
+    this.binaryLimit = binaryLimit;
+    // relative path -> { kind: "text" | "binary" | "skipped", size, mtimeMs,
+    // hash? (binary), oversize? (a binary over the limit, shared smaller) }
     this.entries = new Map();
     this.documentClassCache = new Map();
   }
@@ -175,7 +190,7 @@ class WorkspaceManifest {
   async classify(relative, stat) {
     const absolute = path.join(this.rootPath, relative);
     if (looksTextByName(relative)) {
-      if (stat.size > MAX_TEXT_BYTES) return null;
+      if (stat.size > MAX_TEXT_BYTES) return { kind: "skipped", size: stat.size, mtimeMs: stat.mtimeMs };
       let sample;
       try {
         const handle = await fsp.open(absolute, "r");
@@ -190,7 +205,14 @@ class WorkspaceManifest {
       }
       if (!looksBinary(sample)) return { kind: "text", size: stat.size, mtimeMs: stat.mtimeMs };
     }
-    if (stat.size > MAX_BINARY_BYTES) return null;
+    if (stat.size > this.binaryLimit) {
+      if (!REDUCIBLE_EXTENSIONS.has(extensionOf(relative))) return { kind: "skipped", size: stat.size, mtimeMs: stat.mtimeMs };
+      try {
+        return { kind: "binary", size: stat.size, mtimeMs: stat.mtimeMs, hash: await hashFile(absolute), oversize: true };
+      } catch {
+        return null;
+      }
+    }
     let hash;
     try {
       hash = hashBuffer(await fsp.readFile(absolute));
@@ -224,6 +246,8 @@ module.exports = {
   WorkspaceManifest,
   MAX_TEXT_BYTES,
   MAX_BINARY_BYTES,
+  REDUCIBLE_EXTENSIONS,
+  extensionOf,
   isExcludedPath,
   looksTextByName,
   safeRelativePath,

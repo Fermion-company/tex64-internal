@@ -28,6 +28,11 @@ export type CollabState = {
   // A guest: files the host shares that have not arrived yet (figures keep
   // arriving after the mirror opens).
   incoming?: { files: number; bytes: number } | null;
+  // Files over the size limit: shared as a smaller copy, or not shared.
+  limitedFiles?: {
+    reduced: Array<{ path: string; size: number; original: number }>;
+    skipped: Array<{ path: string; size: number }>;
+  };
   preserved?: number;
   preservedFiles?: string[];
   selfId?: string;

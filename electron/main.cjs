@@ -940,6 +940,8 @@ collabHub = new CollabHub({
   collabRoot: () => process.env.TEX64_COLLAB_ROOT || path.join(app.getPath("home"), "TeX64 Collab"),
   // Set: sessions go through this relay (internet). Unset: the LAN route.
   relayUrl: () => process.env.TEX64_COLLAB_RELAY_URL || "",
+  // Images over the shared-file limit go out as smaller copies.
+  reduceImage: require("./services/collab/image-reduce.cjs").createImageReducer(require("electron").nativeImage),
 });
 // E2E drivers (TEX64_E2E_USERDATA) reach the hub to simulate network loss.
 if (process.env.TEX64_E2E_USERDATA) global.__tex64CollabHub = collabHub;
