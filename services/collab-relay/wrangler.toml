@@ -1,6 +1,9 @@
 name = "tex64-collab-relay"
+account_id = "092815f2391cc2b1be219b2fdd0fbe37"
 main = "worker.mjs"
 compatibility_date = "2026-10-01"
+workers_dev = false
+routes = [{ pattern = "relay.tex64.com", custom_domain = true }]
 
 [[durable_objects.bindings]]
 name = "ROOMS"

@@ -938,8 +938,8 @@ collabHub = new CollabHub({
     }
   },
   collabRoot: () => process.env.TEX64_COLLAB_ROOT || path.join(app.getPath("home"), "TeX64 Collab"),
-  // Set: sessions go through this relay (internet). Unset: the LAN route.
-  relayUrl: () => process.env.TEX64_COLLAB_RELAY_URL || "",
+  // Use the company relay by default. An explicitly empty override keeps LAN available.
+  relayUrl: () => process.env.TEX64_COLLAB_RELAY_URL ?? "wss://relay.tex64.com",
   // Images over the shared-file limit go out as smaller copies.
   reduceImage: require("./services/collab/image-reduce.cjs").createImageReducer(require("electron").nativeImage),
 });

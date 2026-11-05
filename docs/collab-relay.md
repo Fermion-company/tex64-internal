@@ -17,8 +17,8 @@ LAN / VPN の外にいる共著者とも共同編集できるようにする。�
   中継と組んでも、編集する人のトークンは読めない。
 - ホストの座は「ホストの秘密」（招待リンクには入れない）で守る。部屋の ID は秘密の SHA-256 の先頭 128 bit
   で、中継はホストがつないだときに秘密からその ID を計算し直して確かめる。
-- 中継を使うのは、ホストの TeX64 に中継の URL が設定されているとき（`TEX64_COLLAB_RELAY_URL`）。
-  未設定なら今までどおり LAN の経路を使う。ゲストは招待リンクの形で経路を選ぶので、設定は要らない。
+- ホストの TeX64 は、既定で `wss://relay.tex64.com` を使う。`TEX64_COLLAB_RELAY_URL` で接続先を変更でき、
+  空文字を指定すると LAN の経路を使う。ゲストは招待リンクの形で経路を選ぶので、設定は要らない。
 
 ## 招待リンク
 
@@ -199,6 +199,39 @@ tex64://collab/join?s=<中継の URL>&r=<部屋 ID>&k=<ホストの公開鍵>&t=
 見ると、50 MB のファイル 1 つを 1 人に送るのはメッセージ約 400 通（20 回分）で、限度にはほとんど響かない。
 先に尽きるのは編集中の部屋が起きている時間の合計（部屋 1 つを 128 MB として 1 日およそ 28 時間分）。
 
-## 残り
+## 会社環境への配備
 
-- 会社の Cloudflare アカウントと独自ドメインに置き直し、製品版の既定の経路を中継に切り替える（LAN は設定で残す）。
+配備先は Fermion の Cloudflare アカウント `092815f2391cc2b1be219b2fdd0fbe37`。
+`services/collab-relay/wrangler.toml` にアカウントと Custom Domain `relay.tex64.com` を固定し、
+会社側の Worker は `workers.dev` で公開しない。個人アカウントの試験 Worker は別環境として扱う。
+
+リポジトリのルートから実行する。
+
+```sh
+wrangler deploy --dry-run --config services/collab-relay/wrangler.toml
+wrangler deploy --profile fermion --config services/collab-relay/wrangler.toml
+curl --fail https://relay.tex64.com/health
+```
+
+認証は会社用の Wrangler プロファイル `fermion` を使う。保存先と復旧手順は法人の
+`docs/agent-operations.md` と `/Users/wedd/.config/agent-auth/registry.json` を参照する。
+配布用 R2 のキーやサイト用の API トークンに Worker やメンバー管理の権限があるとは限らない。
+秘密の値は設定ファイルや Git に書かない。
+
+初回は会社の管理者が Worker、Durable Objects のクラス、Custom Domain を作る。
+開発者の更新権限は `tex64-collab-relay` の `Editor` を基本にし、ドメイン設定は会社側で行う。
+招待の送信後はメンバー一覧で対象メールアドレス、権限、受諾状態を確認する。
+
+配備後は `/health` の応答に加え、会社ドメインを使うホストとゲストで本文の同期、図版の受信、
+閲覧リンクの制限、再接続を確認する。設定とビルドだけでは配備・動作確認の完了としない。
+
+無料枠はアカウント内の使用量を見て判断する。上限に達すると対象の処理が失敗するため、
+製品版で必要な稼働時間を満たせるかを確認する。有料プランへの変更は別途判断する。
+
+2026-11-05 に配備用ビルド、既存の共同編集テスト 17 件、Wrangler 4.157.0 のローカル workerd で
+本文同期、約 1 MiB の図版転送、閲覧者の編集制限、切断後の再接続を確認した。
+Wrangler 4.135.0 の同梱 workerd はこの設定の互換日 `2026-10-01` に対応していないため、
+ローカル検証には新しい Wrangler を使う。
+
+会社環境への配備、公開ドメインでの動作、開発者の招待は未実施。会社用 OAuth の復旧が必要で、
+通常の CLI ログインは認可コードが返らず期限切れになった。認証の復旧後に上記を確認し、結果を記録する。

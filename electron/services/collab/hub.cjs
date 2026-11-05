@@ -85,8 +85,7 @@ class CollabHub extends EventEmitter {
     return Boolean(entry && !entry.deleted && entry.attached);
   }
 
-  // The relay a new session would use (TEX64_COLLAB_RELAY_URL), or null for
-  // the LAN route.
+  // The relay a new session would use, or null when the app selects LAN.
   relayServer() {
     return invite.relayServerOrigin(this.deps.relayUrl?.() || "");
   }
