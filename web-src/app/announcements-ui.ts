@@ -1,9 +1,12 @@
 import type { AnnouncementSnapshot } from "./types.js";
 import type { PostToNative } from "./bridge-sender.js";
 import { getUiLocale, onUiLocaleChange, uiText } from "./i18n.js";
+import { axiomTryText, isAxiomTryAnnouncement, renderAxiomTry, type AxiomTryView } from "./announcement-axiom.js";
 
 type AnnouncementsUiDeps = {
   postToNative: PostToNative;
+  // Opens the Axiom chat beside the manuscript.
+  openAxiom: () => void;
 };
 
 export type AnnouncementsUi = {
@@ -69,6 +72,7 @@ export const initAnnouncementsUi = (
   const closeBtn = document.getElementById("announcement-modal-close");
   const linkBtn = document.getElementById("announcement-modal-link");
   const submitBtn = document.getElementById("announcement-modal-submit");
+  const primaryBtn = document.getElementById("announcement-modal-primary");
   const inputWrap = document.getElementById("announcement-modal-input-wrap");
   const inputEl = document.getElementById("announcement-modal-input");
   const statusEl = document.getElementById("announcement-modal-status");
@@ -79,6 +83,28 @@ export const initAnnouncementsUi = (
   let activeEntry: AnnouncementSnapshot | null = null;
   let isOpen = false;
   let isSubmitting = false;
+  let axiomView: AxiomTryView | null = null;
+
+  // The "Try Axiom" screen: its demo in place of the body, and Open Axiom as
+  // the main action (the plans link steps back beside it).
+  const setAxiomTemplate = (entry: AnnouncementSnapshot | null) => {
+    axiomView?.stop();
+    axiomView = null;
+    const enabled = isAxiomTryAnnouncement(entry);
+    if (modal instanceof HTMLElement) {
+      if (enabled) modal.dataset.template = "axiom-try";
+      else delete modal.dataset.template;
+    }
+    if (primaryBtn instanceof HTMLButtonElement) {
+      primaryBtn.textContent = enabled ? axiomTryText.openAxiom() : "";
+      primaryBtn.classList.toggle("is-hidden", !enabled);
+      primaryBtn.setAttribute("aria-hidden", enabled ? "false" : "true");
+    }
+    if (!enabled || !entry || !(bodyEl instanceof HTMLElement)) return;
+    const paragraphs = resolveLocalized(entry.body).split(/\r?\n\s*\r?\n/).map((block) => block.trim()).filter(Boolean);
+    axiomView = renderAxiomTry(paragraphs.slice(1));
+    bodyEl.replaceChildren(axiomView.root);
+  };
 
   const setStatus = (message: string, tone: "" | "error" | "success" = "") => {
     if (!(statusEl instanceof HTMLElement)) return;
@@ -133,6 +159,7 @@ export const initAnnouncementsUi = (
     isSubmitting = false;
     setInputMode(false);
     setLinkButton(null, null);
+    setAxiomTemplate(null);
   };
 
   const renderActiveEntry = () => {
@@ -159,6 +186,7 @@ export const initAnnouncementsUi = (
       activeEntry.kind === "feedback" ? null : activeEntry.url,
       resolveLocalized(activeEntry.urlLabel)
     );
+    setAxiomTemplate(activeEntry);
   };
 
   const showNext = () => {
@@ -185,8 +213,14 @@ export const initAnnouncementsUi = (
     modal.setAttribute("aria-hidden", "false");
     isOpen = true;
 
+    const card = modal.querySelector<HTMLElement>(".announcement-card");
     if (isFeedback && inputEl instanceof HTMLTextAreaElement) {
       inputEl.focus();
+    } else if (axiomView && card) {
+      // The demo is the point here; a ring on Close would pull the eye away.
+      // Focus waits in the dialog itself, and Tab still reaches every control.
+      card.tabIndex = -1;
+      card.focus();
     } else if (closeBtn instanceof HTMLButtonElement) {
       closeBtn.focus();
     }
@@ -257,6 +291,13 @@ export const initAnnouncementsUi = (
 
   if (submitBtn instanceof HTMLButtonElement) {
     submitBtn.addEventListener("click", () => submitFeedback());
+  }
+
+  if (primaryBtn instanceof HTMLButtonElement) {
+    primaryBtn.addEventListener("click", () => {
+      closeAndDismiss();
+      deps.openAxiom();
+    });
   }
 
   if (inputEl instanceof HTMLTextAreaElement) {

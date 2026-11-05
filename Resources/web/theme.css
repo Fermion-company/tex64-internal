@@ -11083,3 +11083,84 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .zotero-status { margin: 10px 0 0; font-size: 12px; color: var(--text-soft); }
 .zotero-status:empty { display: none; }
 .zotero-status.is-error { color: var(--danger-text); }
+
+/* ── Try Axiom announcement (web-src/app/announcement-axiom.ts) ─────────────
+   The announcement shows Axiom at work: the request, the lines it changes in
+   main.tex, and the typeset page. `data-phase` on the stage steps through
+   0 (nothing yet) → 1 (the request) → 2 (the changed lines) → 3 (the page). */
+#announcement-modal[data-template="axiom-try"] .announcement-card { width: min(780px, 94vw); padding: 32px 36px 26px; }
+#announcement-modal[data-template="axiom-try"] .announcement-card .announcement-title { font-size: 34px; }
+#announcement-modal[data-template="axiom-try"] #announcement-modal-link { color: var(--text); background: transparent; border: 1px solid var(--panel-border-strong); }
+#announcement-modal[data-template="axiom-try"] #announcement-modal-link:hover { color: var(--text); background: var(--control-bg); }
+.announcement-card #announcement-modal-primary { color: #ffffff; background: var(--accent); border: none; padding: 0 22px; }
+.announcement-card #announcement-modal-primary:hover { color: #ffffff; background: var(--accent-hover); transform: none; }
+.axiom-try { display: grid; gap: 14px; margin-top: 4px; }
+#announcement-modal[data-template="axiom-try"] .announcement-card:focus { outline: none; }
+.axiom-try-tabs { display: inline-flex; justify-self: start; gap: 2px; padding: 3px; border: 1px solid var(--panel-border); border-radius: 999px; background: var(--control-bg); }
+button.axiom-try-tab { height: 30px; padding: 0 16px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-family: var(--announce-sans); font-size: 13px; font-weight: 500; line-height: 1; cursor: pointer; transition: background var(--duration-fast), color var(--duration-fast); }
+button.axiom-try-tab:hover { color: var(--text); }
+button.axiom-try-tab[aria-selected="true"] { background: var(--panel-strong); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 22%), 0 0 0 1px var(--panel-border); }
+button.axiom-try-tab:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
+.axiom-try-stage { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--panel-border); border-radius: var(--radius-md); background: var(--panel-muted); }
+
+/* The request, typed into Axiom. */
+.axiom-try-ask { display: inline-flex; justify-self: start; align-items: center; gap: 8px; max-width: 100%; height: 34px; padding: 0 14px 0 11px; border: 1px solid color-mix(in srgb, var(--accent-strong) 55%, transparent); border-radius: 999px; background: var(--panel-strong); color: var(--text); font-size: 14px; font-weight: 500; opacity: 0; transform: translateY(4px); transition: opacity 0.25s ease, transform 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
+.axiom-try-ask-mark { display: inline-flex; color: var(--accent-strong); }
+.axiom-try-ask-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; clip-path: inset(0 100% 0 0); transition: clip-path 0.7s steps(18, end) 0.15s; }
+.axiom-try-stage:not([data-phase="0"]) .axiom-try-ask { opacity: 1; transform: none; }
+.axiom-try-stage:not([data-phase="0"]) .axiom-try-ask-text { clip-path: inset(0 0 0 0); }
+
+.axiom-try-panes { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); gap: 12px; min-height: 190px; }
+.axiom-try-pane { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); background: var(--panel-strong); overflow: hidden; }
+.axiom-try-pane-head { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-bottom: 1px solid var(--panel-border); font-family: var(--announce-mono); font-size: 11px; color: var(--muted); }
+.axiom-try-file { color: var(--text-soft); }
+.axiom-try-delta { display: inline-flex; gap: 6px; margin-left: auto; font-weight: 500; opacity: 0; transition: opacity 0.3s ease; }
+.axiom-try-delta .is-added { color: var(--accent-strong); }
+.axiom-try-delta .is-removed { color: var(--danger-text); }
+.axiom-try-error { margin-left: auto; padding: 2px 7px; border-radius: 999px; background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger-text); white-space: nowrap; transition: opacity 0.25s ease; }
+.axiom-try-error + .axiom-try-delta, .axiom-try-delta + .axiom-try-error { margin-left: 0; }
+.axiom-try-stage[data-phase="2"] .axiom-try-delta, .axiom-try-stage[data-phase="3"] .axiom-try-delta { opacity: 1; }
+.axiom-try-stage[data-phase="2"] .axiom-try-error, .axiom-try-stage[data-phase="3"] .axiom-try-error { display: none; }
+
+/* main.tex: the added lines open in, the broken line is struck through. */
+.axiom-try-lines { margin: 0; padding: 8px 0; list-style: none; font-family: "Latin Modern Mono", var(--announce-mono); font-size: 13px; line-height: 21px; color: var(--text); }
+/* The announcement body styles its own lists (dash bullets); these lines are source, not a list. */
+.axiom-try-lines li::before { content: none; }
+.axiom-try-lines li { position: static; display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; padding: 0 10px 0 0; white-space: pre; transition: background 0.3s ease, color 0.3s ease; }
+.axiom-try-lines code { font: inherit; overflow: hidden; text-overflow: ellipsis; }
+.axiom-try-gutter { text-align: center; font-family: var(--announce-mono); font-size: 11px; font-weight: 500; }
+.axiom-try-lines li.is-added { max-height: 0; opacity: 0; overflow: hidden; background: var(--accent-soft); transition: max-height 0.38s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease; transition-delay: calc(var(--i, 0) * 160ms); }
+.axiom-try-lines li.is-added .axiom-try-gutter { color: var(--accent-strong); }
+.axiom-try-stage[data-phase="2"] .axiom-try-lines li.is-added, .axiom-try-stage[data-phase="3"] .axiom-try-lines li.is-added { max-height: 21px; opacity: 1; }
+.axiom-try-lines li.is-removed code { text-decoration: underline wavy var(--danger); text-decoration-thickness: 1px; text-underline-offset: 4px; }
+.axiom-try-lines li.is-removed .axiom-try-gutter { color: transparent; }
+.axiom-try-stage[data-phase="2"] .axiom-try-lines li.is-removed, .axiom-try-stage[data-phase="3"] .axiom-try-lines li.is-removed { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--muted); }
+.axiom-try-stage[data-phase="2"] .axiom-try-lines li.is-removed code, .axiom-try-stage[data-phase="3"] .axiom-try-lines li.is-removed code { text-decoration: line-through; text-decoration-color: var(--danger-text); }
+.axiom-try-stage[data-phase="2"] .axiom-try-lines li.is-removed .axiom-try-gutter, .axiom-try-stage[data-phase="3"] .axiom-try-lines li.is-removed .axiom-try-gutter { color: var(--danger-text); }
+
+/* main.pdf: paper in both themes; the new page replaces the old one. */
+.axiom-try-paper { position: relative; flex: 1; margin: 10px; border-radius: 3px; background: #fdfdfb; box-shadow: 0 1px 3px rgb(0 0 0 / 30%); color: #1b1b19; }
+/* The old page leaves before the new one arrives, so the two never overlap. */
+.axiom-try-page { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 12px; transition: opacity 0.18s ease; }
+.axiom-try-page.is-after { opacity: 0; transition: opacity 0.35s ease 0.2s; }
+.axiom-try-stage[data-phase="3"] .axiom-try-page.is-before { opacity: 0; }
+.axiom-try-stage[data-phase="3"] .axiom-try-page.is-after { opacity: 1; }
+.axiom-try-page-error { font-family: var(--announce-mono); font-size: 11.5px; color: #b42318; }
+.axiom-try-math { display: grid; grid-template-columns: auto auto; row-gap: 3px; font-size: 15px; }
+/* A row spans both columns (subgrid), so a changed row is marked as one band. */
+.axiom-try-math-row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; padding: 2px 6px; border-radius: 3px; }
+.axiom-try-math-lhs { justify-self: end; }
+.axiom-try-math-rhs { justify-self: start; }
+.axiom-try-math-row.is-changed { background-image: linear-gradient(rgb(31 127 121 / 16%), rgb(31 127 121 / 16%)); background-repeat: no-repeat; background-size: 0% 100%; transition: background-size 0.5s cubic-bezier(0.22, 1, 0.36, 1); transition-delay: calc(0.25s + var(--i, 0) * 0.15s); }
+.axiom-try-stage[data-phase="3"] .axiom-try-math-row.is-changed { background-size: 100% 100%; }
+.axiom-try-math .katex { font-size: 1em; }
+
+.axiom-try-allowance { font-size: 12.5px; font-weight: 500; color: var(--text-soft); }
+.axiom-try-allowance + .explain-panel { margin: -6px 0 0; }
+@media (max-width: 640px) {
+  .axiom-try-panes { grid-template-columns: minmax(0, 1fr); }
+  .axiom-try-paper { min-height: 120px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .axiom-try *, .axiom-try *::before { transition: none !important; }
+}

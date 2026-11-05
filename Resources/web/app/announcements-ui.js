@@ -1,4 +1,5 @@
 import { getUiLocale, onUiLocaleChange, uiText } from "./i18n.js";
+import { axiomTryText, isAxiomTryAnnouncement, renderAxiomTry } from "./announcement-axiom.js";
 const renderBodyInto = (host, body) => {
     host.replaceChildren();
     if (!body)
@@ -56,6 +57,7 @@ export const initAnnouncementsUi = (deps) => {
     const closeBtn = document.getElementById("announcement-modal-close");
     const linkBtn = document.getElementById("announcement-modal-link");
     const submitBtn = document.getElementById("announcement-modal-submit");
+    const primaryBtn = document.getElementById("announcement-modal-primary");
     const inputWrap = document.getElementById("announcement-modal-input-wrap");
     const inputEl = document.getElementById("announcement-modal-input");
     const statusEl = document.getElementById("announcement-modal-status");
@@ -65,6 +67,30 @@ export const initAnnouncementsUi = (deps) => {
     let activeEntry = null;
     let isOpen = false;
     let isSubmitting = false;
+    let axiomView = null;
+    // The "Try Axiom" screen: its demo in place of the body, and Open Axiom as
+    // the main action (the plans link steps back beside it).
+    const setAxiomTemplate = (entry) => {
+        axiomView === null || axiomView === void 0 ? void 0 : axiomView.stop();
+        axiomView = null;
+        const enabled = isAxiomTryAnnouncement(entry);
+        if (modal instanceof HTMLElement) {
+            if (enabled)
+                modal.dataset.template = "axiom-try";
+            else
+                delete modal.dataset.template;
+        }
+        if (primaryBtn instanceof HTMLButtonElement) {
+            primaryBtn.textContent = enabled ? axiomTryText.openAxiom() : "";
+            primaryBtn.classList.toggle("is-hidden", !enabled);
+            primaryBtn.setAttribute("aria-hidden", enabled ? "false" : "true");
+        }
+        if (!enabled || !entry || !(bodyEl instanceof HTMLElement))
+            return;
+        const paragraphs = resolveLocalized(entry.body).split(/\r?\n\s*\r?\n/).map((block) => block.trim()).filter(Boolean);
+        axiomView = renderAxiomTry(paragraphs.slice(1));
+        bodyEl.replaceChildren(axiomView.root);
+    };
     const setStatus = (message, tone = "") => {
         if (!(statusEl instanceof HTMLElement))
             return;
@@ -119,6 +145,7 @@ export const initAnnouncementsUi = (deps) => {
         isSubmitting = false;
         setInputMode(false);
         setLinkButton(null, null);
+        setAxiomTemplate(null);
     };
     const renderActiveEntry = () => {
         if (!activeEntry ||
@@ -139,6 +166,7 @@ export const initAnnouncementsUi = (deps) => {
                         : uiText("From TeX64", "TeX64 からのお知らせ");
         }
         setLinkButton(activeEntry.kind === "feedback" ? null : activeEntry.url, resolveLocalized(activeEntry.urlLabel));
+        setAxiomTemplate(activeEntry);
     };
     const showNext = () => {
         if (isOpen ||
@@ -159,8 +187,15 @@ export const initAnnouncementsUi = (deps) => {
         modal.classList.add("is-open");
         modal.setAttribute("aria-hidden", "false");
         isOpen = true;
+        const card = modal.querySelector(".announcement-card");
         if (isFeedback && inputEl instanceof HTMLTextAreaElement) {
             inputEl.focus();
+        }
+        else if (axiomView && card) {
+            // The demo is the point here; a ring on Close would pull the eye away.
+            // Focus waits in the dialog itself, and Tab still reaches every control.
+            card.tabIndex = -1;
+            card.focus();
         }
         else if (closeBtn instanceof HTMLButtonElement) {
             closeBtn.focus();
@@ -218,6 +253,12 @@ export const initAnnouncementsUi = (deps) => {
     }
     if (submitBtn instanceof HTMLButtonElement) {
         submitBtn.addEventListener("click", () => submitFeedback());
+    }
+    if (primaryBtn instanceof HTMLButtonElement) {
+        primaryBtn.addEventListener("click", () => {
+            closeAndDismiss();
+            deps.openAxiom();
+        });
     }
     if (inputEl instanceof HTMLTextAreaElement) {
         inputEl.addEventListener("keydown", (event) => {

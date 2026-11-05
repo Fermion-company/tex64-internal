@@ -203,6 +203,8 @@ export type AnnouncementSnapshot = {
   urlLabel?: LocalizedText;
   publishedAt?: string | null;
   expiresAt?: string | null;
+  // A screen the app draws for this announcement instead of its plain text.
+  template?: string | null;
 };
 
 export type PlatformUpdateSnapshot = {

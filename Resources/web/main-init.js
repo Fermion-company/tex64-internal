@@ -357,6 +357,10 @@ export const initMain = () => {
         });
         const announcementsUi = initAnnouncementsUi({
             postToNative: (payload, silent) => postToNative(payload, silent),
+            openAxiom: () => {
+                setActiveTab("ai");
+                window.requestAnimationFrame(() => { var _a; return (_a = document.getElementById("ai-input")) === null || _a === void 0 ? void 0 : _a.focus(); });
+            },
         });
         const contextMenu = initContextMenu(appContext);
         const launcherUi = initLauncherUi(appContext, {
