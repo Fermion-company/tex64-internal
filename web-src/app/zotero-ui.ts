@@ -182,14 +182,6 @@ export const openZoteroDialog = (editor: CitationEditor, getActiveFilePath: () =
   const listLabel = node("p", "tool-dialog-label zotero-list-label");
   const results = node("div", "zotero-results");
   results.setAttribute("role", "listbox");
-  const keys = node("p", "zotero-keys");
-  keys.innerHTML = "";
-  const keyHint = (key: string, text: string) => {
-    const span = node("span");
-    span.append(node("kbd", "", key), text);
-    return span;
-  };
-  keys.append(keyHint("↑↓", uiText("choose", "選ぶ")), keyHint("Enter", uiText("insert", "挿入")), keyHint("Esc", uiText("close", "閉じる")));
   const status = node("p", "zotero-status");
   status.setAttribute("role", "status");
   const actions = node("div", "tool-dialog-actions");
@@ -284,7 +276,7 @@ export const openZoteroDialog = (editor: CitationEditor, getActiveFilePath: () =
       if (items.length) renderResults();
       else {
         listLabel.textContent = "";
-        empty(uiText("Search your library", "ライブラリを検索"), uiText("Type a title, an author or a year.", "題名・著者・年を入れると、ここに候補が出ます。"));
+        empty(uiText("Search your library", "ライブラリを検索"));
       }
     } catch (error) {
       if (serial !== searchSerial) return;
@@ -309,7 +301,7 @@ export const openZoteroDialog = (editor: CitationEditor, getActiveFilePath: () =
       highlighted = 0;
       listLabel.textContent = `${uiText("Results", "検索結果")} · ${items.length}`;
       if (items.length) renderResults();
-      else empty(uiText("No matches", "見つかりません"), uiText("Try fewer or different words.", "語を減らすか、別の語で試してください。"));
+      else empty(uiText("No matches", "見つかりません"));
       if (!current?.transport) {
         // Zotero came back since the dialog opened: say where results come from.
         current = await call<ZoteroStatus>("status").catch(() => current);
@@ -433,7 +425,7 @@ export const openZoteroDialog = (editor: CitationEditor, getActiveFilePath: () =
   });
 
   renderTarget();
-  dialog.append(eyebrow, heading, target, controls, listLabel, results, keys, status, actions);
+  dialog.append(eyebrow, heading, target, controls, listLabel, results, status, actions);
   document.body.append(dialog);
   dialog.showModal();
   search.focus();

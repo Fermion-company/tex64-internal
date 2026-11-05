@@ -1,5 +1,6 @@
 import { historyDateLabels, historyVersionTitle } from "./history-format.js";
 import { createActionsMenu } from "./actions-menu.js";
+import { createExplain } from "./explain.js";
 import { getEditorOperationGuard } from "./editor-operation-guard.js";
 import { uiText } from "./i18n.js";
 import type { DiffModalApi } from "./diff-modal.js";
@@ -62,8 +63,14 @@ export const initHistoryUi = (editor: EditorSessionApi, diff: DiffModalApi) => {
   selection.append(compareRow, comparison, restore);
   const storage = el("div", "history-storage"); const usage = el("p");
   const limit = el("input", "history-limit"); limit.type = "number"; limit.min = "1"; limit.max = "100"; limit.value = "2"; limit.setAttribute("aria-label", uiText("History limit in GiB", "履歴の容量上限 GiB"));
-  storage.append(usage, el("p", "", uiText("Stored on this computer. Not a cloud backup.", "このPCに保存。クラウドバックアップではありません。")),
-    el("p", "", uiText("Private files, Git settings and build logs are excluded. Source files and input images are kept. Files over 128 MiB stop recording; nothing is silently omitted.", "秘密情報・Git設定・組版ログは対象外です。ソースと入力画像は記録します。128 MiBを超えるファイルがあれば記録を中止し、黙って除外しません。")), limit,
+  // The settings open on the limit, not on the usage line's ▾.
+  limit.autofocus = true;
+  const storageExplain = createExplain([
+    uiText("Stored on this computer. Not a cloud backup.", "このPCに保存。クラウドバックアップではありません。"),
+    uiText("Private files, Git settings and build logs are excluded. Source files and input images are kept. Files over 128 MiB stop recording; nothing is silently omitted.", "秘密情報・Git設定・組版ログは対象外です。ソースと入力画像は記録します。128 MiBを超えるファイルがあれば記録を中止し、黙って除外しません。"),
+  ]);
+  const usageRow = el("div", "has-explain"); usageRow.append(usage, storageExplain.button);
+  storage.append(usageRow, storageExplain.panel, limit,
     button(uiText("Set limit (GiB)", "上限を変更（GiB）"), () => void run(async () => { await call("limit", { gib: Number(limit.value) }); await refresh(); })));
   function showDialog(title: string, content: HTMLElement) {
     const modal = el("dialog", "history-confirm");
@@ -164,7 +171,7 @@ export const initHistoryUi = (editor: EditorSessionApi, diff: DiffModalApi) => {
       row.append(title, el("span", "history-date", date.time));
       list.append(row);
     }
-    if (!versions.some((v) => v.kind !== "safety")) list.append(el("p", "history-empty", uiText("Record a version at a milestone.", "節目の状態を版として記録できます。")));
+    if (!versions.some((v) => v.kind !== "safety")) list.append(el("p", "history-empty", uiText("No versions yet.", "まだ版はありません。")));
     list.scrollTop = scrollTop;
     if (focusedId) (Array.from(list.children).find((row) => (row as HTMLElement).dataset.versionId === focusedId) as HTMLElement)?.focus({ preventScroll: true });
     window.requestAnimationFrame(updatePinned);

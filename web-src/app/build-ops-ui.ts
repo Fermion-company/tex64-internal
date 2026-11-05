@@ -12,6 +12,7 @@ import type { PdfSyncPayload } from "./viewer.js";
 import type { ContextMenuApi, ContextMenuItem } from "./context-menu.js";
 import { hideEditorNotice, showEditorNotice } from "./editor-notice.js";
 import { collabSession, type CollabState } from "./collab/session.js";
+import { explainedHeading } from "./explain.js";
 
 type EditorGroupKey = "primary" | "secondary";
 type SynctexForwardSource = "manual" | "auto-build" | "other";
@@ -716,7 +717,7 @@ export const initBuildOpsUi = (
       row.addEventListener("click", () => pick(path));
       list.append(row);
     });
-    const hint = el("p", "history-local", requested
+    const titleRow = explainedHeading(title, requested
       ? uiText("Remembered for this file until the app closes. A % !TEX root line in the file settles it for good.", "この起動中はこのファイルについて記憶します。ファイル先頭の % !TEX root 行で固定できます。")
       : uiText("Settings › Main TeX fixes the choice for this folder.", "設定の「メイン TeX」でこのフォルダの既定にできます。"));
     const actions = el("div", "history-confirm-actions");
@@ -724,7 +725,7 @@ export const initBuildOpsUi = (
     cancel.type = "button";
     cancel.addEventListener("click", () => dialog.close());
     actions.append(cancel);
-    dialog.append(title, note, list, hint, actions);
+    dialog.append(...titleRow, note, list, actions);
     dialog.addEventListener("close", () => {
       dialog.remove();
       if (chooserDialog === dialog) chooserDialog = null;

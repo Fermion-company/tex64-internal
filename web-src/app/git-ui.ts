@@ -1,6 +1,7 @@
 import { createActionsMenu } from "./actions-menu.js";
 import { getEditorOperationGuard } from "./editor-operation-guard.js";
 import { uiText } from "./i18n.js";
+import { createExplain } from "./explain.js";
 import type { EditorSessionApi } from "./editor-session.js";
 import type { DiffModalApi } from "./diff-modal.js";
 import { collabSession } from "./collab/session.js";
@@ -140,6 +141,20 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
   function field(label: string, placeholder = "") {
     const wrapper = el("label", "git-field", label), input = el("input", "history-name"); input.placeholder = placeholder; wrapper.append(input); return {wrapper, input};
   }
+  // A ▾ after a field's label that opens `text` below the field.
+  function explainField(target: {wrapper: HTMLElement; input: HTMLElement}, text: string) {
+    const explain = createExplain(text);
+    const head = el("span", "has-explain");
+    // The ▾ sits inside the label, so the label names its field explicitly,
+    // and a dialog's first field keeps the focus it had before the ▾.
+    target.input.id = `${explain.panel.id}-field`; (target.wrapper as HTMLLabelElement).htmlFor = target.input.id;
+    target.input.setAttribute("aria-label", target.wrapper.textContent || "");
+    if (!target.wrapper.previousElementSibling) target.input.autofocus = true;
+    if (target.wrapper.firstChild && target.wrapper.firstChild !== target.input) head.append(target.wrapper.firstChild);
+    head.append(explain.button);
+    target.wrapper.prepend(head);
+    target.wrapper.after(explain.panel);
+  }
   function refSelect(prefix: string, excludeCurrent = false) {
     const select = el("select", "history-name"); select.setAttribute("aria-label", uiText("Branch or tag", "ブランチ・タグ"));
     for (const ref of state?.refs || []) if (ref.name.startsWith(prefix) && (!excludeCurrent || ref.name !== state?.branchRef)) {
@@ -185,7 +200,8 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
   }
   async function connectDialog() {
     const content = el("div"), url = field(uiText("Repository URL", "リポジトリURL"), "https://github.com/owner/repository");
-    content.append(url.wrapper, el("p", "git-secondary", uiText("Connect this folder. Files stay as they are.", "このフォルダに接続します。ファイルは変更しません。")));
+    content.append(url.wrapper);
+    explainField(url, uiText("Connect this folder. Files stay as they are.", "このフォルダに接続します。ファイルは変更しません。"));
     dialog(uiText("Connect GitHub", "GitHubに接続"), content, uiText("Connect", "接続"), async () => {
       return run(() => saved("connect", () => call("connect", {args: {url: url.input.value, initialize: !state?.repository}})));
     });
@@ -209,7 +225,9 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
       const {shelves} = await call("shelves"), content = el("div"), select = el("select", "history-name");
       select.setAttribute("aria-label", uiText("Saved changes", "退避した変更"));
       for (const shelf of shelves) { const option = el("option", "", `${shelf.branch || "—"} · ${new Date(shelf.createdAt).toLocaleString()}`); option.value = shelf.id; select.append(option); }
-      content.append(select, el("p", "git-secondary", uiText("Return to the original branch and commit before restoring.", "退避したときのブランチとコミットに戻してから復帰できます。")));
+      const explain = createExplain(uiText("Return to the original branch and commit before restoring.", "退避したときのブランチとコミットに戻してから復帰できます。"));
+      const row = el("div", "has-explain"); row.append(select, explain.button);
+      content.append(row, explain.panel);
       dialog(uiText("Restore saved changes", "退避した変更を戻す"), content, uiText("Restore", "戻す"), async () => {
         if (!select.value) return false;
         return run(() => saved("unshelve", () => call("unshelve", {id: select.value})));
@@ -258,7 +276,8 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
   }
   async function authorDialog() {
     const content = el("div"), name = field(uiText("Name", "名前")), email = field(uiText("Email", "メールアドレス"));
-    email.input.type = "email"; content.append(name.wrapper, email.wrapper, el("p", "git-secondary", uiText("Used only in this repository.", "このリポジトリだけに設定します。")));
+    email.input.type = "email"; content.append(name.wrapper, email.wrapper);
+    explainField(name, uiText("Used only in this repository.", "このリポジトリだけに設定します。"));
     dialog(uiText("Commit identity", "作成者名・メール"), content, uiText("Save", "保存"), () => run(() => saved("set-author", () => call("set-author", {args: {name: name.input.value, email: email.input.value}}))));
   }
   async function cloneDialog() {

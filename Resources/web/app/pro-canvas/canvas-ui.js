@@ -1,4 +1,5 @@
 import { uiText } from "../i18n.js";
+import { createExplain } from "../explain.js";
 import { insertAtEditorCursor } from "../pro-editor-insert.js";
 import { encodeFigureBlock } from "./figure-codec.js";
 import { planFigureInsert } from "./insert-plan.js";
@@ -272,6 +273,19 @@ export const initProCanvasUi = (deps) => {
         const stage = overlay.querySelector(".pro-canvas-stage");
         const status = overlay.querySelector(".pro-canvas-status");
         const hintbar = overlay.querySelector(".pro-canvas-hintbar");
+        // The current tool's keys and gestures, behind a ▾ rather than always shown.
+        const hintExplain = createExplain("", uiText("Tool tips", "操作のヒント"));
+        hintbar.append(hintExplain.panel, hintExplain.button);
+        const setHint = (text) => {
+            const paragraph = document.createElement("p");
+            paragraph.textContent = text;
+            hintExplain.panel.replaceChildren(paragraph);
+            hintExplain.button.hidden = !text;
+            if (!text) {
+                hintExplain.panel.hidden = true;
+                hintExplain.button.setAttribute("aria-expanded", "false");
+            }
+        };
         const sizeChip = overlay.querySelector(".pro-canvas-size-chip");
         const toolHost = overlay.querySelector(".pro-canvas-tools");
         const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<path d="M2 12C5 3.5 11 3.5 14 12"/><line x1="2" y1="12" x2="6" y2="5"/><circle cx="6" cy="5" r="1.4"/><circle cx="2" cy="12" r="1.2" style="fill:currentColor"/><circle cx="14" cy="12" r="1.2" style="fill:currentColor"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', fill: '<path d="M4 3l7 7-4 4-5-5z"/><path d="M8.5 4.5l2-2"/><path d="M10 12.5c1.5-2 2.5-2 4 0-.4 1.2-1.1 1.8-2 1.8s-1.6-.6-2-1.8z"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>', plot: '<path d="M3 2v11h11"/><path d="M4 12c2.5-7 5 1 9-7"/>' };
@@ -637,9 +651,11 @@ export const initProCanvasUi = (deps) => {
             }
             range.append(rangeTitle, xmin.row, xmax.row, ymin.row, ymax.row, auto);
             (_a = (card.querySelector(".pro-canvas-plot-add") || card.lastElementChild)) === null || _a === void 0 ? void 0 : _a.before(range); // 系列ラッパの外に置く（中だと複数系列で「系列1専用の軸設定」に見え、is-muted も巻き添えになる）
-            const hint = document.createElement("p");
-            hint.textContent = uiText("On the curve: scroll to change the range · drag to pan · use the selection handles to scale", "曲線上: スクロールで範囲変更 / ドラッグで移動 / 選択ハンドルで拡大縮小");
-            card.append(hint);
+            const plotExplain = createExplain(uiText("On the curve: scroll to change the range · drag to pan · use the selection handles to scale", "曲線上: スクロールで範囲変更 / ドラッグで移動 / 選択ハンドルで拡大縮小"), uiText("How to adjust", "操作のヒント"));
+            const plotExplainRow = document.createElement("div");
+            plotExplainRow.className = "pro-canvas-explain-row";
+            plotExplainRow.append(plotExplain.button);
+            card.append(plotExplainRow, plotExplain.panel);
             const segments = (label, value, items, set) => { const row = document.createElement("div"); row.className = "pro-canvas-plot-segment-row"; row.append(document.createTextNode(label)); const group = document.createElement("span"); group.className = "pro-canvas-segments"; items.forEach(([key, text]) => { const b = document.createElement("button"); b.type = "button"; b.textContent = text; b.title = `${label}: ${text}`; b.classList.toggle("is-active", key === value); b.onclick = () => { snapshot(false); set(key); plotCardSignature = ""; debouncePlotCompile(); render(); }; group.append(b); }); row.append(group); card.append(row); };
             segments(uiText("Axis lines", "軸線"), object.axis.axisLines, [["none", uiText("Curve only", "曲線のみ")], ["box", uiText("Border", "枠")], ["middle", uiText("Center", "中央")], ["left", uiText("Bottom left", "左下")]], v => object.axis.axisLines = v);
             segments(uiText("Grid", "グリッド"), object.axis.grid, [["none", uiText("None", "なし")], ["major", uiText("Major", "主")], ["both", uiText("Major+minor", "主+副")]], v => object.axis.grid = v);
@@ -786,6 +802,9 @@ export const initProCanvasUi = (deps) => {
             gridRow.append(gridInput, gridUnit, gridPresets);
             const outputTitle = document.createElement("strong");
             outputTitle.textContent = uiText("Width on the page", "紙面上の幅");
+            const outputExplain = createExplain(uiText("Canvas coordinates control drawing space. Page width can independently use 0.8\\linewidth, \\textwidth, and similar LaTeX-relative widths.", "キャンバス座標は作図空間です。紙面上の幅は 0.8\\linewidth や \\textwidth などで独立して指定できます。"));
+            outputTitle.classList.add("has-explain");
+            outputTitle.append(outputExplain.button);
             const outputRow = document.createElement("div");
             outputRow.className = "pro-canvas-output-width";
             const outputMode = document.createElement("select"), outputValue = document.createElement("input");
@@ -805,9 +824,7 @@ export const initProCanvasUi = (deps) => {
             outputMode.onchange = setOutput;
             outputValue.onchange = setOutput;
             outputRow.append(outputValue, outputMode);
-            const note = document.createElement("p");
-            note.textContent = uiText("Canvas coordinates control drawing space. Page width can independently use 0.8\\linewidth, \\textwidth, and similar LaTeX-relative widths.", "キャンバス座標は作図空間です。紙面上の幅は 0.8\\linewidth や \\textwidth などで独立して指定できます。");
-            pop.append(sizeTitle, dimensions, gridTitle, gridRow, outputTitle, outputRow, note);
+            pop.append(sizeTitle, dimensions, gridTitle, gridRow, outputTitle, outputExplain.panel, outputRow);
             overlay.append(pop);
             canvasPop = pop;
             button.setAttribute("aria-expanded", "true");
@@ -922,17 +939,6 @@ export const initProCanvasUi = (deps) => {
             if (!object && !targets.length) {
                 emptyNote.hidden = false;
                 emptyNote.textContent = selection.ids.size ? uiText(`${selection.ids.size} selected`, `${selection.ids.size} 個を選択中`) : uiText("Select an object", "オブジェクトを選択してください");
-            }
-            else if (!targets.length && (object === null || object === void 0 ? void 0 : object.type) === "plot") {
-                const hint = document.createElement("p");
-                hint.className = "pro-canvas-empty";
-                hint.textContent = uiText("Double-click to edit the graph", "ダブルクリックでグラフを編集");
-                host.append(hint);
-            }
-            else if (!targets.length && (object === null || object === void 0 ? void 0 : object.type) === "code") {
-                const note = document.createElement("div");
-                note.textContent = "Double-click to edit TikZ code";
-                host.append(note);
             }
             else if (targets.length) {
                 const effective = resolveStyle(scene, targets[0].style), apply = (key, value, only = targets) => { snapshot(false); only.forEach(target => target.style.props = { ...(target.style.props || {}), [key]: value }); render(); scheduleCompile(); }, seg = (value, items, set) => { const group = document.createElement("span"); group.className = "pro-canvas-segments"; items.forEach(([key, text, icon]) => { const b = document.createElement("button"); b.type = "button"; b.title = text; b.dataset.noI18n = ""; b.classList.toggle("is-active", key === value); if (icon)
@@ -1520,7 +1526,7 @@ export const initProCanvasUi = (deps) => {
                 plotCardSignature = "";
             }
             const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null, nodeToolHasSelectedLabel = tool === "node" && (one === null || one === void 0 ? void 0 : one.type) === "node";
-            hintbar.textContent = edited ? (plotIsEmpty(edited) ? uiText("Enter an expression to draw it", "式を入力すると描画されます") : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Esc で編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了") : tool !== "select" && !nodeToolHasSelectedLabel ? (_c = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shift で正方形　Alt で吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shift で正円　Alt で吸着オフ"), fill: uiText("Move over an enclosed region to preview · Click to fill · Adjust color or hatch in Style", "囲まれた領域にカーソルを置いて確認　クリックで塗り　色・網掛けはスタイルで調整"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定"), node: uiText("Click to place a math label", "クリックした位置に数式ラベルを置きます"), plot: uiText("Click or drag to place a function curve, then enter y=f(x) and its range", "クリックまたはドラッグで関数曲線を配置し、式 y=f(x) と範囲を指定します"), code: uiText("Click to write TikZ code at that spot", "クリックした位置にTikZコードを直接書けます") }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? uiText("Drag to move · Cmd+G to group · Arrow keys to nudge", "ドラッグ：平行移動　Cmd+G：グループ化　矢印キー：微調整") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Drag to move · Handles resize · Double-click to edit the function and range", "ドラッグ：平行移動　周囲の□：拡大縮小　ダブルクリック：式と範囲を編集") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Drag to move · Double-click to edit the formula", "ドラッグ：平行移動　ダブルクリック：数式編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag to move · End squares resize · Top circle rotates", "線をドラッグ：平行移動　端の□：拡大縮小　上の○：回転") : uiText("Drag to move · Corners resize · Top circle rotates · Double-click edits points", "線をドラッグ：平行移動　四隅：拡大縮小　上の○：回転　ダブルクリック：頂点編集")) : uiText("Drag to move · Handles resize · Top circle rotates · Double-click to edit", "図形をドラッグ：平行移動　周囲の□：拡大縮小　上の○：回転　ダブルクリック：編集");
+            setHint(edited ? (plotIsEmpty(edited) ? uiText("Enter an expression to draw it", "式を入力すると描画されます") : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Esc で編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了") : tool !== "select" && !nodeToolHasSelectedLabel ? (_c = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shift で正方形　Alt で吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shift で正円　Alt で吸着オフ"), fill: uiText("Move over an enclosed region to preview · Click to fill · Adjust color or hatch in Style", "囲まれた領域にカーソルを置いて確認　クリックで塗り　色・網掛けはスタイルで調整"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定"), node: uiText("Click to place a math label", "クリックした位置に数式ラベルを置きます"), plot: uiText("Click or drag to place a function curve, then enter y=f(x) and its range", "クリックまたはドラッグで関数曲線を配置し、式 y=f(x) と範囲を指定します"), code: uiText("Click to write TikZ code at that spot", "クリックした位置にTikZコードを直接書けます") }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? uiText("Drag to move · Cmd+G to group · Arrow keys to nudge", "ドラッグ：平行移動　Cmd+G：グループ化　矢印キー：微調整") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Drag to move · Handles resize · Double-click to edit the function and range", "ドラッグ：平行移動　周囲の□：拡大縮小　ダブルクリック：式と範囲を編集") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Drag to move · Double-click to edit the formula", "ドラッグ：平行移動　ダブルクリック：数式編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag to move · End squares resize · Top circle rotates", "線をドラッグ：平行移動　端の□：拡大縮小　上の○：回転") : uiText("Drag to move · Corners resize · Top circle rotates · Double-click edits points", "線をドラッグ：平行移動　四隅：拡大縮小　上の○：回転　ダブルクリック：頂点編集")) : uiText("Drag to move · Handles resize · Top circle rotates · Double-click to edit", "図形をドラッグ：平行移動　周囲の□：拡大縮小　上の○：回転　ダブルクリック：編集"));
         };
         let drag = null;
         let lastClick = null;

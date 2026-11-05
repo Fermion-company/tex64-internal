@@ -1,6 +1,7 @@
 import { createActionsMenu } from "./actions-menu.js";
 import { getEditorOperationGuard } from "./editor-operation-guard.js";
 import { uiText } from "./i18n.js";
+import { createExplain } from "./explain.js";
 import { collabSession } from "./collab/session.js";
 import { applyCollabGuestLock } from "./collab/guest-lock.js";
 const gitErrors = {
@@ -201,6 +202,23 @@ export function initGitUi(editor, diff) {
         wrapper.append(input);
         return { wrapper, input };
     }
+    // A ▾ after a field's label that opens `text` below the field.
+    function explainField(target, text) {
+        const explain = createExplain(text);
+        const head = el("span", "has-explain");
+        // The ▾ sits inside the label, so the label names its field explicitly,
+        // and a dialog's first field keeps the focus it had before the ▾.
+        target.input.id = `${explain.panel.id}-field`;
+        target.wrapper.htmlFor = target.input.id;
+        target.input.setAttribute("aria-label", target.wrapper.textContent || "");
+        if (!target.wrapper.previousElementSibling)
+            target.input.autofocus = true;
+        if (target.wrapper.firstChild && target.wrapper.firstChild !== target.input)
+            head.append(target.wrapper.firstChild);
+        head.append(explain.button);
+        target.wrapper.prepend(head);
+        target.wrapper.after(explain.panel);
+    }
     function refSelect(prefix, excludeCurrent = false) {
         const select = el("select", "history-name");
         select.setAttribute("aria-label", uiText("Branch or tag", "ブランチ・タグ"));
@@ -259,7 +277,8 @@ export function initGitUi(editor, diff) {
     }
     async function connectDialog() {
         const content = el("div"), url = field(uiText("Repository URL", "リポジトリURL"), "https://github.com/owner/repository");
-        content.append(url.wrapper, el("p", "git-secondary", uiText("Connect this folder. Files stay as they are.", "このフォルダに接続します。ファイルは変更しません。")));
+        content.append(url.wrapper);
+        explainField(url, uiText("Connect this folder. Files stay as they are.", "このフォルダに接続します。ファイルは変更しません。"));
         dialog(uiText("Connect GitHub", "GitHubに接続"), content, uiText("Connect", "接続"), async () => {
             return run(() => saved("connect", () => call("connect", { args: { url: url.input.value, initialize: !(state === null || state === void 0 ? void 0 : state.repository) } })));
         });
@@ -290,7 +309,10 @@ export function initGitUi(editor, diff) {
                 option.value = shelf.id;
                 select.append(option);
             }
-            content.append(select, el("p", "git-secondary", uiText("Return to the original branch and commit before restoring.", "退避したときのブランチとコミットに戻してから復帰できます。")));
+            const explain = createExplain(uiText("Return to the original branch and commit before restoring.", "退避したときのブランチとコミットに戻してから復帰できます。"));
+            const row = el("div", "has-explain");
+            row.append(select, explain.button);
+            content.append(row, explain.panel);
             dialog(uiText("Restore saved changes", "退避した変更を戻す"), content, uiText("Restore", "戻す"), async () => {
                 if (!select.value)
                     return false;
@@ -360,7 +382,8 @@ export function initGitUi(editor, diff) {
     async function authorDialog() {
         const content = el("div"), name = field(uiText("Name", "名前")), email = field(uiText("Email", "メールアドレス"));
         email.input.type = "email";
-        content.append(name.wrapper, email.wrapper, el("p", "git-secondary", uiText("Used only in this repository.", "このリポジトリだけに設定します。")));
+        content.append(name.wrapper, email.wrapper);
+        explainField(name, uiText("Used only in this repository.", "このリポジトリだけに設定します。"));
         dialog(uiText("Commit identity", "作成者名・メール"), content, uiText("Save", "保存"), () => run(() => saved("set-author", () => call("set-author", { args: { name: name.input.value, email: email.input.value } }))));
     }
     async function cloneDialog() {

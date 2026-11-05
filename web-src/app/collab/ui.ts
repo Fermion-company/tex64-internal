@@ -3,6 +3,7 @@
 
 import { uiText } from "../i18n.js";
 import { showEditorNotice } from "../editor-notice.js";
+import { createExplain, explainedHeading } from "../explain.js";
 import { collabSession, type CollabState } from "./session.js";
 
 const MAX_DOTS = 5;
@@ -70,8 +71,8 @@ export const initCollabUi = () => {
     const incoming = state.role === "guest" ? state.incoming : null;
     if (!incoming || incoming.files <= 0) return "";
     return uiText(
-      `Receiving files from the host: ${incoming.files} left (${megabytes(incoming.bytes)}). You can edit meanwhile.`,
-      `ホストからファイルを受け取っています（残り ${incoming.files} 件・${megabytes(incoming.bytes)}）。そのあいだも編集できます。`,
+      `Receiving files from the host: ${incoming.files} left (${megabytes(incoming.bytes)})`,
+      `ホストからファイルを受け取り中（残り ${incoming.files} 件・${megabytes(incoming.bytes)}）`,
     );
   };
   // Every file over the size limit stays listed here: a smaller copy is
@@ -138,7 +139,7 @@ export const initCollabUi = () => {
       nameField.addEventListener("input", () => { defaultName = nameField.value; });
       nameRow.append(nameField);
       const start = button(uiText("Start a session", "セッションを開始"), () => void run(() => collabSession.start(nameField.value.trim())));
-      const hostNote = el("p", "tool-dialog-note", idleRoute === "relay"
+      const startExplain = createExplain(idleRoute === "relay"
         ? uiText(
           "People can join over the internet. Everything is encrypted between the computers; the relay in between cannot read it.",
           "インターネット越しに参加できます。内容は参加者の間で暗号化され、間の中継サーバーには読めません。",
@@ -147,6 +148,8 @@ export const initCollabUi = () => {
           "Starting a session opens a port on this computer; macOS may ask to allow incoming connections. Only people on the same network (LAN / VPN) can join.",
           "セッションを開始するとこの Mac がポートを開きます。macOS が接続の許可を確認することがあります。参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。",
         ));
+      const startRow = el("div", "collab-start-row has-explain");
+      startRow.append(start, startExplain.button);
       const joinSection = el("div", "collab-section collab-join");
       joinSection.append(el("p", "tool-dialog-label", uiText("Join with a link", "招待リンクで参加")));
       const linkField = field("collab-join-input", uiText("Paste an invite link", "招待リンクを貼り付け"));
@@ -158,7 +161,7 @@ export const initCollabUi = () => {
       row.append(linkField, join);
       joinSection.append(row);
       const startSection = el("div", "collab-section collab-start");
-      startSection.append(start, hostNote);
+      startSection.append(startRow, startExplain.panel);
       const syncPrimary = () => {
         const hasLink = linkField.value.trim().length > 0;
         join.classList.toggle("is-primary", hasLink);
@@ -172,7 +175,9 @@ export const initCollabUi = () => {
     } else {
       if (state.inviteLink) {
         const invite = el("div", "collab-section");
-        invite.append(el("p", "tool-dialog-label", uiText("Invite link", "招待リンク")));
+        invite.append(...explainedHeading(el("p", "tool-dialog-label", uiText("Invite link", "招待リンク")), state.route === "relay"
+          ? uiText("Anyone with the link can join from anywhere.", "リンクを知っている人は、どこからでも参加できます。")
+          : uiText("Only people on the same network (LAN / VPN) can join.", "参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。")));
         const linkFor = () => (linkAccess === "view" && state.viewInviteLink ? state.viewInviteLink : state.inviteLink || "");
         const link = field("", uiText("Invite link", "招待リンク"));
         link.readOnly = true;
@@ -206,13 +211,24 @@ export const initCollabUi = () => {
         }
         const row = el("div", "collab-link-row collab-dialog-link");
         row.append(link, copy);
-        invite.append(row, el("p", "tool-dialog-note", state.route === "relay"
-          ? uiText("Anyone with the link can join from anywhere.", "リンクを知っている人は、どこからでも参加できます。")
-          : uiText("Only people on the same network (LAN / VPN) can join.", "参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。")));
+        invite.append(row);
         content.append(invite);
       }
       const people = el("div", "collab-section");
-      people.append(el("p", "tool-dialog-label", `${uiText("Participants", "参加者")} · ${state.participants.length}`));
+      const peopleHeading = el("p", "tool-dialog-label", `${uiText("Participants", "参加者")} · ${state.participants.length}`);
+      // A guest's ▾: where its copy lives, and what viewing allows.
+      const guestExplain: Array<string | Node> = [];
+      if (state.role === "guest" && state.access === "view") {
+        guestExplain.push(uiText("You joined to view: you can read, follow and build, but not edit.", "閲覧のみで参加しています。読む・追う・ビルドはできますが、編集はできません。"));
+      }
+      if (state.role === "guest" && state.rootPath) {
+        const where = el("p", "", "");
+        where.append(`${uiText("Your copy", "写しの場所")}: `, el("code", "", state.rootPath), uiText(". It stays after you leave.", "。退出後も残ります。"));
+        where.dataset.noI18n = "true";
+        guestExplain.push(where);
+      }
+      if (guestExplain.length) people.append(...explainedHeading(peopleHeading, guestExplain));
+      else people.append(peopleHeading);
       const list = el("ul", "collab-people collab-dialog-participants");
       for (const participant of state.participants) {
         const reconnecting = participant.self && state.role === "guest" && state.connected === false;
@@ -234,15 +250,6 @@ export const initCollabUi = () => {
       }
       people.append(list);
       content.append(people);
-      if (state.role === "guest" && state.access === "view") content.append(el("p", "tool-dialog-note", uiText("You joined to view: you can read, follow and build, but not edit.", "閲覧のみで参加しています。読む・追う・ビルドはできますが、編集はできません。")));
-      if (state.role === "guest" && state.rootPath) {
-        const where = el("p", "tool-dialog-note", "");
-        where.append(`${uiText("Your copy", "写し")}: `);
-        where.append(el("code", "", state.rootPath));
-        where.append(` · ${uiText("It stays after you leave.", "退出後も残ります。")}`);
-        where.dataset.noI18n = "true";
-        content.append(where);
-      }
       if (incomingText(state)) content.append(el("p", "tool-dialog-note collab-incoming", incomingText(state)));
       for (const line of limitedText(state)) {
         const note = el("p", "tool-dialog-note collab-limited", line);

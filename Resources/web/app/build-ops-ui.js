@@ -2,6 +2,7 @@ import { uiText } from "./i18n.js";
 import { countMarkedLines, renderBuildLog, segmentBuildLog } from "./build-log-view.js";
 import { hideEditorNotice, showEditorNotice } from "./editor-notice.js";
 import { collabSession } from "./collab/session.js";
+import { explainedHeading } from "./explain.js";
 export const resolveBuildProgressPhase = (message, cancelRequested = false) => {
     if (cancelRequested || /cancel/i.test(message !== null && message !== void 0 ? message : ""))
         return "cancelling";
@@ -524,7 +525,7 @@ export const initBuildOpsUi = (context, deps) => {
             row.addEventListener("click", () => pick(path));
             list.append(row);
         });
-        const hint = el("p", "history-local", requested
+        const titleRow = explainedHeading(title, requested
             ? uiText("Remembered for this file until the app closes. A % !TEX root line in the file settles it for good.", "この起動中はこのファイルについて記憶します。ファイル先頭の % !TEX root 行で固定できます。")
             : uiText("Settings › Main TeX fixes the choice for this folder.", "設定の「メイン TeX」でこのフォルダの既定にできます。"));
         const actions = el("div", "history-confirm-actions");
@@ -532,7 +533,7 @@ export const initBuildOpsUi = (context, deps) => {
         cancel.type = "button";
         cancel.addEventListener("click", () => dialog.close());
         actions.append(cancel);
-        dialog.append(title, note, list, hint, actions);
+        dialog.append(...titleRow, note, list, actions);
         dialog.addEventListener("close", () => {
             dialog.remove();
             if (chooserDialog === dialog)

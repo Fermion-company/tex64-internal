@@ -5,6 +5,7 @@
 // with the unsaved editor buffers sent along.
 var _a;
 import { getUiLocale, uiText } from "./i18n.js";
+import { explainedHeading } from "./explain.js";
 const bridge = (_a = window.tex64WordCount) !== null && _a !== void 0 ? _a : null;
 export const initWordCountUi = (deps) => {
     let dialog = null;
@@ -31,6 +32,7 @@ export const initWordCountUi = (deps) => {
         if (!dialog)
             return;
         const eyebrow = el("p", "tool-dialog-eyebrow", "Word count");
+        let titleExplain = "";
         const title = el("h2", "tool-dialog-title", uiText("Word Count", "文字数"));
         title.id = "word-count-title";
         dialog.setAttribute("aria-labelledby", title.id);
@@ -93,16 +95,20 @@ export const initWordCountUi = (deps) => {
             const scopeNote = scope === "document" && documentCounts && documentCounts.files.length > 1
                 ? uiText(`${documentCounts.mainFile} and the ${documentCounts.files.length - 1} file${documentCounts.files.length === 2 ? "" : "s"} it reads. `, `${documentCounts.mainFile} と読み込み先 ${documentCounts.files.length - 1} ファイル。`)
                 : "";
-            const note = el("p", "tool-dialog-note", `${scopeNote}${uiText("Comments, math and commands are not counted.", "コメント・数式・コマンドは数えません。")}`);
-            note.dataset.noI18n = "true";
-            body.append(note);
+            // Which files were counted is state; what is left out waits behind the title's ▾.
+            if (scopeNote) {
+                const note = el("p", "tool-dialog-note", scopeNote.trim());
+                note.dataset.noI18n = "true";
+                body.append(note);
+            }
+            titleExplain = uiText("Comments, math and commands are not counted.", "コメント・数式・コマンドは数えません。");
         }
         const actions = el("div", "tool-dialog-actions");
         const close = el("button", "tool-button", uiText("Close", "閉じる"));
         close.type = "button";
         close.addEventListener("click", () => dialog === null || dialog === void 0 ? void 0 : dialog.close());
         actions.append(close);
-        dialog.replaceChildren(eyebrow, title, body, actions);
+        dialog.replaceChildren(eyebrow, ...(titleExplain ? explainedHeading(title, titleExplain) : [title]), body, actions);
         close.focus();
     };
     const open = async () => {

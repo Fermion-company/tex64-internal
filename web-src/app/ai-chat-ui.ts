@@ -311,13 +311,14 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       item.setAttribute("aria-selected", isSelected ? "true" : "false");
       if (locked) item.setAttribute("aria-disabled", "true");
       item.dataset.model = model.id;
-      const desc = locked ? aiText("model_requires_pro") : aiText(model.descKey);
+      // Only state under the name (a locked model); no description of the model.
+      const desc = locked ? aiText("model_requires_pro") : "";
       const badge = model.pro ? '<span class="ai-model-badge">Pro</span>' : "";
       item.innerHTML =
         '<svg class="ai-model-menu-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>' +
         '<span class="ai-model-menu-text">' +
         `<span class="ai-model-menu-name">${escapeHtml(model.name)}${badge}</span>` +
-        `<span class="ai-model-menu-desc">${escapeHtml(desc)}</span>` +
+        (desc ? `<span class="ai-model-menu-desc">${escapeHtml(desc)}</span>` : "") +
         "</span>";
       list.appendChild(item);
     }
@@ -738,10 +739,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     const title = document.createElement("span");
     title.className = "ai-empty-title";
     title.textContent = aiText("empty_title");
-    const desc = document.createElement("span");
-    desc.className = "ai-empty-desc";
-    desc.textContent = aiText("empty_desc");
-    head.append(title, desc);
+    head.append(title);
     const list = document.createElement("div");
     list.className = "ai-empty-starts";
     STARTERS.forEach((starter, index) => {
@@ -758,10 +756,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       const rowTitle = document.createElement("span");
       rowTitle.className = "ai-start-title";
       rowTitle.textContent = aiText(`start_${starter.key}_title`);
-      const rowDesc = document.createElement("span");
-      rowDesc.className = "ai-start-desc";
-      rowDesc.textContent = aiText(`start_${starter.key}_desc`);
-      text.append(rowTitle, rowDesc);
+      text.append(rowTitle);
       row.append(icon, text);
       list.appendChild(row);
     });
@@ -783,10 +778,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       const rowTitle = document.createElement("span");
       rowTitle.className = "ai-start-title";
       rowTitle.textContent = aiText("start_review_changes_title");
-      const rowDesc = document.createElement("span");
-      rowDesc.className = "ai-start-desc";
-      rowDesc.textContent = aiText("start_review_changes_desc").replace("{n}", String(documentIndex.git.changed));
-      text.append(rowTitle, rowDesc);
+      text.append(rowTitle);
       row.append(icon, text);
       list.appendChild(row);
     }
@@ -804,10 +796,14 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     const footTitle = document.createElement("span");
     footTitle.className = "ai-start-title";
     footTitle.textContent = aiText("rules_title");
-    const footDesc = document.createElement("span");
-    footDesc.className = "ai-start-desc";
-    footDesc.textContent = documentIndex.rules.exists ? aiText("rules_desc") : `${aiText("rules_desc")} · ${aiText("rules_missing")}`;
-    footText.append(footTitle, footDesc);
+    footText.append(footTitle);
+    // State, not explanation: the rules file does not exist yet.
+    if (!documentIndex.rules.exists) {
+      const footState = document.createElement("span");
+      footState.className = "ai-start-desc";
+      footState.textContent = aiText("rules_missing");
+      footText.append(footState);
+    }
     foot.append(footIcon, footText);
     root.append(head, list, foot);
     return root;
