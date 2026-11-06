@@ -63,7 +63,9 @@ module.exports = (SynctexService) => {
     }
     const now = Date.now();
     this.cleanupForwardHints(now);
-    const maxHintAgeMs = 8000;
+    // A forward Jump's marker stays on paper for ~2.4 s; only a click while
+    // it is visible is a click on that jump's line.
+    const maxHintAgeMs = 2500;
     const maxDx = 180;
     const maxDy = 14;
     const targetPage = Math.floor(page);
@@ -132,7 +134,7 @@ module.exports = (SynctexService) => {
     page,
     x,
     y,
-    maxAgeMs = 4000,
+    maxAgeMs = 2500,
     maxDx = 40,
     maxDy = 40,
   }) {

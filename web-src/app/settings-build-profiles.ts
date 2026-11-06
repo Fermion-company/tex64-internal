@@ -9,7 +9,11 @@ type BuildProfilesUiDeps = {
     payload: { type: string; [key: string]: unknown },
     silent?: boolean
   ) => boolean;
+  // The engine the active profile pins (null: the app-wide setting applies).
+  onActiveEngineChange?: (engine: string | null) => void;
 };
+
+const PROFILE_ENGINES = new Set(["pdflatex", "lualatex", "xelatex", "uplatex"]);
 
 export type BuildProfilesUiApi = {
   render: () => void;
@@ -33,11 +37,14 @@ const normalizeBuildProfiles = (profiles: BuildProfile[]) => {
       typeof profile.outDir === "string" ? profile.outDir.trim() || null : null;
     const extraArgs =
       typeof profile.extraArgs === "string" ? profile.extraArgs.trim() || null : null;
+    const engine =
+      typeof profile.engine === "string" && PROFILE_ENGINES.has(profile.engine.trim()) ? profile.engine.trim() : null;
     cleaned.push({
       id,
       name: name || id,
       outDir,
       extraArgs,
+      engine,
     });
   });
   return cleaned.slice(0, 20);
@@ -52,9 +59,9 @@ export const initBuildProfilesUi = (
     settingsBuildProfileName,
     settingsBuildOutDir,
     settingsBuildExtraArgs,
+    settingsBuildEngine,
     settingsBuildProfileAdd,
     settingsBuildProfileDelete,
-    settingsBuildProfileHint,
     settingsBuildCleanButton,
     settingsBuildCleanAllButton,
   } = context.dom;
@@ -66,29 +73,6 @@ export const initBuildProfilesUi = (
   let lastRenderedSelectedId: string | null = null;
 
   const isWorkspaceReady = () => Boolean(deps.getWorkspaceRootKey());
-
-  const updateHint = () => {
-    if (!(settingsBuildProfileHint instanceof HTMLElement)) {
-      return;
-    }
-    const enabled = isWorkspaceReady();
-    const selectedId =
-      settingsBuildProfileSelect instanceof HTMLSelectElement
-        ? settingsBuildProfileSelect.value
-        : "";
-    const selected =
-      selectedId && selectedId !== ""
-        ? buildProfiles.find((profile) => profile.id === selectedId) ?? null
-        : null;
-    const isCustom = Boolean(selected);
-    settingsBuildProfileHint.textContent = enabled
-      ? isCustom
-        ? hasPendingSave
-          ? "Saving..."
-          : "Changes are saved automatically."
-        : ""
-      : "You can edit the build profile by opening the workspace.";
-  };
 
   const getSelectedBuildProfileId = () => {
     if (!(settingsBuildProfileSelect instanceof HTMLSelectElement)) {
@@ -173,6 +157,13 @@ export const initBuildProfilesUi = (
         shouldForceValues
       );
     }
+    if (settingsBuildEngine instanceof HTMLSelectElement) {
+      settingsBuildEngine.disabled = !allowEdit;
+      if (shouldForceValues || document.activeElement !== settingsBuildEngine) {
+        settingsBuildEngine.value = selected?.engine ?? "";
+      }
+    }
+    deps.onActiveEngineChange?.(enabled && selected?.engine ? selected.engine : null);
     if (settingsBuildProfileAdd instanceof HTMLButtonElement) {
       settingsBuildProfileAdd.disabled = !enabled;
     }
@@ -188,7 +179,6 @@ export const initBuildProfilesUi = (
     if (settingsBuildProfileSelect instanceof HTMLSelectElement) {
       settingsBuildProfileSelect.disabled = !enabled;
     }
-    updateHint();
   };
 
   const loadStateFromDeps = () => {
@@ -232,7 +222,6 @@ export const initBuildProfilesUi = (
       return;
     }
     hasPendingSave = false;
-    updateHint();
   };
 
   const scheduleBuildProfilesSave = () => {
@@ -241,11 +230,9 @@ export const initBuildProfilesUi = (
       saveTimer = null;
     }
     hasPendingSave = true;
-    updateHint();
     saveTimer = window.setTimeout(() => {
       saveTimer = null;
       hasPendingSave = false;
-      updateHint();
       postBuildProfilesUpdate(true);
     }, 320);
   };
@@ -298,10 +285,15 @@ export const initBuildProfilesUi = (
       settingsBuildExtraArgs instanceof HTMLInputElement
         ? settingsBuildExtraArgs.value.trim()
         : "";
+    const engine =
+      settingsBuildEngine instanceof HTMLSelectElement && PROFILE_ENGINES.has(settingsBuildEngine.value)
+        ? settingsBuildEngine.value
+        : null;
     updateSelectedProfile({
       name: name || selectedId,
       outDir: outDir || null,
       extraArgs: extraArgs || null,
+      engine,
     });
     if (settingsBuildProfileSelect instanceof HTMLSelectElement) {
       const option = Array.from(settingsBuildProfileSelect.options).find(
@@ -424,6 +416,13 @@ export const initBuildProfilesUi = (
   if (settingsBuildExtraArgs instanceof HTMLInputElement) {
     settingsBuildExtraArgs.addEventListener("input", () => {
       handleBuildProfileTextChange();
+    });
+  }
+
+  if (settingsBuildEngine instanceof HTMLSelectElement) {
+    settingsBuildEngine.addEventListener("change", () => {
+      handleBuildProfileTextChange();
+      renderFields(false);
     });
   }
 

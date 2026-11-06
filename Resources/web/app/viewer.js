@@ -217,7 +217,12 @@ export const createViewer = (deps) => {
                 return;
             }
             const pdfPath = typeof (detail === null || detail === void 0 ? void 0 : detail.path) === "string" ? detail.path : null;
-            (_a = deps.onPdfReverseRequest) === null || _a === void 0 ? void 0 : _a.call(deps, { page, x, y, pdfPath });
+            const rawContext = detail === null || detail === void 0 ? void 0 : detail.context;
+            const text = (value) => (typeof value === "string" && value.length <= 64 ? value : null);
+            const context = rawContext && text(rawContext.word)
+                ? { word: text(rawContext.word), prev: text(rawContext.prev), next: text(rawContext.next) }
+                : undefined;
+            (_a = deps.onPdfReverseRequest) === null || _a === void 0 ? void 0 : _a.call(deps, { page, x, y, pdfPath, ...(context ? { context } : {}) });
             return;
         }
         if (payload.type === "ask-axiom") {

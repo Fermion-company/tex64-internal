@@ -27,13 +27,9 @@
 
         <div class="onboarding-step" id="onboarding-choice">
           <div class="onboarding-headline">TeX is not installed yet</div>
-          <div class="onboarding-sub" id="onboarding-sub">Start with a lightweight TeX environment. Missing packages are added automatically.</div>
           <div class="env-choice onboarding-choices">
             <button class="env-choice-card is-primary" id="onboarding-choice-light" type="button">
-              <span class="env-choice-badge">Recommended</span>
               <span class="env-choice-title">Quick setup</span>
-              <span class="env-choice-detail">Official TinyTeX-1, managed privately by TeX64. Missing packages are added automatically.</span>
-              <span class="env-choice-size">about 70 MB download · about 300 MB installed · usually 1–3 min</span>
             </button>
           </div>
           <div class="onboarding-note is-hidden" id="onboarding-note"></div>
@@ -51,7 +47,6 @@
             </div>
             <div class="onboarding-gauge-phase" id="onboarding-phase"></div>
           </div>
-          <div class="onboarding-sub">You can leave this running — the editor opens as soon as it finishes.</div>
         </div>
       </div>
     </div>
@@ -227,6 +222,14 @@
             </svg>
             <span class="synctex-button-label">SyncTeX</span>
           </button>
+          <button
+            id="collab-participants"
+            type="button"
+            class="collab-participants"
+            aria-label="Collaboration session"
+            title="Collaboration session"
+            hidden
+          ></button>
           <button
             id="build-button"
             type="button"
@@ -596,14 +599,15 @@
                         </button>
                         <div class="ai-model-menu" id="ai-model-menu" role="listbox" aria-label="Axiom model">
                           <div class="ai-model-menu-list"></div>
-                          <div class="ai-model-upsell">
-                            <div class="ai-model-upsell-row">
-                              <svg class="ai-model-upsell-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
-                              <div class="ai-model-upsell-text">
-                                <span class="ai-model-upsell-title">Available on the Pro plan</span>
-                              </div>
+                          <div class="ai-model-upsell" role="group" aria-labelledby="ai-model-upsell-heading">
+                            <div class="ai-model-upsell-card">
+                              <button class="ai-model-upsell-close" type="button" aria-label="Close">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                              </button>
+                              <div class="ai-model-upsell-heading" id="ai-model-upsell-heading" data-no-i18n>Axiom 1.0 Pro</div>
+                              <div class="ai-model-upsell-title">Available on the Pro plan</div>
+                              <button class="ai-model-upsell-btn" type="button">See Pro plans</button>
                             </div>
-                            <button class="ai-model-upsell-btn" type="button">See Pro plans</button>
                           </div>
                         </div>
                       </div>
@@ -632,7 +636,6 @@
                 <div class="settings-item">
                   <div class="settings-label">
                     <span class="settings-title">Main TeX</span>
-                    <span class="settings-desc">This is the main file to be built.</span>
                   </div>
                   <div class="settings-control">
                     <select class="settings-select" id="settings-root-select"></select>
@@ -644,7 +647,6 @@
                 <div class="settings-item">
                   <div class="settings-label">
                     <span class="settings-title">Workspace</span>
-                    <span class="settings-desc">This is the currently open folder.</span>
                   </div>
                   <div class="settings-path" id="settings-workspace">Not selected</div>
                 </div>
@@ -757,6 +759,9 @@
                     </span>
                   </span>
                 </button>
+                <button class="settings-nav-item" data-settings-target="zotero" type="button">
+                  <span class="settings-nav-title">Zotero</span>
+                </button>
                 <button class="settings-nav-item" data-settings-target="info" type="button">
                   <span class="settings-nav-title">Info</span>
                 </button>
@@ -818,7 +823,6 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Wrap Lines</span>
-                        <span class="settings-desc">If ON, wrap long lines at the editor width.</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-word-wrap">
@@ -830,7 +834,6 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Typewriter Scrolling</span>
-                        <span class="settings-desc">Keep the cursor near the center while writing.</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-typewriter-scroll">
@@ -842,7 +845,6 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Font Family</span>
-                        <span class="settings-desc">Editor font. Defaults to the system monospace stack.</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="editor-font-family">
@@ -863,7 +865,6 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Font Size</span>
-                        <span class="settings-desc">Editor font size in points (8–40).</span>
                       </div>
                       <div class="settings-control">
                         <input class="settings-select" id="editor-font-size" type="number" min="8" max="40" step="1">
@@ -881,7 +882,6 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Auto-Format on Save</span>
-                        <span class="settings-description">Auto-format with latexindent on save</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-format-enabled">
@@ -971,9 +971,6 @@
                     </div>
                     <div class="settings-subsection">
                       <div class="settings-subsection-title">Verbatim Environment</div>
-                      <div class="settings-subsection-desc">
-                        You can add an environment to skip formatting.
-                      </div>
                     </div>
                     <div class="settings-inline">
                       <input
@@ -986,9 +983,7 @@
                         Add
                       </button>
                     </div>
-                    <div class="env-registry-hint is-hidden" id="editor-format-verbatim-hint">
-                      Environment name only (`*` not required)
-                    </div>
+                    <div class="env-registry-hint is-hidden" id="editor-format-verbatim-hint"></div>
                     <div class="env-registry-list" id="editor-format-verbatim-list"></div>
                   </div>
                   <div class="settings-group">
@@ -1009,9 +1004,7 @@
                           Add
                         </button>
                       </div>
-                      <div class="env-registry-hint is-hidden" id="env-registry-hint">
-                        Environment name only (`*` not required)
-                      </div>
+                      <div class="env-registry-hint is-hidden" id="env-registry-hint"></div>
                       <div class="env-registry-lists">
                         <div class="env-registry-section">
                           <div class="env-registry-title">Mathematical Formula</div>
@@ -1035,7 +1028,6 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Compilation Engine</span>
-                        <span class="settings-desc">Select the engine to use for your build.</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="settings-compile-engine">
@@ -1047,15 +1039,11 @@
                       </div>
                     </div>
                   </div>
-                  <div class="settings-help-text">
-                    Builds are manual in this version: click the toolbar Build button to compile and refresh the PDF. Live auto-build is not available; Cmd+B inserts \textbf{}.
-                  </div>
                   <div class="settings-group">
                     <div class="settings-group-title">Preview</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Real-time Preview (Beta)</span>
-                        <span class="settings-desc">Typeset as you write: the PDF viewer follows every edit in real time. Requires LuaLaTeX.</span>
+                        <span class="settings-title">Real-time Preview</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-realtime-preview">
@@ -1070,7 +1058,6 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">SyncTeX at Build Time</span>
-                        <span class="settings-desc">Automatically jumps to PDF when build is successful.</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-auto-synctex-build">
@@ -1082,7 +1069,6 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Reverse SyncTeX (PDF → source)</span>
-                        <span class="settings-desc">Jump to the Ctrl/Cmd+Click position on the PDF.</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-reverse-synctex">
@@ -1097,7 +1083,6 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Build Profile</span>
-                        <span class="settings-desc">Switch latexmk's output destination and additional options to suit your project style.</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="settings-build-profile"></select>
@@ -1114,7 +1099,6 @@
                     <div class="settings-item is-stacked">
                       <div class="settings-label">
                         <span class="settings-title">outDir</span>
-                        <span class="settings-desc">Destination for output of products (default if empty). Example: build</span>
                       </div>
                       <div class="settings-control">
                         <input class="settings-input" id="settings-build-outdir" type="text" placeholder="build">
@@ -1122,8 +1106,21 @@
                     </div>
                     <div class="settings-item is-stacked">
                       <div class="settings-label">
+                        <span class="settings-title">Engine</span>
+                      </div>
+                      <div class="settings-control">
+                        <select class="settings-select" id="settings-build-engine">
+                          <option value="">Default</option>
+                          <option value="lualatex">LuaLaTeX</option>
+                          <option value="pdflatex">pdfLaTeX</option>
+                          <option value="xelatex">XeLaTeX</option>
+                          <option value="uplatex">upLaTeX</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="settings-item is-stacked">
+                      <div class="settings-label">
                         <span class="settings-title">latexmk Additional Options</span>
-                        <span class="settings-desc">Example: -use-biber -shell-escape</span>
                       </div>
                       <div class="settings-control">
                         <input class="settings-input" id="settings-build-extra-args" type="text" placeholder="-use-biber -shell-escape">
@@ -1136,8 +1133,6 @@
                       <button class="panel-button ghost" id="settings-build-profile-delete" type="button">
                         Delete
                       </button>
-                    </div>
-                    <div class="settings-help-text" id="settings-build-profile-hint">
                     </div>
                   </div>
                   <div class="settings-group">
@@ -1158,16 +1153,12 @@
                       <span class="env-hero-icon" aria-hidden="true"></span>
                       <div class="env-hero-text">
                         <div class="env-hero-title" id="settings-runtime-setup-status">Checking your TeX environment…</div>
-                        <div class="env-hero-sub" id="env-hero-sub">This only takes a moment.</div>
                       </div>
                     </div>
                     <div class="env-detail is-hidden" id="env-detail" aria-hidden="true"></div>
                     <div class="env-choice is-hidden" id="env-choice" aria-hidden="true">
                       <button class="env-choice-card is-primary" id="env-choice-light" type="button">
-                        <span class="env-choice-badge">Recommended</span>
                         <span class="env-choice-title">Quick setup</span>
-                        <span class="env-choice-detail">Official TinyTeX-1, managed privately by TeX64. Missing packages are added automatically.</span>
-                        <span class="env-choice-size">about 70 MB download · about 300 MB installed · usually 1–3 min</span>
                       </button>
                     </div>
                     <div class="env-progress is-hidden" id="env-progress" aria-hidden="true">
@@ -1180,10 +1171,6 @@
                       Set Up TeX Environment
                     </button>
                     <div class="settings-help-text env-install-note is-hidden" id="settings-runtime-install-status" aria-hidden="true"></div>
-                    <p class="env-explainer">
-                      TeX64 installs its own private TeX Live for you — no manual setup, no admin rights, and it never touches any TeX you already have.
-                      <button class="env-link" id="settings-runtime-open-tex-docs" type="button">Learn More</button>
-                    </p>
                   </div>
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="account" aria-hidden="true">
@@ -1222,7 +1209,6 @@
                         <span class="settings-usage-used" id="settings-usage-used"></span>
                         <span class="settings-usage-pct" id="settings-usage-pct"></span>
                       </div>
-                      <div class="settings-help-text" id="settings-usage-note"></div>
                     </div>
                     <div class="settings-inline settings-inline-wrap">
                       <button class="panel-button" id="settings-plan-open" type="button">
@@ -1249,7 +1235,7 @@
                       </div>
                     </div>
                     <div class="settings-help-text" id="settings-update-status">
-                      Waiting for update check.
+                      
                     </div>
                     <div class="settings-update-progress is-hidden" id="settings-update-progress" aria-hidden="true">
                       <div class="settings-update-progress-fill" id="settings-update-progress-fill"></div>
@@ -1301,6 +1287,34 @@
                       </button>
                     </div>
                     <div class="settings-help-text is-hidden" id="settings-feedback-status"></div>
+                  </div>
+                </div>
+                <div class="settings-page is-hidden" data-settings-page="zotero" aria-hidden="true">
+                  <div class="settings-page-header">
+                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
+                    <div class="settings-page-title">Zotero</div>
+                  </div>
+                  <div class="settings-group">
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">API key</span>
+                      </div>
+                      <div class="settings-control">
+                        <input class="settings-input" id="settings-zotero-api-key" type="password" autocomplete="off" spellcheck="false">
+                      </div>
+                    </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Library</span>
+                      </div>
+                      <div class="settings-control">
+                        <select class="settings-select" id="settings-zotero-library"></select>
+                      </div>
+                    </div>
+                    <div class="settings-help-text" id="settings-zotero-status" role="status"></div>
+                    <p class="env-explainer">
+                      <button class="env-link" id="settings-zotero-open-keys" type="button"></button>
+                    </p>
                   </div>
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="info" aria-hidden="true">
@@ -1535,7 +1549,6 @@
           aria-labelledby="feedback-modal-title"
         >
           <h1 class="feedback-overlay-title" id="feedback-modal-title">Help shape TeX64</h1>
-          <p class="feedback-overlay-lead">TeX64 is still being built, and your perspective makes it better. Noticed something — however small? A clunky interaction, a confusing label, a typo, a feature you wish existed, or just a passing idea: we want to hear all of it. Nothing is too trivial. Every note genuinely shapes where TeX64 goes next.</p>
           <textarea
             class="feedback-overlay-textarea"
             id="feedback-modal-message"
@@ -1670,7 +1683,6 @@
                 data-block-settings-target="insert-format"
               >
                 <span class="block-settings-item-title">Insertion format</span>
-                <span class="block-settings-item-desc">How to enclose inline/separate line</span>
               </button>
             </div>
             <div class="block-settings-page" data-block-settings-page="insert-format">
@@ -1806,9 +1818,6 @@
               <li>Find TeX64 in the app list and turn on the switch.</li>
               <li>Restart TeX64 and try again.</li>
             </ol>
-            <p class="capture-permission-note">
-              You may need to restart the app after granting permission.
-            </p>
           </div>
           <div class="capture-permission-footer">
             <button class="panel-button primary" id="capture-permission-open" type="button">
@@ -1837,16 +1846,8 @@
         aria-labelledby="announcement-modal-title"
       >
         <div class="announcement-heading">
-          <div class="announcement-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3z"></path>
-              <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"></path>
-            </svg>
-          </div>
-          <div class="announcement-heading-copy">
-            <div class="announcement-eyebrow" id="announcement-modal-eyebrow"></div>
-            <div class="modal-title announcement-title" id="announcement-modal-title"></div>
-          </div>
+          <div class="announcement-eyebrow" id="announcement-modal-eyebrow"></div>
+          <div class="modal-title announcement-title" id="announcement-modal-title"></div>
         </div>
         <div class="modal-body">
           <div class="modal-help announcement-body" id="announcement-modal-body"></div>
@@ -1861,6 +1862,9 @@
           </div>
         </div>
         <div class="modal-actions">
+          <button class="panel-button ghost" id="announcement-modal-close" type="button">
+            Close
+          </button>
           <button
             class="panel-button ghost is-hidden"
             id="announcement-modal-link"
@@ -1875,9 +1879,12 @@
           >
             Send
           </button>
-          <button class="panel-button ghost" id="announcement-modal-close" type="button">
-            Close
-          </button>
+          <button
+            class="panel-button is-hidden"
+            id="announcement-modal-primary"
+            type="button"
+            aria-hidden="true"
+          ></button>
         </div>
       </div>
     </div>
@@ -1890,6 +1897,7 @@
          `define` when present, which would skip the window globals we rely on. -->
     <script src="./vendor/xterm.js"></script>
     <script src="./vendor/xterm-addon-fit.js"></script>
+    <script src="./vendor/collab.js"></script>
     <script src="./monaco/vs/loader.js"></script>
     <script type="module" src="./main.js"></script>
   </body>

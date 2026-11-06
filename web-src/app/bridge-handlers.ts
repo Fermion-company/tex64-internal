@@ -133,6 +133,7 @@ type BridgeHandlersDeps = {
     }) => void;
     setBuildState: (state: BuildState, message?: string) => void;
     setBuildTarget?: (path: string) => void;
+    chooseBuildTarget?: (payload: { requested: string | null; candidates: string[] }) => void;
     handleFormatResult: (payload: {
       path: string;
       ok: boolean;
@@ -572,6 +573,9 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         break;
       case "buildLog":
         deps.build.handleBuildLog((message.payload as { log?: string | null })?.log ?? null);
+        break;
+      case "build:chooseTarget":
+        deps.build.chooseBuildTarget?.(message.payload as { requested: string | null; candidates: string[] });
         break;
       case "synctex:forwardResult":
         deps.build.handleSynctexForwardResult(message.payload as any);

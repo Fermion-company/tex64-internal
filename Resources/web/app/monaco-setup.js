@@ -1,4 +1,6 @@
 import { attachSnippetEditor } from "./snippets-ui.js";
+import { attachZoteroEditor } from "./zotero-ui.js";
+import { attachArxivSearch } from "./arxiv-search-ui.js";
 import { uiText } from "./i18n.js";
 import { aiText } from "./ai-i18n.js";
 import { registerHoverProvider, } from "./monaco-hover.js";
@@ -73,7 +75,7 @@ export const initMonacoSetup = (context, deps) => {
     }
     monacoWindow.require.config({ paths: { vs: requireBase } });
     monacoWindow.require(["vs/editor/editor.main"], () => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e;
         if (!monacoWindow.monaco || !monacoWindow.monaco.editor) {
             deps.updateFallback(uiText("Monaco initialization failed.", "Monacoの初期化に失敗しました。"));
             return;
@@ -99,7 +101,9 @@ export const initMonacoSetup = (context, deps) => {
         spellChecker === null || spellChecker === void 0 ? void 0 : spellChecker.start();
         const codeCommentManager = createCodeCommentManager(monacoWindow.monaco, {
             getWorkspaceRoot: deps.getWorkspaceRoot,
+            collab: (_a = deps.collab) === null || _a === void 0 ? void 0 : _a.comments,
         });
+        window.__tex64CodeComments = codeCommentManager;
         const themeName = applyMonacoTheme(monacoWindow.monaco, getCurrentAppearanceTheme());
         onAppearanceThemeChange((theme) => {
             if (monacoWindow.monaco) {
@@ -115,8 +119,8 @@ export const initMonacoSetup = (context, deps) => {
         // again whenever any later font load finishes (a font-family change
         // in settings, a lazily-loaded face).
         const remeasureFonts = () => { var _a, _b, _c; return (_c = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.remeasureFonts) === null || _c === void 0 ? void 0 : _c.call(_b); };
-        (_b = (_a = document.fonts) === null || _a === void 0 ? void 0 : _a.ready) === null || _b === void 0 ? void 0 : _b.then(() => remeasureFonts()).catch(() => { });
-        (_d = (_c = document.fonts) === null || _c === void 0 ? void 0 : _c.addEventListener) === null || _d === void 0 ? void 0 : _d.call(_c, "loadingdone", () => remeasureFonts());
+        (_c = (_b = document.fonts) === null || _b === void 0 ? void 0 : _b.ready) === null || _c === void 0 ? void 0 : _c.then(() => remeasureFonts()).catch(() => { });
+        (_e = (_d = document.fonts) === null || _d === void 0 ? void 0 : _d.addEventListener) === null || _e === void 0 ? void 0 : _e.call(_d, "loadingdone", () => remeasureFonts());
         const editorOptions = {
             value: "",
             language: "latex",
@@ -151,7 +155,7 @@ export const initMonacoSetup = (context, deps) => {
             selectionHighlight: false,
         };
         const createEditorForGroup = (group, host) => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4;
             const editor = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.create(host, editorOptions);
             const editorAny = editor;
             group.editor = editor;
@@ -242,6 +246,7 @@ export const initMonacoSetup = (context, deps) => {
                 scheduleHoverFixedAnchor();
             });
             editor.onDidChangeModelContent((e) => {
+                var _a;
                 if (group.isApplyingFile)
                     return;
                 if (e.isFlush)
@@ -256,8 +261,10 @@ export const initMonacoSetup = (context, deps) => {
                     deps.editorSession.updateBreadcrumbs();
                     deps.fileTree.render();
                     // Undo and redo change the file too. Autosave never reformats,
-                    // so saving them leaves the undo stack alone.
-                    deps.editorSession.scheduleAutoSave();
+                    // so saving them leaves the undo stack alone. A file shared in a
+                    // collaboration session is written by the session layer instead.
+                    if (!((_a = deps.collab) === null || _a === void 0 ? void 0 : _a.isBound(group.currentFilePath)))
+                        deps.editorSession.scheduleAutoSave();
                 }
             });
             (_g = editor.onDidChangeCursorPosition) === null || _g === void 0 ? void 0 : _g.call(editor, (e) => {
@@ -279,9 +286,13 @@ export const initMonacoSetup = (context, deps) => {
                 }
             });
             attachSnippetEditor(editor, monacoWindow.monaco);
+            attachZoteroEditor(editor, () => group.currentFilePath);
+            attachArxivSearch(editor, group);
             // Selection → Axiom: the context-menu entry (⌘K) and a small button
             // that floats at the end of a selection in a .tex file. Both open the
             // chat with the selection as its context.
+            let askButton = null;
+            let voicePillShown = false;
             if (deps.openAiWithSelection) {
                 const KeyMod = (_j = monacoWindow.monaco) === null || _j === void 0 ? void 0 : _j.KeyMod;
                 const KeyCode = (_k = monacoWindow.monaco) === null || _k === void 0 ? void 0 : _k.KeyCode;
@@ -337,7 +348,7 @@ export const initMonacoSetup = (context, deps) => {
                     const isTex = Boolean(group.currentFilePath && group.currentFilePath.endsWith(".tex"));
                     const empty = !selection || (typeof selection.isEmpty === "function" ? selection.isEmpty() : true);
                     const snippetActive = (_f = (_e = (_d = (_c = editor).getContribution) === null || _d === void 0 ? void 0 : _d.call(_c, "snippetController2")) === null || _e === void 0 ? void 0 : _e.isInSnippet) === null || _f === void 0 ? void 0 : _f.call(_e);
-                    if (!isTex || empty || snippetActive) {
+                    if (!isTex || empty || snippetActive || voicePillShown) {
                         hideAsk();
                         return;
                     }
@@ -354,8 +365,24 @@ export const initMonacoSetup = (context, deps) => {
                 (_q = editor.onDidChangeCursorSelection) === null || _q === void 0 ? void 0 : _q.call(editor, () => queueMicrotask(syncAsk));
                 (_r = editor.onDidChangeModelContent) === null || _r === void 0 ? void 0 : _r.call(editor, () => hideAsk());
                 (_t = (_s = editor).onDidChangeModel) === null || _t === void 0 ? void 0 : _t.call(_s, () => hideAsk());
+                askButton = { hide: hideAsk, sync: syncAsk };
             }
-            (_v = (_u = editor).addAction) === null || _v === void 0 ? void 0 : _v.call(_u, {
+            // Voice edit (⌥⌘V): speak the instruction; it goes to Axiom with the
+            // selection as context. Its pill stands where the Ask button was.
+            (_u = deps.voiceEdit) === null || _u === void 0 ? void 0 : _u.attachEditor(monacoWindow.monaco, editor, {
+                getFilePath: () => group.currentFilePath,
+                isDirty: () => Boolean(group.isDirty),
+                onPillChange: (state) => {
+                    voicePillShown = state === "shown";
+                    // After a send the button stays away until the selection changes:
+                    // the request is already out, and Axiom may be moving these lines.
+                    if (state === "shown")
+                        askButton === null || askButton === void 0 ? void 0 : askButton.hide();
+                    else if (state === "hidden")
+                        askButton === null || askButton === void 0 ? void 0 : askButton.sync();
+                },
+            });
+            (_w = (_v = editor).addAction) === null || _w === void 0 ? void 0 : _w.call(_v, {
                 id: "tex64.pro-canvas-edit",
                 label: uiText("Edit figure in canvas", "図をキャンバスで編集"),
                 contextMenuGroupId: "9_ai",
@@ -378,11 +405,33 @@ export const initMonacoSetup = (context, deps) => {
             });
             // 図ブロックのメタデータ行は長いので、エディタ上では短いチップに畳む。
             installFigureMetaChips(editor);
+            // Shared documents undo only this user's edits (Y.UndoManager); the
+            // precondition keeps Monaco's own undo for everything else.
+            if (deps.collab) {
+                const KeyMod = (_x = monacoWindow.monaco) === null || _x === void 0 ? void 0 : _x.KeyMod;
+                const KeyCode = (_y = monacoWindow.monaco) === null || _y === void 0 ? void 0 : _y.KeyCode;
+                const collab = deps.collab;
+                (_0 = (_z = editor).addAction) === null || _0 === void 0 ? void 0 : _0.call(_z, {
+                    id: "tex64.collab.undo",
+                    label: uiText("Undo", "取り消す"),
+                    keybindings: KeyMod && KeyCode ? [KeyMod.CtrlCmd | KeyCode.KeyZ] : undefined,
+                    precondition: "tex64CollabBound && !editorReadonly",
+                    run: () => { collab.undo(editor); },
+                });
+                (_2 = (_1 = editor).addAction) === null || _2 === void 0 ? void 0 : _2.call(_1, {
+                    id: "tex64.collab.redo",
+                    label: uiText("Redo", "やり直す"),
+                    keybindings: KeyMod && KeyCode ? [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyZ, KeyMod.CtrlCmd | KeyCode.KeyY] : undefined,
+                    precondition: "tex64CollabBound && !editorReadonly",
+                    run: () => { collab.redo(editor); },
+                });
+            }
+            window.dispatchEvent(new CustomEvent("tex64:editor-created", { detail: { group: group.key } }));
             // Spell: "Add to dictionary" for the word under the cursor (context menu
             // / command palette). Done as an editor action because this Monaco build
             // has no editor.registerCommand for code-action commands.
             if (spellChecker) {
-                (_x = (_w = editor).addAction) === null || _x === void 0 ? void 0 : _x.call(_w, {
+                (_4 = (_3 = editor).addAction) === null || _4 === void 0 ? void 0 : _4.call(_3, {
                     id: "tex64.spell.addWordToDictionary",
                     label: uiText("Add word to dictionary", "単語を辞書に追加"),
                     contextMenuGroupId: "9_spell",

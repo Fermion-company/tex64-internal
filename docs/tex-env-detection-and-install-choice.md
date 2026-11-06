@@ -2,8 +2,20 @@
 
 ## 方針
 
-TeX 未導入ユーザーには、公式 TinyTeX-1 配布物を TeX64 の managed root
-（macOS: `/Users/Shared/TeX64/texlive/<year>`、Windows: `%LOCALAPPDATA%\\TeX64\\texlive\\<year>`）へ展開する。実際の導入先は `electron/services/texlive-paths.cjs` に従う。
+TeX 未導入ユーザーには、公式 TinyTeX-1 配布物を TeX64 の managed root へ展開する。
+managed root は `<base>/<TeX Live の年>` で、base は次のとおり。実際の導入先は
+`electron/services/texlive-paths.cjs` に従う。Scoring64 も同じ規則・同じ印
+（`backend/scoring64/texenv.py`）で、両方のアプリが 1 つの TeX を共用する。
+
+- macOS: `/Users/Shared/TeX64/texlive`
+- Windows: `%LOCALAPPDATA%\\TeX64\\texlive`。ただしこのパスに空白か ASCII 以外の文字
+  （日本語のユーザー名など）が含まれるときは `%ProgramData%\\TeX64\\texlive`。TeX Live は
+  そうしたパスで動かないことがあるため（TinyTeX のインストーラーと同じ規則）。もう一方の
+  base も探すので、以前に入れた tree はそのまま見つかる。
+
+年の違う tree が複数あるときは、いちばん新しい年を使う。install-tl で入れている途中の
+tree には `<base>/.installing-<年>` があり、終わるまで使わない。途中で止まった tree は
+次の導入で作り直す。
 
 軽量環境にない `.sty` / `.cls` 等がビルドログに現れた場合、managed `tlmgr` で
 ファイルを提供するパッケージを検索・導入し、同じ文書を自動で再ビルドする。
@@ -50,3 +62,18 @@ managed root の `tex64-install.json` には `variant: "light"` を記録する�
 
 パスを含む検索語、許可していない拡張子、不正なパッケージ名は拒否する。検索・導入に
 失敗した場合は元のビルドエラーをそのまま表示する。
+
+## 新しい年版への入れ直し
+
+TeX Live は毎年春に新しい年版になる。その後、前の年の tree の tlmgr は新しい
+リポジトリから部品を入れられない（cross release）。軽量版はここで自動補完が止まる。
+
+- 設定 > 環境を開いたとき、リポジトリの `tlpkg/texlive.tlpdb` の先頭 4 KB を読み、
+  `depend release/<年>` から今の年版を知る（12 時間に 1 回まで、ネットワークがなければ
+  何もしない）。managed tree の年より新しければ `renew: {from, to}` を報告に載せる。
+- 自動補完で tlmgr が cross release で失敗したときも、同じ確認をすぐにし直す。
+- 画面は「TeX Live <年> に入れ直す」を出す。軽量版は強く勧め、フルは任意とする。
+- 入れ直しは、同じ種類（軽量なら TinyTeX-1、フルなら install-tl）の tree を新しい年の
+  フォルダに入れ、印を書き、使えることを確かめてから、前の年の managed tree を消す。
+  消すのは印か TinyTeX の `.tinytex` がある tree だけで、system TeX には触れない。
+- リポジトリがまだ同じ年なら、ダウンロードせずに「新しい年版はまだ出ていません」で終える。

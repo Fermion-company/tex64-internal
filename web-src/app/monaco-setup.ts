@@ -1,4 +1,6 @@
 import { attachSnippetEditor } from "./snippets-ui.js";
+import { attachZoteroEditor } from "./zotero-ui.js";
+import { attachArxivSearch } from "./arxiv-search-ui.js";
 import type { AppContext } from "./context.js";
 import { uiText } from "./i18n.js";
 import { aiText } from "./ai-i18n.js";
@@ -20,6 +22,7 @@ import type { SpellBridge } from "./types.js";
 import { decodeFigureBlockAt } from "./pro-canvas/figure-codec.js";
 import { installFigureMetaChips } from "./pro-canvas/figure-meta-chip.js";
 import { attachSelectionDragAutoScroll } from "./editor-selection-autoscroll.js";
+import type { VoiceEditController } from "./voice-edit.js";
 
 type FileExcerptResult =
   | { ok: true; path: string; startLine: number; lines: string[]; truncated?: boolean }
@@ -51,7 +54,20 @@ type MonacoSetupDeps = {
   onCursorPositionChange: (position: { lineNumber: number; column: number }) => void;
   onCursorSelectionChange?: (position: { lineNumber: number; column: number }) => void;
   openAiWithSelection?: () => void;
+  /** Voice edit: the editor command that records an instruction for Axiom. */
+  voiceEdit?: VoiceEditController;
   getEditorWordWrapEnabled: () => boolean;
+  collab?: {
+    isBound: (path: string | null | undefined) => boolean;
+    undo: (editor: unknown) => boolean;
+    redo: (editor: unknown) => boolean;
+    comments: {
+      sessionDoc: () => any | null;
+      sessionText: (path: string) => any | null;
+      getVendor: () => { Y: any } | null;
+      onSessionDoc: (listener: (doc: any | null) => void) => () => void;
+    };
+  };
 };
 
 export type MonacoSetupApi = {
@@ -206,7 +222,9 @@ export const initMonacoSetup = (
       spellChecker?.start();
       const codeCommentManager = createCodeCommentManager(monacoWindow.monaco, {
         getWorkspaceRoot: deps.getWorkspaceRoot,
+        collab: deps.collab?.comments,
       });
+      (window as unknown as { __tex64CodeComments?: unknown }).__tex64CodeComments = codeCommentManager;
       const themeName = applyMonacoTheme(monacoWindow.monaco, getCurrentAppearanceTheme());
       onAppearanceThemeChange((theme) => {
         if (monacoWindow.monaco) {
@@ -426,8 +444,9 @@ export const initMonacoSetup = (
             deps.editorSession.updateBreadcrumbs();
             deps.fileTree.render();
             // Undo and redo change the file too. Autosave never reformats,
-            // so saving them leaves the undo stack alone.
-            deps.editorSession.scheduleAutoSave();
+            // so saving them leaves the undo stack alone. A file shared in a
+            // collaboration session is written by the session layer instead.
+            if (!deps.collab?.isBound(group.currentFilePath)) deps.editorSession.scheduleAutoSave();
           }
         });
         editor.onDidChangeCursorPosition?.(
@@ -457,10 +476,14 @@ export const initMonacoSetup = (
         );
 
         attachSnippetEditor(editor, monacoWindow.monaco);
+        attachZoteroEditor(editor, () => group.currentFilePath);
+        attachArxivSearch(editor, group);
 
         // Selection → Axiom: the context-menu entry (⌘K) and a small button
         // that floats at the end of a selection in a .tex file. Both open the
         // chat with the selection as its context.
+        let askButton: { hide: () => void; sync: () => void } | null = null;
+        let voicePillShown = false;
         if (deps.openAiWithSelection) {
           const KeyMod = (monacoWindow.monaco as any)?.KeyMod;
           const KeyCode = (monacoWindow.monaco as any)?.KeyCode;
@@ -515,7 +538,7 @@ export const initMonacoSetup = (
             const isTex = Boolean(group.currentFilePath && group.currentFilePath.endsWith(".tex"));
             const empty = !selection || (typeof selection.isEmpty === "function" ? selection.isEmpty() : true);
             const snippetActive = (editor as any).getContribution?.("snippetController2")?.isInSnippet?.();
-            if (!isTex || empty || snippetActive) {
+            if (!isTex || empty || snippetActive || voicePillShown) {
               hideAsk();
               return;
             }
@@ -531,7 +554,22 @@ export const initMonacoSetup = (
           editor.onDidChangeCursorSelection?.(() => queueMicrotask(syncAsk));
           editor.onDidChangeModelContent?.(() => hideAsk());
           (editor as any).onDidChangeModel?.(() => hideAsk());
+          askButton = { hide: hideAsk, sync: syncAsk };
         }
+
+        // Voice edit (⌥⌘V): speak the instruction; it goes to Axiom with the
+        // selection as context. Its pill stands where the Ask button was.
+        deps.voiceEdit?.attachEditor(monacoWindow.monaco, editor, {
+          getFilePath: () => group.currentFilePath,
+          isDirty: () => Boolean(group.isDirty),
+          onPillChange: (state) => {
+            voicePillShown = state === "shown";
+            // After a send the button stays away until the selection changes:
+            // the request is already out, and Axiom may be moving these lines.
+            if (state === "shown") askButton?.hide();
+            else if (state === "hidden") askButton?.sync();
+          },
+        });
 
         (editor as any).addAction?.({
           id: "tex64.pro-canvas-edit",
@@ -555,6 +593,29 @@ export const initMonacoSetup = (
 
         // 図ブロックのメタデータ行は長いので、エディタ上では短いチップに畳む。
         installFigureMetaChips(editor as any);
+
+        // Shared documents undo only this user's edits (Y.UndoManager); the
+        // precondition keeps Monaco's own undo for everything else.
+        if (deps.collab) {
+          const KeyMod = (monacoWindow.monaco as any)?.KeyMod;
+          const KeyCode = (monacoWindow.monaco as any)?.KeyCode;
+          const collab = deps.collab;
+          (editor as any).addAction?.({
+            id: "tex64.collab.undo",
+            label: uiText("Undo", "取り消す"),
+            keybindings: KeyMod && KeyCode ? [KeyMod.CtrlCmd | KeyCode.KeyZ] : undefined,
+            precondition: "tex64CollabBound && !editorReadonly",
+            run: () => { collab.undo(editor); },
+          });
+          (editor as any).addAction?.({
+            id: "tex64.collab.redo",
+            label: uiText("Redo", "やり直す"),
+            keybindings: KeyMod && KeyCode ? [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyZ, KeyMod.CtrlCmd | KeyCode.KeyY] : undefined,
+            precondition: "tex64CollabBound && !editorReadonly",
+            run: () => { collab.redo(editor); },
+          });
+        }
+        window.dispatchEvent(new CustomEvent("tex64:editor-created", { detail: { group: group.key } }));
 
         // Spell: "Add to dictionary" for the word under the cursor (context menu
         // / command palette). Done as an editor action because this Monaco build

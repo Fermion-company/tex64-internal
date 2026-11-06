@@ -32,6 +32,11 @@ const prependKpathseaSearchPath = (env, name, directories) => {
   env[name] = [...new Set(entries), existing].join(path.delimiter);
 };
 
+// latexmk reads any argument that starts with "-" as an option, so a file
+// named "-pdflatex=cmd;#.tex" (from an imported zip, say) would set its
+// commands. Such a name goes as ./name.
+const fileArgument = (fileName) => (String(fileName).startsWith("-") ? `./${fileName}` : fileName);
+
 module.exports = (BuildService) => {
   BuildService.prototype.runLatexmk = async function (rootPath, mainFileName, engine, options = {}) {
     const latexmkPath = this.findLatexmk();
@@ -40,12 +45,21 @@ module.exports = (BuildService) => {
     }
 
     let engineFlag = "-lualatex";
+    // `-pdfdvi` alone runs latex and dvipdf; upLaTeX's commands are named
+    // here instead of relying on the user's own latexmkrc.
+    const engineArgs = [];
     if (engine === "pdflatex") {
       engineFlag = "-pdf";
     } else if (engine === "xelatex") {
       engineFlag = "-xelatex";
     } else if (engine === "uplatex") {
-      engineFlag = "-pdfdvi"; // Basic support for uplatex via DVI
+      engineFlag = "-pdfdvi";
+      engineArgs.push(
+        "-latex=uplatex",
+        "-e", "$bibtex=q/upbibtex %O %S/",
+        "-e", "$dvipdf=q/dvipdfmx %O -o %D %S/",
+        "-e", "$makeindex=q/mendex %O -o %D %S/",
+      );
     }
 
     const args = [];
@@ -58,12 +72,13 @@ module.exports = (BuildService) => {
     }
     args.push(
       engineFlag,
+      ...engineArgs,
       "-synctex=1",
       "-interaction=nonstopmode",
       "-halt-on-error",
       "-file-line-error",
       ...(Array.isArray(options?.extraArgs) ? options.extraArgs : []),
-      mainFileName
+      fileArgument(mainFileName)
     );
     const env = { ...process.env };
     env.PATH = this.extendPath(env.PATH);
@@ -95,7 +110,7 @@ module.exports = (BuildService) => {
     if (!hasExplicitOutDirArg && outDir) {
       args.push(`-outdir=${outDir}`);
     }
-    args.push(...(Array.isArray(options?.extraArgs) ? options.extraArgs : []), mainFileName);
+    args.push(...(Array.isArray(options?.extraArgs) ? options.extraArgs : []), fileArgument(mainFileName));
     const env = { ...process.env };
     env.PATH = this.extendPath(env.PATH);
     const result = await this.runProcess(latexmkPath, args, rootPath, env);

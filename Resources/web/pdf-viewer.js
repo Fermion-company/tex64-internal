@@ -374,7 +374,8 @@ const initPdfViewer = () => {
   };
   const setStatus = (text, tone = "idle") => {
     if (buildPreviewState === "building") {
-      setStatusDirect(uiString("liveUpdating"), "busy");
+      // A manual Build shows the spinner alone.
+      setStatusDirect("", "busy");
       return;
     }
     if (buildPreviewState === "failed") {
@@ -390,7 +391,8 @@ const initPdfViewer = () => {
     const stale = staticNeedsRebuild();
     document.body.classList.toggle("pdf-needs-rebuild", stale);
     if (!isLive() && !isLivePending()) {
-      setStatus(uiString(!state.doc ? "waiting" : stale ? "rebuildNeeded" : "ready"));
+      // Only a stale paper is worth a word; "waiting" / "loaded" stay silent.
+      setStatus(stale && state.doc ? uiString("rebuildNeeded") : "");
       if (statusEl && buildPreviewState === "idle") statusEl.title = "";
     }
   };
@@ -531,6 +533,8 @@ const initPdfViewer = () => {
       state.activeMarker.remove();
       state.activeMarker = null;
     }
+    for (const marker of state.extraMarkers ?? []) marker.remove();
+    state.extraMarkers = [];
   };
 
   const sidebarVisibleKey = "tex64.pdf.sidebarVisible";
@@ -751,6 +755,7 @@ const initPdfViewer = () => {
         x: payload.x,
         y: payload.y,
         path: state.path || null,
+        ...(payload.context ? { context: payload.context } : {}),
       },
     });
   };
@@ -1062,6 +1067,62 @@ const initPdfViewer = () => {
     return null;
   };
 
+  // The clicked word and its neighbours on the same typeset line, read from
+  // the text layer. The host matches them against the source lines near
+  // SyncTeX's answer (SyncTeX alone misplaces a line's first word).
+  const WORD_PATTERN = /[\p{L}\p{N}]+/gu;
+  const wordContextAt = (event) => {
+    try {
+      const target = event?.target;
+      const span = target instanceof Element ? target.closest(".textLayer span") : null;
+      const layer = span?.closest(".textLayer");
+      if (!span || !layer || typeof document.caretRangeFromPoint !== "function") return null;
+      const range = document.caretRangeFromPoint(event.clientX, event.clientY);
+      const node = range?.startContainer;
+      if (!node || node.nodeType !== Node.TEXT_NODE) return null;
+      const owner = node.parentElement?.closest(".textLayer span");
+      if (!owner || !layer.contains(owner)) return null;
+      const ownerRect = owner.getBoundingClientRect();
+      const lineHeight = Math.max(1, ownerRect.height);
+      const sameLine = Array.from(layer.querySelectorAll("span"))
+        .filter((item) => item.childElementCount === 0 && item.textContent)
+        .map((item) => ({ item, rect: item.getBoundingClientRect() }))
+        .filter(({ rect }) => Math.abs(rect.top + rect.height / 2 - (ownerRect.top + ownerRect.height / 2)) < lineHeight * 0.5)
+        .sort((a, b) => a.rect.left - b.rect.left);
+      let text = "";
+      let clicked = -1;
+      let previousRight = null;
+      for (const { item, rect } of sameLine) {
+        if (previousRight !== null && rect.left - previousRight > lineHeight * 0.15 && !/\s$/.test(text)) text += " ";
+        if (item === owner || item.contains(node)) {
+          let offset = range.startOffset;
+          for (const child of item.childNodes) {
+            if (child === node) break;
+            offset += child.textContent?.length ?? 0;
+          }
+          clicked = text.length + offset;
+        }
+        text += item.textContent;
+        previousRight = rect.right;
+      }
+      if (clicked < 0) return null;
+      const words = [];
+      for (const match of text.matchAll(WORD_PATTERN)) words.push({ value: match[0], start: match.index, end: match.index + match[0].length });
+      if (!words.length) return null;
+      let at = words.findIndex((item) => clicked >= item.start && clicked <= item.end);
+      if (at < 0) {
+        at = words.reduce((best, item, i) => (Math.abs(item.start - clicked) < Math.abs(words[best].start - clicked) ? i : best), 0);
+      }
+      return {
+        word: words[at].value,
+        prev: words[at - 1]?.value ?? null,
+        next: words[at + 1]?.value ?? null,
+      };
+    } catch {
+      return null;
+    }
+  };
+
   const resolveClickPoint = (event) => {
     if (!event || typeof event !== "object") {
       return null;
@@ -1157,7 +1218,8 @@ const initPdfViewer = () => {
       textLayerClick: isTextLayerClick,
       nearMarker: isNearActiveMarker(),
     };
-    return { page, x: synctexX, y: synctexY };
+    const context = isTextLayerClick ? wordContextAt(event) : null;
+    return { page, x: synctexX, y: synctexY, ...(context ? { context } : {}) };
   };
 
 
@@ -1172,6 +1234,43 @@ const initPdfViewer = () => {
       payload.blockWidth > 0 &&
       Number.isFinite(payload.blockHeight) &&
       Math.abs(payload.blockHeight) > 0;
+    // One rectangle per run of typeset lines (a line cut short beside a
+    // table is its own), else the single block.
+    const blocks = Array.isArray(payload.blocks)
+      ? payload.blocks.filter((block) => block && [block.x, block.y, block.width, block.height].every(Number.isFinite) &&
+        block.width > 0 && block.height > 0).slice(0, 32)
+      : [];
+    if (blocks.length > 1) {
+      const pad = 2;
+      const placed = [];
+      for (const block of blocks) {
+        const normTop = Number.isFinite(pagePdfHeight) && pagePdfHeight > 0 ? pagePdfHeight - block.y : block.y;
+        const normBottom = Number.isFinite(pagePdfHeight) && pagePdfHeight > 0 ? pagePdfHeight - (block.y + block.height) : block.y + block.height;
+        const [ax, ay] = pageView.viewport.convertToViewportPoint(block.x, normTop);
+        const [bx2, by2] = pageView.viewport.convertToViewportPoint(block.x + block.width, normBottom);
+        const left = Math.min(ax, bx2) * viewportScale.x;
+        const top = Math.min(ay, by2) * viewportScale.y;
+        const width = Math.abs(bx2 - ax) * viewportScale.x;
+        const height = Math.abs(by2 - ay) * viewportScale.y;
+        if (width <= 1 || height <= 1) continue;
+        const marker = document.createElement("div");
+        marker.className = "pdf-sync-highlight";
+        marker.style.left = `${left - pad}px`;
+        marker.style.top = `${top - 1}px`;
+        marker.style.width = `${width + pad * 2}px`;
+        marker.style.height = `${height + 2}px`;
+        pageView.div.appendChild(marker);
+        placed.push(marker);
+      }
+      if (placed.length) {
+        state.activeMarker = placed[0];
+        state.extraMarkers = placed.slice(1);
+        state.markerTimer = setTimeout(() => {
+          clearSyncMarker();
+        }, 2400);
+        return;
+      }
+    }
     if (hasBlock) {
       const bx = Number.isFinite(payload.blockX) ? payload.blockX : payload.x;
       const by = Number.isFinite(payload.blockY) ? payload.blockY : payload.y;
@@ -1204,9 +1303,9 @@ const initPdfViewer = () => {
         const marker = document.createElement("div");
         marker.className = "pdf-sync-highlight";
         marker.style.left = `${rectLeft - pad}px`;
-        marker.style.top = `${rectTop - pad}px`;
+        marker.style.top = `${rectTop - 1}px`;
         marker.style.width = `${rectWidth + pad * 2}px`;
-        marker.style.height = `${rectHeight + pad * 2}px`;
+        marker.style.height = `${rectHeight + 2}px`;
         pageView.div.appendChild(marker);
         state.activeMarker = marker;
         state.markerTimer = setTimeout(() => {
@@ -1502,6 +1601,20 @@ const initPdfViewer = () => {
     applySync(payload);
   });
 
+  // The Jump marker says where the jump landed; any operation of the
+  // reader's own (zoom, scroll, click, keys) ends that moment at once.
+  eventBus.on("scalechanging", () => clearSyncMarker());
+  for (const type of ["wheel", "pointerdown", "touchstart"]) {
+    pagesEl?.addEventListener(type, () => {
+      if (state.activeMarker) clearSyncMarker();
+    }, { passive: true, capture: true });
+  }
+  document.addEventListener("keydown", () => {
+    if (state.activeMarker) clearSyncMarker();
+  }, true);
+  window.addEventListener("resize", () => {
+    if (state.activeMarker) clearSyncMarker();
+  });
   eventBus.on("scalechanging", (event) => {
     if (!event || typeof event.scale !== "number") {
       return;
@@ -1936,7 +2049,12 @@ const initPdfViewer = () => {
     }
     const view = resolvePdfLiveStatus(data?.status, data?.presentationPending);
     if (!view) return;
-    setStatus(uiString(view.key), view.tone);
+    // While typing the paper just follows the keys: no "updating" or "rendering"
+    // chatter. The spinner shows only for the canonical full compile (and a
+    // manual Build, handled in setStatus); errors keep their text.
+    if (view.key === "liveCompiling") setStatus("", "busy");
+    else if (view.tone === "error") setStatus(uiString(view.key), "error");
+    else setStatus("", "idle");
     if (statusEl) statusEl.title = view.detail;
   };
   const restoreStaticToolbar = () => {
@@ -2088,7 +2206,7 @@ const initPdfViewer = () => {
     document.body.classList.add("is-live-pending");
     liveFrame.setAttribute("aria-hidden", "true");
     liveFrame.dataset.livePhase = "activation-pending";
-    setStatus(uiString("liveUpdating"), "busy");
+    setStatus("", "idle");
     if (liveViewportHandoff) postLive("goto-sync", liveViewportHandoff.sync);
   };
   // Frames without the viewport token only report their top page; a centred
@@ -2139,11 +2257,20 @@ const initPdfViewer = () => {
   // confirms it (and pages beyond a shorter resident pagination stay pending
   // until then), so either completeness signal is accepted here. Other
   // activations wait for an exact paint.
+  // While the hands keep moving the frame's applied revision runs ahead of
+  // every paper it can show, so "complete for the latest keystroke" never
+  // holds until they stop. A canonical generation at or past the first
+  // post-Build edit is paper that already contains it: hand over then too,
+  // instead of keeping the Build PDF up for the whole run of typing.
   const livePaperPresentable = (data) => {
     const expected = liveActivation?.expectedSrcRev;
     if (!Number.isInteger(expected)) return data?.ready === true;
     const applied = !("srcRev" in data) || Number(data.srcRev) >= expected;
-    return applied && (data.ready === true || data.presentationPending === false);
+    const canonicalRev = Number(data?.status?.canonical?.rev);
+    // Typing keeps the next compile running back-to-back; a landed
+    // generation is still paper that contains the edit.
+    const canonicalCovers = Number.isFinite(canonicalRev) && canonicalRev >= expected;
+    return applied && (data.ready === true || data.presentationPending === false || canonicalCovers);
   };
   // A held frame keeps following the static viewport so the first edit can
   // replace the paper without a positioning round trip.
@@ -2213,7 +2340,7 @@ const initPdfViewer = () => {
         liveFrame.setAttribute("aria-hidden", "false");
         liveFrame.dataset.livePhase = "active";
         renderLiveToolbar();
-        setStatus(uiString("live"));
+        setStatus("", "idle");
         renderLiveStatus(latestData);
         if (pendingLiveSync) applyLiveSync(pendingLiveSync);
         // A query typed while the static PDF was showing has not reached the
@@ -2249,7 +2376,7 @@ const initPdfViewer = () => {
     liveFrame.setAttribute("aria-hidden", "true");
     liveFrame.dataset.livePhase = "reset-pending";
     restoreStaticToolbar();
-    setStatus(uiString("liveUpdating"), "busy");
+    setStatus("", "idle");
     // Resolve the new stacking order before allowing the child to discard
     // its old document DOM. The iframe stays paintable below the static PDF.
     getComputedStyle(liveFrame).zIndex;
@@ -2305,7 +2432,7 @@ const initPdfViewer = () => {
     hideContextMenu();
     restoreStaticToolbar();
     if (hold) refreshStaticStatus();
-    else setStatus(uiString("liveUpdating"), "busy");
+    else setStatus("", "idle");
 
     const params = new URLSearchParams({
       embed: "1",
@@ -2329,8 +2456,8 @@ const initPdfViewer = () => {
     const error = typeof payload?.error === "string" ? payload.error : "";
     if (!error) {
       if (statusEl) statusEl.title = "";
-      if (isLive()) setStatus(uiString("live"));
-      else if (isLivePending()) setStatus(uiString("liveUpdating"), "busy");
+      if (isLive()) setStatus("", "idle");
+      else if (isLivePending()) setStatus("", "idle");
       else refreshStaticStatus();
       return;
     }
@@ -2521,10 +2648,10 @@ const initPdfViewer = () => {
             ? payload.message
             : "";
         }
-        if (buildPreviewState === "building") setStatusDirect(uiString("liveUpdating"), "busy");
+        if (buildPreviewState === "building") setStatusDirect("", "busy");
         else if (buildPreviewState === "failed") setStatusDirect(uiString("buildFailedLastGood"), "error");
-        else if (isLive()) setStatus(uiString("live"));
-        else if (isLivePending()) setStatus(uiString("liveUpdating"), "busy");
+        else if (isLive()) setStatus("", "idle");
+        else if (isLivePending()) setStatus("", "idle");
         else refreshStaticStatus();
       }
       if (message.type === "sync" && message.payload) {

@@ -1,5 +1,6 @@
 import { createActionsMenu } from "./actions-menu.js";
 import { uiText } from "./i18n.js";
+import { createExplain } from "./explain.js";
 
 type Snippet = { id: string; name: string; prefix: string; body: string };
 let items: Snippet[] = [];
@@ -49,16 +50,31 @@ export const openSnippets = (editor = activeEditor) => {
   const heading = node("h2", uiText("Snippets", "スニペット")); heading.id = "snippets-title"; dialog.setAttribute("aria-labelledby", heading.id);
   const error = node("p"); error.className = "snippets-error"; error.setAttribute("role", "status");
   const search = node("input"); search.type = "search"; search.placeholder = uiText("Search snippets", "スニペットを検索"); search.setAttribute("aria-label", search.placeholder);
+  // The dialog opens on the search box, not on the heading's ▾.
+  search.autofocus = true;
   const list = node("div"); list.className = "snippets-list";
   const name = node("input"); name.maxLength = 120;
   const prefix = node("input"); prefix.maxLength = 65;
   const body = node("textarea"); body.rows = 10; body.spellcheck = false; body.maxLength = 65536;
   const form = node("div"); form.className = "snippets-form";
-  for (const [text, input] of [[uiText("Name", "名前"), name], [uiText("Trigger text", "呼び出し文字"), prefix], [uiText("LaTeX code", "LaTeXコード"), body]] as const) {
-    const label = node("label", text); label.append(input); form.append(label);
-    if (input === prefix) form.append(node("p", uiText("Type this in your document and choose a suggestion.", "本文に入力して、補完候補から選択します。")));
+  const fields = [
+    [uiText("Name", "名前"), name, ""],
+    [uiText("Trigger text", "呼び出し文字"), prefix, uiText("Type this in your document and choose a suggestion.", "本文に入力して、補完候補から選択します。")],
+    [uiText("LaTeX code", "LaTeXコード"), body, uiText("Use ${1:placeholder}, ${2} and $0. After insertion, Tab moves between placeholders.", "${1:初期値}、${2}、$0 を使用。挿入後、Tabで入力箇所を移動します。")],
+  ] as const;
+  for (const [text, input, explanation] of fields) {
+    if (!explanation) {
+      const label = node("label"); label.append(node("span", text), input); form.append(label);
+      continue;
+    }
+    // The ▾ sits beside the field's name and its text opens between the name
+    // and the field, so the name is a sibling label pointing at the field.
+    const explain = createExplain(explanation, { topic: text });
+    const label = node("label", text); input.id = `${explain.panel.id}-field`; label.htmlFor = input.id;
+    const head = node("div"); head.className = "has-explain"; head.append(label, explain.button);
+    const field = node("div"); field.className = "snippets-field"; field.append(head, explain.panel, input);
+    form.append(field);
   }
-  form.append(node("p", uiText("Use ${1:placeholder}, ${2} and $0. After insertion, Tab moves between placeholders.", "${1:初期値}、${2}、$0 を使用。挿入後、Tabで入力箇所を移動します。")));
   const saveState = node("p"); saveState.setAttribute("role", "status"); form.prepend(saveState);
   let selected = "";
   let baseline = "";
@@ -124,9 +140,10 @@ export const openSnippets = (editor = activeEditor) => {
   const reload = button(uiText("Reload snippets", "スニペットを再読み込み"), () => { if (!busy && mayLeave()) void run(async () => { await call("list"); load(); }); });
   const header = node("div"); header.className = "snippets-heading";
   header.append(heading, createActionsMenu([remove, reload], lifecycle.signal));
-  const scope = node("p", uiText("Available in all projects on this computer", "このPCの全プロジェクトで使用")); scope.className = "snippets-scope";
+  const scope = createExplain(uiText("Available in all projects on this computer", "このPCの全プロジェクトで使用"), {topic: uiText("snippets", "スニペット")});
+  heading.classList.add("has-explain"); heading.append(scope.button);
   const columns = node("div"); columns.className = "snippets-columns"; columns.append(library, form);
-  dialog.append(header, scope, columns, error, actions);
+  dialog.append(header, scope.panel, columns, error, actions);
   search.addEventListener("input", render);
   for (const input of [name, prefix, body]) input.addEventListener("input", render);
   dialog.addEventListener("cancel", (event) => { if (busy || !mayLeave()) event.preventDefault(); });

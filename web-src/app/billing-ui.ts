@@ -746,10 +746,6 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     }
     card.appendChild(priceRow);
 
-    const desc = document.createElement("p");
-    desc.className = "plan-desc";
-    desc.textContent = planCopy.desc;
-    card.appendChild(desc);
 
     const list = document.createElement("ul");
     list.className = "plan-features";
@@ -854,7 +850,8 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
   const renderPlans = () => {
     const copy = CONTENT[getUiLocale()] || CONTENT.en;
     if (plansHeading) plansHeading.textContent = copy.heading;
-    if (plansSub) plansSub.textContent = copy.subheading;
+    // No subheading: the cards say what each plan includes.
+    if (plansSub) plansSub.hidden = true;
     if (!plansList) return;
 
     const current = (deps.getCurrentPlan() || "free").toLowerCase();

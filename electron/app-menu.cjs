@@ -4,13 +4,13 @@
 // the "uiLocale" message). `role:` items are localized by Electron itself from
 // the OS locale — that part cannot follow the in-app setting.
 const MENU_LABELS = {
-  en: { settings: "Settings…", file: "File", newFile: "New File", newProject: "New Project…", openFolder: "Open Folder…", save: "Save" },
-  ja: { settings: "設定…", file: "ファイル", newFile: "新規ファイル", newProject: "新規プロジェクト…", openFolder: "フォルダを開く…", save: "保存" },
-  zh: { settings: "设置…", file: "文件", newFile: "新建文件", newProject: "新建项目…", openFolder: "打开文件夹…", save: "保存" },
-  ko: { settings: "설정…", file: "파일", newFile: "새 파일", newProject: "새 프로젝트…", openFolder: "폴더 열기…", save: "저장" },
-  fr: { settings: "Réglages…", file: "Fichier", newFile: "Nouveau fichier", newProject: "Nouveau projet…", openFolder: "Ouvrir un dossier…", save: "Enregistrer" },
-  de: { settings: "Einstellungen…", file: "Datei", newFile: "Neue Datei", newProject: "Neues Projekt…", openFolder: "Ordner öffnen…", save: "Sichern" },
-  es: { settings: "Ajustes…", file: "Archivo", newFile: "Nuevo archivo", newProject: "Nuevo proyecto…", openFolder: "Abrir carpeta…", save: "Guardar" },
+  en: { settings: "Settings…", file: "File", newFile: "New File", newProject: "New Project…", openFolder: "Open Folder…", save: "Save", importPrism: "Import from Prism…", collaborate: "Collaborate…", wordCount: "Word Count…", undo: "Undo", redo: "Redo" },
+  ja: { settings: "設定…", file: "ファイル", newFile: "新規ファイル", newProject: "新規プロジェクト…", openFolder: "フォルダを開く…", save: "保存", importPrism: "Prism から読み込む…", collaborate: "共同編集…", wordCount: "文字数…", undo: "取り消す", redo: "やり直す" },
+  zh: { settings: "设置…", file: "文件", newFile: "新建文件", newProject: "新建项目…", openFolder: "打开文件夹…", save: "保存", importPrism: "从 Prism 导入…" },
+  ko: { settings: "설정…", file: "파일", newFile: "새 파일", newProject: "새 프로젝트…", openFolder: "폴더 열기…", save: "저장", importPrism: "Prism에서 가져오기…" },
+  fr: { settings: "Réglages…", file: "Fichier", newFile: "Nouveau fichier", newProject: "Nouveau projet…", openFolder: "Ouvrir un dossier…", save: "Enregistrer", importPrism: "Importer depuis Prism…" },
+  de: { settings: "Einstellungen…", file: "Datei", newFile: "Neue Datei", newProject: "Neues Projekt…", openFolder: "Ordner öffnen…", save: "Sichern", importPrism: "Aus Prism importieren…" },
+  es: { settings: "Ajustes…", file: "Archivo", newFile: "Nuevo archivo", newProject: "Nuevo proyecto…", openFolder: "Abrir carpeta…", save: "Guardar", importPrism: "Importar desde Prism…" },
 };
 
 const createApplicationMenuTemplate = ({
@@ -20,8 +20,9 @@ const createApplicationMenuTemplate = ({
   locale = "en",
   terminalActive = false,
   sendTerminalCommand = () => {},
+  collabActive = false,
 } = {}) => {
-  const labels = MENU_LABELS[locale] || MENU_LABELS.en;
+  const labels = { ...MENU_LABELS.en, ...(MENU_LABELS[locale] || {}) };
   const commandItem = (label, command, accelerator) => ({
     label,
     ...(accelerator ? { accelerator } : {}),
@@ -57,14 +58,24 @@ const createApplicationMenuTemplate = ({
         { type: "separator" },
         commandItem(labels.newProject, "project:new", "CmdOrCtrl+Shift+N"),
         commandItem(labels.openFolder, "project:open", "CmdOrCtrl+O"),
+        commandItem(labels.importPrism, "prism:import"),
         { type: "separator" },
         commandItem(labels.save, "file:save", "CmdOrCtrl+S"),
+        { type: "separator" },
+        commandItem(labels.collaborate, "collab:open"),
+        commandItem(labels.wordCount, "wordcount:open"),
         { type: "separator" },
         { role: isMac ? "close" : "quit" },
       ],
     },
+    // During a collaboration session Undo/Redo must reach the shared-document
+    // undo manager (only the user's own edits), so the role items — whose
+    // accelerators run before the DOM — are replaced by renderer commands.
     { role: "editMenu", submenu: [
-      { role: "undo" }, { role: "redo" }, { type: "separator" },
+      ...(collabActive
+        ? [commandItem(labels.undo, "edit:undo", "CmdOrCtrl+Z"), commandItem(labels.redo, "edit:redo", isMac ? "Shift+CmdOrCtrl+Z" : "CmdOrCtrl+Y")]
+        : [{ role: "undo" }, { role: "redo" }]),
+      { type: "separator" },
       { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "pasteAndMatchStyle" }, { role: "delete" }, { role: "selectAll" },
       { type: "separator" }, commandItem(locale === "ja" ? "検索…" : "Find…", "edit:find", "CmdOrCtrl+F"),
       commandItem(locale === "ja" ? "スニペット…" : "Snippets…", "snippets:open"),

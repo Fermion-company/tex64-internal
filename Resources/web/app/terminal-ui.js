@@ -16,8 +16,8 @@ const TERMINAL_THEMES = {
     light: {
         background: "#f8fafc",
         foreground: "#263244",
-        cursor: "#1d4ed8",
-        selectionBackground: "rgba(37, 99, 235, 0.18)",
+        cursor: "#10706B",
+        selectionBackground: "rgba(30, 138, 132, 0.18)",
         black: "#1f2937", red: "#dc2626", green: "#15803d", yellow: "#b45309",
         blue: "#2563eb", magenta: "#9333ea", cyan: "#0891b2", white: "#e5e7eb",
         brightBlack: "#64748b", brightRed: "#ef4444", brightGreen: "#16a34a",

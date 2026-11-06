@@ -67,6 +67,16 @@ type AiChatDeps = {
   /** Opens the settings overlay on a page (the usage line points at Account). */
 };
 
+export type VoiceInstructionSelection = {
+  path: string;
+  text: string;
+  isDirty: boolean;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+};
+
 export type AiChatApi = {
   handleSettings: (settings: AgentSettings) => void;
   handleState: (state: AgentUiState) => void;
@@ -110,6 +120,14 @@ export type AiChatApi = {
   handleBranchResult: (payload: { ok?: boolean; conversationId?: string; error?: string }) => void;
   handleProposalScope: (payload: { conversationId?: string; proposalId?: string; page?: number }) => void;
   handleTranscribeResult: (payload: { requestId?: string; ok?: boolean; text?: string; error?: string; code?: string }) => void;
+  /**
+   * The range a voice edit is about (the selection when recording started,
+   * or the paragraph around the cursor): shown as the chip and sent as the
+   * request's context until sendVoiceInstruction or null clears it.
+   */
+  holdVoiceSelection: (selection: VoiceInstructionSelection | null) => void;
+  /** A spoken edit instruction from the editor: sent as it is. The composer draft is kept. */
+  sendVoiceInstruction: (text: string) => void;
   handleDocumentMap: (payload: {
     requestId?: string;
     mainFile?: string | null;
@@ -293,13 +311,14 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       item.setAttribute("aria-selected", isSelected ? "true" : "false");
       if (locked) item.setAttribute("aria-disabled", "true");
       item.dataset.model = model.id;
-      const desc = locked ? aiText("model_requires_pro") : aiText(model.descKey);
+      // Only state under the name (a locked model); no description of the model.
+      const desc = locked ? aiText("model_requires_pro") : "";
       const badge = model.pro ? '<span class="ai-model-badge">Pro</span>' : "";
       item.innerHTML =
         '<svg class="ai-model-menu-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>' +
         '<span class="ai-model-menu-text">' +
         `<span class="ai-model-menu-name">${escapeHtml(model.name)}${badge}</span>` +
-        `<span class="ai-model-menu-desc">${escapeHtml(desc)}</span>` +
+        (desc ? `<span class="ai-model-menu-desc">${escapeHtml(desc)}</span>` : "") +
         "</span>";
       list.appendChild(item);
     }
@@ -322,6 +341,12 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   if (aiModelMenu instanceof HTMLElement) {
     aiModelMenu.addEventListener("click", (event) => {
       const target = event.target as HTMLElement | null;
+      // Upsell close → hide the card, keep the menu.
+      if (target?.closest(".ai-model-upsell-close")) {
+        event.stopPropagation();
+        hideModelUpsell();
+        return;
+      }
       // Upsell CTA → open the pricing page in the browser.
       if (target?.closest(".ai-model-upsell-btn")) {
         event.stopPropagation();
@@ -494,10 +519,15 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   // first referenced item and clears once sent.
   let pdfPlace: { page: number; path: string; line: number; text: string } | null = null;
   let pendingPdfAsk: { requestId: string; page: number; text: string } | null = null;
+  // The range a spoken instruction is about, fixed when recording starts:
+  // the chip and the request read it in place of the editor's selection
+  // (which may have moved, or be empty: the paragraph around the cursor).
+  let voiceSelection: VoiceInstructionSelection | null = null;
+  const getSelectionForContext = () => voiceSelection ?? deps.getActiveSelectionSnapshot?.() ?? null;
   const updateContextBar = createContextBarUpdater({
     aiContextBar,
     getActiveFilePath: deps.getActiveFilePath,
-    getActiveSelectionSnapshot: deps.getActiveSelectionSnapshot,
+    getActiveSelectionSnapshot: getSelectionForContext,
     getActiveCursorPosition: deps.getActiveCursorPosition,
     getPdfPlace: () => pdfPlace,
     onClearPdfPlace: () => {
@@ -637,7 +667,10 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     }
   };
 
-  const _rawBuildContextPayload = createContextPayloadBuilder(deps);
+  const _rawBuildContextPayload = createContextPayloadBuilder({
+    ...deps,
+    getActiveSelectionSnapshot: getSelectionForContext,
+  });
   const buildContextPayload = (extras: ContextExtras = {}) => {
     const refs = mentionController ? mentionController.getExplicitRefs() : [];
     const placeRefs = pdfPlace
@@ -706,10 +739,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     const title = document.createElement("span");
     title.className = "ai-empty-title";
     title.textContent = aiText("empty_title");
-    const desc = document.createElement("span");
-    desc.className = "ai-empty-desc";
-    desc.textContent = aiText("empty_desc");
-    head.append(title, desc);
+    head.append(title);
     const list = document.createElement("div");
     list.className = "ai-empty-starts";
     STARTERS.forEach((starter, index) => {
@@ -726,10 +756,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       const rowTitle = document.createElement("span");
       rowTitle.className = "ai-start-title";
       rowTitle.textContent = aiText(`start_${starter.key}_title`);
-      const rowDesc = document.createElement("span");
-      rowDesc.className = "ai-start-desc";
-      rowDesc.textContent = aiText(`start_${starter.key}_desc`);
-      text.append(rowTitle, rowDesc);
+      text.append(rowTitle);
       row.append(icon, text);
       list.appendChild(row);
     });
@@ -751,10 +778,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       const rowTitle = document.createElement("span");
       rowTitle.className = "ai-start-title";
       rowTitle.textContent = aiText("start_review_changes_title");
-      const rowDesc = document.createElement("span");
-      rowDesc.className = "ai-start-desc";
-      rowDesc.textContent = aiText("start_review_changes_desc").replace("{n}", String(documentIndex.git.changed));
-      text.append(rowTitle, rowDesc);
+      text.append(rowTitle);
       row.append(icon, text);
       list.appendChild(row);
     }
@@ -772,10 +796,14 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     const footTitle = document.createElement("span");
     footTitle.className = "ai-start-title";
     footTitle.textContent = aiText("rules_title");
-    const footDesc = document.createElement("span");
-    footDesc.className = "ai-start-desc";
-    footDesc.textContent = documentIndex.rules.exists ? aiText("rules_desc") : `${aiText("rules_desc")} · ${aiText("rules_missing")}`;
-    footText.append(footTitle, footDesc);
+    footText.append(footTitle);
+    // State, not explanation: the rules file does not exist yet.
+    if (!documentIndex.rules.exists) {
+      const footState = document.createElement("span");
+      footState.className = "ai-start-desc";
+      footState.textContent = aiText("rules_missing");
+      footText.append(footState);
+    }
     foot.append(footIcon, footText);
     root.append(head, list, foot);
     return root;
@@ -1496,6 +1524,24 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     askFromPdf,
     handlePdfReverseResult,
     handleTranscribeResult: (payload) => voice.handleTranscribeResult(payload),
+    holdVoiceSelection: (selection) => {
+      voiceSelection = selection ?? null;
+      updateContextBar();
+    },
+    sendVoiceInstruction: (text) => {
+      const trimmed = typeof text === "string" ? text.trim() : "";
+      if (!trimmed || !eventApi) {
+        voiceSelection = null;
+        updateContextBar();
+        return;
+      }
+      try {
+        eventApi.submitMessage(trimmed, { clearInput: false });
+      } finally {
+        voiceSelection = null;
+        updateContextBar();
+      }
+    },
     handleDocumentMap,
     handleWorkspaceChanged,
     refreshContextBar: updateContextBar,

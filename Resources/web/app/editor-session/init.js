@@ -12,6 +12,7 @@ import { createEditorSessionWorkspaceOps } from "./workspace-ops.js";
 import { createEditorSessionCursorOps } from "./cursor-ops.js";
 import { createEditorSessionIssueFocusOps } from "./issue-focus.js";
 import { uiText } from "../i18n.js";
+import { contentDigest } from "../collab/digest.js";
 import { anchorFromLiveEditSnapshot, captureLiveEditAnchor, rebaseLiveEditAnchor, } from "./live-edit-history.js";
 export const initEditorSession = (context, deps) => {
     const runtime = createEditorSessionRuntime(context, deps);
@@ -380,7 +381,28 @@ export const initEditorSession = (context, deps) => {
         };
         apply();
     };
+    const markSavedExternally = (path, digest) => {
+        const entry = runtime.monacoModels.get(path);
+        if (!entry)
+            return false;
+        const content = entry.model.getValue();
+        if (contentDigest(content) !== digest)
+            return false;
+        entry.savedContent = content;
+        bufferOps.updateDirtyState(path, content, content);
+        for (const group of Object.values(runtime.editorGroups)) {
+            if (group.currentFilePath === path) {
+                group.currentFileSavedContent = content;
+                group.isDirty = false;
+                deps.editorTabs.render(group);
+            }
+        }
+        deps.fileTree.render();
+        return true;
+    };
     return {
+        markSavedExternally,
+        getSavedContent: (path) => { var _a, _b; return (_b = (_a = runtime.monacoModels.get(path)) === null || _a === void 0 ? void 0 : _a.savedContent) !== null && _b !== void 0 ? _b : null; },
         getEditorGroup: coreOps.getEditorGroup,
         getEditorGroups: () => Object.values(runtime.editorGroups),
         getActiveGroup: coreOps.getActiveGroup,

@@ -1,6 +1,9 @@
 import { openSnippets } from "./app/snippets-ui.js";
 import { initGitUi } from "./app/git-ui.js";
 import { initHistoryUi } from "./app/history-ui.js";
+import { collabSession } from "./app/collab/session.js";
+import { initCollabBinding, type CollabBindingApi } from "./app/collab/binding.js";
+import { initCollabUi } from "./app/collab/ui.js";
 import { getDomRefs } from "./app/dom.js";
 import { createAppActions } from "./app/actions.js";
 import { initEditorSettingsControls } from "./app/editor-settings/editor-settings-controls.js";
@@ -18,6 +21,7 @@ import { initMathCaptureUi } from "./app/math-capture-ui.js";
 import { initMathCapture } from "./app/math-capture.js";
 import { initLauncherUi } from "./app/launcher-ui.js";
 import { initOnboardingUi } from "./app/onboarding-ui.js";
+import { initPrismImportUi } from "./app/prism-import-ui.js";
 import type { TexInstallVariant } from "./app/tex-env-report.js";
 import { initMonacoSetup } from "./app/monaco-setup.js";
 
@@ -26,6 +30,7 @@ import { createFileExcerptBroker } from "./app/file-excerpt.js";
 import { recognizeMath } from "./app/math-ocr.js";
 import { createMathCaptureHandler } from "./main-math-capture.js";
 import { initAiChatUi } from "./app/ai-chat-ui.js";
+import { createVoiceEditController } from "./app/voice-edit.js";
 import { createAppState } from "./app/state.js";
 import { createViewer, type LivePreviewEditRequest, type LivePreviewAnchorRequest,
   type LivePreviewAnchorResult } from "./app/viewer.js";
@@ -49,6 +54,9 @@ import { initBottomPanelUi } from "./app/bottom-panel-ui.js";
 import { initTerminalUi } from "./app/terminal-ui.js";
 import { initBillingUi } from "./app/billing-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
+import { initZoteroSettingsUi } from "./app/zotero-ui.js";
+import { initWordCountUi } from "./app/word-count-ui.js";
+import { setCitationDocumentResolver } from "./app/citation-insert.js";
 import { initAnnouncementsUi } from "./app/announcements-ui.js";
 import { initWorkspaceController } from "./app/workspace-controller.js";
 import { getUiLocale, initI18n, onUiLocaleChange, uiText } from "./app/i18n.js";
@@ -127,6 +135,16 @@ export const initMain = () => {
   let triggerBlockInsert = () => {};
   let resetBlockSession = (_options?: { applyMode?: "detected" | "new" }) => {};
   let editorSession: ReturnType<typeof initEditorSession>;
+  let collabBinding: CollabBindingApi | null = null;
+  let collabUi: ReturnType<typeof initCollabUi> | null = null;
+  const wordCountUi = initWordCountUi({ editorSession: () => editorSession, documentFor: (path) => buildOps?.documentFor(path) });
+  // Citations go to the bibliography of the document the user chose to build.
+  setCitationDocumentResolver((path) => buildOps?.documentFor(path));
+  // Shared text files are saved by the collaboration session, not by autosave.
+  const collabFileBridge = {
+    isBound: (path: string | null | undefined) => Boolean(collabBinding?.isBound(path)),
+    flush: () => collabSession.flush(),
+  };
   let editorTabsUi: ReturnType<typeof initEditorTabsUi>;
   let buildOps: ReturnType<typeof initBuildOpsUi>;
 
@@ -153,6 +171,7 @@ export const initMain = () => {
           x: payload.x,
           y: payload.y,
           pdfPath: payload.pdfPath,
+          context: payload.context,
         },
         true
       );
@@ -181,6 +200,7 @@ export const initMain = () => {
           x: payload.x,
           y: payload.y,
           pdfPath: payload.pdfPath,
+          context: payload.context,
         },
         true
       );
@@ -218,7 +238,7 @@ export const initMain = () => {
   });
   let workspaceSwitchInFlight = false;
   const requestWorkspaceChange = (
-    payload: { type: "openWorkspace" | "openRecentProject" | "createProject"; [key: string]: unknown },
+    payload: { type: "openWorkspace" | "openRecentProject" | "openProjectPath" | "createProject"; [key: string]: unknown },
   ): boolean => {
     if (workspaceSwitchInFlight) return false;
     workspaceSwitchInFlight = true;
@@ -386,6 +406,7 @@ export const initMain = () => {
       }
     },
   });
+  initZoteroSettingsUi();
   isReverseSynctexEnabled = () => settingsUi.getReverseSynctexEnabled();
   onSettingsTabActive = () => settingsUi.checkEnvironmentStatus();
   initEditorSettingsControls();
@@ -395,6 +416,12 @@ export const initMain = () => {
   });
   const announcementsUi = initAnnouncementsUi({
     postToNative: (payload, silent) => postToNative(payload, silent),
+    openAxiom: () => {
+      // The chat lives in the sidebar, which may be collapsed.
+      if (!bottomPanelUi.isSidebarVisible()) bottomPanelUi.toggleSidebar();
+      setActiveTab("ai");
+      window.requestAnimationFrame(() => document.getElementById("ai-input")?.focus());
+    },
   });
   const contextMenu = initContextMenu(appContext);
   const launcherUi = initLauncherUi(appContext, {
@@ -426,8 +453,27 @@ export const initMain = () => {
     startInstall: (variant: TexInstallVariant) => {
       postToNative({ type: "env:install", target: "basictex", variant });
     },
-    onFinished: revealAppBehindOnboarding,
+    onFinished: () => {
+      revealAppBehindOnboarding();
+      prismImportUi.resume();
+    },
   });
+  // Prism export zips: File menu, or a .zip dropped on the launcher / file tree.
+  const prismImportUi = initPrismImportUi({
+    openProjectPath: (path) => {
+      requestWorkspaceChange({ type: "openProjectPath", path });
+    },
+    getWorkspaceRoot: () => getWorkspaceRootKey(),
+    showIssues: (summary, issues) => {
+      updateIssuesProxy(issues.length, summary, issues.length ? "error" : "info", issues as IssueItem[]);
+      setActiveTab("issues");
+    },
+    requestRuntimeSetup: () => {
+      if (!onboardingUi.isVisible()) onboardingUi.showChoice();
+    },
+  });
+  prismImportUi.attachZipDrop(appContext.dom.launcher as HTMLElement | null);
+  prismImportUi.attachZipDrop(appContext.dom.fileTree as HTMLElement | null);
 
   // Request recent projects on startup
   postToNative({ type: "getRecentProjects" });
@@ -467,6 +513,26 @@ export const initMain = () => {
   };
 
   let lastBuildMainFile: string | null = null;
+  // Fragment → the document Build makes of it: the user's choice first, else
+  // what main resolves (asked once per fragment, forgotten after each build
+  // since includes may have changed). Ambiguous fragments stay unresolved.
+  const documentOwners = new Map<string, string | null>();
+  const documentOwnerOf = (path: string): string | null | undefined => {
+    const chosen = buildOps?.documentFor(path);
+    if (chosen) return chosen;
+    const key = `${getWorkspaceRootKey() ?? ""}\0${path}`;
+    if (documentOwners.has(key)) return documentOwners.get(key) ?? undefined;
+    documentOwners.set(key, null);
+    const bridge = (window as unknown as { tex64WordCount?: { documentFor: (path: string) => Promise<{ ok: boolean; document?: string | null }> } }).tex64WordCount;
+    void bridge?.documentFor(path).then((result) => {
+      if (documentOwners.get(key) === null && result?.ok && typeof result.document === "string") documentOwners.set(key, result.document);
+    }, () => {});
+    return undefined;
+  };
+  const noteBuildTarget = (path: string | null) => {
+    lastBuildMainFile = path;
+    documentOwners.clear();
+  };
   let blockPreviewActive = false;
   let activeBlockOriginalSnippet: string | null = null;
   let activeBlockEditMode: BlockEditMode = "none";
@@ -513,7 +579,10 @@ export const initMain = () => {
     },
     getMonacoApi: appActions.getMonacoApi,
     onLivePreviewSourceChanged: () => refreshCodeLivePreview(),
+    collab: collabFileBridge,
   });
+  collabBinding = initCollabBinding({ editorSession, getMonacoApi: appActions.getMonacoApi });
+  collabUi = initCollabUi();
   const reportInvalidLivePreviewPath = () => {
     const message = uiText(
       "The PDF edit is outside this workspace.",
@@ -690,6 +759,9 @@ export const initMain = () => {
     getAppMode: () => appModeApi.getMode(),
     getWorkspaceRoot: getWorkspaceRootKey,
     getRootFile: getRootFilePath,
+    getRootSource,
+    getLastBuildTarget: () => lastBuildMainFile,
+    getDocumentFor: (path) => documentOwnerOf(path),
     getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
       maxFiles: Number.POSITIVE_INFINITY,
       maxChars: Number.POSITIVE_INFINITY,
@@ -984,9 +1056,7 @@ export const initMain = () => {
     getRootFilePath,
     getLastBuildMainFile: () => lastBuildMainFile,
     getWorkspaceRootKey,
-    setLastBuildMainFile: (path) => {
-      lastBuildMainFile = path;
-    },
+    setLastBuildMainFile: (path) => noteBuildTarget(path),
     getStoredCursorPosition: (path) => editorSession.getStoredCursorPosition(path),
     cacheCurrentBuffer: editorSession.cacheCurrentBuffer,
     saveCurrentFile: () => editorSession.saveCurrentFile(),
@@ -1089,9 +1159,7 @@ export const initMain = () => {
     },
     envRegistry,
     rootSelectorUi,
-    setLastBuildMainFile: (path) => {
-      lastBuildMainFile = path;
-    },
+    setLastBuildMainFile: (path) => noteBuildTarget(path),
   });
   updateIssues = workspaceController.updateIssues;
   setPendingBuildIssuesFocus = workspaceController.setPendingBuildIssuesFocus;
@@ -1267,6 +1335,8 @@ export const initMain = () => {
       const rootChanged = aiChatUi?.handleWorkspaceChanged(payload.rootPath) === true;
       workspaceController.handleWorkspaceUpdate(payload);
       if (rootChanged) postToNative({ type: "agent:state:get" }, true);
+      // A voice edit belongs to the project it started in.
+      if (rootChanged) voiceEdit.cancel();
     },
     handleIndexUpdate: workspaceController.handleIndexUpdate,
     handleLauncherStatus,
@@ -1285,6 +1355,10 @@ export const initMain = () => {
         }
         if (command === "project:open") {
           requestWorkspaceChange({ type: "openWorkspace", locale: getUiLocale() });
+          return;
+        }
+        if (command === "prism:import") {
+          prismImportUi.start();
           return;
         }
         if (command === "file:save" || command === "edit:find") {
@@ -1309,6 +1383,31 @@ export const initMain = () => {
         if (command === "settings:open") {
           setActiveTab("settings");
         }
+        if (command === "collab:open") {
+          void collabUi?.openDialog();
+          return;
+        }
+        if (command === "wordcount:open") {
+          void wordCountUi.open();
+          return;
+        }
+        if (command === "edit:undo" || command === "edit:redo") {
+          // The menu sends these only during a session (app-menu.cjs): a bound
+          // Monaco model undoes its own edits through the shared undo manager;
+          // anything else keeps the native behaviour.
+          const active = document.activeElement as HTMLElement | null;
+          const editorGroup = editorSession.getEditorGroups().find((group) => {
+            const node = (group.editor as { getDomNode?: () => HTMLElement | null } | null)?.getDomNode?.();
+            return Boolean(node && active && node.contains(active));
+          });
+          if (editorGroup?.editor) {
+            const handled = command === "edit:undo" ? collabBinding?.undo(editorGroup.editor) : collabBinding?.redo(editorGroup.editor);
+            if (!handled) (editorGroup.editor as { trigger?: (source: string, handlerId: string, payload?: unknown) => void }).trigger?.("menu", command === "edit:undo" ? "undo" : "redo", null);
+            return;
+          }
+          document.execCommand(command === "edit:undo" ? "undo" : "redo");
+          return;
+        }
       },
     },
     billing: {
@@ -1326,7 +1425,8 @@ export const initMain = () => {
     build: {
       handleBuildPreviewState: (payload) => buildOps.handleBuildPreviewState(payload),
       setBuildState: (state, message) => buildOps.setBuildState(state, message),
-      setBuildTarget: (path) => { lastBuildMainFile = path; },
+      setBuildTarget: (path) => noteBuildTarget(path),
+      chooseBuildTarget: (payload) => buildOps.chooseBuildTarget(payload),
       handleFormatResult: (payload) => buildOps.handleFormatResult(payload),
       handleBuildLog: (log) => buildOps.handleBuildLog(log),
       handleSynctexForwardResult: (payload) => buildOps.handleSynctexForwardResult(payload),
@@ -1376,7 +1476,12 @@ export const initMain = () => {
       handleFeedbackResult: (payload) => aiChatUi?.handleFeedbackResult(payload),
       handleBranchResult: (payload) => aiChatUi?.handleBranchResult(payload),
       handleProposalScope: (payload) => aiChatUi?.handleProposalScope(payload),
-      handleTranscribeResult: (payload) => aiChatUi?.handleTranscribeResult(payload),
+      handleTranscribeResult: (payload) => {
+        // The editor's voice edit and the composer microphone share the
+        // host's transcription; the request id says whose clip it was.
+        if (voiceEdit.ownsRequest(payload?.requestId)) voiceEdit.handleTranscribeResult(payload);
+        else aiChatUi?.handleTranscribeResult(payload);
+      },
       handleDocumentMap: (payload) => aiChatUi?.handleDocumentMap(payload),
       handleMessageDelta: (text, conversationId) =>
         aiChatUi?.handleMessageDelta(text, conversationId),
@@ -1440,6 +1545,16 @@ export const initMain = () => {
   postToNative({ type: "agent:state:get" }, true);
   postToNative({ type: "announcements:check" }, true);
 
+  const voiceEdit = createVoiceEditController({
+    getWorkspaceRootKey,
+    postToNative: (payload, silent) => postToNative(payload, silent),
+    holdSelection: (selection) => aiChatUi?.holdVoiceSelection(selection),
+    sendInstruction: (text) => {
+      setActiveTab("ai");
+      aiChatUi?.sendVoiceInstruction(text);
+    },
+  });
+
   const monacoSetup = initMonacoSetup(appContext, {
     editorSession,
     editorTabs: {
@@ -1457,6 +1572,7 @@ export const initMain = () => {
     getWorkspaceRoot: getWorkspaceRootKey,
     onCursorPositionChange: handleCursorPositionChange,
     onCursorSelectionChange: handleCursorPositionChange,
+    voiceEdit,
     openAiWithSelection: () => {
       setActiveTab("ai");
       // The selection chip in the composer reflects what was selected.
@@ -1467,6 +1583,17 @@ export const initMain = () => {
       }
     },
     getEditorWordWrapEnabled: () => settingsUi.getEditorWordWrapEnabled(),
+    collab: {
+      isBound: (path) => collabFileBridge.isBound(path),
+      undo: (editor) => Boolean(collabBinding?.undo(editor)),
+      redo: (editor) => Boolean(collabBinding?.redo(editor)),
+      comments: {
+        sessionDoc: () => collabBinding?.sessionDoc() ?? null,
+        sessionText: (path) => collabBinding?.sessionText(path) ?? null,
+        getVendor: () => collabBinding?.getVendor() ?? null,
+        onSessionDoc: (listener) => collabBinding?.onSessionDoc(listener) ?? (() => {}),
+      },
+    },
     requestFilePreview: (path) => filePreviewBroker.requestPreview(path),
     requestFileExcerpt: (path, line, options) =>
       fileExcerptBroker.requestExcerpt(path, line, options),

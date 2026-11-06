@@ -10,6 +10,7 @@ xcuserdata/
 .swiftpm/
 .build/
 /node_modules
+.wrangler/
 /dist/
 /release/
 /update/
@@ -97,3 +98,8 @@ yarn-error.log*
 !/testing/test-workspace/
 !/testing/test-sample-hover/
 !/testing/evidence/
+!/testing/prism-import-20261031/
+!/testing/zotero-20261031/
+
+# Cloudflare wrangler state for the collab relay
+/services/collab-relay/.wrangler/

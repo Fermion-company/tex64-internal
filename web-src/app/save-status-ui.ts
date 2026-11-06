@@ -89,7 +89,16 @@ export const setupSaveStatusUi = (deps: SaveStatusUiDeps) => {
       width(labelFor("dirty")) + dotWidth,
       width(labelFor("saving")),
     );
-    label.style.minWidth = `${Math.ceil(widest)}px`;
+    // Reserve the width on the button (not the label) so the icon and the
+    // current label stay centred as a group while the button never jitters.
+    const button = label.parentElement;
+    label.style.minWidth = "";
+    if (button instanceof HTMLElement) {
+      const chrome = button.getBoundingClientRect().width - label.getBoundingClientRect().width;
+      button.style.minWidth = `${Math.ceil(widest + chrome)}px`;
+    } else {
+      label.style.minWidth = `${Math.ceil(widest)}px`;
+    }
   };
 
   const formatTime = (ms: number) => {

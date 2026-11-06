@@ -72,6 +72,8 @@ export type BuildProfile = {
   name: string;
   outDir?: string | null;
   extraArgs?: string | null;
+  // Engine this profile builds with; empty means the app-wide engine setting.
+  engine?: string | null;
 };
 
 export type AgentStatusState =
@@ -201,6 +203,8 @@ export type AnnouncementSnapshot = {
   urlLabel?: LocalizedText;
   publishedAt?: string | null;
   expiresAt?: string | null;
+  // A screen the app draws for this announcement instead of its plain text.
+  template?: string | null;
 };
 
 export type PlatformUpdateSnapshot = {

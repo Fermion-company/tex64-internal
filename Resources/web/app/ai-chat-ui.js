@@ -169,13 +169,14 @@ export const initAiChatUi = (context, deps) => {
             if (locked)
                 item.setAttribute("aria-disabled", "true");
             item.dataset.model = model.id;
-            const desc = locked ? aiText("model_requires_pro") : aiText(model.descKey);
+            // Only state under the name (a locked model); no description of the model.
+            const desc = locked ? aiText("model_requires_pro") : "";
             const badge = model.pro ? '<span class="ai-model-badge">Pro</span>' : "";
             item.innerHTML =
                 '<svg class="ai-model-menu-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>' +
                     '<span class="ai-model-menu-text">' +
                     `<span class="ai-model-menu-name">${escapeHtml(model.name)}${badge}</span>` +
-                    `<span class="ai-model-menu-desc">${escapeHtml(desc)}</span>` +
+                    (desc ? `<span class="ai-model-menu-desc">${escapeHtml(desc)}</span>` : "") +
                     "</span>";
             list.appendChild(item);
         }
@@ -199,6 +200,12 @@ export const initAiChatUi = (context, deps) => {
     if (aiModelMenu instanceof HTMLElement) {
         aiModelMenu.addEventListener("click", (event) => {
             const target = event.target;
+            // Upsell close → hide the card, keep the menu.
+            if (target === null || target === void 0 ? void 0 : target.closest(".ai-model-upsell-close")) {
+                event.stopPropagation();
+                hideModelUpsell();
+                return;
+            }
             // Upsell CTA → open the pricing page in the browser.
             if (target === null || target === void 0 ? void 0 : target.closest(".ai-model-upsell-btn")) {
                 event.stopPropagation();
@@ -350,10 +357,15 @@ export const initAiChatUi = (context, deps) => {
     // first referenced item and clears once sent.
     let pdfPlace = null;
     let pendingPdfAsk = null;
+    // The range a spoken instruction is about, fixed when recording starts:
+    // the chip and the request read it in place of the editor's selection
+    // (which may have moved, or be empty: the paragraph around the cursor).
+    let voiceSelection = null;
+    const getSelectionForContext = () => { var _a, _b; return (_b = voiceSelection !== null && voiceSelection !== void 0 ? voiceSelection : (_a = deps.getActiveSelectionSnapshot) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : null; };
     const updateContextBar = createContextBarUpdater({
         aiContextBar,
         getActiveFilePath: deps.getActiveFilePath,
-        getActiveSelectionSnapshot: deps.getActiveSelectionSnapshot,
+        getActiveSelectionSnapshot: getSelectionForContext,
         getActiveCursorPosition: deps.getActiveCursorPosition,
         getPdfPlace: () => pdfPlace,
         onClearPdfPlace: () => {
@@ -492,7 +504,10 @@ export const initAiChatUi = (context, deps) => {
             aiUndo.disabled = !canUndo;
         }
     };
-    const _rawBuildContextPayload = createContextPayloadBuilder(deps);
+    const _rawBuildContextPayload = createContextPayloadBuilder({
+        ...deps,
+        getActiveSelectionSnapshot: getSelectionForContext,
+    });
     const buildContextPayload = (extras = {}) => {
         var _a;
         const refs = mentionController ? mentionController.getExplicitRefs() : [];
@@ -560,10 +575,7 @@ export const initAiChatUi = (context, deps) => {
         const title = document.createElement("span");
         title.className = "ai-empty-title";
         title.textContent = aiText("empty_title");
-        const desc = document.createElement("span");
-        desc.className = "ai-empty-desc";
-        desc.textContent = aiText("empty_desc");
-        head.append(title, desc);
+        head.append(title);
         const list = document.createElement("div");
         list.className = "ai-empty-starts";
         STARTERS.forEach((starter, index) => {
@@ -580,10 +592,7 @@ export const initAiChatUi = (context, deps) => {
             const rowTitle = document.createElement("span");
             rowTitle.className = "ai-start-title";
             rowTitle.textContent = aiText(`start_${starter.key}_title`);
-            const rowDesc = document.createElement("span");
-            rowDesc.className = "ai-start-desc";
-            rowDesc.textContent = aiText(`start_${starter.key}_desc`);
-            text.append(rowTitle, rowDesc);
+            text.append(rowTitle);
             row.append(icon, text);
             list.appendChild(row);
         });
@@ -605,10 +614,7 @@ export const initAiChatUi = (context, deps) => {
             const rowTitle = document.createElement("span");
             rowTitle.className = "ai-start-title";
             rowTitle.textContent = aiText("start_review_changes_title");
-            const rowDesc = document.createElement("span");
-            rowDesc.className = "ai-start-desc";
-            rowDesc.textContent = aiText("start_review_changes_desc").replace("{n}", String(documentIndex.git.changed));
-            text.append(rowTitle, rowDesc);
+            text.append(rowTitle);
             row.append(icon, text);
             list.appendChild(row);
         }
@@ -626,10 +632,14 @@ export const initAiChatUi = (context, deps) => {
         const footTitle = document.createElement("span");
         footTitle.className = "ai-start-title";
         footTitle.textContent = aiText("rules_title");
-        const footDesc = document.createElement("span");
-        footDesc.className = "ai-start-desc";
-        footDesc.textContent = documentIndex.rules.exists ? aiText("rules_desc") : `${aiText("rules_desc")} · ${aiText("rules_missing")}`;
-        footText.append(footTitle, footDesc);
+        footText.append(footTitle);
+        // State, not explanation: the rules file does not exist yet.
+        if (!documentIndex.rules.exists) {
+            const footState = document.createElement("span");
+            footState.className = "ai-start-desc";
+            footState.textContent = aiText("rules_missing");
+            footText.append(footState);
+        }
         foot.append(footIcon, footText);
         root.append(head, list, foot);
         return root;
@@ -1328,6 +1338,25 @@ export const initAiChatUi = (context, deps) => {
         askFromPdf,
         handlePdfReverseResult,
         handleTranscribeResult: (payload) => voice.handleTranscribeResult(payload),
+        holdVoiceSelection: (selection) => {
+            voiceSelection = selection !== null && selection !== void 0 ? selection : null;
+            updateContextBar();
+        },
+        sendVoiceInstruction: (text) => {
+            const trimmed = typeof text === "string" ? text.trim() : "";
+            if (!trimmed || !eventApi) {
+                voiceSelection = null;
+                updateContextBar();
+                return;
+            }
+            try {
+                eventApi.submitMessage(trimmed, { clearInput: false });
+            }
+            finally {
+                voiceSelection = null;
+                updateContextBar();
+            }
+        },
         handleDocumentMap,
         handleWorkspaceChanged,
         refreshContextBar: updateContextBar,

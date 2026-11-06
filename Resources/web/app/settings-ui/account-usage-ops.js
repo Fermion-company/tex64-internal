@@ -11,26 +11,25 @@ const INTL_LOCALE = {
 };
 const PLAN_LABEL = { free: "Free", basic: "Basic", pro: "Pro" };
 export const createSettingsAccountUsageOps = (runtime) => {
-    const { settingsUsage, settingsUsagePlan, settingsUsageReset, settingsUsageBar, settingsUsageFill, settingsUsageUsed, settingsUsagePct, settingsUsageNote, } = runtime.context.dom;
+    const { settingsUsage, settingsUsagePlan, settingsUsageReset, settingsUsageBar, settingsUsageFill, settingsUsageUsed, settingsUsagePct, } = runtime.context.dom;
     let access = null;
     let usage = null;
     const intlLocale = () => { var _a; return (_a = INTL_LOCALE[getUiLocale()]) !== null && _a !== void 0 ? _a : "en-US"; };
     const formatTokens = (value) => new Intl.NumberFormat(intlLocale()).format(Math.max(0, Math.round(value)));
     const render = () => {
-        var _a, _b, _c, _d, _e, _f, _g;
+        var _a, _b, _c, _d, _e, _f;
         if (!(settingsUsage instanceof HTMLElement))
             return;
-        const authenticated = Boolean((_a = runtime.state.platformAuth) === null || _a === void 0 ? void 0 : _a.authenticated);
-        const rawPlan = ((_c = (_b = access === null || access === void 0 ? void 0 : access.plan) !== null && _b !== void 0 ? _b : usage === null || usage === void 0 ? void 0 : usage.plan) !== null && _c !== void 0 ? _c : "free").toLowerCase();
-        const planLabel = (_d = PLAN_LABEL[rawPlan]) !== null && _d !== void 0 ? _d : rawPlan.charAt(0).toUpperCase() + rawPlan.slice(1);
-        const quota = (_f = (_e = usage === null || usage === void 0 ? void 0 : usage.summary) !== null && _e !== void 0 ? _e : access === null || access === void 0 ? void 0 : access.quota) !== null && _f !== void 0 ? _f : null;
+        const rawPlan = ((_b = (_a = access === null || access === void 0 ? void 0 : access.plan) !== null && _a !== void 0 ? _a : usage === null || usage === void 0 ? void 0 : usage.plan) !== null && _b !== void 0 ? _b : "free").toLowerCase();
+        const planLabel = (_c = PLAN_LABEL[rawPlan]) !== null && _c !== void 0 ? _c : rawPlan.charAt(0).toUpperCase() + rawPlan.slice(1);
+        const quota = (_e = (_d = usage === null || usage === void 0 ? void 0 : usage.summary) !== null && _d !== void 0 ? _d : access === null || access === void 0 ? void 0 : access.quota) !== null && _e !== void 0 ? _e : null;
         const limit = typeof (quota === null || quota === void 0 ? void 0 : quota.limitTokens) === "number" && Number.isFinite(quota.limitTokens) ? Math.max(0, quota.limitTokens) : 0;
         const used = typeof (quota === null || quota === void 0 ? void 0 : quota.usedTokens) === "number" && Number.isFinite(quota.usedTokens) ? Math.max(0, quota.usedTokens) : 0;
         const pct = limit > 0 ? Math.max(0, Math.min(100, (used / limit) * 100)) : 0;
         if (settingsUsagePlan instanceof HTMLElement) {
             settingsUsagePlan.textContent = `${aiText("plan_word")}: ${planLabel}`;
         }
-        const periodEnd = typeof (access === null || access === void 0 ? void 0 : access.periodEnd) === "string" ? access.periodEnd : (_g = quota === null || quota === void 0 ? void 0 : quota.periodEnd) !== null && _g !== void 0 ? _g : null;
+        const periodEnd = typeof (access === null || access === void 0 ? void 0 : access.periodEnd) === "string" ? access.periodEnd : (_f = quota === null || quota === void 0 ? void 0 : quota.periodEnd) !== null && _f !== void 0 ? _f : null;
         if (settingsUsageReset instanceof HTMLElement) {
             settingsUsageReset.textContent =
                 periodEnd && Number.isFinite(Date.parse(periodEnd))
@@ -54,11 +53,6 @@ export const createSettingsAccountUsageOps = (runtime) => {
         }
         if (settingsUsagePct instanceof HTMLElement) {
             settingsUsagePct.textContent = hasQuota ? `${pct.toFixed(0)}%` : "";
-        }
-        if (settingsUsageNote instanceof HTMLElement) {
-            const note = !authenticated && !hasQuota ? aiText("usage_signin") : "";
-            settingsUsageNote.textContent = note;
-            settingsUsageNote.classList.toggle("is-hidden", note.length === 0);
         }
     };
     onUiLocaleChange(() => render());

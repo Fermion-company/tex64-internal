@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 let historyIdentity = {};
 let historyToken = null;
@@ -348,8 +348,58 @@ contextBridge.exposeInMainWorld("tex64History", {
   },
 });
 
+contextBridge.exposeInMainWorld("tex64Prism", {
+  call: (action, payload = {}) => ipcRenderer.invoke("tex64:prism", action, payload),
+  // A dropped File's path on disk; Electron exposes it only here.
+  pathForFile: (file) => {
+    try { return webUtils.getPathForFile(file); } catch { return ""; }
+  },
+  onChange: (handler) => {
+    const listener = (_event, message) => {
+      if (message?.type === "prism:progress") handler(message.payload);
+    };
+    ipcRenderer.on("tex64:message", listener);
+    return () => ipcRenderer.removeListener("tex64:message", listener);
+  },
+});
+
+// Collaboration: actions go through invoke; Y.Doc sync / awareness bytes are
+// one-way frames in both directions (the renderer and main each hold a Y.Doc).
+const collabHandlers = new Set();
+ipcRenderer.on("tex64:collab:message", (_event, message) => {
+  collabHandlers.forEach((handler) => {
+    try {
+      handler(message);
+    } catch (error) {
+      console.error("tex64Collab handler error:", error);
+    }
+  });
+});
+contextBridge.exposeInMainWorld("tex64Collab", {
+  call: (action, payload = {}) => ipcRenderer.invoke("tex64:collab", action, payload),
+  onMessage: (handler) => {
+    if (typeof handler !== "function") return () => {};
+    collabHandlers.add(handler);
+    return () => collabHandlers.delete(handler);
+  },
+  send: (docId, bytes, meta = {}) => ipcRenderer.send("tex64:collab:send", { docId, bytes, kind: meta.kind || "sync", sessionId: meta.sessionId, epoch: meta.epoch }),
+});
+
 contextBridge.exposeInMainWorld("tex64Snippets", {
   call: (action, payload = {}) => ipcRenderer.invoke("tex64:snippets", action, payload),
+});
+
+contextBridge.exposeInMainWorld("tex64WordCount", {
+  count: (request = {}) => ipcRenderer.invoke("tex64:wordCount", request),
+  documentFor: (path) => ipcRenderer.invoke("tex64:documentFor", { path }),
+});
+
+contextBridge.exposeInMainWorld("tex64Zotero", {
+  call: (action, payload = {}) => ipcRenderer.invoke("tex64:zotero", action, payload),
+});
+
+contextBridge.exposeInMainWorld("tex64Arxiv", {
+  call: (action, payload = {}) => ipcRenderer.invoke("tex64:arxiv", action, payload),
 });
 
 contextBridge.exposeInMainWorld("tex64Git", {

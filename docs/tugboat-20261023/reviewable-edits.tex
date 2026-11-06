@@ -1,0 +1,238 @@
+\documentclass{ltugboat}
+\usepackage{amsmath}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+\def\url{\tburl}
+\title{Reviewing an assisted edit to an existing \LaTeX\ project}
+% Editorial draft: author attribution and correspondence to be confirmed
+% by the invited author before submission. No manuscript has been sent.
+\author{Fermion development team}
+\address{Fermion Inc., Japan}
+\netaddress{contact (at) fermion dot company}
+\begin{document}
+\maketitle
+\begin{abstract}
+An assisted edit should leave enough evidence to distinguish a change to
+source from a successful build and from a correct mathematical argument.
+We describe a small, reproducible workflow using an existing two-file
+LaTeX project. A centered-difference calculation supplies a deliberate
+error that compiles successfully. Source differences, an independent
+polynomial calculation, and inspection of the resulting PDF provide
+separate checks. The example also records an interrupted assistant turn
+and the distinction between a PDF on disk and the PDF currently shown
+in the editor.
+\end{abstract}
+
+\section{The review boundary}
+A mathematically wrong expression can be perfectly valid \LaTeX.
+Conversely, a correct edit can fail to build because a file or package is
+missing. An editor can also retain a previously successful \acro{PDF}
+after a failed or interrupted run. These cases call for different
+checks; a single green status or fluent explanation cannot distinguish
+them.
+
+We use TeX64, a desktop editor for \macOS{} and Windows, as a concrete
+example. Its Axiom assistant can read and edit files in the opened
+project, invoke a build, and inspect a \acro{PDF}. This article concerns
+the evidence left by those actions rather than a comparison of models
+or editing speed. The original fixture, the exact prompt, the actual
+edited source, and the source difference accompany the article.
+The argument and the build can be checked without access to Axiom.
+
+The authoring tool and the reviewing tool need not be the same.
+We keep the ordinary \texttt{.tex} files as the authoritative manuscript.
+The assistant's explanation is an observation about that manuscript,
+not a replacement for it. In particular, a statement that an equation
+was checked does not establish which revision was checked.
+
+\section{A deliberately wrong but compilable example}
+The fixture has this structure:
+\begin{verbatim}[\small]
+project/
+  main.tex
+  sections/stencil.tex
+\end{verbatim}
+The main file loads \texttt{amsmath}, sets a title, and uses
+\verb|\input{sections/stencil}|. It requires no external images,
+bibliography, shell escape, or nonstandard document class. It is an
+original fictional manuscript, not a student's answer or a client's
+paper. The section file defines
+\begin{equation}\label{eq:dh}
+ D_hu(x)=\frac{u(x+h)-2u(x)+u(x-h)}{h^2}.
+\end{equation}
+For a function with six continuous derivatives near $x$, the fixture
+then incorrectly prints
+\begin{equation}\label{eq:bad}
+ D_hu(x)=u''(x)+\frac{h}{12}u^{(4)}(x)+O(h^4).
+\end{equation}
+The prose says that the leading error is second order. Both the wrong
+formula and the inconsistent prose compile. The \TeX{} log therefore
+cannot serve as a mathematical correctness check.
+
+Taylor expansion gives
+\begin{align*}
+ u(x\mathbin{\pm}h)
+ &=u(x)\mathbin{\pm}hu'(x)+\frac{h^2}{2}u''(x)\\
+ &\quad\mathbin{\pm}\frac{h^3}{6}u^{(3)}(x)
+ +\frac{h^4}{24}u^{(4)}(x)\\
+ &\quad\mathbin{\pm}\frac{h^5}{120}u^{(5)}(x)+O(h^6).
+\end{align*}
+The sum cancels the odd powers. After subtracting $2u(x)$ and dividing
+by $h^2$, the corrected expression is
+\begin{equation}\label{eq:good}
+ D_hu(x)=u''(x)+\frac{h^2}{12}u^{(4)}(x)+O(h^4).
+\end{equation}
+This exposes the local edit clearly: the numerator of the leading
+error term must contain $h^2$, not $h$.
+
+\section{An independent numerical check}
+Take $u(x)=x^4$, $x=1$, and $h=1/2$. Exact rational arithmetic gives
+\begin{align*}
+ D_{1/2}u(1)
+ &=\frac{(3/2)^4-2+(1/2)^4}{(1/2)^2}
+ =\frac{25}{2},\\
+ u''(1)&=12,\\
+ D_{1/2}u(1)-u''(1)&=\frac12.
+\end{align*}
+Since $u^{(4)}(1)=24$, the corrected leading term is
+$(1/2)^2\,24/12=1/2$. The wrong term would give $1$.
+Here the higher-order terms vanish because the function is a quartic.
+This check is intentionally small and exact. It tests the disputed
+power of $h$ without introducing floating-point tolerances.
+
+A second rational value, such as $h=1/4$, gives an error of $1/8$.
+Halving $h$ divides the error by four for this polynomial. That fact
+illustrates second-order behavior for the fixture; it is not a timing
+measurement or a general empirical accuracy benchmark.
+
+\section{The assisted editing run}
+We opened the existing fixture folder in the installed TeX64 0.1.26
+on \macOS. The original source was first built and its \acro{PDF}
+retained. The request to Axiom specified the section file, the equation
+to repair, the independent polynomial check, and the limits of the
+edit. Its operative instructions were to derive the Taylor expansion,
+correct the leading power of $h$, preserve labels and project
+structure, build \texttt{main.tex}, and inspect the resulting
+\acro{PDF}. The exact request is in \texttt{axiom-prompt.txt}.
+
+In the section file, Axiom added the two Taylor expansions and the
+exact error calculation, replacing $h/12$ by
+$h^2/12$. The actual difference reports 23 added lines and 8 removed
+lines. The main document, packages, title, and existing equation labels
+were preserved. A separately written reference solution is supplied;
+This reference was prepared independently of the observed edit and is
+identified separately from the assistant output.
+
+The observed turn stopped at its processing limit before another
+model call. The application exposed a continuation action. A corrected
+\acro{PDF} existed on disk, while an earlier \acro{PDF} remained visible
+in the editor during inspection. We therefore did not infer successful
+visual review from the presence of the edited file or the build output.
+The continuation again displayed a processing-limit message, but the
+final editor view showed the corrected formula and polynomial check.
+The supplementary record distinguishes these observations. An interruption
+is useful evidence about the workflow, even when the source edit itself
+is correct.
+
+\section{Retaining reviewable artifacts}
+Before editing, copy the project to a new directory. Preserve the
+original source and original \acro{PDF}; do not use an old output as
+proof of a new build. After the run, retain these artifacts:
+\begin{enumerate}
+\item The exact original inputs and assistant request.
+\item The actual edited inputs and a unified source difference.
+\item The command, compiler version, exit status, and build log.
+\item The new \acro{PDF}, its checksum, and the pages inspected.
+\item The independent mathematical calculation and its assumptions.
+\end{enumerate}
+These items answer different questions. The difference shows what
+changed. The log shows whether the chosen inputs compiled. The
+checksum identifies which output was inspected. A visual check can
+find clipped equations or stale references. The polynomial calculation
+checks a mathematical consequence of the change.
+
+A byte-identical \acro{PDF} is not required across all machines:
+metadata, fonts, and compiler versions can differ. Checksums identify
+local artifacts, not portable mathematical equivalence. Retaining the
+source and compiler information makes those differences investigable.
+A successful build also does not establish that an arbitrary document
+is correct; this example has an explicit, independently checkable
+acceptance condition.
+
+\section{Building without the assistant}
+The supplementary fixture can be built with an ordinary \TeX{}
+distribution. In a copy of the original project, replace the section
+file by \path{axiom-stencil.tex}, the actual observed edit. Then run
+these commands from the directory containing \texttt{main.tex}:
+\begin{verbatim}[\small]
+pdflatex -interaction=nonstopmode \
+  -halt-on-error main.tex
+pdflatex -interaction=nonstopmode \
+  -halt-on-error main.tex
+\end{verbatim}
+The second pass resolves the equation references. Do not enable shell
+escape for this fixture. Check the exit codes and read the log for
+undefined references, missing files, and overfull boxes. Open the
+resulting \acro{PDF} and compare equations (1) and (2), the exponent in
+the error term, and the final value $1/2$ with the source.
+
+The source comparison can be produced independently of the editor:
+\begin{verbatim}[\small]
+diff -u before/stencil.tex \
+  after/stencil.tex
+shasum -a 256 main.pdf
+\end{verbatim}
+The supplementary record contains the commands actually run in our
+environment. The commands above describe the portable reproduction;
+they do not imply that a Windows run was performed. Windows behavior
+was not tested in this preparation.
+
+\section{Continuing an exported project}
+An Overleaf project can be downloaded as a source archive and unpacked
+before opening its folder in a local editor. Preserve relative file
+paths, the main document selection, the compiler choice, images, and
+bibliography inputs. A source archive is not the same as the project's
+compiled \acro{PDF}. Missing fonts or packages may need to be supplied
+locally. Overleaf's documentation describes its source-download
+procedure~\cite{overleaf}.
+
+For a migration check, first build the unchanged export. Then perform
+one bounded edit and compare both the source difference and the new
+\acro{PDF}. This separates an environment mismatch from an editing
+error. It also provides a usable stopping point if an assisted turn is
+interrupted.
+
+Local editing and compilation differ from the assistant's network
+operation. Axiom sends document context needed for its request to the
+service. This workflow therefore uses a fictional manuscript. It
+should not be described as entirely offline. Network access is also
+needed for an initial managed \TeX{} download; an existing installed
+\TeX{} distribution can be used instead.
+
+\section{Scope and limitations}
+This is one small, deliberately constructed example. It establishes
+that the captured source change can be reviewed, compiled, and checked
+against exact arithmetic. It does not estimate general assistant
+accuracy, saved time, energy use, adoption, or comparative performance.
+The interrupted turn and stale displayed output must remain in the
+record; removing them would hide an actual failure mode.
+
+The authoring team develops TeX64. The article and fixture are intended
+to explain a reproducible review procedure and disclose its limits.
+There are no purchase links or claims that a subscription is needed to
+reproduce the mathematical result. Larger projects, bibliographies,
+custom fonts, external build tools, and platform-specific behavior need
+their own recorded checks.
+
+\begin{thebibliography}{9}
+\bibitem{overleaf} Overleaf.
+Downloading a project.\newline
+\url{https://docs.overleaf.com/managing-projects-and-files/downloading-a-project}.
+\bibitem{tex64} Fermion Inc. TeX64 documentation.\newline
+\url{https://tex64.com/docs/}.
+\bibitem{tugboat} \TeX{} Users Group.
+\TUB{} author information and macros.\newline
+\url{https://tug.org/tugboat/location.html}.
+\end{thebibliography}
+\makesignature
+\end{document}

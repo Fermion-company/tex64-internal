@@ -1,9 +1,12 @@
 import type { AnnouncementSnapshot } from "./types.js";
 import type { PostToNative } from "./bridge-sender.js";
 import { getUiLocale, onUiLocaleChange, uiText } from "./i18n.js";
+import { axiomTryText, isAxiomTryAnnouncement, renderAxiomTry, type AxiomTryView } from "./announcement-axiom.js";
 
 type AnnouncementsUiDeps = {
   postToNative: PostToNative;
+  // Opens the Axiom chat beside the manuscript.
+  openAxiom: () => void;
 };
 
 export type AnnouncementsUi = {
@@ -69,9 +72,13 @@ export const initAnnouncementsUi = (
   const closeBtn = document.getElementById("announcement-modal-close");
   const linkBtn = document.getElementById("announcement-modal-link");
   const submitBtn = document.getElementById("announcement-modal-submit");
+  const primaryBtn = document.getElementById("announcement-modal-primary");
   const inputWrap = document.getElementById("announcement-modal-input-wrap");
   const inputEl = document.getElementById("announcement-modal-input");
   const statusEl = document.getElementById("announcement-modal-status");
+  const card = modal?.querySelector<HTMLElement>(".announcement-card") ?? null;
+  // A closed announcement keeps its buttons out of the Tab order.
+  if (modal instanceof HTMLElement) modal.inert = true;
 
   const queue: AnnouncementSnapshot[] = [];
   const seenInThisSession = new Set<string>();
@@ -79,6 +86,31 @@ export const initAnnouncementsUi = (
   let activeEntry: AnnouncementSnapshot | null = null;
   let isOpen = false;
   let isSubmitting = false;
+  let axiomView: AxiomTryView | null = null;
+  // Where focus was before the first announcement opened; it goes back there
+  // when the last one closes.
+  let returnFocus: HTMLElement | null = null;
+
+  // The "Try Axiom" screen: its demo in place of the body, and Open Axiom as
+  // the main action (the plans link steps back beside it).
+  const setAxiomTemplate = (entry: AnnouncementSnapshot | null) => {
+    axiomView?.stop();
+    axiomView = null;
+    const enabled = isAxiomTryAnnouncement(entry);
+    if (modal instanceof HTMLElement) {
+      if (enabled) modal.dataset.template = "axiom-try";
+      else delete modal.dataset.template;
+    }
+    if (primaryBtn instanceof HTMLButtonElement) {
+      primaryBtn.textContent = enabled ? axiomTryText.openAxiom() : "";
+      primaryBtn.classList.toggle("is-hidden", !enabled);
+      primaryBtn.setAttribute("aria-hidden", enabled ? "false" : "true");
+    }
+    if (!enabled || !entry || !(bodyEl instanceof HTMLElement)) return;
+    const paragraphs = resolveLocalized(entry.body).split(/\r?\n\s*\r?\n/).map((block) => block.trim()).filter(Boolean);
+    axiomView = renderAxiomTry(paragraphs.slice(1));
+    bodyEl.replaceChildren(axiomView.root);
+  };
 
   const setStatus = (message: string, tone: "" | "error" | "success" = "") => {
     if (!(statusEl instanceof HTMLElement)) return;
@@ -124,6 +156,7 @@ export const initAnnouncementsUi = (
     if (!modal) return;
     modal.classList.remove("is-open");
     modal.setAttribute("aria-hidden", "true");
+    modal.inert = true;
     isOpen = false;
     activeId = null;
     activeEntry = null;
@@ -133,6 +166,7 @@ export const initAnnouncementsUi = (
     isSubmitting = false;
     setInputMode(false);
     setLinkButton(null, null);
+    setAxiomTemplate(null);
   };
 
   const renderActiveEntry = () => {
@@ -159,6 +193,7 @@ export const initAnnouncementsUi = (
       activeEntry.kind === "feedback" ? null : activeEntry.url,
       resolveLocalized(activeEntry.urlLabel)
     );
+    setAxiomTemplate(activeEntry);
   };
 
   const showNext = () => {
@@ -181,12 +216,20 @@ export const initAnnouncementsUi = (
     const isFeedback = next.kind === "feedback";
     setInputMode(isFeedback);
 
+    const focused = document.activeElement;
+    if (!returnFocus && focused instanceof HTMLElement && !modal.contains(focused)) returnFocus = focused;
+    modal.inert = false;
     modal.classList.add("is-open");
     modal.setAttribute("aria-hidden", "false");
     isOpen = true;
 
     if (isFeedback && inputEl instanceof HTMLTextAreaElement) {
       inputEl.focus();
+    } else if (axiomView && card) {
+      // The demo is the point here; a ring on Close would pull the eye away.
+      // Focus waits in the dialog itself, and Tab still reaches every control.
+      card.tabIndex = -1;
+      card.focus();
     } else if (closeBtn instanceof HTMLButtonElement) {
       closeBtn.focus();
     }
@@ -196,13 +239,45 @@ export const initAnnouncementsUi = (
     deps.postToNative({ type: "announcement:dismiss", id }, true);
   };
 
+  const giveFocusBack = () => {
+    const target = returnFocus;
+    returnFocus = null;
+    if (target?.isConnected && target.getClientRects().length && !target.closest("[inert]")) {
+      target.focus({ preventScroll: true });
+    }
+  };
+
+  // The next queued announcement, or focus back where it was.
+  const showNextOrReturn = () => {
+    showNext();
+    if (!isOpen) giveFocusBack();
+  };
+
   const closeAndDismiss = () => {
     if (isSubmitting) return;
     if (activeId) {
       persistDismiss(activeId);
     }
     hide();
-    showNext();
+    showNextOrReturn();
+  };
+
+  // Tab and Shift+Tab stay inside the open announcement.
+  const keepTabInside = (event: KeyboardEvent) => {
+    if (!card) return;
+    // tabIndex -1 leaves out the card itself and the tabs not selected.
+    const items = Array.from(card.querySelectorAll<HTMLElement>("button, [href], input, textarea, select, [tabindex]")).filter(
+      (node) => node.tabIndex >= 0 && !node.matches(":disabled") && node.getClientRects().length > 0 && !node.closest("[hidden]")
+    );
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    const inside = active instanceof HTMLElement && active !== card && card.contains(active);
+    if (!inside || active === (event.shiftKey ? first : last)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    }
   };
 
   const submitFeedback = () => {
@@ -237,7 +312,7 @@ export const initAnnouncementsUi = (
     );
     window.setTimeout(() => {
       hide();
-      showNext();
+      showNextOrReturn();
     }, 900);
   };
 
@@ -257,6 +332,17 @@ export const initAnnouncementsUi = (
 
   if (submitBtn instanceof HTMLButtonElement) {
     submitBtn.addEventListener("click", () => submitFeedback());
+  }
+
+  if (primaryBtn instanceof HTMLButtonElement) {
+    primaryBtn.addEventListener("click", () => {
+      // Focus goes to the Axiom chat. Another announcement opening now would
+      // lose it at once, so the rest stay undismissed for the next check.
+      if (activeId) persistDismiss(activeId);
+      hide();
+      returnFocus = null;
+      deps.openAxiom();
+    });
   }
 
   if (inputEl instanceof HTMLTextAreaElement) {
@@ -279,6 +365,8 @@ export const initAnnouncementsUi = (
     if (event.key === "Escape") {
       event.preventDefault();
       closeAndDismiss();
+    } else if (event.key === "Tab") {
+      keepTabInside(event);
     }
   });
 

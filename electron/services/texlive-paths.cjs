@@ -44,30 +44,115 @@ const getWindowsLocalAppData = (env = process.env) => {
   return "";
 };
 
-const getManagedTexliveRoot = (
-  platform = process.platform,
-  env = process.env
-) => {
-  if (typeof env?.TEX64_MANAGED_TEXLIVE_ROOT === "string") {
-    const override = env.TEX64_MANAGED_TEXLIVE_ROOT.trim();
-    if (override) {
-      return platform === "win32"
-        ? path.win32.resolve(override)
-        : path.resolve(override);
-    }
+const getWindowsProgramData = (env = process.env) => {
+  const value = String(env?.ProgramData || env?.PROGRAMDATA || env?.ALLUSERSPROFILE || "").trim();
+  return value ? path.win32.resolve(value) : "C:\\ProgramData";
+};
+
+// TeX Live runs reliably only from a path of printable ASCII without spaces. A
+// Japanese (or spaced) Windows user name puts %LOCALAPPDATA% outside that, so the
+// managed tree then goes under %ProgramData%, the rule TinyTeX's installer uses.
+const isPlainPath = (value) =>
+  typeof value === "string" && value.length > 0 && [...value].every((ch) => ch.charCodeAt(0) > 32 && ch.charCodeAt(0) < 127);
+
+// Folders holding the managed TeX Live, one tree per TeX Live year (<base>/2026),
+// the folder new installs use first. The other Windows folder stays in the list so
+// a tree already installed there is still found. Scoring64 uses the same rules
+// (backend/scoring64/texenv.py), so the two apps share one TeX.
+const getManagedTexliveBases = (platform = process.platform, env = process.env) => {
+  if (typeof env?.TEX64_MANAGED_TEXLIVE_BASE === "string" && env.TEX64_MANAGED_TEXLIVE_BASE.trim()) {
+    const base = env.TEX64_MANAGED_TEXLIVE_BASE.trim();
+    return [platform === "win32" ? path.win32.resolve(base) : path.resolve(base)];
   }
-  const year = getManagedTexliveYear(env);
   if (platform === "darwin") {
-    return path.join("/Users", "Shared", "TeX64", "texlive", year);
+    return [path.join("/Users", "Shared", "TeX64", "texlive")];
   }
   if (platform === "win32") {
     const localAppData = getWindowsLocalAppData(env);
-    return localAppData
-      ? path.win32.join(localAppData, "TeX64", "texlive", year)
-      : "";
+    const own = localAppData ? path.win32.join(localAppData, "TeX64", "texlive") : "";
+    const shared = path.win32.join(getWindowsProgramData(env), "TeX64", "texlive");
+    return (isPlainPath(own) ? [own, shared] : [shared, own]).filter(Boolean);
   }
-  return "";
+  return [];
 };
+
+const pathFor = (platform) => (platform === "win32" ? path.win32 : path);
+
+// <base>/.installing-<year> exists while TeX Live's installer fills <base>/<year>;
+// such a tree is not used, and the next install replaces it.
+const getInstallingFlagPath = (root, platform = process.platform) => {
+  const p = pathFor(platform);
+  return p.join(p.dirname(root), `.installing-${p.basename(root)}`);
+};
+
+const getRootYear = (root, platform = process.platform) => {
+  const name = pathFor(platform).basename(String(root || ""));
+  return /^\d{4}$/.test(name) ? name : "";
+};
+
+// release-texlive.txt in a tree or an unpacked installer: "... version 2026".
+const readReleaseYear = (dir) => {
+  try {
+    const text = fs.readFileSync(path.join(dir, "release-texlive.txt"), "utf8").slice(0, 2000);
+    const match = text.match(/version\s+(\d{4})/);
+    return match ? match[1] : "";
+  } catch {
+    return "";
+  }
+};
+
+const hasTlmgr = (root, platform = process.platform, arch = process.arch) =>
+  getManagedTexliveBinDirs(platform, arch, root).some((dir) =>
+    ["tlmgr", "tlmgr.bat"].some((name) => fs.existsSync(pathFor(platform).join(dir, name)))
+  );
+
+// Every finished managed tree, newest TeX Live year first (the preferred folder
+// first within a year).
+const listManagedTexliveRoots = (
+  platform = process.platform,
+  env = process.env,
+  arch = process.arch
+) => {
+  if (typeof env?.TEX64_MANAGED_TEXLIVE_ROOT === "string" && env.TEX64_MANAGED_TEXLIVE_ROOT.trim()) {
+    const root = getManagedInstallRoot(null, platform, env);
+    return hasTlmgr(root, platform, arch) && !fs.existsSync(getInstallingFlagPath(root, platform)) ? [root] : [];
+  }
+  const found = [];
+  getManagedTexliveBases(platform, env).forEach((base, rank) => {
+    let names = [];
+    try {
+      names = fs.readdirSync(base);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const root = pathFor(platform).join(base, name);
+      if (/^\d{4}$/.test(name) && hasTlmgr(root, platform, arch) && !fs.existsSync(getInstallingFlagPath(root, platform))) {
+        found.push({ year: Number(name), rank, root });
+      }
+    }
+  });
+  found.sort((a, b) => b.year - a.year || a.rank - b.rank);
+  return found.map((entry) => entry.root);
+};
+
+// Where a new managed tree for TeX Live `year` goes.
+const getManagedInstallRoot = (year = null, platform = process.platform, env = process.env) => {
+  if (typeof env?.TEX64_MANAGED_TEXLIVE_ROOT === "string") {
+    const override = env.TEX64_MANAGED_TEXLIVE_ROOT.trim();
+    if (override) {
+      return platform === "win32" ? path.win32.resolve(override) : path.resolve(override);
+    }
+  }
+  const bases = getManagedTexliveBases(platform, env);
+  const chosen = /^\d{4}$/.test(String(year || "")) ? String(year) : getManagedTexliveYear(env);
+  return bases.length ? pathFor(platform).join(bases[0], chosen) : "";
+};
+
+// The managed TeX Live in use: the newest finished tree, else where a new one
+// would go ("" where there is none).
+const getManagedTexliveRoot = (platform = process.platform, env = process.env) =>
+  listManagedTexliveRoots(platform, env)[0] || getManagedInstallRoot(null, platform, env);
 
 const getManagedTexliveBinDirs = (
   platform = process.platform,
@@ -154,7 +239,15 @@ const getSystemTexliveBinDirs = (
     ];
   }
   if (platform === "win32") {
+    // any C:\texlive\<year> (a newer year than this build knows included), newest first
+    let installedYears = [];
+    try {
+      installedYears = fs.readdirSync("C:\\texlive").filter((name) => /^\d{4}$/.test(name)).sort().reverse();
+    } catch {
+      installedYears = [];
+    }
     return [
+      ...installedYears.map((y) => path.win32.join("C:\\", "texlive", y, "bin", "windows")),
       path.win32.join("C:\\", "texlive", year, "bin", "windows"),
       "C:\\texlive\\2026\\bin\\windows",
       "C:\\texlive\\2025\\bin\\windows",
@@ -256,6 +349,14 @@ module.exports = {
   DEFAULT_MANAGED_TEXLIVE_YEAR,
   getManagedTexliveYear,
   getWindowsLocalAppData,
+  getWindowsProgramData,
+  isPlainPath,
+  getManagedTexliveBases,
+  getInstallingFlagPath,
+  getRootYear,
+  readReleaseYear,
+  listManagedTexliveRoots,
+  getManagedInstallRoot,
   getManagedTexliveRoot,
   getManagedTexliveBinDirs,
   getTinytexRoot,

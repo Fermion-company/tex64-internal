@@ -250,6 +250,10 @@ const featureMethods = {
             typeof entry.expiresAt === "string" && entry.expiresAt.trim()
               ? entry.expiresAt
               : null,
+          template:
+            typeof entry.template === "string" && /^[a-z0-9-]{1,40}$/.test(entry.template)
+              ? entry.template
+              : null,
         };
       })
       .filter((entry) => entry !== null);

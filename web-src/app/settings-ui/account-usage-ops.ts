@@ -35,7 +35,6 @@ export const createSettingsAccountUsageOps = (runtime: SettingsUiRuntime): Setti
     settingsUsageFill,
     settingsUsageUsed,
     settingsUsagePct,
-    settingsUsageNote,
   } = runtime.context.dom;
   let access: PlatformAiAccessSnapshot | null = null;
   let usage: PlatformUsageSnapshot | null = null;
@@ -45,7 +44,6 @@ export const createSettingsAccountUsageOps = (runtime: SettingsUiRuntime): Setti
 
   const render = () => {
     if (!(settingsUsage instanceof HTMLElement)) return;
-    const authenticated = Boolean(runtime.state.platformAuth?.authenticated);
     const rawPlan = (access?.plan ?? usage?.plan ?? "free").toLowerCase();
     const planLabel = PLAN_LABEL[rawPlan] ?? rawPlan.charAt(0).toUpperCase() + rawPlan.slice(1);
     const quota = usage?.summary ?? access?.quota ?? null;
@@ -79,11 +77,6 @@ export const createSettingsAccountUsageOps = (runtime: SettingsUiRuntime): Setti
     }
     if (settingsUsagePct instanceof HTMLElement) {
       settingsUsagePct.textContent = hasQuota ? `${pct.toFixed(0)}%` : "";
-    }
-    if (settingsUsageNote instanceof HTMLElement) {
-      const note = !authenticated && !hasQuota ? aiText("usage_signin") : "";
-      settingsUsageNote.textContent = note;
-      settingsUsageNote.classList.toggle("is-hidden", note.length === 0);
     }
   };
 

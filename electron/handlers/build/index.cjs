@@ -7,9 +7,10 @@ const createBuildHandlers = (deps) => {
   const { fs, path } = deps;
   const resolvers = createBuildPathResolvers({ fs, path });
 
+  const core = createBuildCoreHandlers(deps, resolvers);
   return {
-    ...createBuildCoreHandlers(deps, resolvers),
-    ...createSynctexForwardHandler(deps, resolvers),
+    ...core,
+    ...createSynctexForwardHandler({ ...deps, resolveJumpDocument: core.resolveJumpDocument }, resolvers),
     ...createSynctexReverseHandler(deps, resolvers),
   };
 };

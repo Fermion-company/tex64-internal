@@ -1,4 +1,5 @@
 import { uiText } from "./i18n.js";
+import { createExplain } from "./explain.js";
 // One line naming what was found and where, so a user with an existing MacTeX
 // can see we are using *their* install rather than wondering what we did.
 export const describeDetection = (report) => {
@@ -53,7 +54,27 @@ export const INSTALL_VARIANT_LABELS = {
             badge: "",
             title: uiText("Install TeX Live", "TeX Live を導入"),
             detail: uiText("Every CTAN package, managed privately by TeX64.", "CTAN の全パッケージを TeX64 専用の場所に導入します。"),
-            size: uiText("about 5 GB · 30–60 min", "約 5 GB・30〜60 分"),
+            // measured 2026-09-30: install-tl, scheme-full, 72 min at about 40 Mbps
+            size: uiText("about 5 GB · 30 min–2 h", "約 5 GB・30 分〜2 時間"),
         };
     },
+};
+// What a setup choice does and costs (the download and disk size), behind a ▾
+// right under its button. Rebuilt with the labels, so it follows the UI
+// language; whether it is open survives the rebuild.
+const installExplainOpen = new Set();
+export const renderInstallExplain = (button, variant) => {
+    const labels = INSTALL_VARIANT_LABELS[variant];
+    const { button: toggle, panel } = createExplain([labels.detail, labels.size], { topic: labels.title, memory: installExplainOpen, key: `${button.id}:${variant}` });
+    const more = document.createElement("div");
+    more.className = "env-choice-more";
+    const row = document.createElement("div");
+    row.className = "explain-row";
+    row.append(toggle);
+    more.append(row, panel);
+    const previous = button.nextElementSibling;
+    if (previous === null || previous === void 0 ? void 0 : previous.classList.contains("env-choice-more"))
+        previous.replaceWith(more);
+    else
+        button.after(more);
 };

@@ -19,7 +19,7 @@
   --text: #1f2937;
   --text-soft: #64748b;
   --accent: #2563eb;
-  --accent-soft: rgba(37, 99, 235, 0.12);
+  --accent-soft: rgba(30, 138, 132, 0.12);
 }
 
 * {
@@ -529,6 +529,9 @@ body.is-live #pdf-reload { display: none; }
 
 .pdf-sync-highlight {
   position: absolute;
+  /* The border is drawn inside the box, so the marker does not reach into
+     the next line's ascenders. */
+  box-sizing: border-box;
   background: rgba(255, 220, 60, 0.35);
   border: 1.5px solid rgba(220, 180, 0, 0.6);
   border-radius: 3px;

@@ -22,7 +22,7 @@ type ChipEditor = {
 };
 
 const hoverText = () => uiText("This is the figure's data, needed to edit it on the canvas. Deleting it means the figure can no longer be reopened there.", "この図のデータです（キャンバスで編集するのに必要）。消すと「図をキャンバスで編集」が使えなくなります。");
-const chipLabel = () => uiText("▤ figure data (edit on canvas)", "▤ 図データ（キャンバスで編集）");
+const chipLabel = () => uiText("▤ Edit on canvas", "▤ キャンバスで編集");
 
 export const figureMetaLineNumbers = (lines: string[]): number[] => lines
   .map((line, index) => isFigureHeaderLine(line) ? index + 1 : 0)

@@ -68,6 +68,7 @@ const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
 const { registerTexizeHandlers } = require("./handlers/texize.cjs");
 const { registerTdomEngineHandlers } = require("./handlers/tdom-engine.cjs");
+const { registerArxivHandlers } = require("./handlers/arxiv.cjs");
 const { registerAiWebHandlers } = require("./handlers/ai-web.cjs");
 const { AiWebService } = require("./services/ai-web.cjs");
 const {
@@ -77,6 +78,7 @@ const {
 } = require("./services/ai-web-security.cjs");
 
 const { createMiscHandlers } = require("./handlers/misc.cjs");
+const { createPrismImportHandlers } = require("./handlers/prism-import.cjs");
 const { createAgentHandlers } = require("./handlers/agent.cjs");
 const { createApplicationMenuTemplate } = require("./app-menu.cjs");
 
@@ -271,6 +273,19 @@ const projectBoundary = (root) => {
 const { HistoryController } = require("./services/history-controller.cjs");
 const { WorkspaceOperationCoordinator } = require("./services/workspace-operation.cjs");
 const workspaceOperations = new WorkspaceOperationCoordinator();
+const { CollabHub } = require("./services/collab/hub.cjs");
+const { createCollabHandlers } = require("./handlers/collab.cjs");
+let collabHub = null;
+let collabHandlers = null;
+const sendCollab = (message) => {
+  const webContents = state.mainWindow?.webContents;
+  if (!webContents || webContents.isDestroyed()) return;
+  try {
+    webContents.send("tex64:collab:message", message);
+  } catch (error) {
+    console.warn("[collab] send failed", error?.message || error);
+  }
+};
 const buildService = new BuildService({
   onPdfBuilt: () => {
     if (!app.isPackaged || e2eHeadless) return;
@@ -399,7 +414,9 @@ const createMainWindow = () => {
   const windowOptions = {
     width: savedBounds?.width ?? 1280,
     height: savedBounds?.height ?? 820,
-    minWidth: 960,
+    // Side-by-side with another window must stay possible: never ask for more
+    // than half of the display the window opens on.
+    minWidth: Math.min(960, Math.floor((screen.getPrimaryDisplay()?.workAreaSize?.width || 1920) / 2)),
     minHeight: 600,
     show: !e2eHeadless,
     backgroundColor: "#1c2129",
@@ -603,6 +620,7 @@ const installApplicationMenu = () => {
       sendToRenderer("app:command", { command });
     },
     locale: state.uiLocale,
+    collabActive: Boolean(collabHub?.isActive()),
     terminalActive: Boolean(terminalWindow.window?.isFocused()),
     sendTerminalCommand: (command) => {
       const target = terminalWindow.window;
@@ -753,6 +771,12 @@ workspaceFileWatcher = new WorkspaceFileWatcher({
   onChange: (change) => {
     if (historyController?.blocked()) return;
     if (workspace.getRootPath() !== change.root || state.workspaceGeneration !== change.generation) return;
+    // A shared text file merges through its Y.Doc; the renderer receives the
+    // result as a document update, not as an external-change conflict.
+    if (collabHub?.ingestDisk(change.path)) {
+      workspaceHandlers.requestIndex(change.root);
+      return;
+    }
     sendToRenderer("file:externalChange", {
       ...change, workspaceId: state.workspaceId, workspaceGeneration: change.generation,
     });
@@ -882,9 +906,58 @@ gitController = new GitController({
     workspaceHandlers.requestIndex(workspace.getRootPath());
   },
 });
+collabHub = new CollabHub({
+  workspace,
+  state,
+  sendCollab,
+  withWorkspaceMutation: (operation) => workspaceHandlers.withWorkspaceMutation(operation),
+  trackSaved: (relativePath, content) => workspaceFileWatcher?.track(relativePath, content),
+  openWorkspacePath: (rootPath) => workspaceHandlers.handleOpenRecentProject(rootPath),
+  refreshTree: () => {
+    const rootPath = workspace.getRootPath();
+    if (rootPath) void workspaceHandlers.updateWorkspaceIfNeeded(rootPath, true);
+  },
+  // A version in the local History at session start / end and on every join /
+  // leave. Only when the lease is free; otherwise the hub skips it silently.
+  recordVersion: async (label) => {
+    const identity = { workspaceId: state.workspaceId, workspaceGeneration: state.workspaceGeneration };
+    if (!workspace.getRootPath() || !identity.workspaceId) return;
+    const { token } = await historyController.request("begin", { ...identity, purpose: "record" });
+    try {
+      await historyController.request("record", { ...identity, token, label });
+    } finally {
+      await historyController.request("release", { ...identity, token }).catch(() => {});
+    }
+  },
+  locale: () => state.uiLocale || "en",
+  userName: () => {
+    try {
+      return require("os").userInfo().username || "user";
+    } catch {
+      return "user";
+    }
+  },
+  collabRoot: () => process.env.TEX64_COLLAB_ROOT || path.join(app.getPath("home"), "TeX64 Collab"),
+  // Use the company relay by default. An explicitly empty override keeps LAN available.
+  relayUrl: () => process.env.TEX64_COLLAB_RELAY_URL ?? "wss://relay.tex64.com",
+  // Images over the shared-file limit go out as smaller copies.
+  reduceImage: require("./services/collab/image-reduce.cjs").createImageReducer(require("electron").nativeImage),
+});
+// E2E drivers (TEX64_E2E_USERDATA) reach the hub to simulate network loss.
+if (process.env.TEX64_E2E_USERDATA) global.__tex64CollabHub = collabHub;
+collabHub.on("state", () => installApplicationMenu());
+collabHandlers = createCollabHandlers({ ipcMain, hub: collabHub, state, workspace, sendCollab, getLocale: () => state.uiLocale || "en" });
+// Guests edit through the shared documents only. Git, History restores and
+// Axiom run on the host; a guest asking gets one line back.
+const COLLAB_GUEST_READ_ONLY = {
+  history: new Set(["status", "list", "inspect", "diff", "compare"]),
+  git: new Set(["status", "diff", "ahead-behind", "shelves", "recovery-files", "read-conflict"]),
+};
+const collabGuestRefusal = () => ({ ok: false, code: "COLLAB_GUEST", error: collabHandlers.guestError() });
 const gitCloneDestinations = new Map();
 ipcMain.handle("tex64:git", async (event, action, request) => {
   if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid Git owner." };
+  if (collabHub.isGuest() && !COLLAB_GUEST_READ_ONLY.git.has(action)) return collabGuestRefusal();
   try {
     if (typeof action !== "string" || !request || typeof request !== "object" || JSON.stringify(request).length > 16 * 1024 * 1024) throw new Error("Invalid Git request.");
     if (action === "choose-clone-destination") {
@@ -924,8 +997,59 @@ ipcMain.handle("tex64:snippets", async (event, action, request = {}) => {
   } catch (error) { return { ok: false, code: error.code, error: error.message }; }
 });
 
+const prismImportHandlers = createPrismImportHandlers({ dialog, state, envService, buildService, sendToRenderer });
+ipcMain.handle("tex64:prism", async (event, action, request = {}) => {
+  if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid Prism import owner." };
+  try {
+    if (typeof action !== "string" || !request || typeof request !== "object" || JSON.stringify(request).length > 64 * 1024) throw new Error("Invalid Prism import request.");
+    return { ok: true, ...(await prismImportHandlers.request(action, request)) };
+  } catch (error) { return { ok: false, code: error.code || "PRISM_IMPORT_ERROR", step: error.step || null, error: error.message }; }
+});
+
+const wordCount = require("./services/word-count.cjs");
+ipcMain.handle("tex64:wordCount", async (event, request = {}) => {
+  if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid word count owner." };
+  try {
+    if (!request || typeof request !== "object" || JSON.stringify(request).length > 32 * 1024 * 1024) throw new Error("Invalid word count request.");
+    const selection = typeof request.selection === "string" && request.selection ? wordCount.countLatex(request.selection, { body: false }) : null;
+    if (!workspace.getRootPath()) return { ok: true, document: null, selection };
+    const buffers = request.buffers && typeof request.buffers === "object" ? request.buffers : {};
+    const mainFile = await wordCount.resolveCountTarget(workspace, request);
+    const document = mainFile ? await wordCount.countDocument({ workspace, mainFile, buffers }) : null;
+    return { ok: true, document, selection };
+  } catch (error) { return { ok: false, code: error.code || "WORD_COUNT_ERROR", error: error.message }; }
+});
+
+// The document a file belongs to, resolved like a Build (live preview asks
+// once per fragment). Several owners come back as `candidates`.
+ipcMain.handle("tex64:documentFor", async (event, request = {}) => {
+  if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid document owner." };
+  try {
+    const file = typeof request.path === "string" ? request.path : "";
+    if (!workspace.getRootPath() || !/\.tex$/i.test(file)) return { ok: true, document: null };
+    const { resolveBuildTarget, BUILD_TARGET_CHOICE } = require("./services/tex-build-target.cjs");
+    try {
+      return { ok: true, document: await resolveBuildTarget(workspace, file) };
+    } catch (error) {
+      if (error?.code === BUILD_TARGET_CHOICE) return { ok: true, document: null, candidates: error.candidates || [] };
+      throw error;
+    }
+  } catch (error) { return { ok: false, code: error.code || "DOCUMENT_FOR_ERROR", error: error.message }; }
+});
+
+const { registerZoteroHandlers } = require("./handlers/zotero.cjs");
+registerZoteroHandlers({
+  ipcMain, workspace, state, safeStorage, ensureUserSettings,
+  withWorkspaceMutation: (operation) => workspaceHandlers.withWorkspaceMutation(operation),
+  afterBibWrite: async () => {
+    await workspaceHandlers.updateWorkspaceIfNeeded(workspace.getRootPath(), true);
+    workspaceHandlers.requestIndex(workspace.getRootPath());
+  },
+});
+
 ipcMain.handle("tex64:history", async (event, action, request) => {
   if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid history owner." };
+  if (collabHub.isGuest() && !COLLAB_GUEST_READ_ONLY.history.has(action)) return collabGuestRefusal();
   try {
     if (!request || typeof request !== "object" || JSON.stringify(request).length > 16 * 1024 * 1024) throw new Error("History request is too large.");
     const result = await historyController.request(action, request);
@@ -934,6 +1058,8 @@ ipcMain.handle("tex64:history", async (event, action, request) => {
 });
 
 workspaceChangeCoordinator.beforeChange = async (change = {}) => {
+  // prepareWorkspaceChange holds the workspace lease while this runs.
+  if (collabHub.session && collabHub.session.phase !== "opening") await collabHub.leave({ leaseHeld: true });
   await quiesceWorkspaceActivity();
   if (
     typeof change.fromRootPath === "string" &&
@@ -1170,12 +1296,14 @@ if (!hasSingleInstanceLock) {
         ? argv.filter(
             (arg) =>
               looksLikeOAuthCallbackUrl(arg) ||
-              Boolean(parseBillingCompletionDeepLink(arg)),
+              Boolean(parseBillingCompletionDeepLink(arg)) ||
+              /^tex64:\/\/collab\//i.test(String(arg)),
           )
         : [];
       if (protocolArgs.length > 0) {
         focusMainWindow();
         protocolArgs.forEach((arg) => {
+          if (collabHandlers?.handleInviteUrl(arg)) return;
           if (!queueBillingCompletionDeepLink(arg)) {
             queueOAuthCallbackUrl(arg);
           }
@@ -1193,6 +1321,7 @@ if (!hasSingleInstanceLock) {
 app.on("open-url", (event, url) => {
   event.preventDefault();
   focusMainWindow();
+  if (collabHandlers?.handleInviteUrl(url)) return;
   if (!queueBillingCompletionDeepLink(url)) {
     queueOAuthCallbackUrl(url);
   }
@@ -1289,6 +1418,7 @@ app.whenReady().then(() => {
     }
   }
   process.argv.forEach((arg) => {
+    if (collabHandlers?.handleInviteUrl(arg)) return;
     if (!queueBillingCompletionDeepLink(arg)) {
       queueOAuthCallbackUrl(arg);
     }
@@ -1426,6 +1556,7 @@ const acceptRendererQuitPreparation = (event, message) => {
 
 const shutdownQuitServices = () => {
   const steps = [
+    ["collab", () => collabHub?.session && collabHub.teardown(collabHub.session)],
     ["agent", () => agentService.abort()],
     ["build", () => buildHandlers.cancelAllBuilds()],
     ["terminal", () => terminalService?.killAll()],
@@ -1654,6 +1785,13 @@ ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
 });
 
 registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
+registerArxivHandlers({
+  ipcMain,
+  workspace,
+  state,
+  withWorkspaceMutation: (operation) => workspaceHandlers.withWorkspaceMutation(operation),
+  isOwner: (event) => event.sender === state.mainWindow?.webContents && event.senderFrame === event.sender.mainFrame,
+});
 registerTdomEngineHandlers({
   ipcMain,
   getTdomEngineService,
@@ -2073,6 +2211,7 @@ const handleRendererMessage = (event, message) => {
     return;
   }
   if (type === "ready") {
+    collabHandlers?.flushPendingInvites();
     const rootPath = workspace.getRootPath();
     if (!rootPath) {
       return;
@@ -2120,6 +2259,10 @@ const handleRendererMessage = (event, message) => {
   }
   if (type === "openRecentProject") {
     workspaceHandlers.handleOpenRecentProject(message.path);
+    return;
+  }
+  if (type === "openProjectPath") {
+    workspaceHandlers.openWorkspacePath(message.path, "import");
     return;
   }
   if (type === "getRecentProjects") {
@@ -2473,6 +2616,11 @@ const handleRendererMessage = (event, message) => {
     sendToRenderer("agent:steerResult", { requestId: message.requestId, conversationId: message.conversationId, accepted });
     return;
   }
+  if (type === "agent:run" && collabHub.isGuest()) {
+    sendToRenderer("agent:error", { conversationId: message.conversationId, message: collabHandlers.guestError() });
+    agentService.sendStatus("error", collabHandlers.guestError(), message.conversationId);
+    return;
+  }
   if (type === "agent:run") {
     const turn = validateAiModeTurn(message);
     if (!turn.ok) {
@@ -2571,11 +2719,11 @@ const handleRendererMessage = (event, message) => {
     return;
   }
   if (type === "env:detect") {
-    miscHandlers.handleEnvDetect({ force: message.force === true });
+    miscHandlers.handleEnvDetect({ force: message.force === true, remote: message.remote === true });
     return;
   }
   if (type === "env:install") {
-    miscHandlers.handleEnvInstall(message.target, message.variant);
+    miscHandlers.handleEnvInstall(message.target, message.variant, message.renew === true);
     return;
   }
 
@@ -2623,6 +2771,7 @@ ipcMain.on("tex64:pdf", (event, message) => {
       x: payload.x,
       y: payload.y,
       pdfPath: payload.path,
+      context: payload.context,
     });
     return;
   }

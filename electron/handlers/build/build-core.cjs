@@ -1,5 +1,7 @@
 const path = require("path");
 
+const PROFILE_ENGINES = new Set(["pdflatex", "lualatex", "xelatex", "uplatex"]);
+
 const createBuildCoreHandlers = (deps, resolvers) => {
   const {
     fs,
@@ -11,6 +13,7 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     sendBuildState,
     sendIssues,
     sendBuildLog,
+    sendToRenderer,
     ensureWorkspace,
     updateWorkspaceIfNeeded,
     handleOpenFile,
@@ -162,7 +165,9 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       typeof selected.outDir === "string" && selected.outDir.trim() ? selected.outDir.trim() : null;
     const extraArgs =
       typeof selected.extraArgs === "string" && selected.extraArgs.trim() ? selected.extraArgs.trim() : null;
-    return { outDir, extraArgs };
+    const engine =
+      typeof selected.engine === "string" && PROFILE_ENGINES.has(selected.engine.trim()) ? selected.engine.trim() : null;
+    return { outDir, extraArgs, engine };
   };
 
   const normalizeBuildProfile = (value) => {
@@ -300,6 +305,8 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       eventContext = { ...buildEventContext(options, targetFile), workspaceRoot: rootPath };
       const buildProfile = await resolveBuildProfile().catch(() => null);
       if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
+      // A profile that pins an engine wins over the app-wide engine setting.
+      if (buildProfile?.engine) options = { ...options, engine: buildProfile.engine };
       const outputProfile = buildService.resolveBuildOutputProfile(rootPath, targetFile, buildProfile);
       const expectedPdfPath = outputProfile.invalidDirectoryArgument ||
         (outputProfile.outDirRequested && !outputProfile.outDir)
@@ -481,6 +488,17 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       }
     } catch (error) {
       const errMsg = error?.message ?? String(error);
+      if (error?.code === "BUILD_TARGET_CHOICE" && Array.isArray(error.candidates)) {
+        // Not a failure: the renderer asks which document to build and
+        // sends the build again with that exact target.
+        if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
+        sendBuildState("idle", undefined, eventContext);
+        sendToRenderer?.("build:chooseTarget", {
+          requested: error.requested || null,
+          candidates: error.candidates.map(rendererPath),
+        });
+        return;
+      }
       console.error("[build] handleBuild error:", errMsg);
       if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
       sendBuildState("failed", errMsg, eventContext);
@@ -622,12 +640,42 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     sendIssues(0, "Canceling build...", "info", []);
   };
 
+  // The document a Jump from `requestedFile` lands in, decided like a Build
+  // (magic root, the including document, the user's main TeX; an explicit
+  // target is taken as is), and the PDF that document's Build writes.
+  // Throws BUILD_TARGET_CHOICE when several documents could own the file.
+  const resolveJumpDocument = async (requestedFile, { exactTarget = null } = {}) => {
+    const rootPath = ensureWorkspace();
+    if (!rootPath) return null;
+    let targetFile = exactTarget;
+    if (!targetFile && typeof workspace.resolveBuildTarget === "function") {
+      targetFile = await workspace.resolveBuildTarget(requestedFile);
+    }
+    if (!targetFile) return null;
+    targetFile = resolveWorkspaceBuildTarget(rootPath, targetFile);
+    const buildProfile = await resolveBuildProfile().catch(() => null);
+    const outputProfile = buildService.resolveBuildOutputProfile(rootPath, targetFile, buildProfile);
+    const pdfPath = outputProfile.invalidDirectoryArgument || (outputProfile.outDirRequested && !outputProfile.outDir)
+      ? null
+      : outputProfile.pdfPath;
+    const isFile = (file) => {
+      try { return fs.statSync(file).isFile(); } catch { return false; }
+    };
+    const synctexPath = pdfPath ? pdfPath.replace(/\.pdf$/i, ".synctex.gz") : null;
+    return {
+      targetFile: rendererPath(targetFile),
+      pdfPath,
+      built: Boolean(pdfPath && isFile(pdfPath) && (isFile(synctexPath) || isFile(synctexPath.replace(/\.gz$/, "")))),
+    };
+  };
+
   return {
     handleBuild,
     handleBuildCancel,
     handleClean,
     cancelAllBuilds,
     waitForBuildIdle,
+    resolveJumpDocument,
   };
 };
 

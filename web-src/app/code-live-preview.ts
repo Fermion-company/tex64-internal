@@ -16,18 +16,30 @@ import type { LivePreviewTarget } from "./viewer.js";
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
 import { getEditorModelPath } from "./editor-session/model-path.js";
 
-const createDebouncedTask = (task: () => void, delayMs: number) => {
+// Trailing debounce with an upper bound: a burst of keystrokes closer than
+// delayMs would otherwise keep pushing the task back and the paper would not
+// move until the hands stop. With maxWaitMs the task also fires once that much
+// time has passed since the first deferred call, so a long run of typing still
+// updates every maxWaitMs.
+const createDebouncedTask = (task: () => void, delayMs: number, maxWaitMs = 0) => {
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let firstDeferredAt = 0;
+  const fire = () => {
+    timer = null;
+    firstDeferredAt = 0;
+    task();
+  };
   const schedule = () => {
+    const now = Date.now();
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
-      task();
-    }, delayMs);
+    if (!firstDeferredAt) firstDeferredAt = now;
+    const wait = maxWaitMs > 0 ? Math.min(delayMs, Math.max(0, firstDeferredAt + maxWaitMs - now)) : delayMs;
+    timer = setTimeout(fire, wait);
   };
   schedule.cancel = () => {
     if (timer) clearTimeout(timer);
     timer = null;
+    firstDeferredAt = 0;
   };
   return schedule;
 };
@@ -51,6 +63,9 @@ export const initCodeLivePreview = ({
   getAppMode,
   getWorkspaceRoot,
   getRootFile,
+  getRootSource,
+  getLastBuildTarget,
+  getDocumentFor,
   getDirtyFileSnapshots,
 }: {
   getActiveGroup: () => EditorGroupState;
@@ -58,8 +73,30 @@ export const initCodeLivePreview = ({
   getAppMode: () => string;
   getWorkspaceRoot: () => string | null;
   getRootFile: () => string | null;
+  getRootSource?: () => string;
+  getLastBuildTarget?: () => string | null;
+  // The document Build would make of a fragment, once known (undefined while
+  // it is being resolved).
+  getDocumentFor?: (path: string) => string | null | undefined;
   getDirtyFileSnapshots: () => DirtySnapshot[];
 }) => {
+  // The document the live paper follows, decided like a Build: a file that is
+  // a document itself (\documentclass … \begin{document}) is its own root even
+  // when Settings names another; a fragment follows the document that reads
+  // it (main resolves it as Build does), else the root the user set, else the
+  // detected root, else the last document built.
+  const isStandaloneSource = (text: string) =>
+    /\\document(?:class|style)\s*(?:\[[^\]]*\])?\s*\{/.test(text.slice(0, 65536)) && text.includes("\\begin{document}");
+  const liveRootFor = (path: string | null, text: string | null) => {
+    const configuredRoot = getRootFile();
+    const isTex = Boolean(path && path.toLowerCase().endsWith(".tex"));
+    if (isTex && typeof text === "string" && isStandaloneSource(text)) return path;
+    const owner = isTex && path ? getDocumentFor?.(path) : null;
+    if (owner && /\.tex$/i.test(owner)) return owner;
+    if (configuredRoot && getRootSource?.() === "manual") return configuredRoot;
+    const lastBuilt = getLastBuildTarget?.() ?? null;
+    return configuredRoot || (lastBuilt && /\.tex$/i.test(lastBuilt) ? lastBuilt : null) || (isTex ? path : null);
+  };
   const bridge = (window as BridgeWindow).tex64Tdom;
   let active = false;
   let starting = false;
@@ -202,8 +239,8 @@ export const initCodeLivePreview = ({
   const captureExactInput = (path: string | null, editor: LiveEditor | null, editedAtEpochMs: number) => {
     if (!path || !PROJECT_SOURCE_RE.test(path) || !editor?.getValue) return;
     const workspaceRoot = getWorkspaceRoot();
-    const configuredRoot = getRootFile();
-    const rootFile = configuredRoot || (path.toLowerCase().endsWith(".tex") ? path : null);
+    const text = editor.getValue();
+    const rootFile = liveRootFor(path, text);
     const sessionKey = workspaceRoot && rootFile
       ? `${workspaceRoot}\0${rootFile}`
       : path.toLowerCase().endsWith(".tex") ? `legacy\0${path}` : null;
@@ -212,7 +249,7 @@ export const initCodeLivePreview = ({
       id: ++nextExactInputId,
       sessionKey,
       path,
-      text: editor.getValue(),
+      text,
       editAtEpochMs: editedAtEpochMs,
     });
   };
@@ -236,8 +273,7 @@ export const initCodeLivePreview = ({
     if (activeEditorPathMismatch()) return null;
     const current = currentProjectSource();
     const workspaceRoot = getWorkspaceRoot();
-    const configuredRoot = getRootFile();
-    const rootFile = configuredRoot || (current?.path.toLowerCase().endsWith(".tex") ? current.path : null);
+    const rootFile = liveRootFor(current?.path ?? null, current?.editor.getValue?.() ?? null);
     if (workspaceRoot && rootFile) {
       const buffers = new Map<string, string>();
       for (const snapshot of getDirtyFileSnapshots()) {
@@ -427,7 +463,9 @@ export const initCodeLivePreview = ({
   // 80ms, matching the engine's own client: the engine typesets a keystroke
   // in 20-60ms, so the debounce dominates end-to-end latency — 300ms (the
   // Pro live preview's value) made a ~50ms pipeline feel like half a second.
-  const debouncedPush = createDebouncedTask(pushCurrent, 80);
+  // While the hands keep moving the paper still follows every 120ms; the
+  // single-flight queue below keeps the engine at one request in flight.
+  const debouncedPush = createDebouncedTask(pushCurrent, 80, 120);
   // The first keystroke after a pause (a jump to another place, say) goes
   // out within a frame: 16ms still takes in the companion edit the editor
   // makes in the same task (the \end{…} after a \begin{…}, a closing \]).
