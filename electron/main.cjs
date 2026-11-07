@@ -422,7 +422,8 @@ const createMainWindow = () => {
     backgroundColor: "#1c2129",
     title: process.env.TEX64_EDITION === "education" ? "TeX64 Education" : "TeX64",
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 12, y: 8 },
+    // Centred on the 44px toolbar (measured: y 15 puts the buttons at 22px).
+    trafficLightPosition: { x: 12, y: 15 },
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

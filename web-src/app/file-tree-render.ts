@@ -66,7 +66,6 @@ export const createFileTreeRenderer = ({
         details.open = actions.getInitialFolderOpenState(node.path, depth);
         const summary = document.createElement("summary");
         summary.textContent = node.name;
-        summary.style.paddingLeft = `${6 + depth * 12}px`;
         summary.draggable = true;
         summary.classList.toggle("is-open", details.open);
         if (selection.kind === "dir" && selection.path === node.path) {
@@ -143,7 +142,6 @@ export const createFileTreeRenderer = ({
         button.type = "button";
         button.className = "file-item";
         button.textContent = node.name;
-        button.style.paddingLeft = `${18 + depth * 12}px`;
         button.dataset.path = node.path;
         button.draggable = true;
         if (dirtyPaths.has(node.path)) {

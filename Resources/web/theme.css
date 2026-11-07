@@ -115,7 +115,7 @@
   --mark-offset: 0.22em;
 
   --sidebar-width: 52px;
-  --sidebar-panel-width: calc((100vw - var(--sidebar-width) - 4px) * 0.25);
+  --sidebar-panel-width: clamp(240px, calc((100vw - var(--sidebar-width) - 4px) * 0.25), 280px);
   --topbar-height: 44px;
 }
 
@@ -499,6 +499,13 @@ body.has-onboarding .launcher {
   padding: 32px;
   align-items: flex-start;
 }
+/* No recent projects yet (the list is emptied on every render): a narrower
+   pair so the short empty line does not leave the actions off to the left.
+   The empty-state line itself is always in the DOM, so it cannot be the test. */
+.launcher-container:has(.launcher-recent-list:empty) {
+  max-width: 640px;
+  gap: var(--space-8);
+}
 
 /* Left column - brand and actions */
 .launcher-left {
@@ -876,8 +883,8 @@ html[lang="ja"] .launcher-action {
   align-items: center;
   justify-content: flex-end;
   gap: 0;
-  /* Leave breathing room above and below the 30px controls. */
-  height: 39px;
+  /* Fills the app's top row; 7px above and below the 30px controls. */
+  height: var(--topbar-height);
   box-sizing: border-box;
   padding: 0;
   background: var(--panel);
@@ -1830,7 +1837,7 @@ math-field.block-math-field::placeholder {
   color: var(--text);
 }
 
-.block-settings-card {
+.modal-card.block-settings-card {
   width: min(560px, calc(100vw - 48px));
   max-height: min(90vh, 960px);
   overflow: hidden;
@@ -1921,7 +1928,7 @@ math-field.block-math-field::placeholder {
   display: grid;
   grid-template-rows: auto auto 1fr;
   gap: 8px;
-  padding: 10px;
+  padding: var(--space-4);
   min-height: 0;
 }
 
@@ -1932,6 +1939,7 @@ math-field.block-math-field::placeholder {
 
 .search-input {
   flex: 1;
+  min-width: 0;
   background: var(--input-bg);
   color: var(--text);
   border: 1px solid var(--panel-border);
@@ -2380,13 +2388,14 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
+  /* Same centre on short and long pages: the scrollbar's 8px is always kept. */
+  scrollbar-gutter: stable;
   padding: 0;
   display: block;
 }
 .panel[data-panel="settings"] .settings-page {
   display: block;
   width: 100%;
-  max-width: 820px;
   margin: 0 auto;
   padding: 48px 44px 104px;
   box-sizing: border-box;
@@ -2394,7 +2403,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .panel[data-panel="settings"] .settings-page-header {
   position: static;
   z-index: auto;
-  padding: 0 2px 22px;
+  padding: 0 0 var(--space-7);
 }
 .panel[data-panel="settings"] .settings-page-title {
   font-size: 27px;
@@ -2407,7 +2416,9 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   display: block;
   gap: 0;
   margin: 0 0 20px;
-  padding: 2px 24px 8px;
+  /* 16px above and below the content: a row's own 16px on top, this 16px at
+     the foot (the last row drops its bottom padding below). */
+  padding: 0 var(--space-7) var(--space-5);
   background: var(--panel-muted);
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-lg);
@@ -2432,7 +2443,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
    the title's rule — two lines touching. The group card is already the frame;
    inside settings this content is frameless, like every other group's. */
 .panel[data-panel="settings"] .env-registry {
-  padding: 16px 0 6px;
+  padding: 16px 0 0;
   border: 0;
   border-radius: 0;
   background: none;
@@ -2444,18 +2455,20 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   align-items: center;
   justify-content: space-between;
   gap: 32px;
-  padding: 17px 0;
+  padding: var(--space-5) 0;
   border-bottom: 1px solid var(--panel-border);
   min-height: 0;
-}
-.panel[data-panel="settings"] .settings-item:last-child {
-  border-bottom: none;
-  padding-bottom: 17px;
 }
 .panel[data-panel="settings"] .settings-item.is-stacked {
   flex-direction: column;
   align-items: stretch;
-  gap: 12px;
+  gap: var(--space-3);
+  padding-block: var(--space-4);
+}
+.panel[data-panel="settings"] .settings-item:last-child,
+.panel[data-panel="settings"] .settings-group > .settings-actions:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 .panel[data-panel="settings"] .settings-label {
   display: flex;
@@ -2608,6 +2621,9 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   white-space: nowrap;
   justify-content: center;
   box-sizing: border-box;
+  /* 20px tall badge in a 13px title line: the 3.5px overhang each side sits in
+     the row's 8px padding, so Account stays as tall as the other rows (31px). */
+  margin-block: -3.5px;
 }
 
 /* Account's alert is good news (an update): its badge is enough, the row stays plain. */
@@ -3478,8 +3494,10 @@ html[lang="ja"] .settings-page .panel-button {
    not an instruction. */
 .env-detail {
   margin-top: 10px;
-  /* No box: the text lines up with the status above it. */
+  /* No box: the text starts where the status title does (hero padding 18 +
+     border 1 + icon 44 + gap 16). */
   padding: 0 18px;
+  padding-inline-start: calc(18px + 1px + 44px + var(--space-5));
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-soft);
@@ -3589,6 +3607,10 @@ html[lang="ja"] .settings-page .panel-button {
 .env-link:hover {
   color: var(--accent-strong);
 }
+/* Zotero's key link stands alone on its line: flush with the labels above. */
+#settings-zotero-open-keys {
+  margin-left: 0;
+}
 
 .env-progress {
   margin-top: 14px;
@@ -3634,7 +3656,7 @@ html[lang="ja"] .settings-page .panel-button {
 .env-registry-add {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-3);
   align-items: center;
 }
 
@@ -3657,7 +3679,8 @@ html[lang="ja"] .settings-page .panel-button {
   color: var(--text);
   border: 1px solid var(--input-border);
   border-radius: var(--radius-sm);
-  padding: 10px 12px;
+  height: 32px;
+  padding: 0 var(--space-4);
   font-size: 12px;
   transition: all 0.2s ease;
 }
@@ -3767,10 +3790,7 @@ html[lang="ja"] .settings-page .panel-button {
 
 .outline-section {
   display: block;
-  margin-top: 10px;
-}
-
-.outline-section:first-of-type {
+  /* The panel's 12px gap is the only space between sections. */
   margin-top: 0;
 }
 
@@ -3949,6 +3969,9 @@ html[lang="ja"] .settings-page .panel-button {
   padding: 3px 6px;
   border-radius: var(--radius-sm);
   font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   -webkit-user-select: none;
   user-select: none;
   position: relative;
@@ -3980,6 +4003,8 @@ html[lang="ja"] .settings-page .panel-button {
   transform: rotate(90deg);
 }
 
+/* The only indent: 20px per level (padding + margin). Rows keep their own
+   6px / 18px start, so the guide line sits under the parent's chevron. */
 .file-folder-children {
   display: grid;
   gap: 0;
@@ -4007,6 +4032,9 @@ html[lang="ja"] .settings-page .panel-button {
   padding: 3px 6px 3px 18px;
   border-radius: var(--radius-sm);
   font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
@@ -4031,9 +4059,18 @@ html[lang="ja"] .settings-page .panel-button {
   border: 1px dashed var(--accent);
 }
 
+/* Unsaved: the dot sits at the row's end, so a long name cut with … never hides it. */
+.file-item.is-dirty {
+  position: relative;
+  padding-right: 20px;
+}
+
 .file-item.is-dirty::after {
   content: "●";
-  margin-left: 6px;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
   font-size: 9px;
   color: var(--accent-strong);
 }
@@ -4382,6 +4419,11 @@ html[lang="ja"] .settings-page .panel-button {
   color: var(--danger-text);
 }
 
+.editor-notice-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .editor-notice-action {
   flex: 0 0 auto;
   padding: 3px 8px;
@@ -4481,8 +4523,8 @@ html[lang="ja"] .settings-page .panel-button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex: 0 0 100px;
-  max-width: 100px;
+  flex: 0 0 144px;
+  max-width: 144px;
   border: 1px solid var(--panel-border);
   border-top-width: 2px;
   border-bottom-color: var(--panel-border);
@@ -4598,10 +4640,12 @@ html[lang="ja"] .settings-page .panel-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .build-button-spinner {
   display: none;
+  flex-shrink: 0;
   width: 16px;
   height: 16px;
   border-radius: 50%;
@@ -4613,6 +4657,9 @@ html[lang="ja"] .settings-page .panel-button {
 /* Always named: ▶ alone read as play or preview (Astra pass 1, F07). */
 .build-button-label {
   display: inline;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -4678,6 +4725,21 @@ html[lang="ja"] .settings-page .panel-button {
   cursor: default;
   border-color: color-mix(in srgb, var(--accent) 60%, transparent);
   background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Above the 900px breakpoint Build keeps one width, idle or busy, so the
+   toolbar does not shift as the progress label changes. A longer label ends
+   in an ellipsis; the title carries the full text. */
+@media (min-width: 901px) {
+  #build-button,
+  #build-button.is-busy {
+    width: 96px;
+    min-width: 96px;
+    flex: 0 0 96px;
+    /* Idle content is centred, so this only matters when busy: 60px for the
+       label, enough for 「ビルド中…」 in full. */
+    padding: 0 8px 0 6px;
+  }
 }
 
 @keyframes build-spin {
@@ -4781,6 +4843,11 @@ html[lang="ja"] .settings-page .panel-button {
   display: grid;
   place-items: center;
   padding: 16px;
+}
+
+/* The PDF page view keeps its own paper margin; the frame only needs 8px. */
+.editor-viewer[data-view="pdf"] .editor-viewer-body {
+  padding: var(--space-3);
 }
 
 .editor-viewer-media {
@@ -4890,7 +4957,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
-  z-index: 10;
+  z-index: 1200;
 }
 
 .modal.is-open {
@@ -4907,6 +4974,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   box-shadow: var(--shadow);
   display: grid;
   gap: 16px;
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
   transform: translateY(10px) scale(0.97);
   transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.25s ease;
 }
@@ -4950,7 +5019,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 /* ── Announcement modal ──────────────────────────────────
    Lives at body level (outside .app) so the launcher's `opacity: 0` cascade
-   doesn't hide it; z-index above the launcher overlay (20).
+   doesn't hide it; z-index above the launcher overlay (20) and the other
+   modals (1200), since it takes focus whenever it opens.
    House look: paper + ink. Sans heading and body, mono eyebrow; the only
    colour is the app accent on the primary action. Fonts are the bundled
    subsets below (OFL; see fonts/LICENSE_OFL_*.txt). Japanese falls back to
@@ -4985,7 +5055,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 #announcement-modal {
-  z-index: 40;
+  z-index: 1300;
 }
 
 .announcement-card {
@@ -5124,7 +5194,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .announcement-card .modal-actions {
   margin-top: 0;
   padding-top: 0;
-  gap: 10px;
+  gap: var(--space-3);
   border-top: 1px solid var(--panel-border);
 }
 
@@ -5132,14 +5202,14 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   font-family: var(--announce-sans);
   font-size: 13.5px;
   font-weight: 500;
-  height: 38px;
-  padding: 0 18px;
+  height: 32px;
+  padding: 0 var(--space-5);
   border-radius: var(--radius-sm);
   letter-spacing: 0.005em;
 }
 
 .announcement-card #announcement-modal-close {
-  margin-right: auto;
+  margin-right: 0;
   margin-left: 0;
   padding: 0 12px;
   color: var(--text-soft);
@@ -5258,7 +5328,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 .diff-header-actions .panel-button {
-  padding: 8px 16px; /* Larger touch target */
+  height: 32px;
+  padding: 0 var(--space-5);
   font-size: 13px;
   border-radius: var(--radius-sm);
   min-width: 80px; /* Consistent width */
@@ -5321,7 +5392,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .modal-body {
   display: grid;
-  gap: 14px;
+  gap: var(--space-5);
 }
 
 .diff-modal-body {
@@ -5573,7 +5644,7 @@ input.modal-input {
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-sm);
   background: var(--panel-strong);
-  padding: 8px 10px;
+  padding: 8px var(--space-4);
   color: var(--text-soft);
   font-size: 11px;
 }
@@ -7457,8 +7528,8 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   font-weight: 500;
 }
 .ai-chat-log {
-  padding: 14px 12px 10px;
-  gap: 10px;
+  padding: 16px 12px 12px;
+  gap: var(--space-4);
 }
 
 /* Empty chat: a title line and four starting points as rows. */
@@ -7714,10 +7785,10 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   animation: none;
 }
 
-/* Composer: text above, controls below, one card. */
+/* Composer: text above, controls below, one card. Sides match the log (12px). */
 .ai-input-area {
-  padding: 6px 10px 10px;
-  gap: 6px;
+  padding: 8px 12px 12px;
+  gap: var(--space-3);
 }
 .ai-chat-input {
   flex-direction: column;
@@ -7749,6 +7820,10 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .ai-composer-left {
   flex: 1 1 auto;
   margin-left: -4px;
+  /* Room for the recording mic (its timer up to 99:59) is counted whether or
+     not it is recording, so the row breaks at the same width either way and
+     starting a recording never adds a line. */
+  min-width: 88px;
 }
 .ai-composer-right {
   flex: 1 0 auto;
@@ -9073,11 +9148,11 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .terminal-pane { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 .terminal-pane[hidden] { display: none; }
 .terminal-pane + .terminal-pane:not([hidden]) { border-left: 1px solid var(--panel-border); }
-.terminal-pane-header { display: none; height: 25px; flex-shrink: 0; align-items: center; padding-left: 10px; border-bottom: 1px solid var(--panel-border); }
+.terminal-pane-header { display: none; height: 28px; flex-shrink: 0; align-items: center; padding-left: var(--space-3); border-bottom: 1px solid var(--panel-border); }
 .terminal-pane-header button { margin-left: auto; }
 .terminal-pane.is-split .terminal-pane-header { display: flex; }
 .terminal-pane.is-split.is-active .terminal-pane-header { color: var(--text); box-shadow: inset 0 -1px var(--accent); }
-.terminal-screen { flex: 1; min-height: 0; overflow: hidden; padding: 6px 4px 6px 10px; }
+.terminal-screen { flex: 1; min-height: 0; overflow: hidden; padding: var(--space-3); }
 
 /* Keep xterm at its standard sizing: don't force `.xterm { height: 100% }` and
    don't override `.xterm-viewport` overflow. xterm sizes its own viewport to
@@ -9116,7 +9191,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--space-5);
   padding: 24px;
   position: relative;
 }
@@ -9146,7 +9221,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 
 .plans-head { text-align: left; max-width: 40rem; margin: 0; }
 .plans-heading {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -9405,7 +9480,8 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   max-height: none;
   flex: 1;
   min-height: 0;
-  padding: 8px 12px;
+  /* Keeps the 44px right lane for the absolutely placed menu button. */
+  padding: 8px 44px 8px 12px;
 }
 
 /* Full-window feedback overlay */
@@ -9850,7 +9926,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-color-well { position: relative; width: 22px; min-width: 22px; height: 22px; min-height: 22px !important; padding: 0 !important; border: 2px solid var(--panel-strong) !important; border-radius: 50% !important; box-shadow: 0 0 0 1px var(--panel-border); }
 .pro-canvas-color-well.is-none { background: linear-gradient(135deg, white 44%, #dc2626 45%, #dc2626 55%, white 56%) !important; }
 .pro-canvas-color-pop { position: fixed; z-index: 12; width: 202px; box-sizing: border-box; padding: 12px; color: var(--text); border: 1px solid var(--panel-border); border-radius: var(--radius-md); background: var(--panel-strong); box-shadow: 0 12px 32px rgb(0 0 0 / 35%); }
-.pro-canvas-color-grid { display: grid; grid-template-columns: repeat(8, 18px); gap: 5px; margin-bottom: 8px; }
+.pro-canvas-color-grid { display: grid; grid-template-columns: repeat(8, 18px); gap: var(--space-1); margin-bottom: 8px; }
 .pro-canvas-color-grid button { width: 18px; height: 18px; min-height: 18px; padding: 0; border: 1px solid rgb(255 255 255 / 30%); border-radius: 4px; }
 .pro-canvas-color-grid button.is-active { outline: 2px solid var(--accent); outline-offset: 1px; }
 .pro-canvas-color-pop > input[type="color"] { width: 100%; height: 28px; padding: 2px; }
@@ -9883,8 +9959,10 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   background: var(--panel-strong);
   box-shadow: var(--shadow);
   text-align: right;
+  max-height: calc(100dvh - 88px);
+  overflow-y: auto;
 }
-.pro-canvas-code-popover textarea { display: block; width: 100%; box-sizing: border-box; margin-bottom: 8px; resize: vertical; text-align: left; }
+.pro-canvas-code-popover textarea { display: block; width: 100%; box-sizing: border-box; margin-bottom: var(--space-5); resize: vertical; text-align: left; }
 .pro-canvas-code-popover textarea, .pro-canvas-text-popover input {
   padding: 6px 8px; color: var(--text); border: 1px solid var(--panel-border);
   border-radius: 6px; background: var(--control-bg); font: inherit;
@@ -10655,6 +10733,8 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .prism-fields[hidden], .prism-field[hidden] { display: none; }
 .prism-field { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 8px; }
 .prism-field select.history-name { width: 100%; }
+/* Project row and the field group below it read as one column of 8px rows. */
+.prism-import > .prism-field:not([hidden]) + .prism-fields { margin-top: -8px; }
 .prism-diff:empty { display: none; }
 .prism-diff.is-stale { opacity: .5; }
 .prism-issues { display: flex; flex-direction: column; gap: 4px; }
@@ -10671,6 +10751,9 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .snippets-columns { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(250px, 2fr); gap: 16px; }
 .snippets-library, .snippets-form, .snippets-form label, .snippets-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .snippets-form { gap: 12px; }
+/* The save state is empty until there is something to say: it keeps its place
+   as a live region but gives back the gap after it. */
+.snippets-form > [role="status"]:empty { margin-bottom: calc(-1 * var(--space-4)); }
 .snippets-form p { font-size: 13px; line-height: 1.5; color: var(--text-soft); margin: 0; }
 .snippets-dialog input, .snippets-dialog textarea { box-sizing: border-box; width: 100%; border: 1px solid var(--input-border); border-radius: var(--radius-sm); padding: 8px; background: var(--input-bg); color: var(--text); font: inherit; font-size: 13px; }
 .snippets-dialog input:focus, .snippets-dialog textarea:focus { outline: none; border-color: var(--teal-line); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -10680,7 +10763,9 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .snippets-dialog button:hover:not(:disabled) { background: var(--control-bg); }
 .snippets-dialog .snippets-list button[aria-pressed="true"] { background: var(--accent-soft); }
 .snippets-dialog button:disabled { opacity: .4; cursor: default; }
-.snippets-list { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow: auto; }
+/* 4px inside the scroll edge for the first and last row's focus ring; the
+   negative margin keeps the rows where they were (also .zotero-results). */
+.snippets-list { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow: auto; padding-block: 4px; margin-block: -4px; }
 .snippets-list button { text-align: left; overflow-wrap: anywhere; padding: 6px 12px; }
 .snippets-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .snippets-error { color: var(--danger-text); font-size: 12px; }
@@ -10709,7 +10794,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .compact-actions-content { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-direction: column; gap: 2px; width: max-content; max-width: 240px; padding: 8px; border: 1px solid var(--panel-border); border-radius: var(--radius-md); background: var(--bg-accent); box-shadow: var(--shadow); }
 .compact-actions:not([open]) > .compact-actions-content { display: none; }
 .compact-actions-content button { text-align: left; border-color: transparent; }
-.snippets-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.snippets-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: var(--space-5); }
 .snippets-heading h2 { margin: 0; }
 .snippets-scope { font-size: 13px; color: var(--text-soft); margin: 8px 0 18px; }
 .snippets-dialog button[hidden] { display: none; }
@@ -10717,7 +10802,8 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 
 /* arXiv search: the History dialog's frame with a result list. */
 .arxiv-dialog { width: min(560px, calc(100vw - 48px)); display: flex; flex-direction: column; gap: 8px; }
-.arxiv-dialog h2 { margin-bottom: 4px; }
+.arxiv-dialog h2 { margin-bottom: var(--space-3); }
+.arxiv-dialog .history-confirm-actions { margin-top: var(--space-3); }
 .arxiv-status { ; }
 .arxiv-status:empty { display: none; }
 .arxiv-results { display: flex; flex-direction: column; gap: 8px; max-height: 56vh; overflow: auto; }
@@ -10737,7 +10823,10 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .arxiv-cited { font-family: monospace; font-size: 12px; line-height: 20px; }
 
 /* Git follows the history panel's compact type and control scale. */
-#git-panel { display: flex; flex-direction: column; gap: 12px; padding: 14px; font-size: 13px; }
+/* Same frame as #history-panel: 16px / 12px, and the whole panel scrolls so a
+   long change list never pushes the message box and Commit out of reach. */
+#git-panel { display: flex; flex-direction: column; gap: 12px; padding: var(--space-5) var(--space-4); min-height: 0; overflow-y: auto; font-size: 13px; }
+#git-panel > * { flex-shrink: 0; }
 #git-panel .history-heading { gap: 8px; }
 #git-panel .history-heading > .history-button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #git-panel .history-heading h2 { flex: 0 0 auto; }
@@ -10747,7 +10836,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .git-secondary { font-size: 12px; color: var(--text-soft); }
 .git-dialog { font-size: 13px; }
 .git-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-.git-field { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.git-field { display: flex; flex-direction: column; gap: var(--space-3); margin: 12px 0; }
 #git-panel [hidden] { display: none !important; }
 
 .git-file-open { padding: 4px 0; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
@@ -10814,8 +10903,9 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .tool-dialog-title { margin: 0 0 16px; font-family: inherit; font-size: 18px; font-weight: 600; line-height: 24px; color: var(--text); }
 /* The project name after a title (共同編集 · thesis): quieter than the title itself. */
 .tool-dialog-title-detail { margin-left: 6px; font-weight: 400; color: var(--muted); }
+.collab-dialog .tool-dialog-title, .collab-dialog .tool-dialog-title-detail { min-width: 0; overflow-wrap: anywhere; }
 .tool-dialog-label { margin: 0 0 8px; font-size: 12px; font-weight: 500; color: var(--text-soft); }
-.tool-dialog-note { margin: 10px 0 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.tool-dialog-note { margin: var(--space-4) 0 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .tool-dialog-note code, .tool-dialog code { font-family: var(--tool-mono); font-size: 11.5px; color: var(--text-soft); }
 .tool-dialog-error { margin: 12px 0 0; font-size: 12px; color: var(--danger-text); }
 /* An explanation the user asks for (web-src/app/explain.ts): a small ▾ beside a
@@ -10831,7 +10921,7 @@ button.explain-toggle.explain-toggle[hidden] { display: none; }
 .explain-toggle svg { flex: none; transition: transform var(--duration-fast); }
 button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text); }
 .explain-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
-.explain-panel { margin: 4px 0 10px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--panel-muted); color: var(--text-soft); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.explain-panel { margin: 4px 0 8px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--panel-muted); color: var(--text-soft); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .explain-panel[hidden] { display: none; }
 /* A ▾ on its own line, at the end of the control above it (setup choices). */
 .explain-row { display: flex; justify-content: flex-end; }
@@ -10840,7 +10930,7 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .env-choice-more > .explain-panel { margin: 2px 0 0; border: 1px solid var(--panel-border); }
 /* Dialogs style their paragraphs (.snippets-form p, popover p); the panel keeps its own type. */
 .explain-panel.explain-panel p { margin: 0; font-size: inherit; line-height: inherit; color: inherit; }
-.explain-panel.explain-panel p + p { margin-top: 6px; }
+.explain-panel.explain-panel p + p { margin-top: var(--space-3); }
 /* Inside a column that already spaces its children, the gap is the margin. */
 .git-field > .explain-panel, .snippets-field > .explain-panel, .snippets-form > .explain-panel, .pro-canvas-canvas-popover > .explain-panel { margin: 0; }
 .explain-panel code { font-family: var(--tool-mono); font-size: 11.5px; }
@@ -10905,13 +10995,15 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .zotero-library { max-width: 220px; height: 32px; padding: 0 30px 0 12px; border: 1px solid var(--input-border); border-radius: var(--radius-sm); background: var(--input-bg); color: var(--text); font: inherit; font-size: 12.5px; text-overflow: ellipsis; }
 .zotero-library:focus { outline: none; border-color: var(--teal-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .zotero-list-label { margin: 16px 0 8px; }
-.zotero-results { display: flex; flex-direction: column; gap: 2px; height: auto; overflow-y: auto; margin: 0 -8px; padding: 0 8px; max-height: 252px; }
-.zotero-result { display: grid; grid-template-columns: 1fr auto; gap: 2px 16px; align-items: baseline; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.zotero-results { display: flex; flex-direction: column; gap: 2px; height: auto; overflow-y: auto; margin: -4px -8px; padding: 4px 8px; max-height: 252px; }
+/* The key column is as wide as the key, at most 180px (a long key ends in an
+   ellipsis); fit-content, not minmax(0, 180px), which would always take 180. */
+.zotero-result { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(180px); gap: 2px 16px; align-items: baseline; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .zotero-result:hover { background: var(--control-bg); }
 .zotero-result[aria-selected="true"] { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--teal-line); }
-.zotero-result-title { grid-column: 1; font-size: 13.5px; font-weight: 500; line-height: 1.35; }
+.zotero-result-title { grid-column: 1; font-size: 13.5px; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; }
 .zotero-result-meta { grid-column: 1; font-size: 12px; color: var(--text-soft); }
-.zotero-result-key { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-family: var(--tool-mono); font-size: 11px; color: var(--text-soft); }
+.zotero-result-key { grid-column: 2; grid-row: 1 / span 2; align-self: center; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--tool-mono); font-size: 11px; color: var(--text-soft); }
 .zotero-result[aria-selected="true"] .zotero-result-key { color: var(--teal-text); }
 :root[data-theme="light"] .zotero-result[aria-selected="true"] .zotero-result-key { color: var(--accent); }
 .zotero-empty { display: grid; place-items: center; align-content: center; gap: 6px; margin: 0; text-align: center; color: var(--muted); font-size: 12.5px; padding: 16px 0; }
