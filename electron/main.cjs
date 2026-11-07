@@ -12,6 +12,7 @@ const {
   shell,
   systemPreferences,
   Notification,
+  nativeTheme,
   utilityProcess,
 } = require("electron");
 const fs = require("fs");
@@ -1408,6 +1409,8 @@ app.whenReady().then(() => {
   if (!hasSingleInstanceLock) {
     return;
   }
+  // The app's own default theme; the renderer sends the saved choice once it loads.
+  nativeTheme.themeSource = "dark";
   protocol.handle(WORKSPACE_PDF_SCHEME, handleWorkspacePdfRequest);
   runStartupWebBuildIfNeeded();
   createMainWindow();
@@ -2573,6 +2576,11 @@ const handleRendererMessage = (event, message) => {
   }
   if (type === "shell:openExternal") {
     miscHandlers.handleOpenExternal(message.url);
+    return;
+  }
+  if (type === "appearance:theme") {
+    // The AI workspace webview reads prefers-color-scheme, which follows this.
+    if (message.theme === "dark" || message.theme === "light") nativeTheme.themeSource = message.theme;
     return;
   }
   if (type === "feedback:send") {

@@ -21,6 +21,12 @@ export const getCurrentAppearanceTheme = (): AppearanceTheme => currentTheme;
 const applyAppearanceTheme = (theme: AppearanceTheme) => {
   currentTheme = theme;
   document.documentElement.dataset.theme = theme;
+  // The AI workspace (a webview) and native dialogs follow the OS-level scheme, so hand it the app's choice.
+  try {
+    (window as Window & { tex64Bridge?: { postMessage?: (message: unknown) => void } }).tex64Bridge?.postMessage?.({ type: "appearance:theme", theme });
+  } catch {
+    // No host (tests, plain browser): the page theme still applies.
+  }
 };
 
 export const initAppearanceTheme = () => {

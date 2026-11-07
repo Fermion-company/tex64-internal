@@ -12,8 +12,16 @@ export const getStoredAppearanceTheme = () => {
 };
 export const getCurrentAppearanceTheme = () => currentTheme;
 const applyAppearanceTheme = (theme) => {
+    var _a, _b;
     currentTheme = theme;
     document.documentElement.dataset.theme = theme;
+    // The AI workspace (a webview) and native dialogs follow the OS-level scheme, so hand it the app's choice.
+    try {
+        (_b = (_a = window.tex64Bridge) === null || _a === void 0 ? void 0 : _a.postMessage) === null || _b === void 0 ? void 0 : _b.call(_a, { type: "appearance:theme", theme });
+    }
+    catch {
+        // No host (tests, plain browser): the page theme still applies.
+    }
 };
 export const initAppearanceTheme = () => {
     var _a;
