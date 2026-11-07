@@ -488,7 +488,8 @@ body.is-live #pdf-rotate-left,
 body.is-live #pdf-rotate-right,
 body.is-live #pdf-download,
 body.is-live #pdf-print,
-body.is-live #pdf-reload { display: none; }
+body.is-live #pdf-reload,
+body.is-live #pdf-fit-page { display: none; }
 
 .pdf-pages {
   margin: 0 auto;

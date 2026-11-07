@@ -124,8 +124,8 @@ export const initBlockInsertFlow = (context, deps) => {
             return;
         }
         if (!activeGroup.currentFilePath || !activeGroup.currentFilePath.endsWith(".tex")) {
-            deps.updateIssues(1, "Blocks can only be inserted in .tex files.", "error", [
-                { severity: "error", message: "Blocks can only be inserted in .tex files." },
+            deps.updateIssues(1, "Math can only be inserted in .tex files.", "error", [
+                { severity: "error", message: "Math can only be inserted in .tex files." },
             ]);
             return;
         }
@@ -211,8 +211,8 @@ export const initBlockInsertFlow = (context, deps) => {
             return;
         }
         if (!activeGroup.currentFilePath || !activeGroup.currentFilePath.endsWith(".tex")) {
-            deps.updateIssues(1, "Blocks can only be inserted in .tex files.", "error", [
-                { severity: "error", message: "Blocks can only be inserted in .tex files." },
+            deps.updateIssues(1, "Math can only be inserted in .tex files.", "error", [
+                { severity: "error", message: "Math can only be inserted in .tex files." },
             ]);
             return;
         }

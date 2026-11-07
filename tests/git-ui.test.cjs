@@ -24,6 +24,10 @@ for (const identityReady of [true, false]) test(`Git UI refresh and workspace bi
  await page.evaluate(()=>window.notify({type:'saveResult',payload:{ok:false}}));await page.waitForTimeout(200);assert.equal(await page.evaluate(()=>window.statusCalls),2);
  await page.evaluate(()=>{document.querySelector('#git-panel > .history-error').textContent='操作結果';window.entries=[];window.notify({type:'file:externalChange',payload:{workspaceId:'A'}});});await page.waitForFunction(()=>window.statusCalls===3); assert.equal(await page.locator('#git-panel > .history-error').textContent(),'操作結果');
  await page.getByRole('button',{name:'main ▾',exact:true}).click();assert.equal(await page.locator('dialog[open]').count(),1);
+ const branchAccept=page.locator('dialog[open] button.is-primary'),branchName=page.locator('dialog[open] input'),branchList=page.locator('dialog[open] select');
+ assert.equal(await branchAccept.textContent(),'切り替える');assert.equal(await branchList.isDisabled(),false);
+ await branchName.fill('feature');assert.equal(await branchAccept.textContent(),'作成して切り替える');assert.equal(await branchList.isDisabled(),true);
+ await branchName.fill(' ');assert.equal(await branchAccept.textContent(),'切り替える');assert.equal(await branchList.isDisabled(),false);
  await page.evaluate(()=>{window.identity='B';window.notify({type:'updateWorkspace',payload:{workspaceId:'B'}});});
  await page.waitForFunction(()=>!document.querySelector('dialog[open]'));await page.waitForFunction(()=>document.querySelector('.history-heading').textContent.includes('other'));await page.evaluate(()=>{window.staleOnce=true;window.notify({type:'file:externalChange',payload:{}});}); await page.waitForFunction(()=>document.querySelector('#git-panel > .history-error').textContent.includes('プロジェクトが変わりました')); await page.evaluate(()=>window.notify({type:'file:externalChange',payload:{}})); await page.waitForFunction(()=>document.querySelector('#git-panel > .history-error').textContent===''); assert.deepEqual(errors,[]);
 });

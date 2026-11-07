@@ -22,6 +22,3 @@ export type BlockInputDeps = {
   onMathFieldSubmit?: () => void;
   onMathCaptureRequest?: () => void;
 };
-
-export type BlockSettingsPage = "menu" | "insert-format" | "suggestions";
-

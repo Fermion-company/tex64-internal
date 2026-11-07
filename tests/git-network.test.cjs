@@ -100,7 +100,7 @@ test('connect does not invoke global filters or helpers; bundled auth approval b
  await f.run(['config','--global','credential.helper',`!touch '${marker}'`]);
  const globalFile=path.join(f.runtime.env.HOME,'.gitconfig'); const original=await fs.readFile(globalFile);
  await f.initialize(); await assert.rejects(f.network.fetch({remote:'origin'}),{code:'GIT_CREDENTIAL_HELPER_UNTRUSTED'});
- let plan=await f.network.planAuthentication(); assert.equal(plan.review.actionLabel,'TeX64の認証を使う'); assert(!JSON.stringify(plan).includes(marker));
+ let plan=await f.network.planAuthentication(); assert.equal(plan.review.actionLabel,'GitHub 認証を使う'); assert(!JSON.stringify(plan).includes(marker));
  await f.network.approveAuthentication({planId:plan.planId}); const endpoint=await f.network.endpoint('origin'); assert(endpoint.flags.includes('credential.helper=')); assert(endpoint.flags.some(s=>s.includes(f.runtime.credentialManager)));
  await f.network.fetch({remote:'origin'}); assert.deepEqual(await fs.readFile(globalFile),original); await assert.rejects(fs.access(marker));
  await assert.rejects(f.network.approveAuthentication({planId:plan.planId}),{code:'GIT_PLAN_EXPIRED'});

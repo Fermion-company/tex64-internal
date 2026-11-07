@@ -85,7 +85,7 @@ const setup = () => {
   });
   const dialog = () => body.children.find((node) => node.tagName === "DIALOG") ?? null;
   const steps = () => dialog()?.find((node) => node.className === "prism-steps").children.map((item) => item.text()) ?? [];
-  const closeButton = () => dialog().find((node) => node.tagName === "BUTTON" && node.textContent === "Close");
+  const closeButton = () => dialog().find((node) => node.tagName === "BUTTON" && (node.textContent === "Close" || node.textContent === "Cancel"));
   return { ui, calls, starts, progress: (payload) => onProgress(payload), dialog, steps, closeButton, deps };
 };
 
@@ -116,6 +116,7 @@ test("closing while the zip unpacks ends that session and its late result is dro
   page.progress({ sessionId: id, step: "extract", status: "running", current: 3, total: 10 });
   page.progress({ sessionId: "someone-else", step: "extract", status: "running", current: 9, total: 10 });
   assert.match(page.steps()[0], /Unpack 3\/10/);
+  assert.equal(page.closeButton().textContent, "Cancel", "a running unpack is stopped by the button, so it says Cancel");
 
   page.closeButton().dispatch("click");
   assert.equal(page.dialog(), null);
@@ -154,6 +155,7 @@ test("reopening while the first zip unpacks: the first result neither builds nor
   const builds = page.calls.filter((call) => call.action === "build");
   assert.equal(builds.length, 1);
   assert.equal(builds[0].payload.sessionId, second);
+  assert.equal(page.closeButton().textContent, "Close", "nothing runs after the build, so the button says Close");
   page.closeButton().dispatch("click");
   assert.deepEqual(page.calls.filter((call) => call.action === "end").map((call) => call.payload.sessionId), [first, second]);
 });

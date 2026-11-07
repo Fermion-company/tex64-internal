@@ -58,7 +58,7 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
   const message = el("input", "history-name"); message.placeholder = uiText("Describe the change", "変更の要点"); message.setAttribute("aria-label", message.placeholder); message.maxLength = 16000;
   const commit = button(uiText("Commit", "コミット"), () => void perform("commit", {message: message.value}, true).then((success) => { if (success) message.value = ""; }));
   commit.classList.add("is-primary");
-  const network = button(uiText("Check for updates", "更新を確認"), () => void networkDialog());
+  const network = button(uiText("Push & pull…", "送受信…"), () => void networkDialog());
   const clone = button(uiText("Clone into another folder…", "別フォルダに取得…"), () => void cloneDialog());
   const merge = button(uiText("Merge branch…", "ブランチを取り込む…"), () => void mergeDialog());
   const tag = button(uiText("Add tag…", "タグを付ける…"), () => void tagDialog());
@@ -193,9 +193,16 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
     const content = el("div"), select = refSelect("refs/heads/", true);
     content.append(select);
     const name = field(uiText("New branch", "新しいブランチ")); content.append(name.wrapper);
-    dialog(uiText("Branch", "ブランチ"), content, uiText("Continue", "続ける"), async () => {
+    const modal = dialog(uiText("Branch", "ブランチ"), content, uiText("Switch", "切り替える"), async () => {
       if (!name.input.value.trim() && !select.value) throw new Error(uiText("Choose a branch.", "ブランチを選んでください。"));
       return perform(name.input.value.trim() ? "branch-create" : "branch-switch", name.input.value.trim() ? {name: name.input.value.trim()} : {ref: select.value}, true);
+    });
+    // A new name wins over the chosen branch, so the button and the list say so.
+    const accept = modal.querySelector<HTMLButtonElement>("button.is-primary");
+    name.input.addEventListener("input", () => {
+      const creating = Boolean(name.input.value.trim());
+      select.disabled = creating;
+      if (accept) accept.textContent = creating ? uiText("Create and switch", "作成して切り替える") : uiText("Switch", "切り替える");
     });
   }
   async function mergeDialog() {
@@ -269,7 +276,7 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
     const open = (label: string, action: () => void) => button(label, () => { modal.close(); action(); });
     content.append(open(uiText("Connect GitHub…", "GitHubに接続…"), () => void connectDialog()),
       open(uiText("Commit identity…", "作成者…"), () => void authorDialog()),
-      open(uiText("TeX64 authentication…", "TeX64の認証…"), () => void authenticationDialog()),
+      open(uiText("Git authentication…", "Git の認証…"), () => void authenticationDialog()),
       open(uiText("Sign in to GitHub…", "GitHubにログイン…"), () => void run(async () => { await call("authenticate"); })));
     const modal = dialog(uiText("Git settings", "Git設定"), content);
   }
@@ -315,7 +322,7 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
   async function networkDialog() {
     if (!state?.remotes?.length) return connectDialog();
     const content = el("div"), remote = remoteSelect(); content.append(remote);
-    const modal = dialog(uiText("Check for updates", "更新を確認"), content, uiText("Fetch", "取得"), async () => {
+    const modal = dialog(uiText("Push & pull", "送受信"), content, uiText("Fetch", "取得"), async () => {
       if (!await run(() => saved("fetch", () => call("fetch", {args: {remote: remote.value}})))) return false;
       const choices = el("div"), ref = refSelect(`refs/remotes/${remote.value}/`), counts = el("p", "git-secondary");
       const connected = el("p", "", remote.value); connected.title = state?.remotes?.find(item => item.name === remote.value)?.url || "";
@@ -332,10 +339,10 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
         catch { if (version === countVersion) counts.textContent = uiText("Could not compare these histories", "履歴を比較できませんでした"); }
       };
       ref.onchange = () => void updateCounts(); void updateCounts();
-      choices.append(button(uiText("Merge…", "統合…"), () => void perform("merge", {ref: ref.value}, true)),
+      choices.append(button(uiText("Merge incoming…", "受信を取り込む…"), () => void perform("merge", {ref: ref.value}, true)),
         button(uiText("Track…", "追跡先…"), () => void perform("set-upstream", {localRef: state?.branchRef, remoteRef: ref.value}, true)));
       const pushTarget = {remote: remote.value, ref: state?.branchRef, oid: state?.head};
-      const reviewModal = dialog(uiText("Remote changes", "接続先の変更"), choices, uiText("Push", "送信"), async () => {
+      const reviewModal = dialog(uiText("Remote changes", "接続先の変更"), choices, uiText("Push changes", "変更を送信"), async () => {
         if (!pushTarget.oid || !pushTarget.ref) throw new Error(uiText("Create a commit first.", "先にコミットしてください。"));
         return run(() => saved("push", () => send("push", pushTarget)));
       });
@@ -362,7 +369,7 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
     list.replaceChildren();
     if (!state?.repository) { list.append(button(uiText("Connect GitHub…", "GitHubに接続…"), () => void connectDialog())); network.hidden = true; return; }
     network.hidden = phase === "conflict" || state.operation === "merge";
-    network.textContent = state.remotes?.length ? uiText("Check for updates", "更新を確認") : uiText("Connect GitHub…", "GitHubに接続…");
+    network.textContent = state.remotes?.length ? uiText("Push & pull…", "送受信…") : uiText("Connect GitHub…", "GitHubに接続…");
     if (!state.supported) { list.append(el("p", "git-secondary", state.unsupportedReason || uiText("This repository needs attention.", "このリポジトリの設定を確認してください。"))); return; }
     const entries = state.status?.entries || [];
     shelve.hidden = entries.length === 0; shelve.disabled = busy || phase !== "idle"; unshelve.disabled = busy || phase !== "idle";

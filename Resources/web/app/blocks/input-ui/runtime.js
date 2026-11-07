@@ -14,7 +14,6 @@ export const createBlockInputRuntime = (context, deps, initial) => {
             mathInlineWrap: "inline-dollar",
             mathDisplayWrap: "display-bracket",
             blockSettingsOpen: false,
-            activeBlockSettingsPage: "menu",
             formatMenuOpen: false,
             mathWysiwygSettings: initial.mathWysiwygSettings,
         },

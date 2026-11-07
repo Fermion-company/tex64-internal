@@ -419,9 +419,9 @@ export const initFileTreeUi = (
   const openDeleteModal = (path: string, kind: "file" | "dir") => {
     deleteTargetPath = path;
     deleteTargetType = kind;
-    const name = path.split("/").filter(Boolean).pop() ?? path;
     setText(deleteModalTitle, kind === "dir" ? uiText("Delete Folder", "delete folder") : uiText("Delete File", "delete file"));
-    setText(deleteModalTarget, name);
+    // The workspace-relative path, so same-named files in other folders differ.
+    setText(deleteModalTarget, path);
     // What deleting means waits behind the title's ▾.
     if (deleteModalTitle instanceof HTMLElement && deleteModalHelp instanceof HTMLElement) {
       const [, panel] = explainedHeading(

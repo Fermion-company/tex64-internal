@@ -337,12 +337,12 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
             sync.disabled = false;
         }
     };
-    const sync = button(uiText("Refresh citations", "引用を更新"), () => {
+    const sync = button(uiText("Sync .bib", ".bib を同期"), () => {
         if (busy)
             return;
         busy = true;
         sync.disabled = true;
-        setStatus(uiText("Refreshing…", "更新中…"));
+        setStatus(uiText("Syncing…", "同期中…"));
         const activeFilePath = getActiveFilePath();
         void call("sync", { activeFilePath, documentMainFile: citationDocumentFor(activeFilePath) })
             .then((result) => {

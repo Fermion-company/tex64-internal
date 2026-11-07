@@ -315,12 +315,11 @@ export const initFileTreeUi = (context, deps) => {
         deleteModal.setAttribute("aria-hidden", open ? "false" : "true");
     };
     const openDeleteModal = (path, kind) => {
-        var _a;
         deleteTargetPath = path;
         deleteTargetType = kind;
-        const name = (_a = path.split("/").filter(Boolean).pop()) !== null && _a !== void 0 ? _a : path;
         setText(deleteModalTitle, kind === "dir" ? uiText("Delete Folder", "delete folder") : uiText("Delete File", "delete file"));
-        setText(deleteModalTarget, name);
+        // The workspace-relative path, so same-named files in other folders differ.
+        setText(deleteModalTarget, path);
         // What deleting means waits behind the title's ▾.
         if (deleteModalTitle instanceof HTMLElement && deleteModalHelp instanceof HTMLElement) {
             const [, panel] = explainedHeading(deleteModalTitle, kind === "dir"

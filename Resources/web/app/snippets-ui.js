@@ -193,7 +193,7 @@ export const openSnippets = (editor = activeEditor) => {
         dialog.close(); });
     const actions = node("div");
     actions.className = "snippets-actions";
-    actions.append(save, insert, close);
+    actions.append(close, save, insert);
     const library = node("div");
     library.className = "snippets-library";
     library.append(search, button(uiText("New", "新規"), () => { if (!busy && mayLeave()) {

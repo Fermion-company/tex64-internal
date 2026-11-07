@@ -470,7 +470,7 @@ export function AgentPanel({
           >
             <Paperclip aria-hidden="true" size={15} />
           </button>
-          {isWorking ? (
+          {isWorking && !prompt.trim() && attachments.length === 0 ? (
             <button
               type="button"
               className="composer-submit is-stop"

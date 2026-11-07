@@ -131,6 +131,14 @@ export const initPrismImportUi = (deps) => {
                 item.append(el("span", "history-date", detail));
             stepsList.append(item);
         }
+        renderCloseLabel();
+    };
+    // Closing also stops a step still running, so the button says so then.
+    const renderCloseLabel = () => {
+        if (!closeButton)
+            return;
+        const running = ["extract", "analyze", "build", "compare"].some((step) => stepStatus.get(step) === "running");
+        closeButton.textContent = running ? words("Cancel", "中止") : words("Close", "閉じる");
     };
     const fillSelect = (select, values, labels, selected) => {
         select.replaceChildren();
@@ -226,7 +234,7 @@ export const initPrismImportUi = (deps) => {
         const changed = diff.filter((row) => !row.same);
         const list = el("ul", "prism-diff-list");
         if (changed.length === 0) {
-            list.append(el("li", "prism-diff-same", words("Matches Prism's PDF", "Prism の PDF と一致")));
+            list.append(el("li", "prism-diff-same", words("Same structure as the Prism PDF", "Prism の PDF と構成が一致")));
         }
         else {
             for (const row of changed) {
@@ -331,7 +339,7 @@ export const initPrismImportUi = (deps) => {
         };
         mainSelect = field(words("Main file", "メインファイル"));
         engineSelect = field(words("Engine", "エンジン"));
-        bibSelect = field(words("Bibliography", "文献"));
+        bibSelect = field(words("Bibliography tool", "文献ツール"));
         for (const select of [mainSelect, engineSelect, bibSelect]) {
             select.addEventListener("change", () => {
                 if (!current || busy)
@@ -355,10 +363,11 @@ export const initPrismImportUi = (deps) => {
             finish();
             deps.openProjectPath(root);
         });
-        closeButton = el("button", "history-button", words("Close", "閉じる"));
+        closeButton = el("button", "history-button");
         closeButton.type = "button";
+        renderCloseLabel();
         closeButton.addEventListener("click", () => finish());
-        actions.append(openButton, closeButton);
+        actions.append(closeButton, openButton);
         modal.append(heading, stepsList, projectRow, fields, diffBox, errorBox, actions);
         modal.addEventListener("cancel", (event) => { event.preventDefault(); finish(); });
         modal.addEventListener("close", () => { modal === null || modal === void 0 ? void 0 : modal.remove(); modal = null; });

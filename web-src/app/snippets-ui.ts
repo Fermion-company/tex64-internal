@@ -134,7 +134,7 @@ export const openSnippets = (editor = activeEditor) => {
   }));
   insert.classList.add("is-primary");
   const close = button(uiText("Close", "閉じる"), () => { if (!busy && mayLeave()) dialog.close(); });
-  const actions = node("div"); actions.className = "snippets-actions"; actions.append(save, insert, close);
+  const actions = node("div"); actions.className = "snippets-actions"; actions.append(close, save, insert);
   const library = node("div"); library.className = "snippets-library";
   library.append(search, button(uiText("New", "新規"), () => { if (!busy && mayLeave()) { load(); name.focus(); } }), list);
   const reload = button(uiText("Reload", "再読み込み"), () => { if (!busy && mayLeave()) void run(async () => { await call("list"); load(); }); });

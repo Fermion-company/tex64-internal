@@ -146,8 +146,16 @@ export const initLauncherUi = (context, deps) => {
             return;
         }
         if (event.key === "Enter") {
-            event.preventDefault();
             const currentBtn = launcherActions[selectedActionIndex];
+            // Any other focused control (a recent project, its ×, Show all, the
+            // language menu, the other action) keeps its own Enter.
+            const focused = document.activeElement;
+            if (focused instanceof HTMLElement &&
+                focused !== currentBtn &&
+                focused.closest("button, a[href], input, select, textarea, [role='menuitem'], [contenteditable='true']")) {
+                return;
+            }
+            event.preventDefault();
             if (currentBtn instanceof HTMLButtonElement && !currentBtn.disabled) {
                 currentBtn.click();
             }

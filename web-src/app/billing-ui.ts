@@ -31,6 +31,7 @@ type LocaleCopy = {
   priceMeta: string;
   startBasic: string;
   startPro: string;
+  changePlan: string;
   manage: string;
   // What each plan includes, one short line per feature.
   free: string[];
@@ -46,6 +47,7 @@ const CONTENT: Record<string, LocaleCopy> = {
     priceMeta: "USD / mo",
     startBasic: "Start Basic",
     startPro: "Start Pro",
+    changePlan: "Change plan",
     manage: "Manage or cancel subscription",
     free: [
       "Local editing & build",
@@ -55,7 +57,6 @@ const CONTENT: Record<string, LocaleCopy> = {
     ],
     basic: [
       "AI chat",
-      "AI completion",
       "Monthly token quota",
       "Longer chat context",
     ],
@@ -73,6 +74,7 @@ const CONTENT: Record<string, LocaleCopy> = {
     priceMeta: "USD / 月",
     startBasic: "Basicを開始",
     startPro: "Proを開始",
+    changePlan: "プランを変更",
     manage: "サブスクの管理・解約",
     free: [
       "ローカル編集・ビルド",
@@ -82,7 +84,6 @@ const CONTENT: Record<string, LocaleCopy> = {
     ],
     basic: [
       "AIチャット",
-      "AI補完",
       "月次トークン上限",
       "会話の継続",
     ],
@@ -100,6 +101,7 @@ const CONTENT: Record<string, LocaleCopy> = {
     priceMeta: "美元 / 月",
     startBasic: "开始 Basic",
     startPro: "开始 Pro",
+    changePlan: "更改方案",
     manage: "管理或取消订阅",
     free: [
       "本地编辑与构建",
@@ -109,7 +111,6 @@ const CONTENT: Record<string, LocaleCopy> = {
     ],
     basic: [
       "AI 聊天",
-      "AI 补全",
       "月度 token 配额",
       "更长的对话上下文",
     ],
@@ -127,6 +128,7 @@ const CONTENT: Record<string, LocaleCopy> = {
     priceMeta: "USD / Monat",
     startBasic: "Basic starten",
     startPro: "Pro starten",
+    changePlan: "Plan ändern",
     manage: "Abo verwalten oder kündigen",
     free: [
       "Lokale Bearbeitung & Build",
@@ -136,7 +138,6 @@ const CONTENT: Record<string, LocaleCopy> = {
     ],
     basic: [
       "KI-Chat",
-      "KI-Vervollständigung",
       "Monatliches Token-Kontingent",
       "Längerer Chat-Kontext",
     ],
@@ -154,6 +155,7 @@ const CONTENT: Record<string, LocaleCopy> = {
     priceMeta: "USD / 월",
     startBasic: "Basic 시작",
     startPro: "Pro 시작",
+    changePlan: "플랜 변경",
     manage: "구독 관리 또는 취소",
     free: [
       "로컬 편집 및 빌드",
@@ -163,7 +165,6 @@ const CONTENT: Record<string, LocaleCopy> = {
     ],
     basic: [
       "AI 채팅",
-      "AI 보완",
       "월간 토큰 한도",
       "더 긴 채팅 컨텍스트",
     ],
@@ -181,6 +182,7 @@ const CONTENT: Record<string, LocaleCopy> = {
     priceMeta: "USD / mois",
     startBasic: "Démarrer Basic",
     startPro: "Démarrer Pro",
+    changePlan: "Changer d'offre",
     manage: "Gérer ou annuler l'abonnement",
     free: [
       "Édition & build en local",
@@ -190,7 +192,6 @@ const CONTENT: Record<string, LocaleCopy> = {
     ],
     basic: [
       "Chat IA",
-      "Complétion IA",
       "Quota mensuel de jetons",
       "Contexte de chat plus long",
     ],
@@ -208,6 +209,7 @@ const CONTENT: Record<string, LocaleCopy> = {
     priceMeta: "USD / mes",
     startBasic: "Iniciar Basic",
     startPro: "Iniciar Pro",
+    changePlan: "Cambiar de plan",
     manage: "Gestionar o cancelar la suscripción",
     free: [
       "Edición y build en local",
@@ -217,7 +219,6 @@ const CONTENT: Record<string, LocaleCopy> = {
     ],
     basic: [
       "Chat de IA",
-      "Completado de IA",
       "Cuota mensual de tokens",
       "Contexto de chat más largo",
     ],
@@ -650,11 +651,12 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
         (plan.key === preferred || (plan.highlight && preferred === null)
           ? " primary"
           : "");
-      btn.textContent = plan.key === "basic" ? copy.startBasic : copy.startPro;
       if (current === "free") {
+        btn.textContent = plan.key === "basic" ? copy.startBasic : copy.startPro;
         btn.addEventListener("click", () => startCheckout(plan.key));
       } else {
         // Existing subscribers change tier through the portal (avoids a 2nd sub).
+        btn.textContent = copy.changePlan;
         btn.addEventListener("click", () => openPortal());
       }
       footer.appendChild(btn);

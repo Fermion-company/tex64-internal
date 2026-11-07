@@ -4,10 +4,10 @@
  * as its context. Axiom's edit then takes the usual diff / apply path.
  *
  * The command toggles recording. While it runs, a small pill floats at the
- * end of the selection with the elapsed time and a stop control, and the
+ * end of the selection with the elapsed time and a send control (■), and the
  * range that will be sent is held: the composer chip shows it, and a
  * later change of selection does not move it. The command again or the
- * stop control sends; Esc discards. The clip is transcribed by the host
+ * send control sends; Esc discards. The clip is transcribed by the host
  * (`agent:transcribe`, like the composer microphone) and the words are
  * sent as they are. When nothing was heard the pill says so for a moment
  * and nothing is sent.
@@ -257,7 +257,7 @@ export const createVoiceEditController = (deps: VoiceEditDeps): VoiceEditControl
     const recordingKey = editor.createContextKey?.(CONTEXT_KEY, false);
     const setRecordingKey = (value: boolean) => recordingKey?.set?.(value);
 
-    // The pill: a dot, the elapsed time, and a stop control. Monaco sets
+    // The pill: a dot, the elapsed time, and the send control. Monaco sets
     // display:block on the widget node, so the row is laid out one level in.
     const node = document.createElement("div");
     node.className = "ai-voice-pill";
@@ -271,7 +271,7 @@ export const createVoiceEditController = (deps: VoiceEditDeps): VoiceEditControl
     const stopEl = document.createElement("button");
     stopEl.type = "button";
     stopEl.className = "ai-voice-pill-stop";
-    stopEl.title = uiText("Stop", "止める");
+    stopEl.title = uiText("Send", "送信");
     stopEl.setAttribute("aria-label", stopEl.title);
     stopEl.innerHTML = '<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" fill="currentColor"/></svg>';
     row.append(dot, timeEl, stopEl);

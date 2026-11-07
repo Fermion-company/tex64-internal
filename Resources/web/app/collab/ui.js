@@ -191,7 +191,7 @@ export const initCollabUi = () => {
                     const access = el("div", "tool-segmented collab-access");
                     access.setAttribute("role", "group");
                     access.setAttribute("aria-label", uiText("What the link allows", "リンクでできること"));
-                    const choices = [["edit", uiText("Edit", "編集")], ["view", uiText("View only", "閲覧のみ")]];
+                    const choices = [["edit", uiText("Edit link", "編集リンク")], ["view", uiText("View link", "閲覧リンク")]];
                     for (const [value, label] of choices) {
                         const option = el("button", "", label);
                         option.type = "button";

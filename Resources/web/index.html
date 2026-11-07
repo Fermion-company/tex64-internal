@@ -174,14 +174,14 @@
               </svg>
             </span>
             <span class="update-button-spinner" aria-hidden="true"></span>
-            Update
+            Update app
           </button>
           <button
             id="toggle-bottom-panel-button"
             type="button"
             class="topbar-layout-toggle"
-            aria-label="Blocks and Terminal panel"
-            title="Show or hide Blocks and Terminal"
+            aria-label="Math and Terminal panel"
+            title="Show or hide Math and Terminal"
             aria-pressed="false"
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -303,8 +303,8 @@
               role="tab"
               data-tab="blocks"
               aria-selected="false"
-              aria-label="Blocks"
-              title="Blocks"
+              aria-label="Math"
+              title="Math"
             >
               <span class="tab-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
@@ -450,7 +450,7 @@
           </div>
           <div class="panel no-header" data-panel="blocks">
             <div class="panel-header">
-              <span class="panel-title">Blocks</span>
+              <span class="panel-title">Math</span>
             </div>
             <div class="panel-body blocks-panel">
               <div class="block-compose">
@@ -490,7 +490,7 @@
                           type="button"
                           aria-haspopup="listbox"
                           aria-expanded="false"
-                        >INL</button>
+                        >Inline</button>
                         <div
                           class="block-format-menu"
                           id="block-format-menu"
@@ -588,9 +588,9 @@
                     </div>
                     <div class="ai-composer-right">
                       <div class="ai-mode-toggle" id="ai-mode-toggle" role="radiogroup" aria-label="Axiom mode">
-                        <button class="ai-mode-option is-active" type="button" role="radio" aria-checked="true" data-ai-mode="agent" title="Edits and typesets the document"><span data-no-i18n>Agent</span></button>
-                        <button class="ai-mode-option" type="button" role="radio" aria-checked="false" data-ai-mode="ask" title="Answers without changing anything"><span data-no-i18n>Ask</span></button>
-                        <button class="ai-mode-option" type="button" role="radio" aria-checked="false" data-ai-mode="plan" title="Plans first, then writes on your go"><span data-no-i18n>Plan</span></button>
+                        <button class="ai-mode-option is-active" type="button" role="radio" aria-checked="true" data-ai-mode="agent" title="Edits and typesets the document"><span>Agent</span></button>
+                        <button class="ai-mode-option" type="button" role="radio" aria-checked="false" data-ai-mode="ask" title="Answers without changing anything"><span>Ask</span></button>
+                        <button class="ai-mode-option" type="button" role="radio" aria-checked="false" data-ai-mode="plan" title="Plans first, then writes on your go"><span>Plan</span></button>
                       </div>
                       <div class="ai-model-picker" id="ai-model-picker">
                         <button class="ai-model-trigger" id="ai-model-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Select Axiom model">
@@ -797,17 +797,6 @@
                           <option value="dark">Dark</option>
                           <option value="light">Light</option>
                         </select>
-                      </div>
-                    </div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">Build in Separate Window</span>
-                      </div>
-                      <div class="settings-control">
-                        <label class="settings-switch" for="editor-pdf-window">
-                          <input class="settings-switch-input" id="editor-pdf-window" type="checkbox">
-                          <span class="settings-switch-track" aria-hidden="true"></span>
-                        </label>
                       </div>
                     </div>
                   </div>
@@ -1045,12 +1034,23 @@
                         </label>
                       </div>
                     </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Build in Separate Window</span>
+                      </div>
+                      <div class="settings-control">
+                        <label class="settings-switch" for="editor-pdf-window">
+                          <input class="settings-switch-input" id="editor-pdf-window" type="checkbox">
+                          <span class="settings-switch-track" aria-hidden="true"></span>
+                        </label>
+                      </div>
+                    </div>
                   </div>
                   <div class="settings-group">
                     <div class="settings-group-title">SyncTeX</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">SyncTeX at Build Time</span>
+                        <span class="settings-title">Go to PDF after build</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-auto-synctex-build">
@@ -1129,8 +1129,8 @@
                   </div>
                   <div class="settings-group">
                     <div class="settings-actions">
-                      <button class="panel-button ghost" id="settings-build-clean" type="button">Clean</button>
-                      <button class="panel-button ghost" id="settings-build-clean-all" type="button">Clean -C</button>
+                      <button class="panel-button ghost" id="settings-build-clean" type="button">Delete auxiliary files…</button>
+                      <button class="panel-button ghost" id="settings-build-clean-all" type="button">Delete PDF and auxiliary files…</button>
                     </div>
                   </div>
                 </div>
@@ -1224,9 +1224,7 @@
                         <span class="settings-version-badge" id="settings-update-latest">-</span>
                       </div>
                     </div>
-                    <div class="settings-help-text" id="settings-update-status">
-                      
-                    </div>
+                    <div class="settings-help-text" id="settings-update-status"></div>
                     <div class="settings-update-progress is-hidden" id="settings-update-progress" aria-hidden="true">
                       <div class="settings-update-progress-fill" id="settings-update-progress-fill"></div>
                     </div>
@@ -1235,7 +1233,7 @@
                         Check for Updates
                       </button>
                       <button class="panel-button is-hidden" id="settings-update-apply" type="button">
-                        Apply Updates
+                        Update app
                       </button>
                       <button class="panel-button ghost" id="settings-update-open" type="button">
                         Download
@@ -1428,7 +1426,7 @@
           <div class="bottom-panel" id="bottom-panel" aria-hidden="true">
             <div class="bottom-panel-header">
               <div class="bottom-panel-tabs">
-                <button class="bottom-panel-tab is-active" type="button" data-bottom-tab="blocks">Blocks</button>
+                <button class="bottom-panel-tab is-active" type="button" data-bottom-tab="blocks">Math</button>
                 <button class="bottom-panel-tab" type="button" data-bottom-tab="terminal">Terminal</button>
               </div>
               <button class="bottom-panel-close is-hidden" id="bottom-panel-terminal-window" data-terminal-action type="button" aria-label="Open terminal window" title="Open terminal window"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7M21 3l-9 9M10 5H4v15h15v-6"/></svg></button>
@@ -1655,21 +1653,7 @@
             </button>
           </div>
           <div class="block-settings-body">
-            <div class="block-settings-page is-active" data-block-settings-page="menu">
-              <button
-                class="block-settings-item"
-                type="button"
-                data-block-settings-target="insert-format"
-              >
-                <span class="block-settings-item-title">Insertion format</span>
-              </button>
-            </div>
-            <div class="block-settings-page" data-block-settings-page="insert-format">
-              <div class="block-settings-nav">
-                <button class="panel-button ghost block-settings-back" type="button">
-                  Back
-                </button>
-              </div>
+            <div class="block-settings-page is-active">
               <div class="block-settings-section">
                 <div class="block-settings-section-title">Inline</div>
                 <div class="block-settings-options">

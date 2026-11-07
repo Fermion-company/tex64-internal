@@ -19,7 +19,7 @@ export const createSettingsPlatformAuthOps = (runtime: SettingsUiRuntime): Setti
 
     if (settingsAuthStatus instanceof HTMLElement) {
       if (authenticated) {
-        settingsAuthStatus.textContent = userLabel ? `Signed in: ${userLabel}` : "Signed in";
+        settingsAuthStatus.textContent = userLabel || "Signed in";
       } else if (pending) {
         settingsAuthStatus.textContent = "Signing in";
       } else {

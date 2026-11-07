@@ -66,15 +66,6 @@ export const getDomRefs = () => ({
   blockCaptureButton: document.getElementById("block-capture-button"),
   blockSettingsModal: document.getElementById("block-settings-modal"),
   blockSettingsClose: document.getElementById("block-settings-close"),
-  blockSettingsBackButtons: Array.from(
-    document.querySelectorAll<HTMLButtonElement>(".block-settings-back")
-  ),
-  blockSettingsPages: Array.from(
-    document.querySelectorAll<HTMLElement>(".block-settings-page[data-block-settings-page]")
-  ),
-  blockSettingsMenuItems: Array.from(
-    document.querySelectorAll<HTMLButtonElement>(".block-settings-item[data-block-settings-target]")
-  ),
   blockSettingsInlineOptions: Array.from(
     document.querySelectorAll<HTMLButtonElement>("[data-inline-format]")
   ),

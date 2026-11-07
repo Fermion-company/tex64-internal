@@ -708,7 +708,7 @@ export const initProCanvasUi = (deps) => {
             removeById(currentObjects(), object.id);
             clearSelection();
             render();
-        } }; window.addEventListener("keydown", onPopKey, true); const cancel = document.createElement("button"); cancel.textContent = uiText("Cancel", "キャンセル"); cancel.onclick = dismiss; pop.append(area, save, cancel); overlay.append(pop); area.focus(); };
+        } }; window.addEventListener("keydown", onPopKey, true); const cancel = document.createElement("button"); cancel.textContent = uiText("Cancel", "キャンセル"); cancel.onclick = dismiss; pop.append(area, cancel, save); overlay.append(pop); area.focus(); };
         let stageObserver = null;
         let colorPop = null, canvasPop = null;
         const closeColorPop = () => { colorPop === null || colorPop === void 0 ? void 0 : colorPop.remove(); colorPop = null; };

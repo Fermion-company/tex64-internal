@@ -57,7 +57,7 @@ class GitNetwork {
     const config = await this.assertNetworkTrust(this.runner, { allowHelperOverride: true });
     const planId = crypto.randomUUID(); this.authenticationPlans.clear();
     this.authenticationPlans.set(planId, this.authenticationFingerprint(config));
-    return { planId, review: { title: 'TeX64の認証を使う', details: ['このプロジェクトでは同梱のGitHub認証を使います。', '既存のGit設定は変更しません。設定が変わった場合は再確認します。'], actionLabel: 'TeX64の認証を使う' } };
+    return { planId, review: { title: 'Git の認証', details: ['このプロジェクトでは同梱のGitHub認証を使います。', '既存のGit設定は変更しません。設定が変わった場合は再確認します。'], actionLabel: 'GitHub 認証を使う' } };
   }
   async approveAuthentication({ planId } = {}) {
     const fingerprint = this.authenticationPlans.get(planId); this.authenticationPlans.delete(planId);
