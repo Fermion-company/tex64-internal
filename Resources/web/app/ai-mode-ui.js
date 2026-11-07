@@ -332,7 +332,7 @@ export const initAiModeUi = (deps) => {
             if (event.isMainFrame === false || event.errorCode === -3)
                 return;
             lastLoadFailed = true;
-            showFallback(uiText("Could not connect to the AI workspace. Try reconnecting.", "AIワークスペースに接続できませんでした。再接続してください。"));
+            showFallback(uiText("Could not connect to the AI workspace.", "AIワークスペースに接続できませんでした。"));
         });
         element.addEventListener("did-finish-load", () => {
             if (webview !== element)
@@ -343,7 +343,7 @@ export const initAiModeUi = (deps) => {
         element.addEventListener("render-process-gone", () => {
             if (webview !== element)
                 return;
-            showFallback(uiText("The AI workspace stopped. Try reconnecting.", "AIワークスペースが停止しました。再接続してください。"));
+            showFallback(uiText("The AI workspace stopped.", "AIワークスペースが停止しました。"));
         });
         element.addEventListener("ipc-message", (event) => {
             var _a, _b, _c, _d;

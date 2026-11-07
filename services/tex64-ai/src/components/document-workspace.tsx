@@ -1253,9 +1253,7 @@ export function DocumentWorkspace() {
       setNativeMessages(state.messages);
       setNativeUndoCount(state.undoCount);
       if (state.undoUnavailableReason === "persistence_limit") {
-        setTurnError(
-          "前回の変更は、安全に戻すための保存上限を超えたため、再起動後はまとめて戻せません。",
-        );
+        setTurnError("前回の変更は保存上限を超えたため、まとめて戻せません。");
       }
     };
 
@@ -1458,7 +1456,7 @@ export function DocumentWorkspace() {
           // A missing state reply is unknown, not idle. Keep the composer locked
           // and re-query instead of starting a second turn in the same host
           // conversation. An explicitly owned local turn remains usable.
-          setTurnError("会話状態を確認しています。接続が戻るまでお待ちください。");
+          setTurnError("会話の状態を確認しています…");
           if (activeTurnIsCurrent) setNativeHistoryLoading(false);
           lookupRetryTimer = setTimeout(loadAuthoritativeState, 1_000);
         })
@@ -2126,7 +2124,7 @@ export function DocumentWorkspace() {
                         ? "紙面を準備しています…"
                         : documentHasContent
                           ? "紙面を組み立てています…"
-                          : "まだ紙面がありません。左の欄から執筆を依頼してください。"
+                          : "まだ紙面がありません"
                   }
                   buildFailed={workspacePdf.native && Boolean(workspacePdf.failure)}
                   toolbarAction={
@@ -2223,11 +2221,7 @@ export function DocumentWorkspace() {
                               readOnly={agentWorking || restoring}
                             />
                           </div>
-                        ) : (
-                          <div className="element-card-hint">
-                            <p>この要素は左の欄から依頼して編集します。</p>
-                          </div>
-                        )}
+                        ) : null}
                       </div>
                     ) : null
                   }

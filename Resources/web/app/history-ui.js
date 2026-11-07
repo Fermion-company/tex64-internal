@@ -488,6 +488,6 @@ export const initHistoryUi = (editor, diff) => {
         }
     });
     window.addEventListener("tex64:dirty-state-changed", () => { updateCurrent(); invalidateComparison(); if (selected)
-        comparison.append(el("p", "history-local", uiText("Files changed. Reselect a version to compare.", "ファイルが変わりました。版を選び直すと比較できます。"))); });
+        comparison.append(el("p", "history-local", uiText("Files changed. Choose a version again.", "ファイルが変わりました。版を選び直してください。"))); });
     render();
 };

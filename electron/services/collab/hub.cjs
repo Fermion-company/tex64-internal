@@ -952,7 +952,7 @@ class CollabHub extends EventEmitter {
       const parts = [];
       if (reduced) parts.push(text(this.deps.locale(), `${reduced} shared as a smaller copy`, `画質を落として共有されているファイルが ${reduced} 件`));
       if (skipped) parts.push(text(this.deps.locale(), `${skipped} too large to share`, `大きすぎて共有されていないファイルが ${skipped} 件`));
-      this.notice(text(this.deps.locale(), `Large files: ${parts.join(", ")}. The Collaborate dialog lists them.`, `${parts.join("、")}あります。共同編集のダイアログに一覧があります。`));
+      this.notice(text(this.deps.locale(), `Large files: ${parts.join(", ")}.`, `${parts.join("、")}あります。`));
     }
   }
 
@@ -992,7 +992,7 @@ class CollabHub extends EventEmitter {
       this.notice(text(
         this.deps.locale(),
         `${relative} is larger than ${limit}, so a smaller copy (${formatBytes(entry.size)} → ${formatBytes(reduced.size)}) is shared; your file is unchanged.`,
-        `${relative} は ${limit} を超えるため、画質を落とした写し（${formatBytes(entry.size)} → ${formatBytes(reduced.size)}）を共有しています。手元のファイルはそのままです。`,
+        `${relative} は ${limit} を超えるため、縮小版（${formatBytes(entry.size)} → ${formatBytes(reduced.size)}）を共有しています。手元のファイルはそのままです。`,
       ));
     }
     return { kind: "binary", hash: reduced.hash, size: reduced.size, from: entry.hash, original: entry.size, by };

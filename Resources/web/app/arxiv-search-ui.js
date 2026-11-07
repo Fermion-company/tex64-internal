@@ -135,10 +135,6 @@ export const openArxivSearch = (editor, group) => {
     let hintShown = false;
     const setStatus = (text) => { status.textContent = text; };
     const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
-    const askForEnglish = () => {
-        setStatus(uiText("Enter English words.", "英語で入力してください。"));
-        query.focus();
-    };
     const renderRow = (paper) => {
         const row = el("div", "arxiv-row");
         const head = el("div", "arxiv-row-head");
@@ -206,7 +202,7 @@ export const openArxivSearch = (editor, group) => {
         if (!trimmed) {
             papers = [];
             render();
-            askForEnglish();
+            setStatus("");
             return;
         }
         if (inflight) {

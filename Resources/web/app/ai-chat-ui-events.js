@@ -1,5 +1,4 @@
 import { aiText } from "./ai-i18n.js";
-import { setLocalizedAttribute } from "./i18n.js";
 import { createQuestionElement, readPlanRequest, readQuestionAnswer } from "./ai-chat-message.js";
 const MODE_STORAGE_KEY = "tex64.axiom.mode";
 const loadStoredMode = () => {
@@ -10,11 +9,6 @@ const loadStoredMode = () => {
     catch {
         return "agent";
     }
-};
-const PLACEHOLDER_BY_MODE = {
-    agent: "Ask anything about this document. @ adds a file",
-    ask: "Ask a question. Nothing is changed",
-    plan: "Plan first. Nothing is written yet",
 };
 export const initAiChatEventBindings = (params) => {
     const { aiChatLog, aiInput, aiSend, aiAttach, aiAttachInput, aiStatus, aiUndo, aiStop, aiChatNew, aiModeToggle, postToNative, getActiveChatId, setActiveChatId, getPendingAttachments, getChat, createChat, setChatTitle, renderHistoryList, appendMessage, removeQueuedMessage, settleLiveProposals, autoGrow, updateContextBar, requestAgentRun, buildContextPayload, clearPendingAttachments, clearMentionPaths, addImageFiles, isAiBlocked, needsLogin, requestAiAccessCheck, requestPlatformUsage, updateStatusDisplay, runningConversations, resumableConversations, pendingAgentRequests, clearThinkingMessage, upsertThinkingMessage, updateSendState, resetToNewChatState, onModeChange, scrollToBottom, } = params;
@@ -27,10 +21,6 @@ export const initAiChatEventBindings = (params) => {
                 option.classList.toggle("is-active", active);
                 option.setAttribute("aria-checked", active ? "true" : "false");
             });
-        }
-        if (aiInput instanceof HTMLTextAreaElement) {
-            // The locale pass translates from the recorded English source.
-            setLocalizedAttribute(aiInput, "placeholder", PLACEHOLDER_BY_MODE[mode]);
         }
     };
     const setMode = (next) => {

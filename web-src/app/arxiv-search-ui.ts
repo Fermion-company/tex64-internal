@@ -153,10 +153,6 @@ export const openArxivSearch = (editor: any, group: EditorGroupState) => {
 
   const setStatus = (text: string) => { status.textContent = text; };
   const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
-  const askForEnglish = () => {
-    setStatus(uiText("Enter English words.", "英語で入力してください。"));
-    query.focus();
-  };
 
   const renderRow = (paper: Paper) => {
     const row = el("div", "arxiv-row");
@@ -217,7 +213,7 @@ export const openArxivSearch = (editor: any, group: EditorGroupState) => {
 
   const search = async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed) { papers = []; render(); askForEnglish(); return; }
+    if (!trimmed) { papers = []; render(); setStatus(""); return; }
     if (inflight) { pending = trimmed; return; }
     inflight = true;
     hintShown = false;

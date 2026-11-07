@@ -276,7 +276,7 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
       ) {
         renderStatus(
           aiText("status_unavailable"),
-          aiText("status_plan_check"),
+          "",
           withUtilityActions([{ action: "pricing", label: aiText("status_see_plan") }])
         );
         return;

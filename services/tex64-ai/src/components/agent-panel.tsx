@@ -248,8 +248,8 @@ export function AgentPanel({
       ? { id: lastMessage.id, question: lastMessage.question }
       : null;
   const activeQuestion: { question: AgentQuestion; proposal: AgentProposal | null } | null =
-    askingProposal
-      ? { question: askingProposal.asks ?? { question: "答えを書いてください。" }, proposal: askingProposal }
+    askingProposal?.asks
+      ? { question: askingProposal.asks, proposal: askingProposal }
       : agentQuestion
         ? { question: agentQuestion.question, proposal: null }
         : null;
@@ -315,7 +315,6 @@ export function AgentPanel({
         {activeQuestion ? (
           <QuestionCard
             key={activeQuestion.proposal?.id ?? agentQuestion?.id ?? "question"}
-            lead={activeQuestion.proposal ? `「${activeQuestion.proposal.title}」を進めます。` : null}
             question={activeQuestion.question}
             onAnswer={answerQuestion}
             onDismiss={dismissQuestion}
@@ -416,11 +415,6 @@ export function AgentPanel({
             value={prompt}
             disabled={!canSubmit}
             onPaste={onPaste}
-            placeholder={
-              selectedElement
-                ? `${selectedElement.label}をどう変えますか？`
-                : "この文書について何でも"
-            }
             aria-label="メッセージ"
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={(event) => {
@@ -610,12 +604,10 @@ function ProposalMath({ latex, display = true }: { latex: string; display?: bool
  * input per fact it asked for, otherwise a single answer box. Enter sends.
  */
 function QuestionCard({
-  lead,
   question,
   onAnswer,
   onDismiss,
 }: {
-  lead: string | null;
   question: AgentQuestion;
   onAnswer: (answer: string) => void;
   onDismiss: () => void;
@@ -676,10 +668,7 @@ function QuestionCard({
         <strong>TeX64</strong>
         <button type="button" className="question-close" aria-label="質問を閉じる" onClick={onDismiss}><X size={14} aria-hidden="true" /></button>
       </div>
-      <p className="question-text">
-        {lead ? `${lead} ` : ""}
-        {question.question}
-      </p>
+      <p className="question-text">{question.question}</p>
       {question.options && question.options.length > 0 ? (
         <div className="question-options">
           {question.options.map((option) => (

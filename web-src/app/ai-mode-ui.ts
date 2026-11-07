@@ -397,8 +397,8 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
       lastLoadFailed = true;
       showFallback(
         uiText(
-          "Could not connect to the AI workspace. Try reconnecting.",
-          "AIワークスペースに接続できませんでした。再接続してください。"
+          "Could not connect to the AI workspace.",
+          "AIワークスペースに接続できませんでした。"
         )
       );
     });
@@ -410,8 +410,8 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
       if (webview !== element) return;
       showFallback(
         uiText(
-          "The AI workspace stopped. Try reconnecting.",
-          "AIワークスペースが停止しました。再接続してください。",
+          "The AI workspace stopped.",
+          "AIワークスペースが停止しました。",
         ),
       );
     });

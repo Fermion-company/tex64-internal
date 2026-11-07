@@ -326,7 +326,7 @@ export const createAiChatIncomingHandlers = (options) => {
             if (box) {
                 box.replaceChildren();
                 box.classList.add("is-done");
-                box.textContent = payload.ok ? aiText("rate_thanks") : payload.error || aiText("rate_thanks");
+                box.textContent = payload.ok ? aiText("rate_thanks") : payload.error || aiText("rate_failed");
                 window.setTimeout(() => box.remove(), payload.ok ? 1800 : 4000);
             }
         }

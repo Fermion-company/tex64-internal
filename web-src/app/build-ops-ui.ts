@@ -227,7 +227,7 @@ export const initBuildOpsUi = (
   const synctexErrorNotice = (error: string): { message: string; build?: boolean } => {
     if (/PDF not found|PDF has not been generated/i.test(error)) {
       return {
-        message: uiText("There is no PDF yet. Build once, then Jump can find the cursor.", "PDF がまだありません。一度ビルドすると、カーソルの位置へジャンプできます。"),
+        message: uiText("No PDF yet. Build first.", "PDF がまだありません。先にビルドしてください。"),
         build: true,
       };
     }
@@ -275,7 +275,7 @@ export const initBuildOpsUi = (
     if (!(buildButton instanceof HTMLButtonElement) || currentBuildState !== "building") return;
     const progress = buildProgressText();
     buildButton.dataset.progressPhase = buildProgressPhase;
-    buildButton.title = `${progress} ${uiText("Click to cancel.", "クリックでキャンセルします。")}`;
+    buildButton.title = progress;
     const label = buildButton.querySelector<HTMLElement>(".build-button-label");
     if (label) label.textContent = progress;
   };
@@ -595,7 +595,7 @@ export const initBuildOpsUi = (
       buildButton.setAttribute(
         "aria-label",
         isBusy
-          ? uiText("Build in progress; click to cancel", "ビルド実行中。クリックでキャンセル")
+          ? uiText("Cancel build", "ビルドをキャンセル")
           : uiText("Build", "ビルド")
       );
       const label = buildButton.querySelector<HTMLElement>(".build-button-label");

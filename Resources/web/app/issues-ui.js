@@ -1,5 +1,7 @@
 import { uiText } from "./i18n.js";
 import { diagnoseIssue } from "./issue-diagnosis.js";
+import { createExplain } from "./explain.js";
+import { markFocus, restoreFocus } from "./focus-key.js";
 // A filled sign, not a worded pill: a red disc for something that stopped the
 // build, an amber triangle for something that did not. The shape carries the
 // difference on its own, so the two never rely on colour alone.
@@ -11,12 +13,17 @@ const SEVERITY_ICON = {
         '<path class="issue-icon-glyph" d="M10 7.4v4.3"/>' +
         '<circle class="issue-icon-dot" cx="10" cy="15.1" r="1.1"/></svg>',
 };
+// The same problem keeps its key across rebuilds of the list, so a fix the
+// user opened stays open.
+const issueKey = (issue) => { var _a, _b, _c; return JSON.stringify([issue.severity, (_a = issue.path) !== null && _a !== void 0 ? _a : "", (_b = issue.line) !== null && _b !== void 0 ? _b : 0, (_c = issue.column) !== null && _c !== void 0 ? _c : 0, issue.message]); };
 export const initIssuesUi = (context, deps) => {
     const { issuesList, issuesEmpty } = context.dom;
+    const fixOpen = new Set();
     const render = (issues) => {
         if (!(issuesList instanceof HTMLElement) || !(issuesEmpty instanceof HTMLElement)) {
             return;
         }
+        const focusMark = markFocus(issuesList);
         issuesList.innerHTML = "";
         if (issues.length === 0) {
             issuesList.style.display = "none";
@@ -51,6 +58,12 @@ export const initIssuesUi = (context, deps) => {
             kind.dataset.noI18n = "";
             kind.textContent = diagnosis.kind;
             head.append(icon, kind);
+            // What to do about it waits behind a ▾ beside the kind.
+            const fix = diagnosis.fix ? createExplain(diagnosis.fix, { memory: fixOpen, key: issueKey(issue) }) : null;
+            if (fix) {
+                fix.panel.dataset.noI18n = "";
+                head.append(fix.button);
+            }
             const isRuntimeAction = issue.action === "open-runtime" && typeof deps.onOpenRuntimeSettings === "function";
             const hasJumpTarget = Boolean(detail.path || detail.line);
             const actionable = isRuntimeAction || hasJumpTarget;
@@ -63,11 +76,7 @@ export const initIssuesUi = (context, deps) => {
             summary.className = "issue-summary";
             summary.dataset.noI18n = "";
             summary.textContent = diagnosis.summary;
-            const fix = document.createElement("span");
-            fix.className = "issue-fix";
-            fix.dataset.noI18n = "";
-            fix.textContent = diagnosis.fix;
-            body.append(summary, fix);
+            body.append(summary);
             // The whole card is the button, so the location does not need a call to
             // action of its own — it just says where, up in the header. No location
             // for this kind of problem means no location shown at all.
@@ -81,7 +90,6 @@ export const initIssuesUi = (context, deps) => {
                         : detail.path
                             ? detail.path
                             : uiText(`Line ${detail.line}`, `${detail.line} 行目`);
-                where.title = uiText("Click the card to open it beside this", "カードをクリックすると横に開きます");
                 head.append(where);
             }
             else if (isRuntimeAction) {
@@ -103,8 +111,11 @@ export const initIssuesUi = (context, deps) => {
                 deps.onFocusIssue(issue);
             });
             item.append(head, body);
+            if (fix)
+                item.append(fix.panel);
             issuesList.appendChild(item);
         });
+        restoreFocus(issuesList, focusMark);
     };
     return { render };
 };

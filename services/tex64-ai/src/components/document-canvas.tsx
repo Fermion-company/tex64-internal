@@ -153,7 +153,6 @@ function EquationBlock({
         <button
           type="button"
           className="equation-render"
-          title={readOnly ? undefined : "クリックして数式を編集"}
           disabled={readOnly}
           onClick={() => setEditing(true)}
         >

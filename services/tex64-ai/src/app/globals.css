@@ -1863,6 +1863,10 @@ a:focus-visible { text-decoration: underline; }
   background: var(--panel-muted);
 }
 
+.element-card-head:last-child {
+  border-bottom: 0;
+}
+
 .element-card-head strong {
   color: var(--ink);
   font-size: 12.5px;
@@ -2116,35 +2120,6 @@ a:focus-visible { text-decoration: underline; }
   -webkit-box-orient: vertical;
   overflow: hidden;
   line-height: 1.9;
-}
-
-.element-card-hint {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-}
-
-.element-card-hint p {
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: 12px;
-  line-height: 1.7;
-}
-
-.element-card-hint button {
-  align-self: flex-start;
-  padding: 6px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 9px;
-  background: var(--accent-faint);
-  color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.element-card-hint button:hover {
-  background: var(--accent-soft);
 }
 
 /* ---- History (versions) panel ---- */

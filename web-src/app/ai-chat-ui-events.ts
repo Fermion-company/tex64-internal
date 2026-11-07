@@ -4,7 +4,6 @@ import type { AiImageAttachment } from "./ai-chat-attachments.js";
 import type { ContextExtras } from "./ai-chat-context-payload.js";
 import type { AgentQuestion } from "./types.js";
 import { aiText } from "./ai-i18n.js";
-import { setLocalizedAttribute } from "./i18n.js";
 import { createQuestionElement, readPlanRequest, readQuestionAnswer } from "./ai-chat-message.js";
 import type { AgentPlan } from "./types.js";
 
@@ -77,12 +76,6 @@ const loadStoredMode = (): AxiomMode => {
   }
 };
 
-const PLACEHOLDER_BY_MODE: Record<AxiomMode, string> = {
-  agent: "Ask anything about this document. @ adds a file",
-  ask: "Ask a question. Nothing is changed",
-  plan: "Plan first. Nothing is written yet",
-};
-
 export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) => {
   const {
     aiChatLog,
@@ -138,10 +131,6 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
         option.classList.toggle("is-active", active);
         option.setAttribute("aria-checked", active ? "true" : "false");
       });
-    }
-    if (aiInput instanceof HTMLTextAreaElement) {
-      // The locale pass translates from the recorded English source.
-      setLocalizedAttribute(aiInput, "placeholder", PLACEHOLDER_BY_MODE[mode]);
     }
   };
   const setMode = (next: AxiomMode) => {

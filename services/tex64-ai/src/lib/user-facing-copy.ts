@@ -1,8 +1,7 @@
 export type UserFacingQuestionKind = "clarification_required";
 
 export const USER_FACING_QUESTION_FALLBACKS = Object.freeze({
-  clarification_required:
-    "文書を完成させるために、不足している内容や希望する方針を教えてください。",
+  clarification_required: "不足している内容や希望する方針を教えてください。",
 } satisfies Record<UserFacingQuestionKind, string>);
 
 const INTERNAL_TOOL_NAME =

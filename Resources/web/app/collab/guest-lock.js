@@ -18,7 +18,7 @@ export const applyCollabGuestLock = (panel, locked) => {
     if (locked && !note) {
         note = document.createElement("p");
         note.className = `${NOTE_CLASS} history-local`;
-        note.textContent = uiText("During a collaboration session the host does this.", "共同編集中はホストが行います。");
+        note.textContent = uiText("Only the host can do this.", "ホストだけが操作できます。");
         panel.prepend(note);
     }
     else if (!locked && note) {

@@ -201,7 +201,7 @@ export const createAiChatStatusController = (params) => {
             if (reason === "PLAN_REQUIRED" ||
                 reason === "FEATURE_NOT_ENABLED" ||
                 reason === "PAYMENT_PAST_DUE") {
-                renderStatus(aiText("status_unavailable"), aiText("status_plan_check"), withUtilityActions([{ action: "pricing", label: aiText("status_see_plan") }]));
+                renderStatus(aiText("status_unavailable"), "", withUtilityActions([{ action: "pricing", label: aiText("status_see_plan") }]));
                 return;
             }
             const fallbackMessage = typeof ((_k = state.platformAiAccess) === null || _k === void 0 ? void 0 : _k.message) === "string" && state.platformAiAccess.message.trim()

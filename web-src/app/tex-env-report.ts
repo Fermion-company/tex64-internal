@@ -65,28 +65,13 @@ export const describeDetectionSource = (report: TexEnvReport | null): string => 
   return [where, report.distribution.root].filter(Boolean).join("\n");
 };
 
-// What the coverage probe means in words. "on-demand" can still describe an
-// externally installed MiKTeX tree or TeX64's lightweight managed tree.
+// The coverage probe in words, only for the levels that stop documents from
+// building; every other level returns "".
 export const describeCoverage = (report: TexEnvReport | null): string => {
   if (!report || !report.hasEngine) {
     return "";
   }
   switch (report.coverage.level) {
-    case "full":
-      return uiText(
-        "Full package set — everything from CTAN is available.",
-        "フルパッケージ — CTAN の全パッケージが使えます。"
-      );
-    case "on-demand":
-      return uiText(
-        "Missing packages are downloaded automatically the first time a document needs them.",
-        "足りないパッケージは、初めて必要になったときに自動で取得されます。"
-      );
-    case "recommended":
-      return uiText(
-        "Common packages are available; a few specialist ones are not installed.",
-        "よく使うパッケージは揃っています（一部の専門パッケージは未導入）。"
-      );
     case "minimal":
       return uiText(
         "This is a minimal package set — common packages are missing.",

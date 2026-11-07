@@ -1,5 +1,5 @@
 import { uiText } from "./i18n.js";
-import { getIssueResolution } from "./issue-resolution.js";
+import { getShownIssueResolution } from "./issue-resolution.js";
 /** Strips the log's own punctuation so a message reads like a sentence. */
 export const cleanIssueMessage = (message) => message
     .trim()
@@ -167,7 +167,7 @@ const rules = [
             ? uiText(`Warning from the ${m[1]} package`, `${m[1]} パッケージからの警告`)
             : uiText(`Error from the ${m[1]} package`, `${m[1]} パッケージからのエラー`),
         summary: (m) => m[3].trim(),
-        fix: (m) => uiText(`Review how ${m[1]} is used — its options and the arguments you passed it.`, `${m[1]} の使い方（オプションと引数）を見直してください。`),
+        fix: () => "",
     },
     {
         id: "class-error",
@@ -176,11 +176,11 @@ const rules = [
             ? uiText(`Warning from the ${m[1]} class`, `${m[1]} クラスからの警告`)
             : uiText(`Error from the ${m[1]} class`, `${m[1]} クラスからのエラー`),
         summary: (m) => m[3].trim(),
-        fix: (m) => uiText(`Review the options you passed to \\documentclass{${m[1]}}.`, `\\documentclass{${m[1]}} に渡しているオプションを見直してください。`),
+        fix: () => "",
     },
 ];
 export const diagnoseIssue = (issue) => {
-    var _a, _b, _c, _d;
+    var _a, _b, _c;
     const raw = (_b = (_a = issue.message) === null || _a === void 0 ? void 0 : _a.trim()) !== null && _b !== void 0 ? _b : "";
     const message = cleanIssueMessage(raw);
     for (const rule of rules) {
@@ -196,6 +196,6 @@ export const diagnoseIssue = (issue) => {
             ? uiText("Warning", "警告")
             : uiText("Build error", "ビルドエラー"),
         summary: message || uiText("The build reported a problem.", "ビルドが問題を報告しました。"),
-        fix: (_d = getIssueResolution(issue)) !== null && _d !== void 0 ? _d : uiText("Open the log below to see what the build reported.", "下のログを開いて、ビルドが何を報告したか確認してください。"),
+        fix: getShownIssueResolution(issue),
     };
 };

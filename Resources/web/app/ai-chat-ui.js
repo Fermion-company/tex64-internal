@@ -86,7 +86,6 @@ export const initAiChatUi = (context, deps) => {
         set("#ai-chat-delete-cancel", "cancel");
         set("#ai-chat-delete-confirm", "confirm_delete");
         set(".ai-model-upsell-btn", "open_plans");
-        // The mode pill also owns the composer placeholder (it differs per mode).
         eventApi === null || eventApi === void 0 ? void 0 : eventApi.syncModeLabels();
         voice === null || voice === void 0 ? void 0 : voice.syncLabels();
         renderEmptyState(true);

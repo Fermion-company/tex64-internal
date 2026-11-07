@@ -5,13 +5,21 @@ type ResolutionRule = {
   test: (issue: IssueItem, message: string) => boolean;
   // Lazy: resolved at display time so the locale is the user's current one,
   // not whatever was active when this module happened to be imported.
+  // The AI is told this with each recent problem.
   resolution: () => string;
+  // What the problem card shows behind its ▾ when it differs from
+  // `resolution`: "" where the advice adds nothing the card and the log do
+  // not already say.
+  shown?: () => string;
 };
+
+const NOT_SHOWN = () => "";
 
 const rules: ResolutionRule[] = [
   {
     test: (_issue, message) => message.includes("work space"),
     resolution: () => uiText("Select a working folder from \"Open Folder\".", "Select the working folder from \"Open Folder\"."),
+    shown: NOT_SHOWN,
   },
   {
     test: (_issue, message) => message.includes("Native integration"),
@@ -41,6 +49,7 @@ const rules: ResolutionRule[] = [
   {
     test: (_issue, message) => message.includes("build failed"),
     resolution: () => uiText("Check the build log, fix the relevant file, and rebuild.", "Please check the build log, correct any errors in the relevant file, and rebuild."),
+    shown: NOT_SHOWN,
   },
   {
     test: (_issue, message) =>
@@ -65,6 +74,7 @@ const rules: ResolutionRule[] = [
   {
     test: (_issue, message) => message.includes("PDF not found"),
     resolution: () => uiText("Run a build to generate the PDF.", "Run the build and generate the PDF."),
+    shown: NOT_SHOWN,
   },
   {
     test: (_issue, message) =>
@@ -78,11 +88,13 @@ const rules: ResolutionRule[] = [
   {
     test: (_issue, message) => message.includes("This file format cannot be edited"),
     resolution: () => uiText("Open a text file such as .tex and edit it.", ".tex などのテキストファイルを開いて編集してください。"),
+    shown: NOT_SHOWN,
   },
   {
     test: (_issue, message) =>
       message.includes("The block is .tex") || message.includes("Paste is .tex"),
     resolution: () => uiText("Open a .tex file and try again.", "Please open the .tex file and try again."),
+    shown: NOT_SHOWN,
   },
   {
     test: (_issue, message) => message.includes("screen capture"),
@@ -94,6 +106,7 @@ const rules: ResolutionRule[] = [
       message.includes("Window list") ||
       message.includes("Captureable window"),
     resolution: () => uiText("Allow TeX64 in System Settings > Privacy & Security > Screen Recording, then restart the app. Click Formula import again to open the settings guide.", "Allow TeX64 in System Settings > Privacy & Security > Screen Recording, then restart the app. Click \"Formula import\" again to open the settings guide."),
+    shown: () => uiText("Allow TeX64 in System Settings > Privacy & Security > Screen Recording, then restart the app.", "システム設定 > プライバシーとセキュリティ > 画面収録 で TeX64 を許可し、アプリを再起動してください。"),
   },
   {
     test: (_issue, message) => message.includes("failed to cut"),
@@ -121,6 +134,7 @@ const rules: ResolutionRule[] = [
   {
     test: (_issue, message) => message.includes("enter name"),
     resolution: () => uiText("Enter a non-empty name.", "Please enter your name so that it is not blank."),
+    shown: NOT_SHOWN,
   },
   {
     test: (_issue, message) =>
@@ -133,6 +147,7 @@ const rules: ResolutionRule[] = [
   {
     test: (_issue, message) => message.includes("Invalid destination"),
     resolution: () => uiText("Check the destination folder and move it somewhere else.", "Please check the destination folder and move to another location."),
+    shown: NOT_SHOWN,
   },
   {
     test: (_issue, message) => message.includes("There are unsaved changes"),
@@ -140,21 +155,39 @@ const rules: ResolutionRule[] = [
   },
 ];
 
+const warningFallback: ResolutionRule = {
+  test: () => true,
+  resolution: () => uiText(
+    "Warnings may not automatically identify the destination. Check the surrounding lines in the build log and fix it.",
+    "Warnings may not be able to automatically identify the destination. Please check the preceding and following lines in the build log and correct it."
+  ),
+};
+
+const errorFallback: ResolutionRule = {
+  test: () => true,
+  resolution: () => uiText("Check the log and the relevant line, then fix it.", "Please check the log and the relevant line and correct it."),
+  shown: NOT_SHOWN,
+};
+
+const ruleFor = (issue: IssueItem, message: string) =>
+  rules.find((rule) => rule.test(issue, message)) ??
+  (issue.severity === "warning" ? warningFallback : errorFallback);
+
+// For the AI: the advice that goes with each recent problem.
 export const getIssueResolution = (issue: IssueItem) => {
   const message = issue.message?.trim() ?? "";
   if (!message) {
     return null;
   }
-  for (const rule of rules) {
-    if (rule.test(issue, message)) {
-      return rule.resolution();
-    }
+  return ruleFor(issue, message).resolution();
+};
+
+// For the problem card: what its ▾ opens, "" for no ▾.
+export const getShownIssueResolution = (issue: IssueItem) => {
+  const message = issue.message?.trim() ?? "";
+  if (!message) {
+    return "";
   }
-  if (issue.severity === "warning") {
-    return uiText(
-      "Warnings may not automatically identify the destination. Check the surrounding lines in the build log and fix it.",
-      "Warnings may not be able to automatically identify the destination. Please check the preceding and following lines in the build log and correct it."
-    );
-  }
-  return uiText("Check the log and the relevant line, then fix it.", "Please check the log and the relevant line and correct it.");
+  const rule = ruleFor(issue, message);
+  return (rule.shown ?? rule.resolution)();
 };

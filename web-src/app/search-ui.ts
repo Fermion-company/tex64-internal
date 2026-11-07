@@ -326,7 +326,6 @@ export const initSearchUi = (context: AppContext, deps: SearchUiDeps): SearchUiA
     if (skippedCount > 0) {
       message += uiText(`. Excluded: ${skippedCount}`, `。除外: ${skippedCount}件`);
     }
-    message += uiText(". Check the AI panel.", ". You can check it on the AI ​​panel.");
     setRenameStatus(message, "ok");
   };
 

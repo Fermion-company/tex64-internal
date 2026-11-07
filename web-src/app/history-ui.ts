@@ -333,6 +333,6 @@ export const initHistoryUi = (editor: EditorSessionApi, diff: DiffModalApi) => {
       freeze(phase !== "idle"); render(); if (phase !== "idle") invalidateComparison();
     }
   });
-  window.addEventListener("tex64:dirty-state-changed", () => { updateCurrent(); invalidateComparison(); if (selected) comparison.append(el("p", "history-local", uiText("Files changed. Reselect a version to compare.", "ファイルが変わりました。版を選び直すと比較できます。"))); });
+  window.addEventListener("tex64:dirty-state-changed", () => { updateCurrent(); invalidateComparison(); if (selected) comparison.append(el("p", "history-local", uiText("Files changed. Choose a version again.", "ファイルが変わりました。版を選び直してください。"))); });
   render();
 };

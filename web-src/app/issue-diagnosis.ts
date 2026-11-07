@@ -1,5 +1,5 @@
 import { uiText } from "./i18n.js";
-import { getIssueResolution } from "./issue-resolution.js";
+import { getShownIssueResolution } from "./issue-resolution.js";
 import type { IssueItem } from "./types.js";
 
 /**
@@ -7,14 +7,18 @@ import type { IssueItem } from "./types.js";
  *
  * The raw log line is for people who already read TeX logs; everyone else gets
  * three short pieces: what family of problem this is, what actually happened,
- * and what to do about it. The log stays one disclosure click away.
+ * and what to do about it (behind the card's ▾). The log stays one disclosure
+ * click away.
  */
 export type IssueDiagnosis = {
   /** What family of problem this is, e.g. "Missing file". */
   kind: string;
   /** One sentence, no TeX jargon, describing what went wrong. */
   summary: string;
-  /** One sentence telling the reader what to change. */
+  /**
+   * One sentence telling the reader what to change; empty when there is
+   * nothing to say beyond the summary and the log.
+   */
   fix: string;
 };
 
@@ -335,11 +339,7 @@ const rules: Rule[] = [
         ? uiText(`Warning from the ${m[1]} package`, `${m[1]} パッケージからの警告`)
         : uiText(`Error from the ${m[1]} package`, `${m[1]} パッケージからのエラー`),
     summary: (m) => m[3].trim(),
-    fix: (m) =>
-      uiText(
-        `Review how ${m[1]} is used — its options and the arguments you passed it.`,
-        `${m[1]} の使い方（オプションと引数）を見直してください。`
-      ),
+    fix: () => "",
   },
   {
     id: "class-error",
@@ -349,11 +349,7 @@ const rules: Rule[] = [
         ? uiText(`Warning from the ${m[1]} class`, `${m[1]} クラスからの警告`)
         : uiText(`Error from the ${m[1]} class`, `${m[1]} クラスからのエラー`),
     summary: (m) => m[3].trim(),
-    fix: (m) =>
-      uiText(
-        `Review the options you passed to \\documentclass{${m[1]}}.`,
-        `\\documentclass{${m[1]}} に渡しているオプションを見直してください。`
-      ),
+    fix: () => "",
   },
 ];
 
@@ -374,11 +370,6 @@ export const diagnoseIssue = (issue: IssueItem): IssueDiagnosis => {
         ? uiText("Warning", "警告")
         : uiText("Build error", "ビルドエラー"),
     summary: message || uiText("The build reported a problem.", "ビルドが問題を報告しました。"),
-    fix:
-      getIssueResolution(issue) ??
-      uiText(
-        "Open the log below to see what the build reported.",
-        "下のログを開いて、ビルドが何を報告したか確認してください。"
-      ),
+    fix: getShownIssueResolution(issue),
   };
 };

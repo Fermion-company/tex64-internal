@@ -5777,9 +5777,10 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .issue-icon-warning { color: var(--warning); }
 
-/* Which family of problem this is — the first thing anyone should read. */
+/* Which family of problem this is — the first thing anyone should read. Its
+   ▾ (what to do about it) follows the text; the location keeps to the right. */
 .issue-kind {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   font-size: 12px;
   font-weight: 600;
@@ -5791,6 +5792,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .issue-location {
   flex: 0 1 auto;
   min-width: 0;
+  margin-left: auto;
   overflow: hidden;
   font-family: "SF Mono", Menlo, monospace;
   font-size: 10.5px;
@@ -5821,13 +5823,10 @@ button.issue-main { cursor: pointer; }
   word-break: break-word;
 }
 
-.issue-fix {
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--text-soft);
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
+/* Sits as close to the kind as a heading's ▾ does (.has-explain). */
+.issue-head > button.explain-toggle.explain-toggle { margin-left: -6px; }
+
+.issue-item > .explain-panel { margin: 0; }
 
 .issue-jump {
   justify-self: start;

@@ -2,6 +2,8 @@ import type { AppContext } from "./context.js";
 import { uiText } from "./i18n.js";
 import type { IssueItem } from "./types.js";
 import { diagnoseIssue } from "./issue-diagnosis.js";
+import { createExplain } from "./explain.js";
+import { markFocus, restoreFocus } from "./focus-key.js";
 
 type IssueDetail = {
   path: string | null;
@@ -34,13 +36,20 @@ const SEVERITY_ICON = {
     '<circle class="issue-icon-dot" cx="10" cy="15.1" r="1.1"/></svg>',
 } as const;
 
+// The same problem keeps its key across rebuilds of the list, so a fix the
+// user opened stays open.
+const issueKey = (issue: IssueItem) =>
+  JSON.stringify([issue.severity, issue.path ?? "", issue.line ?? 0, issue.column ?? 0, issue.message]);
+
 export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiApi => {
   const { issuesList, issuesEmpty } = context.dom;
+  const fixOpen = new Set<string>();
 
   const render = (issues: IssueItem[]) => {
     if (!(issuesList instanceof HTMLElement) || !(issuesEmpty instanceof HTMLElement)) {
       return;
     }
+    const focusMark = markFocus(issuesList);
     issuesList.innerHTML = "";
     if (issues.length === 0) {
       issuesList.style.display = "none";
@@ -83,6 +92,13 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
 
       head.append(icon, kind);
 
+      // What to do about it waits behind a ▾ beside the kind.
+      const fix = diagnosis.fix ? createExplain(diagnosis.fix, { memory: fixOpen, key: issueKey(issue) }) : null;
+      if (fix) {
+        fix.panel.dataset.noI18n = "";
+        head.append(fix.button);
+      }
+
       const isRuntimeAction =
         issue.action === "open-runtime" && typeof deps.onOpenRuntimeSettings === "function";
       const hasJumpTarget = Boolean(detail.path || detail.line);
@@ -99,12 +115,7 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
       summary.dataset.noI18n = "";
       summary.textContent = diagnosis.summary;
 
-      const fix = document.createElement("span");
-      fix.className = "issue-fix";
-      fix.dataset.noI18n = "";
-      fix.textContent = diagnosis.fix;
-
-      body.append(summary, fix);
+      body.append(summary);
 
       // The whole card is the button, so the location does not need a call to
       // action of its own — it just says where, up in the header. No location
@@ -119,7 +130,6 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
             : detail.path
             ? detail.path
             : uiText(`Line ${detail.line}`, `${detail.line} 行目`);
-        where.title = uiText("Click the card to open it beside this", "カードをクリックすると横に開きます");
         head.append(where);
       } else if (isRuntimeAction) {
         // No location to show, but there is still somewhere to go.
@@ -141,8 +151,10 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
       });
 
       item.append(head, body);
+      if (fix) item.append(fix.panel);
       issuesList.appendChild(item);
     });
+    restoreFocus(issuesList, focusMark);
   };
 
   return { render };
