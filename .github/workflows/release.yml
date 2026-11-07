@@ -265,8 +265,12 @@ jobs:
     if: ${{ inputs.mac_only != true }}
     runs-on: windows-2025
     timeout-minutes: 50
+    # The Entra app trusts GitHub OIDC tokens issued for this environment only.
+    # The company tenant blocks client secrets, so there is none to store.
+    environment: microsoft-store
     permissions:
       contents: read
+      id-token: write
     env:
       # Store identity values are public package metadata. Workflow inputs take
       # precedence, then repository variables/secrets, then the reserved TeX64 identity.
@@ -351,18 +355,22 @@ jobs:
           PARTNER_CENTER_TENANT_ID: ${{ secrets.PARTNER_CENTER_TENANT_ID }}
           PARTNER_CENTER_SELLER_ID: ${{ secrets.PARTNER_CENTER_SELLER_ID }}
           PARTNER_CENTER_CLIENT_ID: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
-          PARTNER_CENTER_CLIENT_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
         run: |
-          foreach ($name in @('PARTNER_CENTER_TENANT_ID', 'PARTNER_CENTER_SELLER_ID', 'PARTNER_CENTER_CLIENT_ID', 'PARTNER_CENTER_CLIENT_SECRET')) {
+          foreach ($name in @('PARTNER_CENTER_TENANT_ID', 'PARTNER_CENTER_SELLER_ID', 'PARTNER_CENTER_CLIENT_ID')) {
             if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
               throw "Missing GitHub Actions secret: $name"
             }
           }
+          # msstore reads the GitHub OIDC token from this variable whenever it signs in.
+          $audience = [uri]::EscapeDataString('api://AzureADTokenExchange')
+          $oidc = Invoke-RestMethod -Uri "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=$audience" -Headers @{ Authorization = "Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN" }
+          Write-Output "::add-mask::$($oidc.value)"
+          $env:MSSTORE_CLIENT_ASSERTION = $oidc.value
           msstore reconfigure `
             --tenantId $env:PARTNER_CENTER_TENANT_ID `
             --sellerId $env:PARTNER_CENTER_SELLER_ID `
             --clientId $env:PARTNER_CENTER_CLIENT_ID `
-            --clientSecret $env:PARTNER_CENTER_CLIENT_SECRET
+            --clientAssertion
           if ($LASTEXITCODE -ne 0) { throw 'Microsoft Store CLI authentication failed' }
           $appJson = msstore apps get $env:TEX64_WINDOWS_STORE_ID | Out-String
           if ($LASTEXITCODE -ne 0) { throw 'The existing TeX64 Store product is not accessible' }
@@ -445,7 +453,9 @@ jobs:
         shell: pwsh
         run: |
           npm run -s dist:prep
+          if ($LASTEXITCODE -ne 0) { throw 'dist:prep failed' }
           npm run -s web:build
+          if ($LASTEXITCODE -ne 0) { throw 'web:build failed' }
 
       - name: Build unsigned Store AppX
         shell: pwsh
@@ -721,6 +731,11 @@ jobs:
           $submissionDirectory = Join-Path $env:RUNNER_TEMP 'tex64-store-submission'
           New-Item -ItemType Directory -Path $submissionDirectory -Force | Out-Null
           Copy-Item -LiteralPath $packages[0].FullName -Destination $submissionDirectory
+          # The build in between can outlast the verify step's token, so fetch a fresh one.
+          $audience = [uri]::EscapeDataString('api://AzureADTokenExchange')
+          $oidc = Invoke-RestMethod -Uri "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=$audience" -Headers @{ Authorization = "Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN" }
+          Write-Output "::add-mask::$($oidc.value)"
+          $env:MSSTORE_CLIENT_ASSERTION = $oidc.value
           msstore publish . --inputDirectory $submissionDirectory --appId $env:TEX64_WINDOWS_STORE_ID
           if ($LASTEXITCODE -ne 0) { throw 'Microsoft Store submission failed' }
           msstore submission status $env:TEX64_WINDOWS_STORE_ID

@@ -862,7 +862,11 @@ historyController = new HistoryController({
   withMutation: (operation) => workspaceHandlers.withWorkspaceMutation(operation),
   isAgentBusy: () => agentService.runningControllers.size > 0 || agentService.hasContentConflictInWorkspace(workspace.getRootPath()),
   hasTerminals: () => Boolean(terminalService?.sessions.size || terminalWindow.service?.sessions.size),
-  quiesce: async () => {
+  quiesce: async ({ purpose } = {}) => {
+    // A record only reads the folder, so builds and the live preview keep running. Collab
+    // records one on every join and leave; stopping them there froze every editor for
+    // seconds and restarted the preview cold. A restore rewrites files, so it stops them.
+    if (purpose === "record") return;
     await quiesceWorkspaceActivity();
     if (tdomEngineService) {
       await tdomEngineService.pushQueue;

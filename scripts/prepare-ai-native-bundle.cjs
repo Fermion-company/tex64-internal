@@ -27,7 +27,8 @@ const ensureServiceDependencies = () => {
   const nextPackage = path.join(serviceDir, "node_modules", "next", "package.json");
   if (fs.existsSync(nextPackage)) return;
   console.log("[ai-native] Installing tex64-ai dependencies...");
-  run(npmCommand, ["ci"], serviceDir);
+  // Node refuses to start .cmd files without a shell (EINVAL), so npm.cmd needs one on Windows.
+  execFileSync(npmCommand, ["ci"], { cwd: serviceDir, stdio: "inherit", shell: process.platform === "win32" });
 };
 
 const sanitizedBuildEnvironment = () => {
