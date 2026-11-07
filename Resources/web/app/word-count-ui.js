@@ -34,14 +34,13 @@ export const initWordCountUi = (deps) => {
         var _a;
         if (!dialog)
             return;
-        const eyebrow = el("p", "tool-dialog-eyebrow", "Word count");
         let titleExplain = "";
         const title = el("h2", "tool-dialog-title", uiText("Word Count", "文字数"));
         title.id = "word-count-title";
         dialog.setAttribute("aria-labelledby", title.id);
         const body = el("div", "word-count-body");
         if (!result) {
-            body.append(el("p", "tool-dialog-note", uiText("Counting…", "数えています…")));
+            body.append(el("p", "tool-dialog-note", uiText("Counting…", "集計中…")));
         }
         else if (!result.ok) {
             body.append(el("p", "tool-dialog-error", result.error || uiText("Could not count.", "数えられませんでした。")));
@@ -64,14 +63,6 @@ export const initWordCountUi = (deps) => {
                 scopes.push({ id: "selection", label: uiText("Selection", "選択範囲"), counts: result.selection });
             if (!scopes.some((entry) => entry.id === scope))
                 scope = scopes[0].id;
-            if (documentCounts) {
-                const others = documentCounts.files.length - 1;
-                const detail = el("span", "tool-dialog-eyebrow-detail", others > 0
-                    ? `· ${documentCounts.mainFile} + ${others}`
-                    : `· ${documentCounts.mainFile}`);
-                detail.dataset.noI18n = "true";
-                eyebrow.append(detail);
-            }
             if (scopes.length > 1) {
                 const switcher = el("div", "tool-segmented word-count-scopes");
                 switcher.setAttribute("role", "group");
@@ -89,23 +80,24 @@ export const initWordCountUi = (deps) => {
                 body.append(switcher);
             }
             const counts = scopes.find((entry) => entry.id === scope).counts;
-            const characters = stat(number(counts.characters), uiText("Characters (no spaces)", "文字（空白を除く）"), true);
+            const characters = stat(number(counts.characters), uiText("Characters", "文字"), true);
             const words = stat(number(counts.words), uiText("Words", "単語"), true);
             const grid = el("div", "word-count-stats");
             // The measure Japanese manuscripts use comes first in Japanese.
             grid.append(...(getUiLocale() === "ja" ? [characters, words] : [words, characters]));
             grid.append(stat(number(counts.headings), uiText("Headings", "見出し")), stat(`${number(counts.inlineMath)} / ${number(counts.displayMath)}`, uiText("Math (inline / display)", "数式（行内 / 別行）")));
             body.append(grid);
-            const scopeNote = scope === "document" && documentCounts && documentCounts.files.length > 1
-                ? uiText(`${documentCounts.mainFile} and the ${documentCounts.files.length - 1} file${documentCounts.files.length === 2 ? "" : "s"} it reads. `, `${documentCounts.mainFile} と読み込み先 ${documentCounts.files.length - 1} ファイル。`)
-                : "";
             // Which files were counted is state; what is left out waits behind the title's ▾.
-            if (scopeNote) {
-                const note = el("p", "tool-dialog-note", scopeNote.trim());
+            if (scope === "document" && documentCounts) {
+                const { mainFile } = documentCounts;
+                const others = documentCounts.files.length - 1;
+                const note = el("p", "tool-dialog-note", others > 0
+                    ? uiText(`${mainFile} + ${others} file${others === 1 ? "" : "s"}`, `${mainFile} + ${others}ファイル`)
+                    : mainFile);
                 note.dataset.noI18n = "true";
                 body.append(note);
             }
-            titleExplain = uiText("Comments, math and commands are not counted.", "コメント・数式・コマンドは数えません。");
+            titleExplain = uiText("Spaces, comments, math and commands are not counted.", "空白・コメント・数式・コマンドは数えません。");
         }
         const actions = el("div", "tool-dialog-actions");
         const close = el("button", "tool-button", uiText("Close", "閉じる"));
@@ -116,7 +108,7 @@ export const initWordCountUi = (deps) => {
         // Changing the scope rebuilds the dialog: focus stays on the control the
         // user was on; Close takes it on opening.
         const focusMark = markFocus(dialog);
-        dialog.replaceChildren(eyebrow, ...(titleExplain ? explainedHeading(title, titleExplain, { memory: explainOpen, key: "title" }) : [title]), body, actions);
+        dialog.replaceChildren(...(titleExplain ? explainedHeading(title, titleExplain, { memory: explainOpen, key: "title" }) : [title]), body, actions);
         if (!restoreFocus(dialog, focusMark))
             close.focus();
     };

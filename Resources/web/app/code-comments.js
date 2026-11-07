@@ -152,7 +152,7 @@ const createHoverMessage = (comment) => {
     return { value: lines.join("\n") };
 };
 const createCodeCommentDialog = (options) => new Promise((resolve) => {
-    var _a, _b;
+    var _a;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const modal = document.createElement("div");
     modal.className = "modal code-comment-modal is-open";
@@ -173,7 +173,6 @@ const createCodeCommentDialog = (options) => new Promise((resolve) => {
     textarea.className = "modal-input code-comment-modal-input";
     textarea.value = options.initialText;
     textarea.maxLength = MAX_COMMENT_CHARS;
-    textarea.placeholder = (_b = options.placeholder) !== null && _b !== void 0 ? _b : uiText("Write a comment", "コメントを入力");
     textarea.setAttribute("aria-label", uiText("Comment", "コメント"));
     const help = document.createElement("div");
     help.className = "modal-help code-comment-modal-help";
@@ -689,7 +688,6 @@ export const createCodeCommentManager = (monaco, deps) => {
             initialText: "",
             submitLabel: uiText("Reply", "返信"),
             quote: `${comment.author ? `${comment.author}: ` : ""}${comment.text}`,
-            placeholder: uiText("Write a reply", "返信を入力"),
         });
         if (text === null)
             return;

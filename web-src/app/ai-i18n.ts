@@ -17,11 +17,7 @@ const STRINGS: Record<string, Entry> = {
   usage_tokens: { en: "tokens", ja: "トークン", zh: "tokens", ko: "토큰", fr: "jetons", de: "Tokens", es: "tokens" },
 
   // ── Model picker ──
-  model_efficient: { en: "Fast and efficient", ja: "高速・低コスト", zh: "快速高效", ko: "빠르고 효율적", fr: "Rapide et efficace", de: "Schnell und effizient", es: "Rápido y eficiente" },
-  model_autonomous: { en: "Advanced autonomous writing", ja: "高度な自律執筆", zh: "高级自主写作", ko: "고급 자율 글쓰기", fr: "Rédaction autonome avancée", de: "Fortgeschrittenes autonomes Schreiben", es: "Redacción autónoma avanzada" },
-  model_requires_pro: { en: "Requires Pro plan", ja: "Proプランが必要", zh: "需要 Pro 套餐", ko: "Pro 플랜 필요", fr: "Nécessite le plan Pro", de: "Erfordert Pro-Plan", es: "Requiere plan Pro" },
-  upsell_title: { en: "Available on the Pro plan", ja: "Pro プランで使えます", zh: "Pro 套餐可用", ko: "Pro 플랜에서 사용 가능", fr: "Disponible avec le plan Pro", de: "Im Pro-Plan verfügbar", es: "Disponible en el plan Pro" },
-  see_pro_plans: { en: "See Pro plans", ja: "Proプランを見る", zh: "查看 Pro 套餐", ko: "Pro 플랜 보기", fr: "Voir les plans Pro", de: "Pro-Pläne ansehen", es: "Ver planes Pro" },
+  model_requires_pro: { en: "Pro only", ja: "Pro 限定", zh: "仅限 Pro", ko: "Pro 전용", fr: "Pro uniquement", de: "Nur Pro", es: "Solo Pro" },
 
   // ── Status messages ──
   status_quota_reached: { en: "You've reached your monthly token limit.", ja: "今月のトークン上限に達しました。", zh: "您已达到本月的 token 上限。", ko: "이번 달 토큰 한도에 도달했습니다.", fr: "Vous avez atteint votre limite de jetons mensuelle.", de: "Sie haben Ihr monatliches Token-Limit erreicht.", es: "Has alcanzado tu límite de tokens del mes." },
@@ -148,10 +144,10 @@ const STRINGS: Record<string, Entry> = {
   rules_missing: { en: "Not written yet", ja: "まだありません", zh: "尚未编写", ko: "아직 없습니다", fr: "Pas encore écrites", de: "Noch nicht angelegt", es: "Aún no existen" },
 
   // ── Voice ──
-  mic_transcribing: { en: "Transcribing…", ja: "文字にしています…", zh: "正在转写…", ko: "받아쓰는 중…", fr: "Transcription…", de: "Transkribiere…", es: "Transcribiendo…" },
-  mic_denied: { en: "Microphone access was not granted.", ja: "マイクの使用が許可されていません。", zh: "未授予麦克风权限。", ko: "마이크 사용이 허용되지 않았습니다.", fr: "L'accès au micro n'a pas été accordé.", de: "Mikrofonzugriff wurde nicht gewährt.", es: "No se concedió acceso al micrófono." },
-  mic_empty: { en: "Nothing was heard.", ja: "音声が聞き取れませんでした。", zh: "没有听到声音。", ko: "소리가 들리지 않았습니다.", fr: "Rien n'a été entendu.", de: "Es wurde nichts gehört.", es: "No se oyó nada." },
-  mic_failed: { en: "Could not transcribe the recording.", ja: "録音を文字にできませんでした。", zh: "无法转写录音。", ko: "녹음을 받아쓸 수 없었습니다.", fr: "Impossible de transcrire l'enregistrement.", de: "Aufnahme konnte nicht transkribiert werden.", es: "No se pudo transcribir la grabación." },
+  mic_transcribing: { en: "Transcribing…", ja: "文字起こし中…", zh: "正在转写…", ko: "받아쓰는 중…", fr: "Transcription…", de: "Transkribiere…", es: "Transcribiendo…" },
+  mic_denied: { en: "Microphone access denied", ja: "マイクが許可されていません", zh: "未授予麦克风权限", ko: "마이크 권한이 없습니다", fr: "Accès au micro refusé", de: "Kein Mikrofonzugriff", es: "Acceso al micrófono denegado" },
+  mic_empty: { en: "No audio detected", ja: "聞き取れませんでした", zh: "未检测到声音", ko: "소리가 감지되지 않음", fr: "Aucun son détecté", de: "Kein Ton erkannt", es: "No se detectó audio" },
+  mic_failed: { en: "Transcription failed", ja: "文字起こしできませんでした", zh: "转写失败", ko: "받아쓰기 실패", fr: "Échec de la transcription", de: "Transkription fehlgeschlagen", es: "Error de transcripción" },
 
   // ── Change card ──
   scope_page: { en: "p.{n}", ja: "{n}ページ", zh: "第 {n} 页", ko: "{n}쪽", fr: "p. {n}", de: "S. {n}", es: "p. {n}" },
@@ -166,7 +162,6 @@ const STRINGS: Record<string, Entry> = {
   mention_empty: { en: "No match", ja: "該当なし", zh: "无匹配", ko: "일치 없음", fr: "Aucun résultat", de: "Kein Treffer", es: "Sin coincidencias" },
 
   // ── Settings › Account ──
-  plan_word: { en: "Plan", ja: "プラン", zh: "套餐", ko: "플랜", fr: "Plan", de: "Plan", es: "Plan" },
   usage_month: { en: "This month", ja: "今月", zh: "本月", ko: "이번 달", fr: "Ce mois-ci", de: "Diesen Monat", es: "Este mes" },
   usage_resets: { en: "Resets on {date}", ja: "{date} にリセット", zh: "{date} 重置", ko: "{date}에 초기화", fr: "Réinitialisation le {date}", de: "Zurückgesetzt am {date}", es: "Se reinicia el {date}" },
   usage_signin: { en: "Sign in to see your allowance.", ja: "ログインすると利用枠を確認できます。", zh: "登录后可查看额度。", ko: "로그인하면 사용 한도를 볼 수 있습니다.", fr: "Connectez-vous pour voir votre quota.", de: "Anmelden, um das Kontingent zu sehen.", es: "Inicia sesión para ver tu cuota." },

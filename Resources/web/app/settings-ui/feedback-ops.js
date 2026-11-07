@@ -154,7 +154,7 @@ export const createSettingsFeedbackOps = (runtime) => {
         runtime.state.feedbackPending = true;
         runtime.state.feedbackInFlightId = nextItem.id;
         updateFeedbackSendState();
-        setFeedbackStatus("Submitting feedback...");
+        setFeedbackStatus("Sending...");
         const posted = runtime.deps.postToNative({
             type: "feedback:send",
             category: nextItem.category,
@@ -185,7 +185,7 @@ export const createSettingsFeedbackOps = (runtime) => {
         };
         runtime.state.feedbackQueue.push(item);
         saveFeedbackQueue();
-        setFeedbackStatus("Added to send queue.");
+        setFeedbackStatus("Queued.");
         flushFeedbackQueue();
         return true;
     };

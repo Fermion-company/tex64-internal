@@ -1,4 +1,5 @@
 import { uiText } from "./i18n.js";
+import { explainedHeading } from "./explain.js";
 export const initMathCaptureUi = (context, deps = {}) => {
     const { mathCaptureWindowModal, mathCaptureWindowCancel, mathCaptureWindowSearch, mathCaptureWindowGrid, mathCaptureWindowItemTemplate, mathCaptureCropModal, mathCaptureCropRetry, mathCaptureCropCancel, mathCaptureCropApply, mathCaptureCropImage, mathCaptureCropSize, capturePermissionModal, capturePermissionOpen, capturePermissionRetry, capturePermissionClose, } = context.dom;
     let sources = [];
@@ -147,7 +148,23 @@ export const initMathCaptureUi = (context, deps = {}) => {
             }, 6000);
         }
     };
-    // Permission guide modal
+    // Permission guide modal. The steps in System Settings wait behind the
+    // title's ▾, rebuilt on each open so they follow the current language.
+    const permissionTitle = document.getElementById("capture-permission-title");
+    let permissionPanel = null;
+    const renderPermissionSteps = () => {
+        var _a, _b;
+        if (!(permissionTitle instanceof HTMLElement))
+            return;
+        (_a = permissionTitle.querySelector(".explain-toggle")) === null || _a === void 0 ? void 0 : _a.remove();
+        permissionPanel === null || permissionPanel === void 0 ? void 0 : permissionPanel.remove();
+        const [, panel] = explainedHeading(permissionTitle, [
+            uiText("Find TeX64 in the app list and turn on the switch.", "アプリ一覧から TeX64 を見つけ、スイッチをオンにします。"),
+            uiText("Restart TeX64 and try again.", "TeX64 を再起動してから再試行してください。"),
+        ]);
+        (_b = permissionTitle.closest(".modal-header")) === null || _b === void 0 ? void 0 : _b.after(panel);
+        permissionPanel = panel;
+    };
     const handlePermissionKeyDown = (event) => {
         if (event.key === "Escape") {
             event.preventDefault();
@@ -155,6 +172,7 @@ export const initMathCaptureUi = (context, deps = {}) => {
         }
     };
     const showPermissionGuide = () => {
+        renderPermissionSteps();
         setModalOpen(capturePermissionModal, true);
         window.addEventListener("keydown", handlePermissionKeyDown);
     };

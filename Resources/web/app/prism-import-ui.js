@@ -45,28 +45,27 @@ export const initPrismImportUi = (deps) => {
     const messageFor = (code) => {
         var _a;
         return (_a = ({
-            ZIP_NOT_ZIP: words("Choose a .zip file exported from Prism.", "Prism から書き出した .zip を選んでください。"),
-            ZIP_NOT_FOUND: words("The zip file was not found.", "zip ファイルが見つかりません。"),
+            ZIP_NOT_ZIP: words("Choose a Prism .zip.", "Prism の .zip を選んでください。"),
+            ZIP_NOT_FOUND: words("The zip was not found.", "zip が見つかりません。"),
             ZIP_INVALID: words("The file could not be read as a zip.", "zip として読めません。"),
             ZIP_TOO_LARGE: words("The zip is larger than 2 GB.", "zip が 2 GB を超えています。"),
             ZIP_TOO_MANY: words("The zip holds too many files.", "zip のファイル数が多すぎます。"),
-            ZIP_EMPTY: words("The zip holds no files.", "zip にファイルがありません。"),
-            ZIP_UNSAFE_PATH: words("The zip holds a path outside its folder.", "zip にフォルダの外を指すパスがあります。"),
+            ZIP_EMPTY: words("The zip is empty.", "zip が空です。"),
+            ZIP_UNSAFE_PATH: words("The zip holds a path outside its folder.", "zip にフォルダ外を指すパスがあります。"),
             DEST_NAME: words("No free folder name at the destination.", "展開先に空いているフォルダ名がありません。"),
-            NO_TEX: words("No .tex file was found in the zip.", "zip に .tex ファイルがありません。"),
+            NO_TEX: words("No .tex file in the zip.", "zip に .tex がありません。"),
             NO_MAIN: words("No file with \\documentclass and \\begin{document} was found.", "\\documentclass と \\begin{document} を含むファイルがありません。"),
-            TEX_MISSING: words("TeX is not installed yet.", "TeX がまだ入っていません。"),
+            TEX_MISSING: words("TeX is not installed.", "TeX が入っていません。"),
             BUILD_BUSY: words("Another typeset is running.", "別の組版が実行中です。"),
             SESSION_ENDED: words("This import has ended. Start it again.", "この読み込みは終了しています。やり直してください。"),
             UNKNOWN_PROJECT: words("Unknown project.", "不明なプロジェクトです。"),
             UNAVAILABLE: words("Prism import is not available.", "Prism の読み込みは使えません。"),
             COMPARE_FAILED: words("The PDFs could not be compared.", "PDF を比較できませんでした。"),
-            NO_PRISM_PDF: words("The project holds no PDF from Prism to compare with.", "比較できる Prism の PDF がプロジェクトにありません。"),
+            NO_PRISM_PDF: words("No Prism PDF to compare with.", "比較する Prism の PDF がありません。"),
         })[code]) !== null && _a !== void 0 ? _a : words("Prism import failed.", "Prism の読み込みに失敗しました。") + ` (${code})`;
     };
     let modal = null;
     let sessionId = null;
-    let destination = "";
     let env = null;
     let states = [];
     let current = null;
@@ -94,7 +93,6 @@ export const initPrismImportUi = (deps) => {
     let bibSelect;
     let fields;
     let diffBox;
-    let pathsBox;
     let errorBox;
     let openButton;
     let closeButton;
@@ -173,7 +171,7 @@ export const initPrismImportUi = (deps) => {
             const where = issue.path ? `${issue.path}${issue.line ? `:${issue.line}` : ""}  ` : "";
             box.append(el("p", "history-error", `${where}${issue.message}`));
         }
-        const more = el("button", "history-button", words("Show details", "詳細を見る"));
+        const more = el("button", "history-button", words("Details", "詳細"));
         more.type = "button";
         // The Issues panel belongs to the open workspace: open this project first
         // when it is not the one open, then hand the issues over.
@@ -262,21 +260,10 @@ export const initPrismImportUi = (deps) => {
         }
         diffBox.append(list);
     };
-    const renderPaths = () => {
-        pathsBox.replaceChildren();
-        if (!destination)
-            return;
-        pathsBox.append(el("p", "history-date", `${words("Unpacked to", "展開先")}: ${destination}`));
-        if (current && current.project.notes.length > 0) {
-            const dir = current.project.notes[0].split("/").slice(0, -1).join("/");
-            pathsBox.append(el("p", "history-date", `${words("Conversation notes", "会話メモ")}: ${current.project.root}/${dir}`));
-        }
-    };
     const renderAll = () => {
         renderSteps();
         renderFields();
         renderDiff();
-        renderPaths();
         errorBox.textContent = sessionError || (current === null || current === void 0 ? void 0 : current.error) || "";
         openButton.hidden = !current;
         openButton.disabled = busy || !current;
@@ -344,7 +331,7 @@ export const initPrismImportUi = (deps) => {
         };
         mainSelect = field(words("Main file", "メインファイル"));
         engineSelect = field(words("Engine", "エンジン"));
-        bibSelect = field(words("Bibliography", "文献ツール"));
+        bibSelect = field(words("Bibliography", "文献"));
         for (const select of [mainSelect, engineSelect, bibSelect]) {
             select.addEventListener("change", () => {
                 if (!current || busy)
@@ -357,10 +344,9 @@ export const initPrismImportUi = (deps) => {
             });
         }
         diffBox = el("div", "prism-diff");
-        pathsBox = el("div", "prism-paths");
         errorBox = el("p", "history-error");
         const actions = el("div", "history-confirm-actions");
-        openButton = el("button", "history-button is-primary", words("Open this project", "このプロジェクトを開く"));
+        openButton = el("button", "history-button is-primary", words("Open", "開く"));
         openButton.type = "button";
         openButton.addEventListener("click", () => {
             if (!current)
@@ -373,7 +359,7 @@ export const initPrismImportUi = (deps) => {
         closeButton.type = "button";
         closeButton.addEventListener("click", () => finish());
         actions.append(openButton, closeButton);
-        modal.append(heading, stepsList, projectRow, fields, diffBox, pathsBox, errorBox, actions);
+        modal.append(heading, stepsList, projectRow, fields, diffBox, errorBox, actions);
         modal.addEventListener("cancel", (event) => { event.preventDefault(); finish(); });
         modal.addEventListener("close", () => { modal === null || modal === void 0 ? void 0 : modal.remove(); modal = null; });
         document.body.append(modal);
@@ -541,7 +527,6 @@ export const initPrismImportUi = (deps) => {
         const id = newSessionId();
         sessionId = null;
         startingId = id;
-        destination = "";
         env = null;
         states = [];
         current = null;
@@ -562,7 +547,6 @@ export const initPrismImportUi = (deps) => {
                 return;
             }
             sessionId = started.sessionId;
-            destination = started.destination;
             env = started.env;
             states = started.projects.map((project) => {
                 var _a, _b;

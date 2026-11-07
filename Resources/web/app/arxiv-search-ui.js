@@ -20,12 +20,10 @@ const call = async (action, payload) => {
         throw new ArxivError((result === null || result === void 0 ? void 0 : result.error) || "arXiv request failed.", String((result === null || result === void 0 ? void 0 : result.code) || ""));
     return result;
 };
-const documentChanged = () => uiText("The document changed. Close the dialog and place the cursor again.", "文書が変更されました。閉じてカーソル位置を選び直してください。");
+const documentChanged = () => uiText("The document changed. Place the cursor again.", "文書が変更されました。カーソル位置を選び直してください。");
 const describe = (reason, retry = "search", activeFilePath = null) => {
     const code = reason instanceof ArxivError ? reason.code : "";
-    const again = retry === "search"
-        ? uiText("Press Enter to retry.", "Enter で再試行してください。")
-        : uiText("Try again later.", "後でもう一度お試しください。");
+    const withRetry = (message) => (retry === "search" ? `${message} ${uiText("Press Enter to retry.", "Enter で再試行してください。")}` : message);
     // The project closed while arXiv answered; nothing was written.
     if (code === "STALE_WORKSPACE")
         return documentChanged();
@@ -40,11 +38,11 @@ const describe = (reason, retry = "search", activeFilePath = null) => {
             : uiText("This folder has several documents and no main file is set.", "このフォルダには文書が複数あり、メイン TeX が決まっていません。");
     }
     if (code === "NETWORK")
-        return `${uiText("Cannot reach arXiv. Check the connection.", "arXiv に接続できません。接続を確認してください。")} ${again}`;
+        return withRetry(uiText("Cannot reach arXiv.", "arXiv に接続できません。"));
     if (code === "RATE_LIMIT")
-        return `${uiText("arXiv is busy. Wait a moment.", "arXiv が混み合っています。しばらく待ってください。")} ${again}`;
+        return withRetry(uiText("arXiv is busy.", "arXiv が混み合っています。"));
     if (code === "TIMEOUT")
-        return `${uiText("arXiv did not answer in time.", "arXiv の応答がありません。")} ${again}`;
+        return withRetry(uiText("arXiv did not answer in time.", "arXiv の応答がありません。"));
     return reason instanceof Error ? reason.message : String(reason);
 };
 /** What the document still needs so BibTeX / biber finds the appended entry. */
@@ -53,11 +51,11 @@ const bibHint = (result) => {
         return "";
     const where = result.suggestion.place === "preamble"
         ? uiText("Add %s to the preamble.", "プリアンブルに %s を加えてください。")
-        : uiText("Add %s before \\end{document}.", "本文末（\\end{document} の前）に %s を加えてください。");
+        : uiText("Add %s before \\end{document}.", "\\end{document} の前に %s を加えてください。");
     const lines = result.suggestion.lines.join(uiText(" and ", " と "));
     const head = result.created
         ? uiText(`Created ${result.bibPath}.`, `${result.bibPath} を作成しました。`)
-        : uiText(`Appended to ${result.bibPath} (not loaded by the document).`, `${result.bibPath} に追記しました（本文では未参照）。`);
+        : uiText(`Appended to ${result.bibPath}.`, `${result.bibPath} に追記しました。`);
     return `${head} ${where.replace("%s", lines)}`;
 };
 const isTexModel = (editor) => { var _a, _b, _c; return /\.tex$/i.test(((_c = (_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) === null || _b === void 0 ? void 0 : _b.uri) === null || _c === void 0 ? void 0 : _c.path) || ""); };
@@ -70,7 +68,7 @@ export const attachArxivSearch = (editor, group) => {
     (_b = editor.onDidChangeModel) === null || _b === void 0 ? void 0 : _b.call(editor, () => texKey === null || texKey === void 0 ? void 0 : texKey.set(isTexModel(editor)));
     editor.addAction({
         id: "tex64.arxiv.search",
-        label: uiText("Find related papers on arXiv…", "arXiv で関連文献を探す…"),
+        label: uiText("Search arXiv…", "arXiv を検索…"),
         contextMenuGroupId: "9_cite",
         contextMenuOrder: 1,
         // A view-only guest's .bib is the host's; nothing is cited from there.
@@ -112,13 +110,13 @@ export const openArxivSearch = (editor, group) => {
         return node;
     };
     const dialog = el("dialog", "history-confirm arxiv-dialog");
-    const heading = el("h2", "", uiText("Related papers on arXiv", "arXiv の関連文献"));
+    const heading = el("h2", "", "arXiv");
     heading.id = "arxiv-search-title";
     dialog.setAttribute("aria-labelledby", heading.id);
     const query = el("input", "history-name");
     query.type = "text";
     query.value = initialQuery;
-    query.placeholder = uiText("Search arXiv (English words)", "arXiv を検索（英語の語）");
+    query.placeholder = uiText("Search in English", "英語で検索");
     query.setAttribute("aria-label", query.placeholder);
     query.spellcheck = false;
     const status = el("div", "history-error arxiv-status");
@@ -138,7 +136,7 @@ export const openArxivSearch = (editor, group) => {
     const setStatus = (text) => { status.textContent = text; };
     const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
     const askForEnglish = () => {
-        setStatus(uiText("arXiv is searched in English. Enter English words.", "arXiv は英語で検索します。英語の語を入れてください。"));
+        setStatus(uiText("Enter English words.", "英語で入力してください。"));
         query.focus();
     };
     const renderRow = (paper) => {
@@ -161,7 +159,7 @@ export const openArxivSearch = (editor, group) => {
         const showCited = (result, inserted) => {
             side.replaceChildren(el("code", "arxiv-cited", inserted));
             if (result.duplicate) {
-                side.append(el("p", "arxiv-row-meta", uiText(`${result.key} was already in ${result.bibPath}.`, `${result.key} は ${result.bibPath} に既にありました。`)));
+                side.append(el("p", "arxiv-row-meta", uiText(`Already in ${result.bibPath}.`, `${result.bibPath} に既にあります。`)));
             }
         };
         const done = cited.get(paper.arxivId);
@@ -169,7 +167,7 @@ export const openArxivSearch = (editor, group) => {
             showCited(done.result, done.inserted);
             return row;
         }
-        const cite = button(uiText("Cite", "引用する"), () => void (async () => {
+        const cite = button(uiText("Cite", "引用"), () => void (async () => {
             var _a, _b, _c;
             cite.disabled = true;
             if (!hintShown)
@@ -244,7 +242,7 @@ export const openArxivSearch = (editor, group) => {
             if (found.length && used !== trimmed && query.value.trim() === trimmed)
                 query.value = used;
             render();
-            setStatus(found.length ? "" : uiText("No papers found.", "該当する論文はありません。"));
+            setStatus(found.length ? "" : uiText("No matches", "見つかりません"));
         }
         catch (reason) {
             if (seq === searchSeq)

@@ -1,5 +1,6 @@
 import type { AppContext } from "./context.js";
 import { uiText } from "./i18n.js";
+import { explainedHeading } from "./explain.js";
 
 export type MathCaptureWindowSource = {
   id: string;
@@ -204,7 +205,22 @@ export const initMathCaptureUi = (
     }
   };
 
-  // Permission guide modal
+  // Permission guide modal. The steps in System Settings wait behind the
+  // title's ▾, rebuilt on each open so they follow the current language.
+  const permissionTitle = document.getElementById("capture-permission-title");
+  let permissionPanel: HTMLElement | null = null;
+  const renderPermissionSteps = () => {
+    if (!(permissionTitle instanceof HTMLElement)) return;
+    permissionTitle.querySelector(".explain-toggle")?.remove();
+    permissionPanel?.remove();
+    const [, panel] = explainedHeading(permissionTitle, [
+      uiText("Find TeX64 in the app list and turn on the switch.", "アプリ一覧から TeX64 を見つけ、スイッチをオンにします。"),
+      uiText("Restart TeX64 and try again.", "TeX64 を再起動してから再試行してください。"),
+    ]);
+    permissionTitle.closest(".modal-header")?.after(panel);
+    permissionPanel = panel;
+  };
+
   const handlePermissionKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -213,6 +229,7 @@ export const initMathCaptureUi = (
   };
 
   const showPermissionGuide = () => {
+    renderPermissionSteps();
     setModalOpen(capturePermissionModal as HTMLElement | null, true);
     window.addEventListener("keydown", handlePermissionKeyDown);
   };

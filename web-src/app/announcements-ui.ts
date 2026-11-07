@@ -66,7 +66,6 @@ export const initAnnouncementsUi = (
   deps: AnnouncementsUiDeps
 ): AnnouncementsUi => {
   const modal = document.getElementById("announcement-modal");
-  const eyebrowEl = document.getElementById("announcement-modal-eyebrow");
   const titleEl = document.getElementById("announcement-modal-title");
   const bodyEl = document.getElementById("announcement-modal-body");
   const closeBtn = document.getElementById("announcement-modal-close");
@@ -140,7 +139,7 @@ export const initAnnouncementsUi = (
     if (!(linkBtn instanceof HTMLButtonElement)) return;
     if (url) {
       linkBtn.textContent =
-        label && label.trim() ? label : uiText("Open details", "詳細を開く");
+        label && label.trim() ? label : uiText("Details", "詳細");
       linkBtn.dataset.url = url;
       linkBtn.classList.remove("is-hidden");
       linkBtn.setAttribute("aria-hidden", "false");
@@ -181,14 +180,6 @@ export const initAnnouncementsUi = (
     const resolvedBody = resolveLocalized(activeEntry.body);
     titleEl.textContent = resolvedTitle || uiText("Notice", "お知らせ");
     renderBodyInto(bodyEl, resolvedBody);
-    if (eyebrowEl instanceof HTMLElement) {
-      eyebrowEl.textContent =
-        activeEntry.kind === "feedback"
-          ? uiText("Help shape TeX64", "TeX64 をより良くする")
-          : activeEntry.kind === "update"
-            ? uiText("What's new in TeX64", "TeX64 の新着情報")
-            : uiText("From TeX64", "TeX64 からのお知らせ");
-    }
     setLinkButton(
       activeEntry.kind === "feedback" ? null : activeEntry.url,
       resolveLocalized(activeEntry.urlLabel)
@@ -285,7 +276,7 @@ export const initAnnouncementsUi = (
     const message = inputEl.value.trim();
     if (!message) {
       setStatus(
-        uiText("Please enter your feedback.", "フィードバック内容を入力してください。"),
+        uiText("Please enter your feedback.", "内容を入力してください。"),
         "error"
       );
       inputEl.focus();
@@ -303,13 +294,7 @@ export const initAnnouncementsUi = (
     // pipeline in feedback-ops will retry on failure. Dismiss immediately
     // so the modal never reappears for this announcement.
     if (activeId) persistDismiss(activeId);
-    setStatus(
-      uiText(
-        "Thanks for sharing your feedback.",
-        "送信しました。ご協力ありがとうございます。"
-      ),
-      "success"
-    );
+    setStatus(uiText("Sent.", "送信しました。"), "success");
     window.setTimeout(() => {
       hide();
       showNextOrReturn();

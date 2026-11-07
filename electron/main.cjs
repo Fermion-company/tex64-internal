@@ -894,7 +894,7 @@ const { GitController } = require("./services/git-controller.cjs");
 gitController = new GitController({
   workspace, state, coordinator: workspaceOperations, safeStorage,
   chooseRecoveryDestination: async ({ path: relative, side }) => {
-    const result = await dialog.showSaveDialog(state.mainWindow, { title: "復旧用ファイルを書き出す", defaultPath: `${side}-${path.basename(relative)}` });
+    const result = await dialog.showSaveDialog(state.mainWindow, { title: "復旧ファイルを保存", defaultPath: `${side}-${path.basename(relative)}` });
     return result.canceled ? null : result.filePath;
   },
   directory: () => path.join(app.getPath("userData"), "git-protection"),
@@ -968,7 +968,7 @@ ipcMain.handle("tex64:git", async (event, action, request) => {
       gitController.validate(request);
       const name = request.name;
       if (typeof name !== "string" || !name || name.length > 160 || /[\\/\0]/.test(name) || name === "." || name === "..") throw new Error("新しいフォルダ名を入力してください。");
-      const selected = await dialog.showOpenDialog(state.mainWindow, { title: "取得先の親フォルダを選択", properties: ["openDirectory", "createDirectory"] });
+      const selected = await dialog.showOpenDialog(state.mainWindow, { title: "取得先の親フォルダ", properties: ["openDirectory", "createDirectory"] });
       if (selected.canceled || !selected.filePaths[0]) return { ok: true, canceled: true };
       gitController.validate(request);
       const destination = path.join(selected.filePaths[0], name);

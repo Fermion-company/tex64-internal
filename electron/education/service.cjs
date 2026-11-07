@@ -75,7 +75,7 @@ function createEducationService({app,BrowserWindow,dialog,getMainWindow,getRoot,
     finally {busy=false;getMainWindow()?.setProgressBar(-1);}
   }
   async function create() {
-    const result=await dialog.showSaveDialog(getMainWindow(),{title:'新しい教材の保存先',defaultPath:path.join(app.getPath('documents'),'Education試験'),buttonLabel:'作成'});
+    const result=await dialog.showSaveDialog(getMainWindow(),{title:'教材の保存先',defaultPath:path.join(app.getPath('documents'),'Education試験'),buttonLabel:'作成'});
     if(result.canceled||!result.filePath)return;
     const created=await command(['create',result.filePath]);
     await openProject(created.projectPath);
@@ -91,7 +91,7 @@ function createEducationService({app,BrowserWindow,dialog,getMainWindow,getRoot,
     await showScoring(imported.projectId);
   }
   async function importPdf() {
-    const result=await dialog.showOpenDialog(getMainWindow(),{title:'組版した解答用紙PDFを選ぶ',defaultPath:getRoot()||app.getPath('documents'),properties:['openFile'],filters:[{name:'PDF',extensions:['pdf']}]});
+    const result=await dialog.showOpenDialog(getMainWindow(),{title:'解答用紙PDF',defaultPath:getRoot()||app.getPath('documents'),properties:['openFile'],filters:[{name:'PDF',extensions:['pdf']}]});
     if(result.canceled||!result.filePaths[0])return;
     const file=result.filePaths[0],base=await start();
     const form=new FormData();form.append('file',new Blob([fs.readFileSync(file)]),path.basename(file));

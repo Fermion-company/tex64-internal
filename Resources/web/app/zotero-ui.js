@@ -1,7 +1,8 @@
 // Zotero: the editor command "Insert citation from Zotero…" (search dialog
 // with a .bib sync button) and the Settings → Zotero page. Everything that
 // talks to Zotero runs in the main process behind `tex64Zotero`.
-import { getUiLocale, uiText } from "./i18n.js";
+import { uiText } from "./i18n.js";
+import { explainedHeading } from "./explain.js";
 import { citationDocumentFor, insertCitation } from "./citation-insert.js";
 const ZOTERO_KEYS_URL = "https://www.zotero.org/settings/keys/new";
 const bridge = () => window.tex64Zotero;
@@ -20,13 +21,13 @@ const node = (tag, className = "", text = "") => {
     return element;
 };
 const errorCode = (error) => (error === null || error === void 0 ? void 0 : error.code) || "";
-const documentChanged = () => uiText("The document changed. Close and choose the insertion point again.", "文書が変更されました。閉じて挿入位置を選び直してください。");
+const documentChanged = () => uiText("The document changed. Choose the insertion point again.", "文書が変更されました。挿入位置を選び直してください。");
 const describeError = (error, activeFilePath = null) => {
     switch (errorCode(error)) {
         case "no-transport":
             return uiText("Start Zotero, or enter an API key in Settings → Zotero.", "Zotero を起動するか、設定 → Zotero で API キーを入れてください。");
         case "forbidden":
-            return uiText("Zotero rejected the API key.", "Zotero が API キーを拒否しました。");
+            return uiText("The API key was rejected.", "API キーが拒否されました。");
         case "timeout":
             return uiText("Zotero did not answer in time.", "Zotero の応答がありません。");
         case "unreachable":
@@ -34,9 +35,9 @@ const describeError = (error, activeFilePath = null) => {
         case "not-found":
             return uiText("The item is no longer in the library.", "ライブラリにその項目がありません。");
         case "NO_MAIN_FILE":
-            return uiText("Open a .tex document first.", "先に .tex 文書を開いてください。");
+            return uiText("Open a .tex document.", ".tex 文書を開いてください。");
         case "NO_BIBTEX":
-            return uiText("Zotero returned no BibTeX for this item.", "この項目の BibTeX を取得できませんでした。");
+            return uiText("Could not get the BibTeX.", "BibTeX を取得できませんでした。");
         case "NO_SAFE_STORAGE":
             return uiText("This computer cannot store the key securely.", "この PC では鍵を安全に保存できません。");
         // The project closed while Zotero answered; nothing was written.
@@ -88,14 +89,6 @@ const bibHint = (result) => {
 };
 // ---- Search dialog -----------------------------------------------------------
 let dialogOpen = false;
-// The eyebrow already says Zotero: the door alone.
-const doorLabel = (status) => {
-    if (status.transport === "web")
-        return status.probe.web.username ? `Web API · ${status.probe.web.username}` : "Web API";
-    if (status.transport === "local")
-        return uiText("this computer", "この PC");
-    return transportLabel(status);
-};
 const SEARCH_ICON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6 14 14" stroke-linecap="round"/></svg>';
 export const openZoteroDialog = (editor, getActiveFilePath) => {
     var _a;
@@ -104,16 +97,14 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
     dialogOpen = true;
     const model = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor);
     const dialog = node("dialog", "tool-dialog zotero-dialog");
-    // Where results come from: a dot (connected or not) and the door.
-    const eyebrow = node("p", "tool-dialog-eyebrow");
-    eyebrow.dataset.noI18n = "true";
-    const dot = node("span", "zotero-connection-dot");
-    const door = node("span", "tool-dialog-eyebrow-detail");
-    eyebrow.append(dot, "Zotero", door);
     const heading = node("h2", "tool-dialog-title", uiText("Insert citation", "引用を挿入"));
     heading.id = "zotero-dialog-title";
     dialog.setAttribute("aria-labelledby", heading.id);
-    // Where the \cite goes.
+    // Connected or not; the tooltip names where results come from.
+    const dot = node("span", "zotero-connection-dot");
+    dot.dataset.noI18n = "true";
+    heading.append(dot);
+    // Where the \cite goes: file and line.
     const target = node("p", "zotero-target");
     target.dataset.noI18n = "true";
     const renderTarget = () => {
@@ -123,11 +114,7 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
         target.replaceChildren();
         if (!path)
             return;
-        const file = node("code", "", path);
-        if (getUiLocale() === "ja")
-            target.append(file, line ? ` の ${line} 行目に ` : " に ", node("code", "", "\\cite"), " を入れます");
-        else
-            target.append("Adds ", node("code", "", "\\cite"), " to ", file, line ? ` at line ${line}` : "");
+        target.append(node("code", "", line ? `${path}:${line}` : path));
     };
     const searchWrap = node("div", "zotero-search-wrap");
     searchWrap.innerHTML = SEARCH_ICON;
@@ -135,7 +122,7 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
     // A plain text input: in a search input Escape clears the text instead of
     // closing the dialog.
     search.type = "text";
-    search.placeholder = uiText("Search title, author or year", "題名・著者・年で検索");
+    search.placeholder = uiText("Title, author or year", "題名・著者・年");
     search.setAttribute("aria-label", search.placeholder);
     search.autocomplete = "off";
     search.spellcheck = false;
@@ -164,6 +151,8 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
     let searchSerial = 0;
     let current = null;
     let hinted = false;
+    // The results rebuild while the user types; an opened ▾ stays open.
+    const explainOpen = new Set();
     const setStatus = (text, isError = false) => {
         status.textContent = text;
         status.classList.toggle("is-error", isError);
@@ -173,20 +162,18 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
         const on = Boolean(current === null || current === void 0 ? void 0 : current.transport);
         dot.classList.toggle("is-on", on);
         dot.classList.toggle("is-off", Boolean(current) && !on);
-        door.textContent = current && on ? `· ${doorLabel(current)}` : "";
+        dot.title = current && on ? transportLabel(current) : "";
         const libraries = (_a = current === null || current === void 0 ? void 0 : current.libraries) !== null && _a !== void 0 ? _a : [];
-        library.replaceChildren(...libraries.map((entry) => new Option(entry.kind === "group" ? `${entry.name}` : uiText(`${entry.name} (mine)`, `${entry.name}（自分）`), entry.id)));
+        library.replaceChildren(...libraries.map((entry) => new Option(entry.name, entry.id)));
         library.value = (_b = current === null || current === void 0 ? void 0 : current.library) !== null && _b !== void 0 ? _b : "";
         library.hidden = libraries.length < 2;
     };
-    const empty = (headline, text = "", action = null) => {
+    const empty = (headline, text = "") => {
         const box = node("div", "zotero-empty");
         if (headline)
             box.append(node("strong", "", headline));
         if (text)
             box.append(node("span", "", text));
-        if (action)
-            box.append(action);
         results.replaceChildren(box);
     };
     const renderResults = () => {
@@ -220,13 +207,15 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
         (_b = (_a = results.children[highlighted]) === null || _a === void 0 ? void 0 : _a.scrollIntoView) === null || _b === void 0 ? void 0 : _b.call(_a, { block: "nearest" });
     };
     const notConnected = () => {
-        const open = button(uiText("Open Settings", "設定を開く"), () => {
+        const open = button(uiText("Settings", "設定"), () => {
             var _a;
             dialog.close();
             (_a = window.tex64Bridge) === null || _a === void 0 ? void 0 : _a.postMessage({ type: "app:command", payload: { command: "settings:open" } });
             window.setTimeout(() => { var _a; return (_a = document.querySelector('.settings-nav-item[data-settings-target="zotero"]')) === null || _a === void 0 ? void 0 : _a.click(); }, 300);
         });
-        empty(uiText("Zotero is not connected", "Zotero につながっていません"), uiText("Start Zotero, or enter an API key in Settings → Zotero.", "Zotero を起動するか、設定 → Zotero で API キーを入れてください。"), open);
+        const box = node("div", "zotero-empty");
+        box.append(...explainedHeading(node("strong", "", uiText("Zotero is not connected", "Zotero につながっていません")), uiText("Start Zotero, or enter an API key in Settings → Zotero.", "Zotero を起動するか、設定 → Zotero で API キーを入れてください。"), { topic: "Zotero", memory: explainOpen, key: "connect" }), open);
+        results.replaceChildren(box);
     };
     // With nothing typed: the library's newest items, where the door can list them.
     const showRecent = async (serial) => {
@@ -246,7 +235,7 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
                 renderResults();
             else {
                 listLabel.textContent = "";
-                empty(uiText("Search your library", "ライブラリを検索"));
+                results.replaceChildren();
             }
         }
         catch (error) {
@@ -348,7 +337,7 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
             sync.disabled = false;
         }
     };
-    const sync = button(uiText("Refresh cited entries", "引用済みを最新に更新"), () => {
+    const sync = button(uiText("Refresh citations", "引用を更新"), () => {
         if (busy)
             return;
         busy = true;
@@ -414,7 +403,7 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
         (_a = editor.focus) === null || _a === void 0 ? void 0 : _a.call(editor);
     });
     renderTarget();
-    dialog.append(eyebrow, heading, target, controls, listLabel, results, status, actions);
+    dialog.append(heading, target, controls, listLabel, results, status, actions);
     document.body.append(dialog);
     dialog.showModal();
     search.focus();
@@ -441,7 +430,7 @@ export const attachZoteroEditor = (editor, getActiveFilePath) => {
     (_c = editor.onDidChangeModelLanguage) === null || _c === void 0 ? void 0 : _c.call(editor, syncKey);
     editor.addAction({
         id: "tex64.zotero.insert",
-        label: uiText("Insert citation from Zotero…", "Zotero から引用を挿入…"),
+        label: uiText("Cite from Zotero…", "Zotero から引用…"),
         contextMenuGroupId: "9_cite",
         contextMenuOrder: 1,
         // A view-only guest's .bib is the host's; nothing is cited from there.
@@ -482,7 +471,7 @@ export const initZoteroSettingsUi = () => {
             librarySelect.append(option);
         }
         librarySelect.value = status.library;
-        apiKeyInput.placeholder = status.hasApiKey ? "••••••••••••" : uiText("Paste a Zotero API key", "Zotero の API キーを貼り付け");
+        apiKeyInput.placeholder = status.hasApiKey ? "••••••••••••" : "";
         statusLine.textContent = status.transport ? describeStatus(status) : uiText("Not connected", "未接続");
         statusLine.classList.toggle("is-error", !status.transport);
         statusLine.classList.toggle("is-success", Boolean(status.transport));

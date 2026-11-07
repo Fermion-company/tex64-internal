@@ -51,7 +51,7 @@ export const createSettingsAccountUsageOps = (runtime: SettingsUiRuntime): Setti
     const used = typeof quota?.usedTokens === "number" && Number.isFinite(quota.usedTokens) ? Math.max(0, quota.usedTokens) : 0;
     const pct = limit > 0 ? Math.max(0, Math.min(100, (used / limit) * 100)) : 0;
     if (settingsUsagePlan instanceof HTMLElement) {
-      settingsUsagePlan.textContent = `${aiText("plan_word")}: ${planLabel}`;
+      settingsUsagePlan.textContent = planLabel;
     }
     const periodEnd = typeof access?.periodEnd === "string" ? access.periodEnd : quota?.periodEnd ?? null;
     if (settingsUsageReset instanceof HTMLElement) {

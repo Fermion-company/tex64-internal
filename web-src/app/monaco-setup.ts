@@ -573,7 +573,7 @@ export const initMonacoSetup = (
 
         (editor as any).addAction?.({
           id: "tex64.pro-canvas-edit",
-          label: uiText("Edit figure in canvas", "図をキャンバスで編集"),
+          label: uiText("Edit in canvas", "キャンバスで編集"),
           contextMenuGroupId: "9_ai",
           contextMenuOrder: 2,
           run: () => {
@@ -581,7 +581,7 @@ export const initMonacoSetup = (
             const position = editor.getPosition?.();
             const lines = model?.getValue?.().split(/\r?\n/);
             const decoded = lines && position ? decodeFigureBlockAt(lines, position.lineNumber - 1) : null;
-            if (decoded?.detached && !window.confirm(uiText("This figure's code has been edited by hand. Updating it from the canvas will discard those edits. Continue?", "この図のコードは手編集されています。キャンバスで更新すると手編集分は失われます。続けますか？"))) return;
+            if (decoded?.detached && !window.confirm(uiText("Discard manual edits and update from the canvas?", "手編集を破棄してキャンバスで更新しますか？"))) return;
             window.dispatchEvent(new CustomEvent("tex64:pro-canvas-open", {
               detail: decoded ? {
                 scene: decoded.scene,
@@ -623,7 +623,7 @@ export const initMonacoSetup = (
         if (spellChecker) {
           (editor as any).addAction?.({
             id: "tex64.spell.addWordToDictionary",
-            label: uiText("Add word to dictionary", "単語を辞書に追加"),
+            label: uiText("Add to dictionary", "辞書に追加"),
             contextMenuGroupId: "9_spell",
             contextMenuOrder: 1,
             run: () => {

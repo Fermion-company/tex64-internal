@@ -1,6 +1,6 @@
 import { historyDateLabels, historyVersionTitle } from "./history-format.js";
 import { createActionsMenu } from "./actions-menu.js";
-import { createExplain } from "./explain.js";
+import { createExplain, explainedHeading } from "./explain.js";
 import { getEditorOperationGuard } from "./editor-operation-guard.js";
 import { uiText } from "./i18n.js";
 import { collabSession } from "./collab/session.js";
@@ -94,18 +94,20 @@ export const initHistoryUi = (editor, diff) => {
     // The settings open on the limit, not on the usage line's ▾.
     limit.autofocus = true;
     const storageExplain = createExplain([
-        uiText("Stored on this computer. Not a cloud backup.", "このPCに保存。クラウドバックアップではありません。"),
+        uiText("Stored only on this computer.", "このPCにだけ保存します。"),
         uiText("Private files, Git settings and build logs are excluded. Source files and input images are kept. Files over 128 MiB stop recording; nothing is silently omitted.", "秘密情報・Git設定・組版ログは対象外です。ソースと入力画像は記録します。128 MiBを超えるファイルがあれば記録を中止し、黙って除外しません。"),
     ], { topic: uiText("history storage", "履歴の保存") });
     const usageRow = el("div", "has-explain");
     usageRow.append(usage, storageExplain.button);
-    storage.append(usageRow, storageExplain.panel, limit, button(uiText("Set limit (GiB)", "上限を変更（GiB）"), () => void run(async () => { await call("limit", { gib: Number(limit.value) }); await refresh(); })));
+    storage.append(usageRow, storageExplain.panel, limit, button(uiText("Set limit (GiB)", "上限変更（GiB）"), () => void run(async () => { await call("limit", { gib: Number(limit.value) }); await refresh(); })));
     function showDialog(title, content) {
         const modal = el("dialog", "history-confirm");
         const heading = el("h2", "", title);
         heading.id = "history-detail-title";
         modal.setAttribute("aria-labelledby", heading.id);
-        modal.append(heading, content, button(uiText("Close", "閉じる"), () => modal.close()));
+        const actions = el("div", "history-confirm-actions");
+        actions.append(button(uiText("Close", "閉じる"), () => modal.close()));
+        modal.append(heading, content, actions);
         modal.addEventListener("close", () => modal.remove());
         document.body.append(modal);
         modal.showModal();
@@ -127,8 +129,8 @@ export const initHistoryUi = (editor, diff) => {
             content.append(el("p", "", `${uiText("Restore target", "復元先")}：${identity(target)}`));
         const safety = versions.find((v) => v.id === version.preRestore);
         if (safety)
-            content.append(el("p", "", `${uiText("Before this restore", "この復元の直前")}：${identity(safety)}`));
-        content.append(el("p", "", uiText("Changes recorded since the preceding version", "直前の記録からの変更")), el("p", "", changeCounts(version.summary)));
+            content.append(el("p", "", `${uiText("Before the restore", "復元の直前")}：${identity(safety)}`));
+        content.append(el("p", "", `${uiText("Changes since the previous version", "前の版からの変更")}：${changeCounts(version.summary)}`));
         if (excludedFiles.length) {
             const excluded = el("details");
             excluded.append(el("summary", "", uiText(`${excludedFiles.length} excluded`, `対象外 ${excludedFiles.length}件`)));
@@ -393,7 +395,9 @@ export const initHistoryUi = (editor, diff) => {
                                 column.append(el("p", "", size ? uiText("Preview unavailable", "プレビュー対象外") : uiText("No file", "ファイルなし")));
                             columns.append(column);
                         }
-                        modal.append(columns, button(uiText("Close", "閉じる"), () => modal.close()));
+                        const actions = el("div", "history-confirm-actions");
+                        actions.append(button(uiText("Close", "閉じる"), () => modal.close()));
+                        modal.append(columns, actions);
                         modal.addEventListener("close", () => modal.remove());
                         document.body.append(modal);
                         modal.showModal();
@@ -414,11 +418,11 @@ export const initHistoryUi = (editor, diff) => {
             const data = await withSaved("restore", () => call("plan", { id }));
             const version = versions.find((v) => v.id === id);
             const modal = el("dialog", "history-confirm");
-            const title = el("h2", "", (version === null || version === void 0 ? void 0 : version.kind) === "safety" ? uiText("Return to before this restore", "この復元の直前に戻す") : uiText("Restore version", "この版に復元"));
+            const title = el("h2", "", (version === null || version === void 0 ? void 0 : version.kind) === "safety" ? uiText("Undo the restore", "復元の直前に戻す") : uiText("Restore", "復元"));
             title.id = "history-confirm-title";
             modal.setAttribute("aria-labelledby", title.id);
-            modal.append(title, el("p", "", `${version ? versionTitle(version) : ""} · ${(version ? (_a = historyDateLabels(versions).get(version.id)) === null || _a === void 0 ? void 0 : _a.exact : "")}`), el("p", "", uiText("The current work will be kept as a version before restoring.", "現在の作業は、戻す前に版として残します。")));
-            modal.append(el("p", "", uiText("Scope: recorded files in this project", "対象：このプロジェクトの記録対象ファイル")));
+            const target = el("p", "", `${version ? versionTitle(version) : ""} · ${(version ? (_a = historyDateLabels(versions).get(version.id)) === null || _a === void 0 ? void 0 : _a.exact : "")}`);
+            modal.append(title, ...explainedHeading(target, uiText("The current work is kept as a version before restoring.", "現在の作業は、戻す前に版として残します。"), { topic: uiText("restoring", "復元") }));
             const counts = { added: 0, changed: 0, deleted: 0 };
             for (const file of data.plan.operations)
                 counts[file.kind]++;
@@ -430,7 +434,7 @@ export const initHistoryUi = (editor, diff) => {
             if (data.plan.rootFile !== data.plan.targetRootFile)
                 modal.append(el("p", "", `${uiText("Build target", "ビルド対象")}：${data.plan.rootFile || "—"} → ${data.plan.targetRootFile || "—"}`));
             const excluded = el("details");
-            excluded.append(el("summary", "", uiText(`${data.plan.excluded.length} excluded · unchanged`, `対象外 ${data.plan.excluded.length}件・変更しない`)));
+            excluded.append(el("summary", "", uiText(`${data.plan.excluded.length} excluded`, `対象外 ${data.plan.excluded.length}件`)));
             for (const file of data.plan.excluded)
                 excluded.append(el("div", "history-excluded", `${file.path} · ${file.reason}`));
             modal.append(excluded);

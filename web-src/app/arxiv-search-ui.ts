@@ -38,13 +38,11 @@ const call = async <T,>(action: string, payload: unknown): Promise<T> => {
   return result as T;
 };
 const documentChanged = () =>
-  uiText("The document changed. Close the dialog and place the cursor again.", "文書が変更されました。閉じてカーソル位置を選び直してください。");
+  uiText("The document changed. Place the cursor again.", "文書が変更されました。カーソル位置を選び直してください。");
 
 const describe = (reason: unknown, retry: "search" | "cite" = "search", activeFilePath: string | null = null): string => {
   const code = reason instanceof ArxivError ? reason.code : "";
-  const again = retry === "search"
-    ? uiText("Press Enter to retry.", "Enter で再試行してください。")
-    : uiText("Try again later.", "後でもう一度お試しください。");
+  const withRetry = (message: string) => (retry === "search" ? `${message} ${uiText("Press Enter to retry.", "Enter で再試行してください。")}` : message);
   // The project closed while arXiv answered; nothing was written.
   if (code === "STALE_WORKSPACE") return documentChanged();
   // The .bib is written under the same lease as saves; Axiom holds it.
@@ -56,9 +54,9 @@ const describe = (reason: unknown, retry: "search" | "cite" = "search", activeFi
       ? uiText(`${activeFilePath} belongs to more than one document.`, `${activeFilePath} は複数の文書から読み込まれています。`)
       : uiText("This folder has several documents and no main file is set.", "このフォルダには文書が複数あり、メイン TeX が決まっていません。");
   }
-  if (code === "NETWORK") return `${uiText("Cannot reach arXiv. Check the connection.", "arXiv に接続できません。接続を確認してください。")} ${again}`;
-  if (code === "RATE_LIMIT") return `${uiText("arXiv is busy. Wait a moment.", "arXiv が混み合っています。しばらく待ってください。")} ${again}`;
-  if (code === "TIMEOUT") return `${uiText("arXiv did not answer in time.", "arXiv の応答がありません。")} ${again}`;
+  if (code === "NETWORK") return withRetry(uiText("Cannot reach arXiv.", "arXiv に接続できません。"));
+  if (code === "RATE_LIMIT") return withRetry(uiText("arXiv is busy.", "arXiv が混み合っています。"));
+  if (code === "TIMEOUT") return withRetry(uiText("arXiv did not answer in time.", "arXiv の応答がありません。"));
   return reason instanceof Error ? reason.message : String(reason);
 };
 
@@ -67,11 +65,11 @@ const bibHint = (result: CiteResult): string => {
   if (!result.suggestion) return "";
   const where = result.suggestion.place === "preamble"
     ? uiText("Add %s to the preamble.", "プリアンブルに %s を加えてください。")
-    : uiText("Add %s before \\end{document}.", "本文末（\\end{document} の前）に %s を加えてください。");
+    : uiText("Add %s before \\end{document}.", "\\end{document} の前に %s を加えてください。");
   const lines = result.suggestion.lines.join(uiText(" and ", " と "));
   const head = result.created
     ? uiText(`Created ${result.bibPath}.`, `${result.bibPath} を作成しました。`)
-    : uiText(`Appended to ${result.bibPath} (not loaded by the document).`, `${result.bibPath} に追記しました（本文では未参照）。`);
+    : uiText(`Appended to ${result.bibPath}.`, `${result.bibPath} に追記しました。`);
   return `${head} ${where.replace("%s", lines)}`;
 };
 
@@ -85,7 +83,7 @@ export const attachArxivSearch = (editor: any, group: EditorGroupState) => {
   editor.onDidChangeModel?.(() => texKey?.set(isTexModel(editor)));
   editor.addAction({
     id: "tex64.arxiv.search",
-    label: uiText("Find related papers on arXiv…", "arXiv で関連文献を探す…"),
+    label: uiText("Search arXiv…", "arXiv を検索…"),
     contextMenuGroupId: "9_cite",
     contextMenuOrder: 1,
     // A view-only guest's .bib is the host's; nothing is cited from there.
@@ -128,13 +126,13 @@ export const openArxivSearch = (editor: any, group: EditorGroupState) => {
   };
 
   const dialog = el("dialog", "history-confirm arxiv-dialog");
-  const heading = el("h2", "", uiText("Related papers on arXiv", "arXiv の関連文献"));
+  const heading = el("h2", "", "arXiv");
   heading.id = "arxiv-search-title";
   dialog.setAttribute("aria-labelledby", heading.id);
   const query = el("input", "history-name");
   query.type = "text";
   query.value = initialQuery;
-  query.placeholder = uiText("Search arXiv (English words)", "arXiv を検索（英語の語）");
+  query.placeholder = uiText("Search in English", "英語で検索");
   query.setAttribute("aria-label", query.placeholder);
   query.spellcheck = false;
   const status = el("div", "history-error arxiv-status");
@@ -156,7 +154,7 @@ export const openArxivSearch = (editor: any, group: EditorGroupState) => {
   const setStatus = (text: string) => { status.textContent = text; };
   const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
   const askForEnglish = () => {
-    setStatus(uiText("arXiv is searched in English. Enter English words.", "arXiv は英語で検索します。英語の語を入れてください。"));
+    setStatus(uiText("Enter English words.", "英語で入力してください。"));
     query.focus();
   };
 
@@ -181,13 +179,13 @@ export const openArxivSearch = (editor: any, group: EditorGroupState) => {
     const showCited = (result: CiteResult, inserted: string) => {
       side.replaceChildren(el("code", "arxiv-cited", inserted));
       if (result.duplicate) {
-        side.append(el("p", "arxiv-row-meta", uiText(`${result.key} was already in ${result.bibPath}.`, `${result.key} は ${result.bibPath} に既にありました。`)));
+        side.append(el("p", "arxiv-row-meta", uiText(`Already in ${result.bibPath}.`, `${result.bibPath} に既にあります。`)));
       }
     };
     const done = cited.get(paper.arxivId);
     if (done) { showCited(done.result, done.inserted); return row; }
 
-    const cite = button(uiText("Cite", "引用する"), () => void (async () => {
+    const cite = button(uiText("Cite", "引用"), () => void (async () => {
       cite.disabled = true;
       if (!hintShown) setStatus("");
       const activeFilePath = group.currentFilePath;
@@ -246,7 +244,7 @@ export const openArxivSearch = (editor: any, group: EditorGroupState) => {
       // Only a hit replaces the field; an empty result leaves the user's words.
       if (found.length && used !== trimmed && query.value.trim() === trimmed) query.value = used;
       render();
-      setStatus(found.length ? "" : uiText("No papers found.", "該当する論文はありません。"));
+      setStatus(found.length ? "" : uiText("No matches", "見つかりません"));
     } catch (reason) {
       if (seq === searchSeq) setStatus(describe(reason));
     } finally {

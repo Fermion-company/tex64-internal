@@ -5,6 +5,7 @@ import { uiText } from "../i18n.js";
 import {
   describeCoverage,
   describeDetection,
+  describeDetectionSource,
   INSTALL_VARIANT_LABELS,
   renderInstallExplain,
   type TexEnvReport,
@@ -102,9 +103,9 @@ export const createSettingsEnvOps = (
   const phaseLabel = (phase: string): string => {
     switch (phase) {
       case "download":
-        return uiText("Downloading installer…", "インストーラをダウンロード中…");
+        return uiText("Downloading…", "ダウンロード中…");
       case "extract":
-        return uiText("Preparing installer…", "インストーラを準備中…");
+        return uiText("Preparing…", "準備中…");
       case "texlive":
         return uiText("Installing TeX Live…", "TeX Live をインストール中…");
       case "packages":
@@ -135,12 +136,14 @@ export const createSettingsEnvOps = (
     }
   };
 
-  const setDetail = (text: string) => {
+  // `where` is the distribution's folder: a tooltip, not a line of prose.
+  const setDetail = (text: string, where = "") => {
     if (!(detailEl instanceof HTMLElement)) {
       return;
     }
     const value = typeof text === "string" ? text.trim() : "";
     detailEl.textContent = value;
+    detailEl.title = value ? where : "";
     detailEl.classList.toggle("is-hidden", !value);
     detailEl.setAttribute("aria-hidden", value ? "false" : "true");
   };
@@ -214,7 +217,7 @@ export const createSettingsEnvOps = (
   const showInstalling = () => {
     installing = true;
     setHeroState("installing");
-    setHeroText("Setting up your TeX environment…");
+    setHeroText("Setting up TeX…");
     setSetupButton({ visible: false });
     setChoiceVisible(false);
     setInstallNote("");
@@ -232,7 +235,7 @@ export const createSettingsEnvOps = (
     const summary = runtime.state.runtimeStatusSummary;
     if (!summary || !summary.hasAnyResult) {
       setHeroState("checking");
-      setHeroText("Checking your TeX environment…");
+      setHeroText("Checking TeX…");
       setSetupButton({ visible: false });
       setChoiceVisible(false);
       setDetail("");
@@ -246,11 +249,11 @@ export const createSettingsEnvOps = (
     const detectionLine = [describeDetection(detection), coverage]
       .filter(Boolean)
       .join("\n");
-    setDetail(detectionLine);
+    setDetail(detectionLine, describeDetectionSource(detection));
 
     if (summary.runtimeReady) {
       setHeroState("ready");
-      setHeroText("Your TeX environment is ready.");
+      setHeroText("TeX is ready.");
       setSetupButton({ visible: false });
       setInstallNote("");
       setChoiceVisible(false);
@@ -261,7 +264,7 @@ export const createSettingsEnvOps = (
         setSetupButton({
           visible: true,
           disabled: false,
-          label: uiText(`Renew to TeX Live ${renew.to}`, `TeX Live ${renew.to} に入れ直す`),
+          label: uiText(`Renew to TeX Live ${renew.to}`, `TeX Live ${renew.to} に更新`),
         });
         return;
       }
@@ -275,7 +278,7 @@ export const createSettingsEnvOps = (
         setSetupButton({
           visible: true,
           disabled: false,
-          label: uiText("Install the full package set", "フルパッケージを追加導入"),
+          label: uiText("Install the full package set", "フルパッケージを導入"),
         });
         return;
       }
@@ -291,7 +294,7 @@ export const createSettingsEnvOps = (
       return;
     }
     setHeroState("missing");
-    setHeroText("TeX environment is not set up yet.");
+    setHeroText("TeX is not installed.");
     // The choice replaces the old single button; the button stays as the fallback
     // for a renderer whose markup predates the choice block.
     if (choiceEl instanceof HTMLElement) {
@@ -299,7 +302,7 @@ export const createSettingsEnvOps = (
       setChoiceVisible(true);
       setSetupButton({ visible: false });
     } else {
-      setSetupButton({ visible: true, disabled: false, label: "Set up TeX environment" });
+      setSetupButton({ visible: true, disabled: false, label: "Set up" });
     }
   };
 

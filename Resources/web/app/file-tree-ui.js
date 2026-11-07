@@ -1,8 +1,9 @@
 import { uiText } from "./i18n.js";
+import { explainedHeading } from "./explain.js";
 import { createFileTreeRenderer } from "./file-tree-render.js";
 import { canDropOnFolder, clearDropTargets, getDragData, getParentPath, normalizeInputPath, validatePath, } from "./file-tree-utils.js";
 export const initFileTreeUi = (context, deps) => {
-    const { fileTree, createModal, createModalTitle, createModalSubtitle, createModalParent, createModalLabel, createModalInput, createModalHelp, createModalCancel, createModalSubmit, renameModal, renameModalTitle, renameModalTarget, renameModalInput, renameModalHelp, renameModalCancel, renameModalSubmit, deleteModal, deleteModalTitle, deleteModalTarget, deleteModalHelp, deleteModalCancel, deleteModalSubmit, contextMenu: contextMenuEl, } = context.dom;
+    const { fileTree, createModal, createModalTitle, createModalParent, createModalLabel, createModalInput, createModalHelp, createModalCancel, createModalSubmit, renameModal, renameModalTitle, renameModalTarget, renameModalInput, renameModalHelp, renameModalCancel, renameModalSubmit, deleteModal, deleteModalTitle, deleteModalTarget, deleteModalHelp, deleteModalCancel, deleteModalSubmit, contextMenu: contextMenuEl, } = context.dom;
     let selectedTreePath = null;
     let selectedTreeType = null;
     let treeHasFocus = false;
@@ -137,14 +138,11 @@ export const initFileTreeUi = (context, deps) => {
         createModalKind = kind;
         const basePath = resolveCreateBasePath();
         createBasePath = basePath;
-        setText(createModalTitle, kind === "file" ? uiText("Create New File", "create new file") : uiText("Create New Folder", "Create new folder"));
-        setText(createModalSubtitle, "");
+        setText(createModalTitle, kind === "file" ? uiText("New File", "新規ファイル") : uiText("New Folder", "新規フォルダ"));
         setText(createModalParent, basePath ? basePath : uiText("Workspace root", "Directly below the workspace"));
-        setText(createModalLabel, kind === "file" ? uiText("File name (with extension)", "ファイル名（拡張子付き）") : uiText("Folder name", "folder name"));
+        setText(createModalLabel, kind === "file" ? uiText("File name", "ファイル名") : uiText("Folder name", "folder name"));
         if (createModalInput instanceof HTMLInputElement) {
             createModalInput.value = "";
-            createModalInput.placeholder =
-                kind === "file" ? uiText("Example: sections/intro.tex", "例: sections/intro.tex") : uiText("Example: sections", "例: sections");
             requestAnimationFrame(() => {
                 createModalInput.focus();
             });
@@ -252,7 +250,6 @@ export const initFileTreeUi = (context, deps) => {
         setText(renameModalTarget, path);
         if (renameModalInput instanceof HTMLInputElement) {
             renameModalInput.value = currentName;
-            renameModalInput.placeholder = uiText("New name", "new name");
             requestAnimationFrame(() => {
                 renameModalInput.focus();
                 renameModalInput.select();
@@ -324,11 +321,12 @@ export const initFileTreeUi = (context, deps) => {
         const name = (_a = path.split("/").filter(Boolean).pop()) !== null && _a !== void 0 ? _a : path;
         setText(deleteModalTitle, kind === "dir" ? uiText("Delete Folder", "delete folder") : uiText("Delete File", "delete file"));
         setText(deleteModalTarget, name);
-        if (deleteModalHelp instanceof HTMLElement) {
-            deleteModalHelp.textContent =
-                kind === "dir"
-                    ? uiText("The folder and all files inside it will be deleted. This cannot be undone.", "The folder and all files within it will be deleted. This operation cannot be undone.")
-                    : uiText("This action cannot be undone.", "This operation cannot be undone.");
+        // What deleting means waits behind the title's ▾.
+        if (deleteModalTitle instanceof HTMLElement && deleteModalHelp instanceof HTMLElement) {
+            const [, panel] = explainedHeading(deleteModalTitle, kind === "dir"
+                ? uiText("Files inside it are deleted too. This cannot be undone.", "中のファイルも削除されます。この操作は取り消せません。")
+                : uiText("This action cannot be undone.", "この操作は取り消せません。"));
+            deleteModalHelp.replaceChildren(panel);
             deleteModalHelp.classList.remove("is-error");
         }
         setDeleteModalOpen(true);

@@ -1,7 +1,7 @@
 import { createActionsMenu } from "./actions-menu.js";
 import { getEditorOperationGuard } from "./editor-operation-guard.js";
 import { uiText } from "./i18n.js";
-import { createExplain } from "./explain.js";
+import { createExplain, explainedHeading } from "./explain.js";
 import { collabSession } from "./collab/session.js";
 import { applyCollabGuestLock } from "./collab/guest-lock.js";
 const gitErrors = {
@@ -168,7 +168,8 @@ export function initGitUi(editor, diff) {
             await refresh();
         }
     }
-    function dialog(title, content, label, action) {
+    // Without an action the dialog only shows something, and its one button is Close.
+    function dialog(title, content, label, action, explain) {
         const dialogWorkspace = renderedWorkspaceId;
         const modal = el("dialog", "history-confirm git-dialog");
         const titleNode = el("h2", "", title);
@@ -176,29 +177,35 @@ export function initGitUi(editor, diff) {
         modal.setAttribute("aria-labelledby", titleNode.id);
         const status = el("p", "history-error");
         status.setAttribute("role", "status");
-        const accept = button(label, () => {
-            if (dialogWorkspace !== renderedWorkspaceId) {
-                modal.close();
-                return;
-            }
-            accept.disabled = true;
-            void action().then((result) => { if (result !== false)
-                modal.close();
-            else
-                status.textContent = error.textContent || uiText("Review the selection before continuing.", "選択内容を確認してください。"); }).catch(reason => { status.textContent = reason.message || String(reason); }).finally(() => { accept.disabled = false; });
-        });
-        accept.classList.add("is-primary");
-        const cancel = button(uiText("Cancel", "キャンセル"), () => modal.close());
-        modal.append(titleNode, content, status, el("div", "git-dialog-actions"));
-        modal.lastElementChild.append(cancel, accept);
+        const actions = el("div", "git-dialog-actions");
+        const cancel = button(action ? uiText("Cancel", "キャンセル") : uiText("Close", "閉じる"), () => modal.close());
+        actions.append(cancel);
+        if (label && action) {
+            const accept = button(label, () => {
+                if (dialogWorkspace !== renderedWorkspaceId) {
+                    modal.close();
+                    return;
+                }
+                accept.disabled = true;
+                void action().then((result) => { if (result !== false)
+                    modal.close();
+                else
+                    status.textContent = error.textContent || uiText("Review the selection.", "選択を確認してください。"); }).catch(reason => { status.textContent = reason.message || String(reason); }).finally(() => { accept.disabled = false; });
+            });
+            accept.classList.add("is-primary");
+            actions.append(accept);
+        }
+        // A ▾ in the title does not take the initial focus.
+        if (explain)
+            (content.querySelector("input, select, button") || cancel).autofocus = true;
+        modal.append(...(explain ? explainedHeading(titleNode, explain) : [titleNode]), content, status, actions);
         modal.addEventListener("close", () => modal.remove());
         document.body.append(modal);
         modal.showModal();
         return modal;
     }
-    function field(label, placeholder = "") {
+    function field(label) {
         const wrapper = el("label", "git-field", label), input = el("input", "history-name");
-        input.placeholder = placeholder;
         wrapper.append(input);
         return { wrapper, input };
     }
@@ -257,9 +264,9 @@ export function initGitUi(editor, diff) {
     async function branchDialog() {
         const content = el("div"), select = refSelect("refs/heads/", true);
         content.append(select);
-        const name = field(uiText("New branch", "新しいブランチ"), "feature-name");
+        const name = field(uiText("New branch", "新しいブランチ"));
         content.append(name.wrapper);
-        dialog(uiText("Switch branch", "ブランチを切り替える"), content, uiText("Continue", "続ける"), async () => {
+        dialog(uiText("Branch", "ブランチ"), content, uiText("Continue", "続ける"), async () => {
             if (!name.input.value.trim() && !select.value)
                 throw new Error(uiText("Choose a branch.", "ブランチを選んでください。"));
             return perform(name.input.value.trim() ? "branch-create" : "branch-switch", name.input.value.trim() ? { name: name.input.value.trim() } : { ref: select.value }, true);
@@ -268,17 +275,16 @@ export function initGitUi(editor, diff) {
     async function mergeDialog() {
         const content = el("div"), select = refSelect("refs/", true);
         content.append(el("p", "", `${uiText("Into", "統合先")}：${(state === null || state === void 0 ? void 0 : state.branch) || "—"}`), select);
-        dialog(uiText("Merge branch", "ブランチを取り込む"), content, uiText("Review", "内容を確認"), async () => { return perform("merge", { ref: select.value }, true); });
+        dialog(uiText("Merge", "統合"), content, uiText("Review", "確認"), async () => { return perform("merge", { ref: select.value }, true); });
     }
     async function tagDialog() {
-        const content = el("div"), name = field(uiText("Tag", "タグ"), "v1.0.0"), note = field(uiText("Description", "説明"));
+        const content = el("div"), name = field(uiText("Name", "名前")), note = field(uiText("Description", "説明"));
         content.append(name.wrapper, note.wrapper);
-        dialog(uiText("Add tag", "タグを付ける"), content, uiText("Review", "内容を確認"), async () => { return perform("tag-create", { name: name.input.value, ...(note.input.value.trim() ? { message: note.input.value.trim() } : {}) }, true); });
+        dialog(uiText("Tag", "タグ"), content, uiText("Review", "確認"), async () => { return perform("tag-create", { name: name.input.value, ...(note.input.value.trim() ? { message: note.input.value.trim() } : {}) }, true); });
     }
     async function connectDialog() {
-        const content = el("div"), url = field(uiText("Repository URL", "リポジトリURL"), "https://github.com/owner/repository");
+        const content = el("div"), url = field("URL");
         content.append(url.wrapper);
-        explainField(url, uiText("Connect this folder. Files stay as they are.", "このフォルダに接続します。ファイルは変更しません。"));
         dialog(uiText("Connect GitHub", "GitHubに接続"), content, uiText("Connect", "接続"), async () => {
             return run(() => saved("connect", () => call("connect", { args: { url: url.input.value, initialize: !(state === null || state === void 0 ? void 0 : state.repository) } })));
         });
@@ -291,11 +297,10 @@ export function initGitUi(editor, diff) {
         await run(() => saved("shelve", async () => {
             const { plan } = await call("shelve-plan", { paths: entries.map(item => item.path) });
             const content = el("div");
-            content.append(el("p", "", uiText("Keep these changes privately on this Mac and return the files to the current commit.", "変更をこのMacに退避し、ファイルを現在のコミットに戻します。")));
             for (const item of plan.changes || [])
                 content.append(el("p", "", item.path));
             await new Promise(resolve => {
-                const modal = dialog(uiText("Set changes aside", "変更を一時退避"), content, uiText("Set aside", "退避"), async () => { await call("shelve", { planId: plan.planId }); });
+                const modal = dialog(uiText("Set changes aside", "変更を退避"), content, uiText("Set aside", "退避"), async () => { await call("shelve", { planId: plan.planId }); }, uiText("Keeps these changes on this Mac and returns the files to the current commit.", "変更をこの Mac に退避し、ファイルを現在のコミットに戻します。"));
                 modal.addEventListener("close", () => resolve());
             });
         }));
@@ -309,11 +314,11 @@ export function initGitUi(editor, diff) {
                 option.value = shelf.id;
                 select.append(option);
             }
-            const explain = createExplain(uiText("Return to the original branch and commit before restoring.", "退避したときのブランチとコミットに戻してから復帰できます。"), { topic: uiText("saved changes", "退避した変更") });
+            const explain = createExplain(uiText("Return to the original branch and commit before restoring.", "退避時と同じブランチ・コミットでのみ戻せます。"), { topic: uiText("saved changes", "退避した変更") });
             const row = el("div", "has-explain");
             row.append(select, explain.button);
             content.append(row, explain.panel);
-            dialog(uiText("Restore saved changes", "退避した変更を戻す"), content, uiText("Restore", "戻す"), async () => {
+            dialog(uiText("Saved changes", "退避した変更"), content, uiText("Restore", "戻す"), async () => {
                 if (!select.value)
                     return false;
                 return run(() => saved("unshelve", () => call("unshelve", { id: select.value })));
@@ -327,11 +332,11 @@ export function initGitUi(editor, diff) {
             content.append(el("p", "", item.path));
         const blocked = plan.canApply === false || plan.blockedGit || ((_a = plan.blockedPaths) === null || _a === void 0 ? void 0 : _a.length) || plan.requiresManualReview;
         if (blocked)
-            content.append(el("p", "", uiText("Other changes were detected. Keep the current files and review the recovery data before proceeding.", "操作後の変更があるため、自動で戻せません。現在のファイルを保護したまま確認が必要です。")));
+            content.append(el("p", "", uiText("Later changes were found, so this cannot be undone automatically.", "操作後に変更があるため、自動では戻せません。")));
         for (const name of plan.blockedPaths || [])
             content.append(el("p", "", name));
         if (blocked)
-            content.append(button(uiText("Export a protected file…", "保護したファイルを書き出す…"), () => void run(async () => {
+            content.append(button(uiText("Export…", "書き出す…"), () => void run(async () => {
                 const { files } = await call("recovery-files"), picker = el("div"), file = el("select", "history-name"), side = el("select", "history-name");
                 file.setAttribute("aria-label", uiText("File", "ファイル"));
                 side.setAttribute("aria-label", uiText("Protected version", "保護した状態"));
@@ -355,20 +360,21 @@ export function initGitUi(editor, diff) {
                 file.onchange = updateSides;
                 updateSides();
                 picker.append(file, side);
-                dialog(uiText("Export protected file", "保護したファイルを書き出す"), picker, uiText("Choose location…", "保存先を選ぶ…"), async () => { await call("export-recovery-file", { path: file.value, side: side.value }); });
+                dialog(uiText("Export", "書き出し"), picker, uiText("Save to…", "保存先…"), async () => { await call("export-recovery-file", { path: file.value, side: side.value }); });
             })));
-        dialog(uiText("Recover interrupted operation", "中断した操作を復旧"), content, blocked ? uiText("Close", "閉じる") : uiText("Restore previous state", "操作前に戻す"), async () => {
-            if (blocked)
-                return;
-            await call("recovery-apply", { planId: plan.planId });
-            await sync();
-        });
+        if (blocked)
+            dialog(uiText("Recovery", "復旧"), content);
+        else
+            dialog(uiText("Recovery", "復旧"), content, uiText("Restore previous state", "操作前に戻す"), async () => {
+                await call("recovery-apply", { planId: plan.planId });
+                await sync();
+            });
     }
     function settingsDialog() {
         const content = el("div", "git-settings");
         const open = (label, action) => button(label, () => { modal.close(); action(); });
-        content.append(el("p", "git-secondary", uiText("Connection", "接続")), open(uiText("Connect GitHub…", "GitHubに接続…"), () => void connectDialog()), el("p", "git-secondary", uiText("Commit", "コミット")), open(uiText("Author name and email…", "作成者名・メール…"), () => void authorDialog()), el("p", "git-secondary", uiText("Authentication", "認証")), open(uiText("Use TeX64 authentication…", "TeX64の認証を使う…"), () => void authenticationDialog()), open(uiText("Sign in to GitHub…", "GitHubにログイン…"), () => void run(async () => { await call("authenticate"); })));
-        const modal = dialog(uiText("Git settings", "Git設定"), content, uiText("Close", "閉じる"), async () => { });
+        content.append(open(uiText("Connect GitHub…", "GitHubに接続…"), () => void connectDialog()), open(uiText("Commit identity…", "作成者…"), () => void authorDialog()), open(uiText("TeX64 authentication…", "TeX64の認証…"), () => void authenticationDialog()), open(uiText("Sign in to GitHub…", "GitHubにログイン…"), () => void run(async () => { await call("authenticate"); })));
+        const modal = dialog(uiText("Git settings", "Git設定"), content);
     }
     async function authenticationDialog() {
         await run(async () => {
@@ -380,22 +386,23 @@ export function initGitUi(editor, diff) {
         });
     }
     async function authorDialog() {
-        const content = el("div"), name = field(uiText("Name", "名前")), email = field(uiText("Email", "メールアドレス"));
+        const content = el("div"), name = field(uiText("Name", "名前")), email = field(uiText("Email", "メール"));
         email.input.type = "email";
         content.append(name.wrapper, email.wrapper);
         explainField(name, uiText("Used only in this repository.", "このリポジトリだけに設定します。"));
-        dialog(uiText("Commit identity", "作成者名・メール"), content, uiText("Save", "保存"), () => run(() => saved("set-author", () => call("set-author", { args: { name: name.input.value, email: email.input.value } }))));
+        dialog(uiText("Commit identity", "作成者"), content, uiText("Save", "保存"), () => run(() => saved("set-author", () => call("set-author", { args: { name: name.input.value, email: email.input.value } }))));
     }
     async function cloneDialog() {
-        const content = el("div"), url = field(uiText("Repository URL", "リポジトリURL"), "https://github.com/owner/repository"), name = field(uiText("New folder", "新しいフォルダ名"));
+        const content = el("div"), url = field("URL"), name = field(uiText("Folder name", "フォルダ名"));
         content.append(url.wrapper, name.wrapper);
-        dialog(uiText("Clone into another folder", "別フォルダに取得"), content, uiText("Choose location…", "取得先を選ぶ…"), async () => {
+        dialog(uiText("Clone into another folder", "別フォルダに取得"), content, uiText("Clone to…", "取得先…"), async () => {
             const selected = await call("choose-clone-destination", { name: name.input.value.trim() });
             if (selected.canceled)
                 return false;
-            const review = el("div");
-            review.append(el("p", "", url.input.value), el("p", "", selected.destination));
-            dialog(uiText("Clone repository", "リポジトリを取得"), review, uiText("Clone", "取得"), () => run(() => saved("clone", async () => {
+            const review = el("div"), source = el("p", "", url.input.value);
+            source.title = selected.destination;
+            review.append(source);
+            dialog(uiText("Clone", "取得"), review, uiText("Clone", "取得"), () => run(() => saved("clone", async () => {
                 const result = await call("clone", { args: { url: url.input.value, destinationId: selected.destinationId } });
                 error.textContent = uiText(`Saved to ${result.root}`, `取得しました：${result.root}`);
             })));
@@ -429,12 +436,13 @@ export function initGitUi(editor, diff) {
         const content = el("div"), remote = remoteSelect();
         content.append(remote);
         const modal = dialog(uiText("Check for updates", "更新を確認"), content, uiText("Fetch", "取得"), async () => {
-            var _a;
+            var _a, _b;
             if (!await run(() => saved("fetch", () => call("fetch", { args: { remote: remote.value } }))))
                 return false;
             const choices = el("div"), ref = refSelect(`refs/remotes/${remote.value}/`), counts = el("p", "git-secondary");
-            const connected = (_a = state === null || state === void 0 ? void 0 : state.remotes) === null || _a === void 0 ? void 0 : _a.find(item => item.name === remote.value);
-            choices.append(el("p", "", (connected === null || connected === void 0 ? void 0 : connected.url) || remote.value), el("p", "", `${uiText("Current branch", "現在のブランチ")}：${(state === null || state === void 0 ? void 0 : state.branch) || "—"}`), ref, counts);
+            const connected = el("p", "", remote.value);
+            connected.title = ((_b = (_a = state === null || state === void 0 ? void 0 : state.remotes) === null || _a === void 0 ? void 0 : _a.find(item => item.name === remote.value)) === null || _b === void 0 ? void 0 : _b.url) || "";
+            choices.append(connected, el("p", "", `${uiText("Branch", "ブランチ")}：${(state === null || state === void 0 ? void 0 : state.branch) || "—"}`), ref, counts);
             const cloneHelp = button(uiText("Clone into another folder…", "別フォルダに取得…"), () => { reviewModal.close(); void cloneDialog(); });
             cloneHelp.hidden = true;
             choices.append(cloneHelp);
@@ -442,13 +450,13 @@ export function initGitUi(editor, diff) {
             const updateCounts = async () => {
                 const version = ++countVersion;
                 if (!(state === null || state === void 0 ? void 0 : state.branchRef) || !ref.value) {
-                    counts.textContent = uiText("No matching remote branch", "対応する接続先のブランチはありません");
+                    counts.textContent = uiText("No matching remote branch", "対応するブランチがありません");
                     return;
                 }
                 try {
                     const value = await call("ahead-behind", { args: { localRef: state.branchRef, remoteRef: ref.value } });
                     if (version === countVersion) {
-                        counts.textContent = value.related === false ? uiText("These histories are unrelated. Clone into another folder to continue.", "別の履歴です。別フォルダに取得して続けてください。") : `${uiText("Outgoing", "送信")} ${value.ahead} · ${uiText("Incoming", "受信")} ${value.behind}`;
+                        counts.textContent = value.related === false ? uiText("The histories are unrelated.", "履歴が異なります。") : `${uiText("Outgoing", "送信")} ${value.ahead} · ${uiText("Incoming", "受信")} ${value.behind}`;
                         choices.querySelectorAll("button").forEach(item => { item.disabled = value.related === false; });
                         reviewModal.querySelector("button.is-primary").disabled = value.related === false;
                         cloneHelp.hidden = value.related !== false;
@@ -462,9 +470,9 @@ export function initGitUi(editor, diff) {
             };
             ref.onchange = () => void updateCounts();
             void updateCounts();
-            choices.append(button(uiText("Merge into current branch…", "現在のブランチに統合…"), () => void perform("merge", { ref: ref.value }, true)), button(uiText("Use as tracking branch…", "追跡先に設定…"), () => void perform("set-upstream", { localRef: state === null || state === void 0 ? void 0 : state.branchRef, remoteRef: ref.value }, true)));
+            choices.append(button(uiText("Merge…", "統合…"), () => void perform("merge", { ref: ref.value }, true)), button(uiText("Track…", "追跡先…"), () => void perform("set-upstream", { localRef: state === null || state === void 0 ? void 0 : state.branchRef, remoteRef: ref.value }, true)));
             const pushTarget = { remote: remote.value, ref: state === null || state === void 0 ? void 0 : state.branchRef, oid: state === null || state === void 0 ? void 0 : state.head };
-            const reviewModal = dialog(uiText("Remote changes", "接続先の変更"), choices, uiText("Push current branch", "現在のブランチを送信"), async () => {
+            const reviewModal = dialog(uiText("Remote changes", "接続先の変更"), choices, uiText("Push", "送信"), async () => {
                 if (!pushTarget.oid || !pushTarget.ref)
                     throw new Error(uiText("Create a commit first.", "先にコミットしてください。"));
                 return run(() => saved("push", () => send("push", pushTarget)));
@@ -532,17 +540,17 @@ export function initGitUi(editor, diff) {
                     var _a, _b;
                     const value = await call("diff", { path: entry.path, side });
                     if (value.text)
-                        diff.showDiffModal(value.original, value.modified, 0, { title: side === "staged" ? uiText("Selected changes", "コミット対象の変更") : uiText("Remaining changes", "未選択の変更"), fileName: entry.path, viewOnly: true, closeLabel: uiText("Close", "閉じる") });
+                        diff.showDiffModal(value.original, value.modified, 0, { title: side === "staged" ? uiText("Commit target", "コミット対象") : uiText("Not selected", "未選択"), fileName: entry.path, viewOnly: true, closeLabel: uiText("Close", "閉じる") });
                     else {
                         const content = el("div");
-                        content.append(el("p", "", entry.path), el("p", "", `${(_a = value.originalInfo.size) !== null && _a !== void 0 ? _a : 0} → ${(_b = value.modifiedInfo.size) !== null && _b !== void 0 ? _b : 0} bytes`), el("p", "git-secondary", uiText("This file cannot be shown as text.", "このファイルはテキストで比較できません。")));
-                        dialog(uiText("File changes", "ファイルの変更"), content, uiText("Close", "閉じる"), async () => { });
+                        content.append(el("p", "", entry.path), el("p", "", `${(_a = value.originalInfo.size) !== null && _a !== void 0 ? _a : 0} → ${(_b = value.modifiedInfo.size) !== null && _b !== void 0 ? _b : 0} bytes`), el("p", "git-secondary", uiText("Cannot be compared as text.", "テキストでは比較できません。")));
+                        dialog(uiText("Changes", "変更"), content);
                     }
                 };
                 if (entry.staged && entry.unstaged) {
                     const content = el("div");
-                    const picker = dialog(entry.path, content, uiText("Close", "閉じる"), async () => { });
-                    content.append(button(uiText("Selected changes", "コミット対象の変更"), () => { picker.close(); void run(() => show("staged")); }), button(uiText("Remaining changes", "未選択の変更"), () => { picker.close(); void run(() => show("unstaged")); }));
+                    const picker = dialog(entry.path, content);
+                    content.append(button(uiText("Commit target", "コミット対象"), () => { picker.close(); void run(() => show("staged")); }), button(uiText("Not selected", "未選択"), () => { picker.close(); void run(() => show("unstaged")); }));
                 }
                 else
                     await show(entry.staged ? "staged" : "unstaged");
@@ -566,7 +574,7 @@ export function initGitUi(editor, diff) {
                             side.append(option);
                         }
                         content.append(el("p", "", entry.path), side);
-                        dialog(uiText("Choose the file to keep", "ファイルの内容を選ぶ"), content, uiText("Use this version", "この内容を採用"), () => run(() => saved("resolution", () => call("write-resolution", { conflictId: conflict.conflictId, source: side.value }))));
+                        dialog(uiText("Resolve conflict", "競合の解決"), content, uiText("Keep", "採用"), () => run(() => saved("resolution", () => call("write-resolution", { conflictId: conflict.conflictId, source: side.value }))));
                         return;
                     }
                     diff.showDiffModal(conflict.original || "", conflict.modified || "", 0, {

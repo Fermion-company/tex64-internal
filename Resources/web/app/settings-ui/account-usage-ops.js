@@ -27,7 +27,7 @@ export const createSettingsAccountUsageOps = (runtime) => {
         const used = typeof (quota === null || quota === void 0 ? void 0 : quota.usedTokens) === "number" && Number.isFinite(quota.usedTokens) ? Math.max(0, quota.usedTokens) : 0;
         const pct = limit > 0 ? Math.max(0, Math.min(100, (used / limit) * 100)) : 0;
         if (settingsUsagePlan instanceof HTMLElement) {
-            settingsUsagePlan.textContent = `${aiText("plan_word")}: ${planLabel}`;
+            settingsUsagePlan.textContent = planLabel;
         }
         const periodEnd = typeof (access === null || access === void 0 ? void 0 : access.periodEnd) === "string" ? access.periodEnd : (_f = quota === null || quota === void 0 ? void 0 : quota.periodEnd) !== null && _f !== void 0 ? _f : null;
         if (settingsUsageReset instanceof HTMLElement) {

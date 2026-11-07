@@ -69,7 +69,7 @@ export const initCollabUi = () => {
         const incoming = state.role === "guest" ? state.incoming : null;
         if (!incoming || incoming.files <= 0)
             return "";
-        return uiText(`Receiving files from the host: ${incoming.files} left (${megabytes(incoming.bytes)})`, `ホストからファイルを受け取り中（残り ${incoming.files} 件・${megabytes(incoming.bytes)}）`);
+        return uiText(`Receiving files: ${incoming.files} left (${megabytes(incoming.bytes)})`, `ファイルを受け取り中（残り ${incoming.files} 件・${megabytes(incoming.bytes)}）`);
     };
     // Every file over the size limit stays listed here: a smaller copy is
     // shared, or nothing is.
@@ -82,11 +82,11 @@ export const initCollabUi = () => {
         const lines = [];
         if (limited === null || limited === void 0 ? void 0 : limited.reduced.length) {
             const files = list(limited.reduced, (item) => `${item.path}（${megabytes(item.original)} → ${megabytes(item.size)}）`);
-            lines.push(uiText(`Shared as a smaller copy (over the size limit): ${files}`, `大きすぎるため画質を落として共有: ${files}`));
+            lines.push(uiText(`Shared smaller: ${files}`, `縮小して共有: ${files}`));
         }
         if (limited === null || limited === void 0 ? void 0 : limited.skipped.length) {
             const files = list(limited.skipped, (item) => `${item.path}（${megabytes(item.size)}）`);
-            lines.push(uiText(`Too large to share: ${files}`, `大きすぎて共有されていない: ${files}`));
+            lines.push(uiText(`Too large, not shared: ${files}`, `容量超過で未共有: ${files}`));
         }
         return lines;
     };
@@ -97,7 +97,7 @@ export const initCollabUi = () => {
         const names = (state.preservedFiles || []).slice(0, 3);
         const rest = preserved - names.length;
         const list = names.join(", ") + (rest > 0 ? uiText(` and ${rest} more`, ` ほか ${rest} 件`) : "");
-        return uiText(`Edited after you left, kept as: ${list}`, `退出後に編集した分を退避しました: ${list}`);
+        return uiText(`Later edits kept as: ${list}`, `退出後の編集を退避しました: ${list}`);
     };
     const field = (className, label) => {
         const input = el("input", `tool-input ${className}`);
@@ -111,13 +111,12 @@ export const initCollabUi = () => {
         if (!dialog)
             return;
         const state = collabSession.getState();
-        const eyebrow = el("p", "tool-dialog-eyebrow", "Collaborate");
-        eyebrow.dataset.noI18n = "true";
-        if (state.active && state.name) {
-            const detail = el("span", "tool-dialog-eyebrow-detail", `· ${state.name}`);
-            eyebrow.append(detail);
-        }
         const title = el("h2", "tool-dialog-title", uiText("Collaborate", "共同編集"));
+        if (state.active && state.name) {
+            const project = el("span", "tool-dialog-title-detail", ` · ${state.name}`);
+            project.dataset.noI18n = "true";
+            title.append(project);
+        }
         title.id = "collab-dialog-title";
         dialog.setAttribute("aria-labelledby", title.id);
         const content = el("div", "collab-dialog-body");
@@ -126,8 +125,8 @@ export const initCollabUi = () => {
         error.setAttribute("role", "status");
         if (state.phase === "starting" || state.phase === "opening" || (busy && !state.active)) {
             content.append(el("p", "tool-dialog-note", state.role === "guest"
-                ? uiText("Joining the session…", "セッションに参加しています…")
-                : uiText("Starting the session…", "セッションを開始しています…")));
+                ? uiText("Joining…", "参加中…")
+                : uiText("Starting…", "開始中…")));
         }
         else if (!state.active) {
             const nameRow = el("label", "collab-field");
@@ -138,7 +137,7 @@ export const initCollabUi = () => {
             nameField.value = defaultName;
             nameField.addEventListener("input", () => { defaultName = nameField.value; });
             nameRow.append(nameField);
-            const start = button(uiText("Start a session", "セッションを開始"), () => void run(() => collabSession.start(nameField.value.trim())));
+            const start = button(uiText("Start", "開始"), () => void run(() => collabSession.start(nameField.value.trim())));
             start.dataset.focusKey = "start-session";
             const startExplain = createExplain(idleRoute === "relay"
                 ? uiText("People can join over the internet. Everything is encrypted between the computers; the relay in between cannot read it.", "インターネット越しに参加できます。内容は参加者の間で暗号化され、間の中継サーバーには読めません。")
@@ -146,9 +145,8 @@ export const initCollabUi = () => {
             const startRow = el("div", "collab-start-row has-explain");
             startRow.append(start, startExplain.button);
             const joinSection = el("div", "collab-section collab-join");
-            joinSection.append(el("p", "tool-dialog-label", uiText("Join with a link", "招待リンクで参加")));
-            const linkField = field("collab-join-input", uiText("Paste an invite link", "招待リンクを貼り付け"));
-            linkField.placeholder = uiText("Paste an invite link", "招待リンクを貼り付け");
+            joinSection.append(el("p", "tool-dialog-label", uiText("Invite link", "招待リンク")));
+            const linkField = field("collab-join-input", uiText("Invite link", "招待リンク"));
             linkField.value = pendingLink;
             linkField.dataset.noI18n = "true";
             linkField.dataset.focusKey = "join-link";
@@ -173,9 +171,11 @@ export const initCollabUi = () => {
         else {
             if (state.inviteLink) {
                 const invite = el("div", "collab-section");
-                invite.append(...explainedHeading(el("p", "tool-dialog-label", uiText("Invite link", "招待リンク")), state.route === "relay"
-                    ? uiText("Anyone with the link can join from anywhere.", "リンクを知っている人は、どこからでも参加できます。")
-                    : uiText("Only people on the same network (LAN / VPN) can join.", "参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。"), { memory: explainOpen, key: "invite" }));
+                const inviteHeading = el("p", "tool-dialog-label", uiText("Invite link", "招待リンク"));
+                if (state.route === "relay")
+                    invite.append(inviteHeading);
+                else
+                    invite.append(...explainedHeading(inviteHeading, uiText("Only people on the same LAN / VPN can join.", "同じ LAN / VPN の人だけが参加できます。"), { memory: explainOpen, key: "invite" }));
                 const linkFor = () => (linkAccess === "view" && state.viewInviteLink ? state.viewInviteLink : state.inviteLink || "");
                 const link = field("", uiText("Invite link", "招待リンク"));
                 link.readOnly = true;
@@ -184,14 +184,14 @@ export const initCollabUi = () => {
                 link.dataset.focusKey = "invite-link";
                 const copy = button(uiText("Copy", "コピー"), () => {
                     var _a;
-                    void ((_a = navigator.clipboard) === null || _a === void 0 ? void 0 : _a.writeText(linkFor()).then(() => { copy.textContent = uiText("Copied", "コピーしました"); }, () => { link.select(); }));
+                    void ((_a = navigator.clipboard) === null || _a === void 0 ? void 0 : _a.writeText(linkFor()).then(() => { copy.textContent = uiText("Copied", "コピー済み"); }, () => { link.select(); }));
                 }, true);
                 copy.dataset.focusKey = "copy";
                 if (state.viewInviteLink) {
                     const access = el("div", "tool-segmented collab-access");
                     access.setAttribute("role", "group");
                     access.setAttribute("aria-label", uiText("What the link allows", "リンクでできること"));
-                    const choices = [["edit", uiText("Can edit", "編集できる")], ["view", uiText("View only", "閲覧のみ")]];
+                    const choices = [["edit", uiText("Edit", "編集")], ["view", uiText("View only", "閲覧のみ")]];
                     for (const [value, label] of choices) {
                         const option = el("button", "", label);
                         option.type = "button";
@@ -216,19 +216,10 @@ export const initCollabUi = () => {
             }
             const people = el("div", "collab-section");
             const peopleHeading = el("p", "tool-dialog-label", `${uiText("Participants", "参加者")} · ${state.participants.length}`);
-            // A guest's ▾: where its copy lives, and what viewing allows.
-            const guestExplain = [];
+            // A view-only guest's ▾: what viewing allows.
             if (state.role === "guest" && state.access === "view") {
-                guestExplain.push(uiText("You joined to view: you can read, follow and build, but not edit.", "閲覧のみで参加しています。読む・追う・ビルドはできますが、編集はできません。"));
+                people.append(...explainedHeading(peopleHeading, uiText("You can read, follow and build, but not edit.", "読む・追う・ビルドはできますが、編集はできません。"), { memory: explainOpen, key: "people" }));
             }
-            if (state.role === "guest" && state.rootPath) {
-                const where = el("p", "", "");
-                where.append(`${uiText("Your copy", "写しの場所")}: `, el("code", "", state.rootPath), uiText(". It stays after you leave.", "。退出後も残ります。"));
-                where.dataset.noI18n = "true";
-                guestExplain.push(where);
-            }
-            if (guestExplain.length)
-                people.append(...explainedHeading(peopleHeading, guestExplain, { memory: explainOpen, key: "people" }));
             else
                 people.append(peopleHeading);
             const list = el("ul", "collab-people collab-dialog-participants");
@@ -262,17 +253,17 @@ export const initCollabUi = () => {
                 content.append(note);
             }
             if (state.role === "guest" && state.connected === false)
-                content.append(el("p", "tool-dialog-note", uiText("Reconnecting to the host…", "ホストに再接続しています…")));
+                content.append(el("p", "tool-dialog-note", uiText("Reconnecting to the host…", "ホストに再接続中…")));
             if (state.role === "host" && state.connected === false)
-                content.append(el("p", "tool-dialog-note", uiText("Reconnecting to the relay…", "中継サーバーに再接続しています…")));
+                content.append(el("p", "tool-dialog-note", uiText("Reconnecting to the relay…", "中継サーバーに再接続中…")));
             if (preservedText(state))
                 content.append(el("p", "tool-dialog-note", preservedText(state)));
         }
         const actions = el("div", "tool-dialog-actions");
         if (state.active) {
             const leave = state.role === "host"
-                ? button(uiText("End the session…", "セッションを終了…"), () => {
-                    if (!window.confirm(uiText("End the session for everyone? Each participant keeps their copy.", "全員のセッションを終了しますか？各参加者の写しはそのまま残ります。")))
+                ? button(uiText("End session…", "終了…"), () => {
+                    if (!window.confirm(uiText("End the session for everyone?", "全員のセッションを終了しますか？")))
                         return;
                     void run(() => collabSession.leave());
                 })
@@ -290,7 +281,7 @@ export const initCollabUi = () => {
         // back to the control the user was on. When that control is gone, or
         // focus starts over, it goes to the field to fill in, else Close.
         const focusMark = markFocus(dialog);
-        dialog.replaceChildren(eyebrow, title, content, error, actions);
+        dialog.replaceChildren(title, content, error, actions);
         window.requestAnimationFrame(() => {
             if (!dialog)
                 return;

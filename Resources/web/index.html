@@ -96,7 +96,7 @@
         <div class="launcher-right">
           <div class="launcher-recent" id="launcher-recent">
             <div class="launcher-recent-header">
-              <span class="launcher-recent-title">Recent Projects</span>
+              <span class="launcher-recent-title">Recent</span>
               <button class="launcher-recent-toggle" id="launcher-recent-toggle" type="button" aria-expanded="false">
                 <span class="launcher-recent-toggle-text">Show All</span>
                 <svg class="launcher-recent-toggle-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
@@ -106,7 +106,7 @@
             </div>
             <div class="launcher-recent-list" id="launcher-recent-list"></div>
             <div class="launcher-recent-empty" id="launcher-recent-empty">
-              No project opened yet
+              No recent projects
             </div>
           </div>
         </div>
@@ -462,7 +462,7 @@
                       type="button"
                       aria-haspopup="dialog"
                       aria-expanded="false"
-                      aria-label="Formula block settings"
+                      aria-label="Math settings"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path
@@ -546,7 +546,7 @@
               <div class="ai-chat-delete-modal" id="ai-chat-delete-modal">
                 <div class="ai-chat-delete-modal-card">
                   <div class="ai-chat-delete-modal-title">Delete chat</div>
-                  <div class="ai-chat-delete-modal-text">Delete "<span id="ai-chat-delete-target"></span>"?</div>
+                  <div class="ai-chat-delete-modal-text"><span id="ai-chat-delete-target"></span></div>
                   <div class="ai-chat-delete-modal-actions">
                     <button class="panel-button ghost" id="ai-chat-delete-cancel" type="button">cancel</button>
                     <button class="panel-button danger" id="ai-chat-delete-confirm" type="button">Delete</button>
@@ -605,8 +605,7 @@
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
                               </button>
                               <div class="ai-model-upsell-heading" id="ai-model-upsell-heading" data-no-i18n>Axiom 1.0 Pro</div>
-                              <div class="ai-model-upsell-title">Available on the Pro plan</div>
-                              <button class="ai-model-upsell-btn" type="button">See Pro plans</button>
+                              <button class="ai-model-upsell-btn" type="button">Plans</button>
                             </div>
                           </div>
                         </div>
@@ -727,12 +726,12 @@
             <div class="panel-header">
               <span class="panel-title">Settings</span>
             </div>
-            <button class="settings-overlay-close" id="settings-close" type="button" aria-label="Back to app" title="Back to app">
+            <button class="settings-overlay-close" id="settings-close" type="button" aria-label="Back" title="Back">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M19 12H5"></path>
                 <path d="m12 19-7-7 7-7"></path>
               </svg>
-              <span class="settings-overlay-close-label">Back to app</span>
+              <span class="settings-overlay-close-label">Back</span>
             </button>
             <div class="panel-body settings-panel" id="settings-panel">
               <div class="settings-nav" id="settings-nav">
@@ -780,12 +779,12 @@
                       <div class="settings-control">
                         <select class="settings-select" id="settings-ui-language">
                           <option value="en">English</option>
-                          <option value="ja">日本語 (Japanese)</option>
-                          <option value="zh">简体中文 (Chinese)</option>
-                          <option value="ko">한국어 (Korean)</option>
-                          <option value="fr">Français (French)</option>
-                          <option value="de">Deutsch (German)</option>
-                          <option value="es">Español (Spanish)</option>
+                          <option value="ja">日本語</option>
+                          <option value="zh">简体中文</option>
+                          <option value="ko">한국어</option>
+                          <option value="fr">Français</option>
+                          <option value="de">Deutsch</option>
+                          <option value="es">Español</option>
                         </select>
                       </div>
                     </div>
@@ -819,7 +818,6 @@
                     <div class="settings-page-title">Editor</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Display</div>
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Wrap Lines</span>
@@ -848,8 +846,8 @@
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="editor-font-family">
-                          <option value="">Default (Latin Modern Mono)</option>
-                          <option value="&quot;Latin Modern Mono&quot;, monospace">Latin Modern Mono (TeX's typewriter face)</option>
+                          <option value="">Default</option>
+                          <option value="&quot;Latin Modern Mono&quot;, monospace">Latin Modern Mono</option>
                           <option value="&quot;SF Mono&quot;, Menlo, Monaco, monospace">SF Mono</option>
                           <option value="&quot;Courier New&quot;, monospace">Courier New</option>
                           <option value="&quot;PT Mono&quot;, monospace">PT Mono</option>
@@ -878,10 +876,9 @@
                     <div class="settings-page-title">Format</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Format</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Auto-Format on Save</span>
+                        <span class="settings-title">Format on Save</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-format-enabled">
@@ -948,7 +945,7 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Handling of Blank Lines</span>
+                        <span class="settings-title">Blank Lines</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="editor-format-blank-lines">
@@ -977,7 +974,6 @@
                         class="settings-input"
                         id="editor-format-verbatim-input"
                         type="text"
-                        placeholder="minted / myenv etc."
                       >
                       <button class="panel-button" id="editor-format-verbatim-add" type="button">
                         Add
@@ -994,7 +990,6 @@
                           class="env-registry-input"
                           id="env-registry-input"
                           type="text"
-                          placeholder="align / myenv etc."
                         >
                         <select class="env-registry-select" id="env-registry-kind">
                           <option value="math">Mathematical Formula</option>
@@ -1024,10 +1019,9 @@
                     <div class="settings-page-title">Build</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Compile</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Compilation Engine</span>
+                        <span class="settings-title">Engine</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="settings-compile-engine">
@@ -1040,7 +1034,6 @@
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Preview</div>
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Real-time Preview</span>
@@ -1068,7 +1061,7 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Reverse SyncTeX (PDF → source)</span>
+                        <span class="settings-title">PDF → source</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-reverse-synctex">
@@ -1079,10 +1072,9 @@
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Build Profile</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Build Profile</span>
+                        <span class="settings-title">Profile</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="settings-build-profile"></select>
@@ -1090,10 +1082,10 @@
                     </div>
                     <div class="settings-item is-stacked">
                       <div class="settings-label">
-                        <span class="settings-title">Profile Name</span>
+                        <span class="settings-title">Name</span>
                       </div>
                       <div class="settings-control">
-                        <input class="settings-input" id="settings-build-profile-name" type="text" placeholder="My profile">
+                        <input class="settings-input" id="settings-build-profile-name" type="text">
                       </div>
                     </div>
                     <div class="settings-item is-stacked">
@@ -1101,7 +1093,7 @@
                         <span class="settings-title">outDir</span>
                       </div>
                       <div class="settings-control">
-                        <input class="settings-input" id="settings-build-outdir" type="text" placeholder="build">
+                        <input class="settings-input" id="settings-build-outdir" type="text">
                       </div>
                     </div>
                     <div class="settings-item is-stacked">
@@ -1120,10 +1112,10 @@
                     </div>
                     <div class="settings-item is-stacked">
                       <div class="settings-label">
-                        <span class="settings-title">latexmk Additional Options</span>
+                        <span class="settings-title">latexmk Options</span>
                       </div>
                       <div class="settings-control">
-                        <input class="settings-input" id="settings-build-extra-args" type="text" placeholder="-use-biber -shell-escape">
+                        <input class="settings-input" id="settings-build-extra-args" type="text">
                       </div>
                     </div>
                     <div class="settings-inline">
@@ -1136,7 +1128,6 @@
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Clean</div>
                     <div class="settings-actions">
                       <button class="panel-button ghost" id="settings-build-clean" type="button">Clean</button>
                       <button class="panel-button ghost" id="settings-build-clean-all" type="button">Clean -C</button>
@@ -1152,7 +1143,7 @@
                     <div class="env-hero is-checking" id="env-hero">
                       <span class="env-hero-icon" aria-hidden="true"></span>
                       <div class="env-hero-text">
-                        <div class="env-hero-title" id="settings-runtime-setup-status">Checking your TeX environment…</div>
+                        <div class="env-hero-title" id="settings-runtime-setup-status">Checking TeX…</div>
                       </div>
                     </div>
                     <div class="env-detail is-hidden" id="env-detail" aria-hidden="true"></div>
@@ -1168,7 +1159,7 @@
                       <div class="env-progress-label" id="env-progress-label"></div>
                     </div>
                     <button class="panel-button env-setup-btn is-hidden" id="settings-env-setup" type="button">
-                      Set Up TeX Environment
+                      Set up
                     </button>
                     <div class="settings-help-text env-install-note is-hidden" id="settings-runtime-install-status" aria-hidden="true"></div>
                   </div>
@@ -1179,10 +1170,9 @@
                     <div class="settings-page-title">Account</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Account</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Google Login</span>
+                        <span class="settings-title">Google</span>
                         <span class="settings-desc" id="settings-auth-status">Signed out</span>
                       </div>
                       <div class="settings-control settings-inline settings-inline-wrap">
@@ -1212,7 +1202,7 @@
                     </div>
                     <div class="settings-inline settings-inline-wrap">
                       <button class="panel-button" id="settings-plan-open" type="button">
-                        Open Plans
+                        Pricing
                       </button>
                     </div>
                   </div>
@@ -1220,7 +1210,7 @@
                     <div class="settings-group-title">Update</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Current Version</span>
+                        <span class="settings-title">Current</span>
                       </div>
                       <div class="settings-control">
                         <span class="settings-version-badge" id="settings-update-current">-</span>
@@ -1228,7 +1218,7 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Latest Version</span>
+                        <span class="settings-title">Latest</span>
                       </div>
                       <div class="settings-control">
                         <span class="settings-version-badge" id="settings-update-latest">-</span>
@@ -1248,7 +1238,7 @@
                         Apply Updates
                       </button>
                       <button class="panel-button ghost" id="settings-update-open" type="button">
-                        Manual Download
+                        Download
                       </button>
                     </div>
                   </div>
@@ -1277,7 +1267,6 @@
                           class="settings-input"
                           id="settings-feedback-message"
                           rows="6"
-                          placeholder="Type your feedback here."
                         ></textarea>
                       </div>
                     </div>
@@ -1498,8 +1487,6 @@
           aria-labelledby="create-modal-title"
         >
           <div class="modal-title" id="create-modal-title">Create New</div>
-          <div class="modal-subtitle" id="create-modal-subtitle">
-          </div>
           <div class="modal-body">
             <div class="modal-row">
               <span class="modal-label">Create destination</span>
@@ -1513,7 +1500,6 @@
                 class="modal-input"
                 id="create-modal-input"
                 type="text"
-                placeholder="new file name"
                 autocomplete="off"
               />
             </div>
@@ -1533,14 +1519,14 @@
           class="feedback-overlay-close"
           id="feedback-modal-cancel"
           type="button"
-          aria-label="Back to app"
-          title="Back to app"
+          aria-label="Back"
+          title="Back"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M19 12H5"></path>
             <path d="m12 19-7-7 7-7"></path>
           </svg>
-          <span class="feedback-overlay-close-label">Back to app</span>
+          <span class="feedback-overlay-close-label">Back</span>
         </button>
         <div
           class="feedback-overlay-inner"
@@ -1548,16 +1534,16 @@
           aria-modal="true"
           aria-labelledby="feedback-modal-title"
         >
-          <h1 class="feedback-overlay-title" id="feedback-modal-title">Help shape TeX64</h1>
+          <h1 class="feedback-overlay-title" id="feedback-modal-title">Feedback</h1>
           <textarea
             class="feedback-overlay-textarea"
             id="feedback-modal-message"
-            placeholder="What did you notice? Anything goes — big or small."
+            aria-labelledby="feedback-modal-title"
           ></textarea>
           <div class="feedback-overlay-status is-hidden" id="feedback-modal-status"></div>
           <div class="feedback-overlay-actions">
             <button class="feedback-overlay-send" id="feedback-modal-send" type="button">
-              Send feedback
+              Send
             </button>
           </div>
         </div>
@@ -1573,7 +1559,6 @@
           <button class="plans-close" id="plans-modal-close" type="button" aria-label="Close">×</button>
           <div class="plans-head">
             <h2 class="plans-heading" id="plans-heading">Pricing</h2>
-            <p class="plans-sub" id="plans-sub"></p>
           </div>
           <div class="plans-list" id="plans-list"></div>
           <div class="plans-status" id="plans-status" aria-live="polite"></div>
@@ -1589,15 +1574,12 @@
         >
           <div class="modal-title" id="rename-modal-title">rename</div>
           <div class="modal-body">
-            <div class="modal-row">
-              <span class="modal-label">subject</span>
-              <span class="modal-path" id="rename-modal-target">Not selected</span>
-            </div>
+            <div class="modal-path" id="rename-modal-target">Not selected</div>
             <input
               class="modal-input"
               id="rename-modal-input"
               type="text"
-              placeholder="new name"
+              aria-labelledby="rename-modal-title"
             />
             <div class="modal-help" id="rename-modal-help"></div>
           </div>
@@ -1619,11 +1601,8 @@
         >
           <div class="modal-title" id="delete-modal-title">Confirm deletion</div>
           <div class="modal-body">
-            <div class="modal-row">
-              <span class="modal-label">subject</span>
-              <span class="modal-path" id="delete-modal-target">Not selected</span>
-            </div>
-            <div class="modal-help" id="delete-modal-help">This operation cannot be undone.</div>
+            <div class="modal-path" id="delete-modal-target">Not selected</div>
+            <div class="modal-help" id="delete-modal-help"></div>
           </div>
           <div class="modal-actions">
             <button class="panel-button ghost" id="delete-modal-cancel" type="button">
@@ -1643,7 +1622,7 @@
         >
           <div class="modal-header diff-modal-header">
             <div class="diff-header-left">
-              <div class="modal-title diff-title" id="diff-modal-title">Confirm changes</div>
+              <div class="modal-title diff-title" id="diff-modal-title">Changes</div>
               <div class="diff-meta-row">
                 <div class="diff-file" id="diff-file-name"></div>
                 <div class="diff-summary" id="diff-summary"></div>
@@ -1670,7 +1649,7 @@
           aria-labelledby="block-settings-title"
         >
           <div class="modal-header">
-            <div class="modal-title" id="block-settings-title">Formula block settings</div>
+            <div class="modal-title" id="block-settings-title">Math settings</div>
             <button class="panel-button ghost" id="block-settings-close" type="button">
               close
             </button>
@@ -1692,7 +1671,7 @@
                 </button>
               </div>
               <div class="block-settings-section">
-                <div class="block-settings-section-title">inline box</div>
+                <div class="block-settings-section-title">Inline</div>
                 <div class="block-settings-options">
                   <button
                     class="block-settings-option"
@@ -1707,7 +1686,7 @@
                 </div>
               </div>
               <div class="block-settings-section">
-                <div class="block-settings-section-title">separate line box</div>
+                <div class="block-settings-section-title">Separate line</div>
                 <div class="block-settings-options">
                   <button
                     class="block-settings-option"
@@ -1734,7 +1713,7 @@
           aria-labelledby="math-capture-window-title"
         >
           <div class="modal-header">
-            <div class="modal-title" id="math-capture-window-title">Select import target</div>
+            <div class="modal-title" id="math-capture-window-title">Import source</div>
             <button class="panel-button ghost" id="math-capture-window-cancel" type="button">
               close
             </button>
@@ -1809,16 +1788,6 @@
           <div class="modal-header">
             <div class="modal-title" id="capture-permission-title">Screen recording permission required</div>
           </div>
-          <div class="capture-permission-body">
-            <p class="capture-permission-description">
-              The formula import feature requires macOS Screen Recording permission to capture windows on screen.
-            </p>
-            <ol class="capture-permission-steps">
-              <li>Click "Open Settings" below to open System Settings.</li>
-              <li>Find TeX64 in the app list and turn on the switch.</li>
-              <li>Restart TeX64 and try again.</li>
-            </ol>
-          </div>
           <div class="capture-permission-footer">
             <button class="panel-button primary" id="capture-permission-open" type="button">
               Open Settings
@@ -1846,7 +1815,6 @@
         aria-labelledby="announcement-modal-title"
       >
         <div class="announcement-heading">
-          <div class="announcement-eyebrow" id="announcement-modal-eyebrow"></div>
           <div class="modal-title announcement-title" id="announcement-modal-title"></div>
         </div>
         <div class="modal-body">
@@ -1856,7 +1824,7 @@
               class="modal-input"
               id="announcement-modal-input"
               rows="4"
-              placeholder="Share your thoughts."
+              aria-labelledby="announcement-modal-title"
             ></textarea>
             <div class="announcement-status" id="announcement-modal-status" aria-live="polite"></div>
           </div>

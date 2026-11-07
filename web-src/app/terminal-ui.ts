@@ -347,8 +347,8 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
     if (!session) { create(); return; }
     if (session.state === "starting") return;
     if (confirm && !window.confirm(uiText(
-      `Restart pane ${session.number} · ${session.title}? Running commands in this pane will stop.`,
-      `端末 ${session.number}・${session.title} を再起動しますか？この端末で実行中のコマンドは終了します。`,
+      `Restart pane ${session.number} · ${session.title} and stop its running commands?`,
+      `端末 ${session.number}・${session.title} を再起動し、実行中のコマンドを終了しますか？`,
     ))) return;
     if (session.id) {
       sessionsById.delete(session.id);

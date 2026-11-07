@@ -697,10 +697,10 @@ export const initBuildOpsUi = (
       return node;
     };
     const dialog = el("dialog", "history-confirm build-target-dialog");
-    const title = el("h2", "", uiText("Which document should be built?", "どの文書をビルドしますか？"));
+    const title = el("h2", "", uiText("Build target", "ビルド対象"));
     const note = el("p", "build-target-note", requested
       ? uiText(`${requested} belongs to more than one document.`, `${requested} は複数の文書から読み込まれています。`)
-      : uiText("This folder has several documents and no main file is set.", "このフォルダには文書が複数あり、メイン TeX が決まっていません。"));
+      : uiText("No main file is set.", "メイン TeX が決まっていません。"));
     const list = el("div", "build-target-list");
     list.setAttribute("role", "listbox");
     const pick = (path: string) => {

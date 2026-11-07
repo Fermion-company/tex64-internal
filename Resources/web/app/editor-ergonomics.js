@@ -243,9 +243,9 @@ export const attachEditorErgonomics = (monaco, editor, group) => {
                 run: () => wrap(command),
             });
         };
-        addWrap("tex64.wrap.textbf", "LaTeX: Bold (\\textbf)", "textbf", KeyMod.CtrlCmd | KeyCode.KeyB);
-        addWrap("tex64.wrap.textit", "LaTeX: Italic (\\textit)", "textit", KeyMod.CtrlCmd | KeyCode.KeyI);
-        addWrap("tex64.wrap.emph", "LaTeX: Emphasize (\\emph)", "emph");
-        addWrap("tex64.wrap.texttt", "LaTeX: Monospace (\\texttt)", "texttt");
+        addWrap("tex64.wrap.textbf", "Bold", "textbf", KeyMod.CtrlCmd | KeyCode.KeyB);
+        addWrap("tex64.wrap.textit", "Italic", "textit", KeyMod.CtrlCmd | KeyCode.KeyI);
+        addWrap("tex64.wrap.emph", "Emphasize", "emph");
+        addWrap("tex64.wrap.texttt", "Monospace", "texttt");
     }
 };

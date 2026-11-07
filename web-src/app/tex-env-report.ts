@@ -38,8 +38,9 @@ export type TexEnvReport = {
 
 export type TexInstallVariant = "light" | "full";
 
-// One line naming what was found and where, so a user with an existing MacTeX
-// can see we are using *their* install rather than wondering what we did.
+// The distribution's name. Whose install it is and where it lives go to the
+// line's tooltip (describeDetectionSource), so a user with an existing MacTeX
+// can still check we are using *their* install.
 export const describeDetection = (report: TexEnvReport | null): string => {
   if (!report) {
     return "";
@@ -50,16 +51,18 @@ export const describeDetection = (report: TexEnvReport | null): string => {
       "この環境に TeX は見つかりませんでした。"
     );
   }
-  const name = report.distribution.name;
+  return report.distribution.name;
+};
+
+export const describeDetectionSource = (report: TexEnvReport | null): string => {
+  if (!report?.hasEngine) {
+    return "";
+  }
   const where =
     report.source === "managed"
       ? uiText("installed by TeX64", "TeX64 が導入した環境")
       : uiText("already on this computer", "この環境に既にあるもの");
-  const detail = `${name} — ${where}`;
-  if (report.distribution.root) {
-    return `${detail}\n${report.distribution.root}`;
-  }
-  return detail;
+  return [where, report.distribution.root].filter(Boolean).join("\n");
 };
 
 // What the coverage probe means in words. "on-demand" can still describe an

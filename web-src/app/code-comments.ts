@@ -274,7 +274,6 @@ const createCodeCommentDialog = (options: {
   initialText: string;
   submitLabel: string;
   quote?: string;
-  placeholder?: string;
 }): Promise<string | null> =>
   new Promise((resolve) => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -301,7 +300,6 @@ const createCodeCommentDialog = (options: {
     textarea.className = "modal-input code-comment-modal-input";
     textarea.value = options.initialText;
     textarea.maxLength = MAX_COMMENT_CHARS;
-    textarea.placeholder = options.placeholder ?? uiText("Write a comment", "コメントを入力");
     textarea.setAttribute("aria-label", uiText("Comment", "コメント"));
 
     const help = document.createElement("div");
@@ -825,7 +823,6 @@ export const createCodeCommentManager = (
       initialText: "",
       submitLabel: uiText("Reply", "返信"),
       quote: `${comment.author ? `${comment.author}: ` : ""}${comment.text}`,
-      placeholder: uiText("Write a reply", "返信を入力"),
     });
     if (text === null) return;
     const reply: CommentReply = { author: authorName(), text, createdAt: Date.now() };

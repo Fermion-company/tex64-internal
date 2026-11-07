@@ -65,14 +65,12 @@ export const initLauncherUi = (context, deps) => {
             item.className = "launcher-recent-item";
             item.type = "button";
             item.dataset.path = project.path;
+            // The full path waits in the tooltip; the name is enough to pick from.
+            item.title = project.path;
             const nameSpan = document.createElement("span");
             nameSpan.className = "launcher-recent-item-name";
             nameSpan.textContent = project.name;
-            const pathSpan = document.createElement("span");
-            pathSpan.className = "launcher-recent-item-path";
-            pathSpan.textContent = project.path;
             item.appendChild(nameSpan);
-            item.appendChild(pathSpan);
             item.addEventListener("click", () => {
                 if (launcherBusy)
                     return;

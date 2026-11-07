@@ -10,13 +10,13 @@ const fileName = (path) => (path ? path.split(/[\\/]/).pop() || path : null);
 const SAVE_SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform) ? "Cmd+S" : "Ctrl+S";
 export const describeSaveFailure = (message) => {
     if (/EACCES|EPERM|permission denied|read-only|operation not permitted/i.test(message)) {
-        return uiText("The file cannot be written (permission denied).", "ファイルに書き込めません（書き込みが許可されていません）。");
+        return uiText("Write permission denied.", "書き込みが許可されていません。");
     }
     if (/ENOSPC|no space left/i.test(message)) {
         return uiText("The disk is full.", "ディスクの空き容量が足りません。");
     }
     if (/changed on disk/i.test(message)) {
-        return uiText("The file was changed by another app. Your text is kept in the editor.", "ほかのアプリがファイルを書き換えました。編集中の内容はエディタに残っています。");
+        return uiText("Another app changed the file. Your text is kept.", "ほかのアプリが書き換えました。編集中の内容は残っています。");
     }
     if (/edit conflict/i.test(message)) {
         return uiText("Resolve the edit conflict first.", "先に編集の競合を解決してください。");
@@ -25,7 +25,7 @@ export const describeSaveFailure = (message) => {
         return uiText("A project operation is in progress. Saving will resume when it finishes.", "プロジェクトの操作中です。終わると保存を再開します。");
     }
     if (/timed out/i.test(message)) {
-        return uiText("The save did not finish in time.", "保存が時間内に終わりませんでした。");
+        return uiText("The save timed out.", "保存がタイムアウトしました。");
     }
     return message;
 };

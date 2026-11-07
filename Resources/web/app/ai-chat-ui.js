@@ -67,8 +67,8 @@ export const initAiChatUi = (context, deps) => {
         [PRO_MODEL]: "Axiom 1.0 Pro",
     };
     const MODEL_OPTIONS = [
-        { id: DEFAULT_MODEL, name: "Axiom 1.0", descKey: "model_efficient", pro: false },
-        { id: PRO_MODEL, name: "Axiom 1.0 Pro", descKey: "model_autonomous", pro: true },
+        { id: DEFAULT_MODEL, name: "Axiom 1.0", pro: false },
+        { id: PRO_MODEL, name: "Axiom 1.0 Pro", pro: true },
     ];
     const migrateLegacyModelId = (model) => model === "Axiom0.9.1"
         ? DEFAULT_MODEL
@@ -85,8 +85,7 @@ export const initAiChatUi = (context, deps) => {
         set(".ai-chat-delete-modal-title", "delete_chat");
         set("#ai-chat-delete-cancel", "cancel");
         set("#ai-chat-delete-confirm", "confirm_delete");
-        set(".ai-model-upsell-title", "upsell_title");
-        set(".ai-model-upsell-btn", "see_pro_plans");
+        set(".ai-model-upsell-btn", "open_plans");
         // The mode pill also owns the composer placeholder (it differs per mode).
         eventApi === null || eventApi === void 0 ? void 0 : eventApi.syncModeLabels();
         voice === null || voice === void 0 ? void 0 : voice.syncLabels();
