@@ -536,13 +536,7 @@ export const initBillingUi = (context, deps) => {
         list.className = "plan-features";
         for (const item of features) {
             const li = document.createElement("li");
-            const mark = document.createElement("span");
-            mark.className = "plan-feature-mark";
-            mark.setAttribute("aria-hidden", "true");
-            mark.textContent = "✦";
-            const text = document.createElement("span");
-            text.textContent = item;
-            li.append(mark, text);
+            li.textContent = item;
             list.appendChild(li);
         }
         card.appendChild(list);

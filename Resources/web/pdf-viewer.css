@@ -1,25 +1,43 @@
+/* The viewer is its own document (an iframe in the app, or the PDF window) and
+   does not load theme.css. Each variable below copies the theme.css token of
+   the same name — `:root` for dark, `:root[data-theme="light"]` for light — so
+   the viewer reads as part of the app. Keep them in step with theme.css. */
 :root {
   color-scheme: dark;
-  --bg: #15181e;
-  --panel: #1c2129;
-  --panel-strong: #232932;
-  --panel-border: #2d3440;
-  --text: #d2d7e2;
-  --text-soft: #9aa3b2;
-  --accent: #5c9cff;
-  --accent-soft: rgba(92, 156, 255, 0.18);
+  --bg: #141413;
+  --bg-accent: #1A1A19;
+  --panel: #1C1C1B;
+  --panel-strong: #1F1E1D;
+  --panel-border: #2B2B29;
+  --panel-border-strong: #363634;
+  --control-bg: rgba(250, 249, 245, 0.05);
+  --text: #E9E7E0;
+  --text-soft: #A9A79F;
+  --accent: #1F7F79;
+  --accent-strong: #7FD3DC;
+  --accent-soft: rgba(127, 211, 220, 0.14);
+  --danger: #F85149;
+  --danger-text: #FF7B72;
+  --shadow: 0 10px 28px rgba(0, 0, 0, 0.42), 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #eef2f7;
-  --panel: #f8fafc;
-  --panel-strong: #ffffff;
-  --panel-border: #d7dee8;
-  --text: #1f2937;
-  --text-soft: #64748b;
-  --accent: #2563eb;
+  --bg: #FAF9F5;
+  --bg-accent: #F3F2EC;
+  --panel: #F4F3EE;
+  --panel-strong: #FFFFFF;
+  --panel-border: #E3E1D8;
+  --panel-border-strong: #D1CFC5;
+  --control-bg: rgba(20, 20, 19, 0.05);
+  --text: #141413;
+  --text-soft: #5E5D59;
+  --accent: #1A7A75;
+  --accent-strong: #10706B;
   --accent-soft: rgba(30, 138, 132, 0.12);
+  --danger: #DC2626;
+  --danger-text: #B91C1C;
+  --shadow: 0 12px 32px rgba(20, 20, 19, 0.1), 0 1px 2px rgba(20, 20, 19, 0.06);
 }
 
 * {
@@ -32,7 +50,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: "Hiragino Sans", "Avenir Next", "Yu Gothic", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 .pdf-app {
@@ -85,16 +103,15 @@ body.is-embedded .pdf-app {
 }
 
 .pdf-tab.is-active {
-  border-color: rgba(92, 156, 255, 0.5);
   color: var(--text);
-  background: rgba(92, 156, 255, 0.14);
+  background: var(--accent-soft);
 }
 
 .pdf-sidebar-close {
   flex: 0 0 30px;
   width: 30px;
   height: 30px;
-  border: 1px solid var(--panel-border);
+  border: 1px solid transparent;
   background: transparent;
   color: var(--text-soft);
   border-radius: 8px;
@@ -106,7 +123,7 @@ body.is-embedded .pdf-app {
 }
 
 .pdf-sidebar-close:hover {
-  border-color: var(--accent);
+  background: var(--control-bg);
   color: var(--text);
 }
 
@@ -148,7 +165,7 @@ body.is-embedded #pdf-thumbnails {
 }
 
 .pdf-outline-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--control-bg);
 }
 
 .pdf-thumb {
@@ -167,7 +184,7 @@ body.is-embedded #pdf-thumbnails {
 }
 
 .pdf-thumb:hover {
-  border-color: rgba(92, 156, 255, 0.5);
+  border-color: var(--panel-border-strong);
 }
 
 .pdf-thumb canvas {
@@ -270,23 +287,21 @@ body.is-embedded .pdf-fit-control span {
   color: var(--text);
 }
 
+/* Icon buttons carry no box at rest; only the page-number input keeps a
+   border, so the field reads differently from the actions around it. The
+   border stays (transparent) so the buttons keep their size. */
 .pdf-btn {
-  border: 1px solid var(--panel-border);
-  background: var(--panel-strong);
-  color: var(--text);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-soft);
   padding: 4px 8px;
   border-radius: 6px;
   font-size: 11px;
   cursor: pointer;
 }
 
-.pdf-btn.ghost {
-  background: transparent;
-  color: var(--text-soft);
-}
-
 .pdf-btn:hover {
-  border-color: var(--accent);
+  background: var(--control-bg);
   color: var(--text);
 }
 
@@ -326,7 +341,7 @@ body.is-embedded .pdf-fit-control span {
 .pdf-status.is-busy {
   padding: 4px 8px;
   border-radius: 999px;
-  color: var(--accent);
+  color: var(--accent-strong);
   background: var(--accent-soft);
 }
 
@@ -341,7 +356,7 @@ body.is-embedded .pdf-fit-control span {
 }
 
 .pdf-status.is-error {
-  color: #dc5c68;
+  color: var(--danger-text);
 }
 
 @keyframes pdf-status-spin {
@@ -367,18 +382,16 @@ body.is-embedded:is(.is-live, .is-live-pending, .pdf-needs-rebuild) .pdf-toolbar
   bottom: 0;
   left: 260px;
   overflow: auto;
-  /* The solid second layer matters while this surface covers a staging live
-     iframe: a transparent gradient alone would leak uncommitted live pixels
-     through the gaps around PDF pages. */
-  background:
-    radial-gradient(circle at top, rgba(92, 156, 255, 0.08), transparent 60%),
-    var(--bg);
+  /* Keep this opaque: while it covers a staging live iframe, a transparent
+     background would leak uncommitted live pixels through the gaps around PDF
+     pages. It is the same --bg the live frame is given (pdf-viewer.js passes
+     it as `bg`), so the static and live surfaces match in both themes. */
+  background: var(--bg);
   padding: 16px 18px 40px;
 }
 
 body.is-embedded .pdf-scroll {
   padding: 0;
-  background: #0f1117;
 }
 
 .pdf-sidebar.is-hidden ~ .pdf-scroll {
@@ -412,7 +425,7 @@ body.is-embedded .pdf-scroll {
   border: 1px solid var(--panel-border);
   border-radius: 8px;
   background: var(--panel-strong);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow);
 }
 
 .pdf-findbar[hidden] {
@@ -437,7 +450,7 @@ body.is-embedded .pdf-scroll {
 }
 
 .pdf-findbar.is-no-match .pdf-findbar-input {
-  border-color: #e5484d;
+  border-color: var(--danger);
 }
 
 .pdf-findbar-count {
@@ -450,7 +463,7 @@ body.is-embedded .pdf-scroll {
 }
 
 .pdf-findbar.is-no-match .pdf-findbar-count {
-  color: #e5484d;
+  color: var(--danger-text);
 }
 
 .pdf-findbar .pdf-btn {
@@ -508,24 +521,12 @@ body.is-live #pdf-fit-page { display: none; }
   position: relative;
   background: #ffffff;
   border-radius: 8px;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow);
   overflow: hidden;
 }
 
 .page canvas {
   display: block;
-}
-
-.pdf-sync-marker {
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  border: 2px solid var(--accent);
-  background: rgba(92, 156, 255, 0.2);
-  box-shadow: 0 0 12px rgba(92, 156, 255, 0.45);
-  transform: translate(-50%, -50%);
-  pointer-events: none;
 }
 
 .pdf-sync-highlight {
@@ -554,6 +555,7 @@ body.is-live #pdf-fit-page { display: none; }
   }
 }
 
+/* Same surface and rows as the app's .context-menu-panel / .context-menu-item. */
 .pdf-context-menu {
   position: fixed;
   z-index: 50;
@@ -561,28 +563,26 @@ body.is-live #pdf-fit-page { display: none; }
   padding: 4px;
   border-radius: 10px;
   border: 1px solid var(--panel-border);
-  background: var(--panel-strong);
-  backdrop-filter: blur(4px);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  background: var(--bg-accent);
+  box-shadow: var(--shadow);
   user-select: none;
 }
 
 .pdf-context-menu-item {
   width: 100%;
-  border: 1px solid transparent;
+  border: none;
   background: transparent;
   color: var(--text);
   text-align: left;
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 6px;
+  padding: 6px 8px;
   font-size: 12px;
   line-height: 1.2;
 }
 
 .pdf-context-menu-item:hover,
 .pdf-context-menu-item:focus-visible {
-  border-color: rgba(92, 156, 255, 0.5);
-  background: rgba(92, 156, 255, 0.16);
+  background: var(--accent-soft);
   outline: none;
 }
 
@@ -599,11 +599,10 @@ body.is-live #pdf-fit-page { display: none; }
   font-size: 12px;
   line-height: 1.3;
   cursor: pointer;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow);
   white-space: nowrap;
   user-select: none;
 }
 .pdf-ask-axiom:hover {
-  border-color: rgba(92, 156, 255, 0.5);
-  background: rgba(92, 156, 255, 0.16);
+  background: var(--accent-soft);
 }

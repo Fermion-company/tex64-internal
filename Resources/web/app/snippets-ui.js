@@ -172,6 +172,7 @@ export const openSnippets = (editor = activeEditor) => {
             return;
         void run(async () => { await call("delete", { revision, id: selected }); load(); });
     });
+    remove.classList.add("is-danger");
     const insert = button(uiText("Insert", "挿入"), () => void run(async () => {
         const needsSave = draft() !== baseline;
         const text = needsSave ? (await saveDraft()).body : body.value;
