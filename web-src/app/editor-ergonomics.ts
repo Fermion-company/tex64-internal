@@ -8,6 +8,7 @@
 // toggling a feature on/off takes effect live without re-attaching.
 
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
+import { uiText } from "./i18n.js";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Monaco = any;
@@ -295,9 +296,9 @@ export const attachEditorErgonomics = (
       });
     };
 
-    addWrap("tex64.wrap.textbf", "Bold", "textbf", KeyMod.CtrlCmd | KeyCode.KeyB);
-    addWrap("tex64.wrap.textit", "Italic", "textit", KeyMod.CtrlCmd | KeyCode.KeyI);
-    addWrap("tex64.wrap.emph", "Emphasize", "emph");
-    addWrap("tex64.wrap.texttt", "Monospace", "texttt");
+    addWrap("tex64.wrap.textbf", uiText("Bold", "太字"), "textbf", KeyMod.CtrlCmd | KeyCode.KeyB);
+    addWrap("tex64.wrap.textit", uiText("Italic", "斜体"), "textit", KeyMod.CtrlCmd | KeyCode.KeyI);
+    addWrap("tex64.wrap.emph", uiText("Emphasize", "強調"), "emph");
+    addWrap("tex64.wrap.texttt", uiText("Monospace", "等幅"), "texttt");
   }
 };

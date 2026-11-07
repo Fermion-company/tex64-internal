@@ -408,12 +408,24 @@ export const initFileTreeUi = (
     } else deps.postToNative({ type: "openInTerminal", path });
   };
 
+  let deleteModalReturnFocus: HTMLElement | null = null;
   const setDeleteModalOpen = (open: boolean) => {
     if (!deleteModal) {
       return;
     }
     deleteModal.classList.toggle("is-open", open);
     deleteModal.setAttribute("aria-hidden", open ? "false" : "true");
+    // Focus starts on Cancel, so Esc (handled on the modal) and Enter both reach it.
+    if (open) {
+      deleteModalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      requestAnimationFrame(() => {
+        if (deleteModal.classList.contains("is-open") && deleteModalCancel instanceof HTMLButtonElement) deleteModalCancel.focus();
+      });
+    } else {
+      if (deleteModalReturnFocus?.isConnected && deleteModalReturnFocus !== document.body) deleteModalReturnFocus.focus();
+      else if (document.activeElement instanceof HTMLElement && deleteModal.contains(document.activeElement)) document.activeElement.blur();
+      deleteModalReturnFocus = null;
+    }
   };
 
   const openDeleteModal = (path: string, kind: "file" | "dir") => {

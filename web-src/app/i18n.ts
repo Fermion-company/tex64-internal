@@ -1784,6 +1784,10 @@ const EN_TO_ZH: Record<string, string> = {
   "Push & pull…": "推送与拉取…",
   "Push & pull": "推送与拉取",
   "No PDF yet. Build first.": "还没有 PDF。请先构建。",
+  "Bold": "粗体",
+  "Italic": "斜体",
+  "Emphasize": "强调",
+  "Monospace": "等宽",
 };
 
 const EN_TO_KO: Record<string, string> = {
@@ -2618,6 +2622,10 @@ const EN_TO_KO: Record<string, string> = {
   "Push & pull…": "푸시 및 풀…",
   "Push & pull": "푸시 및 풀",
   "No PDF yet. Build first.": "아직 PDF가 없습니다. 먼저 빌드하세요.",
+  "Bold": "굵게",
+  "Italic": "기울임",
+  "Emphasize": "강조",
+  "Monospace": "고정폭",
 };
 
 const EN_TO_FR: Record<string, string> = {
@@ -3452,6 +3460,10 @@ const EN_TO_FR: Record<string, string> = {
   "Push & pull…": "Envoyer et récupérer…",
   "Push & pull": "Envoyer et récupérer",
   "No PDF yet. Build first.": "Pas encore de PDF. Compilez d'abord.",
+  "Bold": "Gras",
+  "Italic": "Italique",
+  "Emphasize": "Mise en valeur",
+  "Monospace": "Chasse fixe",
 };
 
 const EN_TO_DE: Record<string, string> = {
@@ -4286,6 +4298,10 @@ const EN_TO_DE: Record<string, string> = {
   "Push & pull…": "Push & Pull…",
   "Push & pull": "Push & Pull",
   "No PDF yet. Build first.": "Noch kein PDF. Bitte zuerst bauen.",
+  "Bold": "Fett",
+  "Italic": "Kursiv",
+  "Emphasize": "Hervorheben",
+  "Monospace": "Festbreite",
 };
 
 const EN_TO_ES: Record<string, string> = {
@@ -5120,6 +5136,10 @@ const EN_TO_ES: Record<string, string> = {
   "Push & pull…": "Enviar y recibir…",
   "Push & pull": "Enviar y recibir",
   "No PDF yet. Build first.": "Aún no hay PDF. Compila primero.",
+  "Bold": "Negrita",
+  "Italic": "Cursiva",
+  "Emphasize": "Énfasis",
+  "Monospace": "Monoespaciado",
 };
 
 const TRANSLATIONS_BY_LOCALE: Record<Exclude<UiLocale, "en">, Record<string, string>> = {
