@@ -307,7 +307,8 @@ class CollabHub extends EventEmitter {
           clearTimeout(welcomeTimer);
           resolve(message);
         };
-        welcomeTimer = setTimeout(() => reject(Object.assign(new Error(text(this.deps.locale(), "Could not reach the host.", "ホストに接続できませんでした。")), { code: "COLLAB_UNREACHABLE" })), 20000);
+        // Long enough for a slow network: the relay handshake alone can take most of 20 s.
+        welcomeTimer = setTimeout(() => reject(Object.assign(new Error(text(this.deps.locale(), "Could not reach the host.", "ホストに接続できませんでした。")), { code: "COLLAB_UNREACHABLE" })), 45000);
         welcomeTimer.unref?.();
         guest.once("gaveUp", ({ code }) => {
           clearTimeout(welcomeTimer);

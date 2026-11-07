@@ -184,3 +184,14 @@ test("active Axiom and terminal sessions block history before quiescing or chang
   assert.equal(await fs.readFile(path.join(f.root, "main.tex"), "utf8"), "first");
   assert.equal((await f.request("list")).versions.length, 0);
 });
+
+test("begin tells quiescence what the operation is for, so a record can leave builds running", async (t) => {
+  const f = await fixture(t);
+  const purposes = [];
+  f.controller.deps.quiesce = async (options) => { purposes.push(options?.purpose); };
+  for (const purpose of ["record", "restore"]) {
+    const { token } = await f.request("begin", { purpose });
+    await f.request("release", { token });
+  }
+  assert.deepEqual(purposes, ["record", "restore"]);
+});

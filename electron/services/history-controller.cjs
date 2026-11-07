@@ -101,7 +101,7 @@ class HistoryController {
     const op = { id: crypto.randomUUID(), ...this.identity(), phase: "preparing", purpose: request.purpose };
     this.operation = op; this.emit();
     try {
-      await this.deps.quiesce();
+      await this.deps.quiesce({ purpose: request.purpose });
       this.validate(request);
       op.phase = "saving"; this.emit();
       return { token: op.id };

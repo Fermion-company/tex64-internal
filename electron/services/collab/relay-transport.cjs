@@ -54,6 +54,8 @@ const URGENT = 0;
 const BULK = 1;
 const PIECE_HEAD = 6;
 const PIECE_BYTES = 256 * 1024;
+// TLS and the WebSocket upgrade took ~7 s on a slow network; 10 s left no margin.
+const HANDSHAKE_TIMEOUT_MS = 20000;
 // Unacknowledged bytes per lane: room for edits, and little file data in flight.
 const WINDOW_BYTES = [4 * 1024 * 1024, 1024 * 1024];
 const ACK_EVERY = 256 * 1024;
@@ -473,7 +475,7 @@ class RelayHostTransport extends EventEmitter {
     const socket = new WebSocket(roomUrl(this.server, this.roomId, { role: "host", secret: this.secret }), {
       maxPayload: SOCKET_MAX_PAYLOAD,
       perMessageDeflate: false,
-      handshakeTimeout: 10000,
+      handshakeTimeout: HANDSHAKE_TIMEOUT_MS,
     });
     this.socket = socket;
     socket.on("open", () => {
@@ -794,7 +796,7 @@ class RelayGuestTransport extends EventEmitter {
       this.ticker.unref?.();
     }
     const WebSocket = require("ws");
-    const socket = new WebSocket(this.url, { maxPayload: SOCKET_MAX_PAYLOAD, perMessageDeflate: false, handshakeTimeout: 10000 });
+    const socket = new WebSocket(this.url, { maxPayload: SOCKET_MAX_PAYLOAD, perMessageDeflate: false, handshakeTimeout: HANDSHAKE_TIMEOUT_MS });
     this.socket = socket;
     socket.on("open", () => {
       this.attempt = 0;
