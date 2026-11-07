@@ -6,10 +6,8 @@
 // exports are live getters on window.monaco (resolved on use, not on load).
 const path = require("node:path");
 const fs = require("node:fs");
-const { execFileSync } = require("node:child_process");
-
 const projectRoot = path.resolve(__dirname, "..");
-const esbuild = path.join(projectRoot, "web-src", "math", "fork", "node_modules", ".bin", "esbuild");
+const esbuild = path.join(projectRoot, "web-src", "math", "fork", "node_modules", "esbuild");
 const outFile = path.join(projectRoot, "Resources", "web", "vendor", "collab.js");
 const workDir = path.join(projectRoot, "node_modules", ".cache", "tex64-collab-vendor");
 fs.mkdirSync(workDir, { recursive: true });
@@ -40,17 +38,23 @@ if (!fs.existsSync(esbuild)) {
   process.exit(1);
 }
 fs.mkdirSync(path.dirname(outFile), { recursive: true });
-execFileSync(esbuild, [
-  entryPath,
-  "--bundle",
-  "--format=iife",
-  "--global-name=TeX64Collab",
-  "--platform=browser",
-  "--target=es2019",
-  "--legal-comments=none",
-  `--alias:monaco-editor/esm/vs/editor/editor.api.js=${shimPath}`,
-  `--alias:monaco-editor=${shimPath}`,
-  `--outfile=${outFile}`,
-], { cwd: projectRoot, stdio: "inherit" });
+// The JS API behaves the same on every OS. The .bin/esbuild entry is a shell
+// script, which Windows cannot execute directly.
+require(esbuild).buildSync({
+  entryPoints: [entryPath],
+  bundle: true,
+  format: "iife",
+  globalName: "TeX64Collab",
+  platform: "browser",
+  target: "es2019",
+  legalComments: "none",
+  alias: {
+    "monaco-editor/esm/vs/editor/editor.api.js": shimPath,
+    "monaco-editor": shimPath,
+  },
+  outfile: outFile,
+  absWorkingDir: projectRoot,
+  logLevel: "warning",
+});
 const size = fs.statSync(outFile).size;
 console.log(`[collab:vendor] wrote ${path.relative(projectRoot, outFile)} (${(size / 1024).toFixed(0)} KB)`);

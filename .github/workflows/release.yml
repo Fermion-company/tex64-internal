@@ -453,7 +453,9 @@ jobs:
         shell: pwsh
         run: |
           npm run -s dist:prep
+          if ($LASTEXITCODE -ne 0) { throw 'dist:prep failed' }
           npm run -s web:build
+          if ($LASTEXITCODE -ne 0) { throw 'web:build failed' }
 
       - name: Build unsigned Store AppX
         shell: pwsh
