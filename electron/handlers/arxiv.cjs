@@ -35,8 +35,8 @@ const registerArxivHandlers = ({ ipcMain, workspace, isOwner, state, withWorkspa
   let inflight = null;
   const guard = createWorkspaceGuard({ workspace, state, withWorkspaceMutation });
 
-  // Words are ANDed; one request per call. The renderer relaxes an empty
-  // result by dropping words, pausing between requests.
+  // Words are ANDed; one request per call. An empty result stays empty (the
+  // renderer says so instead of dropping words).
   const search = async (payload) => {
     const query = typeof payload?.query === "string" ? payload.query.trim() : "";
     if (!query) return { papers: [] };

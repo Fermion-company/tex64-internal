@@ -56,11 +56,13 @@ export const initHistoryUi = (editor: EditorSessionApi, diff: DiffModalApi) => {
   })); renameSave.hidden = true;
   const details = button(uiText("Version details…", "版の詳細…"), () => void run(showDetails));
   const settings = button(uiText("Storage settings…", "保存設定…"), () => showStorage());
-  heading.append(el("h2", "", uiText("History", "履歴")), record, createActionsMenu([rename, reload, details, settings, undo]));
+  heading.append(el("h2", "", uiText("History", "履歴")), record, createActionsMenu([rename, reload, details, settings]));
   const compareRow = el("label", "history-compare-row"); compareRow.append(el("span", "", uiText("Compare from", "比較元")), compareTo);
   compareTo.addEventListener("change", scheduleComparison);
   const comparison = el("div", "history-comparison"); comparison.setAttribute("aria-live", "polite");
-  selection.append(compareRow, comparison, restore);
+  // Undoing a restore sits with Restore, and only on a version a restore made.
+  const restoreRow = el("div", "history-restore-row"); restoreRow.append(restore, undo);
+  selection.append(compareRow, comparison, restoreRow);
   const storage = el("div", "history-storage"); const usage = el("p");
   const limit = el("input", "history-limit"); limit.type = "number"; limit.min = "1"; limit.max = "100"; limit.value = "2"; limit.setAttribute("aria-label", uiText("History limit in GiB", "履歴の容量上限GiB"));
   // The settings open on the limit, not on the usage line's ▾.

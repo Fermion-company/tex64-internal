@@ -69,6 +69,16 @@ export const initCollabUi = () => {
     const incoming = state.role === "guest" && state.incoming && state.incoming.files > 0
       ? uiText(` · receiving ${state.incoming.files} file(s)`, `・ファイルを受け取り中（残り${state.incoming.files}件）`)
       : "";
+    // The dots say who is here; a word joins them only for a state that
+    // changes what the reader can do: reconnecting, receiving, view only.
+    const stateWord = state.connected === false
+      ? uiText("Reconnecting…", "再接続中…")
+      : incoming
+        ? uiText("Receiving…", "受信中…")
+        : state.role === "guest" && state.access === "view"
+          ? uiText("View only", "閲覧のみ")
+          : "";
+    if (stateWord) dots.append(el("span", "collab-state", stateWord));
     dots.title = state.connected === false
       ? uiText("Reconnecting…", "再接続中…")
       : participants.map((participant) => participant.name).join(", ") + incoming;

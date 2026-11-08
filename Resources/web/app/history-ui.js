@@ -76,13 +76,16 @@ export const initHistoryUi = (editor, diff) => {
     renameSave.hidden = true;
     const details = button(uiText("Version details…", "版の詳細…"), () => void run(showDetails));
     const settings = button(uiText("Storage settings…", "保存設定…"), () => showStorage());
-    heading.append(el("h2", "", uiText("History", "履歴")), record, createActionsMenu([rename, reload, details, settings, undo]));
+    heading.append(el("h2", "", uiText("History", "履歴")), record, createActionsMenu([rename, reload, details, settings]));
     const compareRow = el("label", "history-compare-row");
     compareRow.append(el("span", "", uiText("Compare from", "比較元")), compareTo);
     compareTo.addEventListener("change", scheduleComparison);
     const comparison = el("div", "history-comparison");
     comparison.setAttribute("aria-live", "polite");
-    selection.append(compareRow, comparison, restore);
+    // Undoing a restore sits with Restore, and only on a version a restore made.
+    const restoreRow = el("div", "history-restore-row");
+    restoreRow.append(restore, undo);
+    selection.append(compareRow, comparison, restoreRow);
     const storage = el("div", "history-storage");
     const usage = el("p");
     const limit = el("input", "history-limit");

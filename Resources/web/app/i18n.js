@@ -910,6 +910,11 @@ const EN_TO_JA = {
     "Join with link": "リンクで参加",
     "Link copied": "コピーしました",
     "Could not copy the link.": "リンクをコピーできませんでした。",
+    "End": "終了",
+    "No papers found": "見つかりません",
+    "Reconnecting…": "再接続中…",
+    "Receiving…": "受信中…",
+    "View only": "閲覧のみ",
 };
 const TRANSLATABLE_ATTRIBUTES = ["title", "aria-label", "placeholder", "alt"];
 // English is the source language and the product default (initI18n resolves to
@@ -1814,6 +1819,11 @@ const EN_TO_ZH = {
     "Join with link": "通过链接加入",
     "Link copied": "已复制链接",
     "Could not copy the link.": "无法复制链接。",
+    "End": "结束",
+    "No papers found": "未找到论文",
+    "Reconnecting…": "正在重新连接…",
+    "Receiving…": "正在接收…",
+    "View only": "仅查看",
 };
 const EN_TO_KO = {
     // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
@@ -2673,6 +2683,11 @@ const EN_TO_KO = {
     "Join with link": "링크로 참가",
     "Link copied": "링크를 복사했습니다",
     "Could not copy the link.": "링크를 복사할 수 없습니다.",
+    "End": "종료",
+    "No papers found": "논문을 찾을 수 없습니다",
+    "Reconnecting…": "다시 연결하는 중…",
+    "Receiving…": "받는 중…",
+    "View only": "보기 전용",
 };
 const EN_TO_FR = {
     // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
@@ -3532,6 +3547,11 @@ const EN_TO_FR = {
     "Join with link": "Rejoindre avec un lien",
     "Link copied": "Lien copié",
     "Could not copy the link.": "Impossible de copier le lien.",
+    "End": "Terminer",
+    "No papers found": "Aucun article trouvé",
+    "Reconnecting…": "Reconnexion…",
+    "Receiving…": "Réception…",
+    "View only": "Lecture seule",
 };
 const EN_TO_DE = {
     // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
@@ -4391,6 +4411,11 @@ const EN_TO_DE = {
     "Join with link": "Über Link beitreten",
     "Link copied": "Link kopiert",
     "Could not copy the link.": "Der Link konnte nicht kopiert werden.",
+    "End": "Beenden",
+    "No papers found": "Keine Artikel gefunden",
+    "Reconnecting…": "Verbindung wird wiederhergestellt…",
+    "Receiving…": "Wird empfangen…",
+    "View only": "Nur ansehen",
 };
 const EN_TO_ES = {
     // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
@@ -5250,6 +5275,11 @@ const EN_TO_ES = {
     "Join with link": "Unirse con un enlace",
     "Link copied": "Enlace copiado",
     "Could not copy the link.": "No se pudo copiar el enlace.",
+    "End": "Terminar",
+    "No papers found": "No se encontraron artículos",
+    "Reconnecting…": "Reconectando…",
+    "Receiving…": "Recibiendo…",
+    "View only": "Solo lectura",
 };
 const TRANSLATIONS_BY_LOCALE = {
     ja: EN_TO_JA,

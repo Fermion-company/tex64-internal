@@ -7,9 +7,6 @@ import { uiText } from "./i18n.js";
 import { buildArxivQuery, plainLatex } from "./arxiv-query.js";
 import { citationDocumentFor, insertCitation } from "./citation-insert.js";
 const DEBOUNCE_MS = 3000;
-// arXiv asks for one request every 3 s; relaxing an empty result waits that long.
-const RELAX_PAUSE_MS = 3000;
-const MAX_RELAX = 2;
 const RESULT_COUNT = 10;
 export const ARXIV_CONTEXT_KEY = "tex64ArxivTexFile";
 export const arxivBridge = () => window.tex64Arxiv;
@@ -120,7 +117,6 @@ export const createArxivSection = (editor, getActiveFilePath, report) => {
     let searched = null;
     const cited = new Map();
     let papers = [];
-    const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
     const sync = () => { element.hidden = papers.length === 0 && !status.textContent; };
     const fail = (message) => {
         status.replaceChildren(el("span", "", message), button(uiText("Retry", "再試行"), () => searchNow(), "cite-section-retry"));
@@ -208,27 +204,19 @@ export const createArxivSection = (editor, getActiveFilePath, report) => {
         inflight = true;
         const seq = ++searchSeq;
         try {
-            // Words are ANDed. An empty result drops the last word, up to MAX_RELAX
-            // times, pausing between requests; the label then shows what was used.
-            let terms = trimmed.split(/\s+/);
-            let found = [];
-            let used = trimmed;
-            for (let attempt = 0;; attempt += 1) {
-                const result = await call("search", { query: terms.join(" "), max: RESULT_COUNT });
-                if (seq !== searchSeq || disposed || result.superseded)
-                    return;
-                found = result.papers || [];
-                used = result.query || terms.join(" ");
-                if (found.length || attempt >= MAX_RELAX || terms.length < 2)
-                    break;
-                terms = terms.slice(0, -1);
-                await wait(RELAX_PAUSE_MS);
-                if (seq !== searchSeq || disposed)
-                    return;
-            }
+            // Words are ANDed, and the words are the reader's: an empty result is
+            // said, not widened by dropping words.
+            const result = await call("search", { query: trimmed, max: RESULT_COUNT });
+            if (seq !== searchSeq || disposed || result.superseded)
+                return;
+            const found = result.papers || [];
             papers = found;
-            usedQuery.textContent = found.length ? used : "";
+            usedQuery.textContent = found.length ? (result.query || trimmed) : "";
             clearFailure();
+            // Typed words that find nothing get one line; the words around the
+            // cursor finding nothing leave the section away.
+            if (!found.length && trimmed !== contextQuery.trim())
+                status.append(el("span", "cite-section-empty", uiText("No papers found", "見つかりません")));
             render();
         }
         catch (reason) {

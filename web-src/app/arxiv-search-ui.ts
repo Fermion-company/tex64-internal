@@ -21,9 +21,6 @@ type CiteResult = {
 };
 
 const DEBOUNCE_MS = 3000;
-// arXiv asks for one request every 3 s; relaxing an empty result waits that long.
-const RELAX_PAUSE_MS = 3000;
-const MAX_RELAX = 2;
 const RESULT_COUNT = 10;
 export const ARXIV_CONTEXT_KEY = "tex64ArxivTexFile";
 
@@ -151,7 +148,6 @@ export const createArxivSection = (
   const cited = new Map<string, { result: CiteResult; inserted: string }>();
   let papers: Paper[] = [];
 
-  const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
   const sync = () => { element.hidden = papers.length === 0 && !status.textContent; };
   const fail = (message: string) => {
     status.replaceChildren(el("span", "", message), button(uiText("Retry", "再試行"), () => searchNow(), "cite-section-retry"));
@@ -228,24 +224,17 @@ export const createArxivSection = (
     inflight = true;
     const seq = ++searchSeq;
     try {
-      // Words are ANDed. An empty result drops the last word, up to MAX_RELAX
-      // times, pausing between requests; the label then shows what was used.
-      let terms = trimmed.split(/\s+/);
-      let found: Paper[] = [];
-      let used = trimmed;
-      for (let attempt = 0; ; attempt += 1) {
-        const result = await call<{ papers: Paper[]; query?: string; superseded?: boolean }>("search", { query: terms.join(" "), max: RESULT_COUNT });
-        if (seq !== searchSeq || disposed || result.superseded) return;
-        found = result.papers || [];
-        used = result.query || terms.join(" ");
-        if (found.length || attempt >= MAX_RELAX || terms.length < 2) break;
-        terms = terms.slice(0, -1);
-        await wait(RELAX_PAUSE_MS);
-        if (seq !== searchSeq || disposed) return;
-      }
+      // Words are ANDed, and the words are the reader's: an empty result is
+      // said, not widened by dropping words.
+      const result = await call<{ papers: Paper[]; query?: string; superseded?: boolean }>("search", { query: trimmed, max: RESULT_COUNT });
+      if (seq !== searchSeq || disposed || result.superseded) return;
+      const found = result.papers || [];
       papers = found;
-      usedQuery.textContent = found.length ? used : "";
+      usedQuery.textContent = found.length ? (result.query || trimmed) : "";
       clearFailure();
+      // Typed words that find nothing get one line; the words around the
+      // cursor finding nothing leave the section away.
+      if (!found.length && trimmed !== contextQuery.trim()) status.append(el("span", "cite-section-empty", uiText("No papers found", "見つかりません")));
       render();
     } catch (reason) {
       if (seq === searchSeq && !disposed) {

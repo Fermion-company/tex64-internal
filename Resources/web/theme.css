@@ -9196,7 +9196,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .terminal-tab.is-active { border-bottom-color: var(--accent); color: var(--text); }
 .terminal-tab button, .terminal-pane-header button { color: inherit; background: transparent; border: 0; cursor: pointer; padding: 4px 8px; font: inherit; white-space: nowrap; }
 .terminal-tab button:hover, .terminal-pane-header button:hover { background: var(--control-bg); color: var(--text); }
-.terminal-tab-close { opacity: .65; }
+.terminal-tab-close { color: var(--text-soft); font-size: 12px; }
 .terminal-panes { display: flex; flex: 1; min-height: 0; overflow: hidden; }
 .terminal-pane { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 .terminal-pane[hidden] { display: none; }
@@ -10758,6 +10758,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .history-version[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 12%, transparent); border-left-color: var(--accent); }
 .history-pinned { padding: 4px 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .history-selection { display: flex; flex-direction: column; gap: 16px; padding-top: 16px; border-top: 1px solid var(--panel-border); }
+.history-restore-row { display: flex; flex-direction: column; gap: 8px; }
 .history-compare-row { display: flex; align-items: center; gap: 8px; }
 .history-compare-row > span { flex-shrink: 0; }
 .history-compare-row select { flex: 1; min-width: 0; }
@@ -10910,6 +10911,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .collab-dot.is-offline { opacity: .35; }
 .collab-dot.is-self { outline: 1px solid var(--text-soft); outline-offset: 1px; }
 .collab-dot-more { font-size: 11px; color: var(--text-soft); }
+.collab-state { margin-left: 4px; font-size: 12px; color: var(--text-soft); white-space: nowrap; }
 .collab-dialog-rows { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-top: 8px; }
 .collab-dialog-link { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
 .collab-dialog-participants { display: flex; flex-direction: column; gap: 0; margin: 8px 0 16px; }
@@ -11057,6 +11059,8 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .cite-section-detail:empty { display: none; }
 .cite-section-status { display: flex; align-items: baseline; gap: 12px; margin: 0 0 4px; font-size: 12px; color: var(--danger-text); }
 .cite-section-status:empty { display: none; }
+/* Nothing found is a result, not an error. */
+.cite-section-empty { color: var(--text-soft); }
 .cite-section-retry { padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .cite-section-retry:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
 /* Zotero not connected: one line, the explanation behind its ▾, Settings at the end. */

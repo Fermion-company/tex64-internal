@@ -140,7 +140,8 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
       const close = document.createElement("button");
       close.type = "button";
       close.className = "terminal-tab-close";
-      close.textContent = "×";
+      // Ending the shell is said in words: the panel's × only hides the panel.
+      close.textContent = uiText("End", "終了");
       close.title = group.panes.length > 1 ? uiText("Close both panes in this tab", "このタブの2ペインを終了") : uiText("Close this tab and its shell", "このタブとシェルを終了");
       close.setAttribute("aria-label", close.title);
       close.addEventListener("click", () => {
@@ -238,7 +239,8 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
     label.textContent = "Shell";
     const close = document.createElement("button");
     close.type = "button";
-    close.textContent = "×";
+    close.className = "terminal-tab-close";
+    close.textContent = uiText("End", "終了");
     close.title = uiText("Close this pane and its shell", "このペインとシェルを終了");
     close.setAttribute("aria-label", close.title);
     const screen = document.createElement("div");
