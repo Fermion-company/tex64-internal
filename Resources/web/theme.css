@@ -19,8 +19,9 @@
 
 :root {
   color-scheme: dark;
-  /* The ▾ of every select: the explain toggle's chevron, in --text-soft. */
-  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23A9A79F' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* Every select's mark: up and down chevrons, as macOS draws its pop-up buttons;
+     menus (操作 ▾) and explanations keep the single ⌄. --text-soft. */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5' fill='none' stroke='%23A9A79F' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   
   /* Deep Space Theme - Softened Contrast */
   --bg: #141413; /* Slightly lighter than pure black */
@@ -123,7 +124,7 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%235E5D59' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5' fill='none' stroke='%235E5D59' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
   --bg: #FAF9F5;
   --bg-accent: #F3F2EC;
@@ -10737,7 +10738,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 /* The primary action is filled, as .tool-button.is-primary. */
 .history-button.is-primary { border-color: var(--accent); background: var(--accent); color: #fff; white-space: nowrap; }
 .history-button.is-primary:hover:not(:disabled) { background: var(--accent-hover); }
-.history-heading .compact-actions > summary { box-sizing: border-box; min-height: 32px; padding: 5px 8px; line-height: 20px; border-color: var(--panel-border-strong); }
+.history-heading .compact-actions > summary { box-sizing: border-box; min-height: 32px; line-height: 20px; border-color: var(--panel-border-strong); }
 .history-name, .history-limit { box-sizing: border-box; min-width: 0; width: 100%; height: 32px; border: 1px solid var(--panel-border-strong); border-radius: 6px; padding: 5px 8px; background: var(--bg); color: var(--text); font: inherit; }
 .history-date, .history-day, .history-local { font-size: 12px; line-height: 18px; color: var(--text-soft); opacity: 1; font-weight: 400; }
 .history-list { display: flex; flex-direction: column; gap: 0; }
@@ -10833,7 +10834,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 
 /* Secondary management commands stay available without crowding the main actions. */
 .compact-actions { position: relative; flex-shrink: 0; font-size: 13px; }
-.compact-actions > summary { display: flex; align-items: center; gap: 6px; min-height: 32px; list-style: none; cursor: pointer; padding: 0 10px; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-sm); }
+.compact-actions > summary { display: flex; align-items: center; gap: 6px; min-height: 32px; list-style: none; cursor: pointer; padding: 0 10px 0 12px; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-sm); }
 .compact-actions > summary::-webkit-details-marker { display: none; }
 /* The explain toggle's chevron (explain.ts), drawn as a mask in the text colour. */
 .compact-actions > summary::after { content: ""; flex: none; width: 12px; height: 12px; background: var(--text-soft); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; }
@@ -11191,7 +11192,9 @@ body { text-autospace: normal; }
   background-color: var(--input-bg);
   background-image: var(--select-chevron);
   background-repeat: no-repeat;
-  background-position: right 10px center;
+  /* The up/down mark is narrower than the menus' single ⌄; 9px puts its ink
+     12px from the edge, where the menus' ink ends (measured). */
+  background-position: right 9px center;
   background-size: 12px 12px;
   color: var(--text);
   font: inherit;
@@ -11213,4 +11216,17 @@ body { text-autospace: normal; }
 :is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select):disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+/* Pull-down menus (操作 ⌄) match the selects: text 12px in, mark 10px from the right. */
+
+/* The figure canvas keeps its compact controls; only the mark is the same. */
+[class^="pro-canvas"] select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 10px 10px;
+  padding-right: 20px;
 }
