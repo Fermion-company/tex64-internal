@@ -933,7 +933,7 @@ html[lang="ja"] .launcher-action {
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--muted);
+  color: var(--text-soft);
   cursor: pointer;
   transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
   -webkit-app-region: no-drag;
@@ -941,7 +941,7 @@ html[lang="ja"] .launcher-action {
 
 .topbar-layout-toggle:hover {
   background: var(--control-bg);
-  color: var(--text-soft);
+  color: var(--text);
 }
 
 .topbar-layout-toggle.is-active {
@@ -1043,7 +1043,7 @@ html[lang="ja"] .launcher-action {
 :root[data-app-mode="ai"] #format-button,
 :root[data-app-mode="ai"] #synctex-button,
 :root[data-app-mode="ai"] #build-button,
-:root[data-app-mode="ai"] .canvas-controls {
+:root[data-app-mode="ai"] #pro-canvas-open {
   display: none !important;
 }
 
@@ -4299,37 +4299,38 @@ html[lang="ja"] .settings-page .panel-button {
   display: none;
 }
 
-.canvas-controls { display: inline-flex; align-items: center; gap: 8px; padding-right: 8px; border-right: 1px solid var(--panel-border); }
-:root:not([data-app-mode="code"]) .canvas-controls { display: none; }
-.canvas-tools { display: inline-flex; align-items: center; gap: 6px; }
-#pro-canvas-open {
+/* Draw, Format and Jump: icons only; the tooltip names the action. They sit
+   with the panel toggle in one group, left of Build. */
+:root:not([data-app-mode="code"]) #pro-canvas-open { display: none; }
+.topbar-tool {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   margin: 0;
-  padding: 0 8px;
-  border: 1px solid transparent;
+  padding: 0;
+  border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 1;
+  color: var(--text-soft);
   cursor: pointer;
-  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease;
 }
-#pro-canvas-open[hidden] { display: none; }
-#pro-canvas-open:hover {
+.topbar-tool[hidden] { display: none; }
+.topbar-tool:hover {
   color: var(--text);
   background: var(--control-bg);
 }
-#pro-canvas-open:active { transform: translateY(1px); }
-#pro-canvas-open:focus-visible {
+.topbar-tool:active { transform: translateY(1px); }
+.topbar-tool:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+.topbar-tool svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
 }
 
 .editor-header {
@@ -4355,8 +4356,6 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 #save-button,
-#format-button,
-#synctex-button,
 #update-button,
 #build-button {
   display: inline-flex;
@@ -4381,10 +4380,8 @@ html[lang="ja"] .settings-page .panel-button {
     transform 0.12s ease;
 }
 
-/* Secondary actions: no box at rest, a tint on hover. Build keeps its own. */
-#save-button,
-#format-button,
-#synctex-button {
+/* The save state: no box at rest, a tint on hover. Build keeps its own. */
+#save-button {
   gap: 5px;
   border-color: transparent;
   background: transparent;
@@ -4394,10 +4391,7 @@ html[lang="ja"] .settings-page .panel-button {
   letter-spacing: normal;
 }
 
-#pro-canvas-open svg,
 #save-button svg,
-#format-button svg,
-#synctex-button svg,
 #update-button svg,
 #build-button svg {
   flex: 0 0 auto;
@@ -4409,15 +4403,6 @@ html[lang="ja"] .settings-page .panel-button {
   gap: 4px;
 }
 
-#format-button {
-  padding: 0 8px 0 7px;
-}
-
-/* Icon side bearings inside the 16px box differ per glyph; trim the left
-   padding so icon + label sit optically centred. */
-#synctex-button {
-  padding: 0 8px 0 7.5px;
-}
 /* The label keeps a reserved width (longest state) so the button does not
    jitter; centre the text inside it. */
 #save-button > span {
@@ -4486,28 +4471,25 @@ html[lang="ja"] .settings-page .panel-button {
   to { opacity: 1; transform: translateY(0); }
 }
 
-#save-button:hover,
-#format-button:hover,
-#synctex-button:hover {
+#save-button:hover {
   color: var(--text);
   background: var(--control-bg);
 }
 
-#save-button:active,
-#format-button:active,
-#synctex-button:active {
+#save-button:active {
   transform: translateY(1px);
 }
 
-/* Save state (save-status-ui.ts). The label keeps one width across
-   Save / Saving / Saved so the toolbar does not shift while typing. */
+/* Save state (save-status-ui.ts). Success is silent: nothing shows while
+   everything is on disk. Unsaved, saving and failed appear at the leading
+   end of the tools, so the icons to the right never move. */
 #save-button > span {
   display: inline-block;
   text-align: center;
 }
 
 #save-button[data-save-state="saved"] {
-  color: var(--text-soft);
+  display: none;
 }
 
 #save-button[data-save-state="dirty"] > span::after {
@@ -4532,8 +4514,6 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 #save-button:focus-visible,
-#format-button:focus-visible,
-#synctex-button:focus-visible,
 #update-button:focus-visible,
 #build-button:focus-visible {
   outline: 2px solid var(--focus-ring);
@@ -4605,7 +4585,8 @@ html[lang="ja"] .settings-page .panel-button {
   min-width: 30px;
   padding: 0 9px 0 7px;
   gap: 4px;
-  margin-left: 2px;
+  /* Build stands apart from the tools: the third group. */
+  margin-left: 8px;
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   background: var(--accent-soft);
   color: var(--accent-strong);
@@ -4757,7 +4738,6 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 #synctex-button:disabled:hover {
-  border-color: transparent;
   background: transparent;
 }
 
@@ -8436,13 +8416,8 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
    the button labels so Build stays inside the window. Titles still name them. */
 @media (max-width: 900px) {
   .top-actions { gap: 4px; padding: 0 8px; }
-  #pro-canvas-open > span,
   #update-button > span:not(.update-button-icon):not(.update-button-spinner),
-  #save-button > span,
-  #format-button > span,
-  #synctex-button > span.synctex-button-label { display: none; }
-  /* save-status-ui reserves the label width inline; icon-only needs none. */
-  #save-button { min-width: 0 !important; }
+  #save-button > span { display: none; }
 }
 
 @media (max-width: 720px) {

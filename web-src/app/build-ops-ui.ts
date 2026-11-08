@@ -359,10 +359,6 @@ export const initBuildOpsUi = (
     const enabled = Boolean(targetPath) && !preparingBuild && currentBuildState !== "building";
     synctexButton.disabled = !enabled;
     synctexButton.style.display = "inline-flex";
-    const label = synctexButton.querySelector<HTMLElement>(".synctex-button-label");
-    if (label) {
-      label.textContent = uiText("Jump", "ジャンプ");
-    }
   };
 
   // The <details> outlives every build, so the toggle handler is bound once and
