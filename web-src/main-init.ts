@@ -374,7 +374,7 @@ export const initMain = () => {
         return;
       }
       setActiveTab("settings");
-      settingsUi.openSettingsPage("env");
+      settingsUi.openSettingsPage("build");
     },
     onRuntimeDetection: (report, summary) => {
       // Trust the per-command sweep when it has finished, and the detection
@@ -1146,7 +1146,7 @@ export const initMain = () => {
     },
     onOpenRuntimeSettings: () => {
       setActiveTab("settings");
-      settingsUi.openSettingsPage("env");
+      settingsUi.openSettingsPage("build");
     },
   });
   workspaceController = initWorkspaceController(appContext, {

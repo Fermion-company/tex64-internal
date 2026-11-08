@@ -597,13 +597,13 @@ export const initBuildOpsUi = (context, deps) => {
             const issues = runtimeSummary.missingRequired.length > 0
                 ? runtimeSummary.missingRequired.map((item) => ({
                     severity: "error",
-                    message: uiText(`${resolveRuntimeMissingLabel(item)} is not detected. Check Settings > Runtime Environment.`, `${resolveRuntimeMissingLabel(item)} is not detected. Please check Settings > Execution environment.`),
+                    message: uiText(`${resolveRuntimeMissingLabel(item)} is not detected. Check Settings > Build.`, `${resolveRuntimeMissingLabel(item)} is not detected. Please check Settings > Build.`),
                     action: "open-runtime",
                 }))
                 : [
                     {
                         severity: "error",
-                        message: uiText("Runtime environment is missing. Check Settings > Runtime Environment.", "Execution environment is insufficient. Please check Settings > Execution environment."),
+                        message: uiText("Runtime environment is missing. Check Settings > Build.", "Execution environment is insufficient. Please check Settings > Build."),
                         action: "open-runtime",
                     },
                 ];

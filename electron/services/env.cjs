@@ -1200,7 +1200,7 @@ class EnvService {
       message: result.ok
         ? `Installed ${packages.join(", ")}.`
         : this.remoteBlocked
-        ? `TeX Live ${this.remoteBlocked} can no longer add packages. Renew it in Settings > Environment.`
+        ? `TeX Live ${this.remoteBlocked} can no longer add packages. Renew it in Settings > Build.`
         : "The missing TeX packages could not be installed.",
     };
   }

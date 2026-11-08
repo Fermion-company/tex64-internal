@@ -10,7 +10,7 @@ import type {
   PlatformAiAccessSnapshot,
   PlatformUsageSnapshot,
 } from "../types.js";
-import type { AppearanceTheme } from "../appearance.js";
+import type { AppearanceThemePreference } from "../appearance.js";
 import type { EnvRegistryApi } from "../env-registry-ui.js";
 import type { EnvStatusSummary } from "../settings-env.js";
 
@@ -58,7 +58,7 @@ export type SettingsUiApi = {
   getAutoSynctexOnBuildEnabled: () => boolean;
   getReverseSynctexEnabled: () => boolean;
   getPdfViewerMode: () => "window" | "tab";
-  getAppearanceTheme: () => AppearanceTheme;
+  getAppearanceTheme: () => AppearanceThemePreference;
   buildFormatSettingsPayload: () => FormatSettingsPayload;
   getSettingsSnapshot: () => AppSettingsSnapshot;
   applySettingsPatch: (patch: Partial<AppSettingsSnapshot>) => AppSettingsSnapshot;
@@ -125,7 +125,7 @@ export type SettingsUiConfig = {
 export type SettingsUiState = {
   activeSettingsPage: string | null;
   editorAlignEnvEnabled: boolean;
-  appearanceTheme: AppearanceTheme;
+  appearanceTheme: AppearanceThemePreference;
   editorWordWrapEnabled: boolean;
   editorFormatSettings: EditorFormatSettings;
   autoSynctexOnBuildEnabled: boolean;

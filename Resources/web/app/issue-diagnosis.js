@@ -16,7 +16,7 @@ const rules = [
         kind: () => uiText("Missing file", "ファイルが見つかりません"),
         summary: (m) => uiText(`LaTeX could not find ${m[1]}.`, `${m[1]} を読み込めませんでした。`),
         fix: (m) => isStyleFile(m[1])
-            ? uiText("That file comes from a package. Open Settings > Environment and update the TeX distribution, then build again.", "これはパッケージに含まれるファイルです。設定 > 環境 で TeX 環境を更新してから、もう一度ビルドしてください。")
+            ? uiText("That file comes from a package. Open Settings > Build and update the TeX distribution, then build again.", "これはパッケージに含まれるファイルです。設定 > ビルド で TeX 環境を更新してから、もう一度ビルドしてください。")
             : uiText("Check the spelling of the name and that the file sits where the document expects it.", "ファイル名のつづりと、文書から見た置き場所（相対パス）を確認してください。"),
     },
     {

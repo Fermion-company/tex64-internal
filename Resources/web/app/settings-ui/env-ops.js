@@ -27,9 +27,11 @@ export const createSettingsEnvOps = (runtime) => {
         heroEl.classList.remove("is-checking", "is-missing", "is-installing", "is-ready");
         heroEl.classList.add(`is-${state}`);
     };
-    const setHeroText = (title) => {
+    // `where` is the distribution's folder: a tooltip, not a line of prose.
+    const setHeroText = (title, where = "") => {
         if (settingsRuntimeSetupStatus instanceof HTMLElement) {
             settingsRuntimeSetupStatus.textContent = title;
+            settingsRuntimeSetupStatus.title = where;
         }
     };
     const setSetupButton = (opts) => {
@@ -87,7 +89,6 @@ export const createSettingsEnvOps = (runtime) => {
             progressLabel.textContent = label;
         }
     };
-    // `where` is the distribution's folder: a tooltip, not a line of prose.
     const setDetail = (text, where = "") => {
         if (!(detailEl instanceof HTMLElement)) {
             return;
@@ -192,13 +193,22 @@ export const createSettingsEnvOps = (runtime) => {
         const coverage = (detection === null || detection === void 0 ? void 0 : detection.coverage.level) === "minimal" || (detection === null || detection === void 0 ? void 0 : detection.coverage.level) === "broken"
             ? describeCoverage(detection)
             : "";
-        const detectionLine = [describeDetection(detection), coverage]
+        // Build's first row: when TeX is ready it names the distribution and
+        // nothing more; the lines below it appear only when something is wrong.
+        // "Not found" is what the row already says when TeX is missing.
+        const detectionLine = [
+            !summary.runtimeReady && (detection === null || detection === void 0 ? void 0 : detection.hasEngine) ? describeDetection(detection) : "",
+            coverage,
+        ]
             .filter(Boolean)
             .join("\n");
         setDetail(detectionLine, describeDetectionSource(detection));
         if (summary.runtimeReady) {
             setHeroState("ready");
-            setHeroText("TeX is ready.");
+            if (detection === null || detection === void 0 ? void 0 : detection.hasEngine)
+                setHeroText(describeDetection(detection), describeDetectionSource(detection));
+            else
+                setHeroText("TeX is ready.");
             setSetupButton({ visible: false });
             setInstallNote("");
             setChoiceVisible(false);

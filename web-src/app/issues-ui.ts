@@ -135,7 +135,7 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
         // No location to show, but there is still somewhere to go.
         const action = document.createElement("span");
         action.className = "issue-jump";
-        action.textContent = uiText("Open Settings > Environment", "設定 > 環境 を開く");
+        action.textContent = uiText("Open Settings > Build", "設定 > ビルド を開く");
         body.append(action);
       }
 

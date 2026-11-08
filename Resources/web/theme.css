@@ -2663,34 +2663,33 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .settings-update-status.is-error {
   color: var(--danger-text);
 }
-/* 情報: the seven pages are a list of links, one row each, no frames. */
-.panel[data-panel="settings"] [data-settings-page="info"] .settings-actions {
-  flex-direction: column;
-  align-items: stretch;
-  flex-wrap: nowrap;
-  gap: 0;
-  /* 8px + half of the 32px row above the first label, the same below the last. */
-  padding: var(--space-3) 0 0;
-  margin-bottom: calc(-1 * var(--space-3));
+/* The Info links at the foot of Account: one quiet wrapping line, no frames. */
+.panel[data-panel="settings"] .settings-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  margin: var(--space-7) 0 0;
+  padding: 0 var(--space-7);
 }
-.panel[data-panel="settings"] [data-settings-page="info"] .panel-button {
-  justify-content: flex-start;
-  width: 100%;
-  height: 32px;
+.panel[data-panel="settings"] .settings-link {
   padding: 0;
   border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 400;
-  text-align: left;
+  border-radius: 2px;
+  background: none;
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
 }
-.panel[data-panel="settings"] [data-settings-page="info"] .panel-button:hover {
-  background: transparent;
+.panel[data-panel="settings"] .settings-link:hover {
   color: var(--text);
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+.panel[data-panel="settings"] .settings-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 .panel[data-panel="settings"] .settings-description,
 .panel[data-panel="settings"] .settings-nav-desc,
@@ -3477,17 +3476,19 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 /* =============================================================================
-   Environment screen — status-first, one-click setup
+   TeX status — the first row of Settings › Build, one-click setup
    ============================================================================= */
 
-/* The environment page is one quiet status row (mark + text) on the page
-   itself: no card around it, no tinted box in any state. The mark's colour
-   carries the state. */
-.panel[data-panel="settings"] .settings-group.env-group {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: none;
+/* Build's first row is the TeX status: the row, then (only when something is
+   wrong or running) the lines and actions below it, all above one rule. */
+.panel[data-panel="settings"] .env-block {
+  border-bottom: 1px solid var(--panel-border);
+}
+.panel[data-panel="settings"] .env-block > .settings-item {
+  border-bottom: 0;
+}
+.panel[data-panel="settings"] .env-block > :not(.settings-item) {
+  margin: 0 0 var(--space-5);
 }
 
 .env-hero {
@@ -3510,23 +3511,18 @@ html[lang="ja"] .settings-page .panel-button {
   background: none;
 }
 
-.env-hero-text {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
 .env-hero-title {
   font-size: 14px;
   font-weight: 400;
   line-height: 1.35;
   color: var(--text);
 }
-
-.env-hero-sub {
-  font-size: 12px;
-  line-height: 1.5;
+/* Ready is the normal state: the distribution's name as plain secondary text,
+   like a version number, with no mark. */
+.env-hero.is-ready .env-hero-icon {
+  display: none;
+}
+.env-hero.is-ready .env-hero-title {
   color: var(--text-soft);
 }
 
@@ -3540,14 +3536,6 @@ html[lang="ja"] .settings-page .panel-button {
   border-top-color: transparent;
   animation: envBadgeSpin 0.8s linear infinite;
 }
-.env-hero.is-ready .env-hero-icon::before {
-  content: "";
-  width: 18px;
-  height: 18px;
-  background: var(--success-text);
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
-}
 .env-hero.is-missing .env-hero-icon::before {
   content: "";
   width: 18px;
@@ -3557,39 +3545,10 @@ html[lang="ja"] .settings-page .panel-button {
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 8v5'/%3E%3Cpath d='M12 16h.01'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
-.panel[data-panel="settings"] .env-setup-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 14px;
-  height: 40px;
-  padding: 0 22px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #fff;
-  background: var(--accent);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
-  transition: background 0.16s ease, border-color 0.16s ease;
-}
-.panel[data-panel="settings"] .env-setup-btn:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  transform: none;
-}
-.panel[data-panel="settings"] .env-setup-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-  transform: none;
-}
-
-/* Detection line: which TeX we found, and where. Kept quiet — it is reassurance,
-   not an instruction. */
+/* What is wrong with the TeX that was found (a thin package set, a missing
+   tool); the row above already names it when it works. */
 .env-detail {
-  margin-top: var(--space-1);
-  /* No box: the text starts where the status title does (mark 20 + gap 8). */
   padding: 0;
-  padding-inline-start: calc(20px + var(--space-3));
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-soft);
@@ -3601,7 +3560,6 @@ html[lang="ja"] .settings-page .panel-button {
   display: grid;
   grid-template-columns: minmax(220px, 1fr);
   gap: 12px;
-  margin-top: 14px;
 }
 
 .env-choice-card {
@@ -3673,10 +3631,6 @@ html[lang="ja"] .settings-page .panel-button {
   opacity: 0.85;
 }
 
-.env-install-note {
-  margin-top: 12px;
-}
-
 .env-explainer {
   margin: 16px 0 0;
   font-size: 12px;
@@ -3704,9 +3658,6 @@ html[lang="ja"] .settings-page .panel-button {
   margin-left: 0;
 }
 
-.env-progress {
-  margin-top: 14px;
-}
 .env-progress-track {
   width: 100%;
   height: 8px;
@@ -10874,27 +10825,22 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .snippets-dialog button[hidden] { display: none; }
 .snippets-actions { flex-wrap: wrap; }
 
-/* arXiv search: the History dialog's frame with a result list. */
-.arxiv-dialog { width: min(560px, calc(100vw - 48px)); display: flex; flex-direction: column; gap: 8px; }
-.arxiv-dialog h2 { margin-bottom: var(--space-3); }
-.arxiv-dialog .history-confirm-actions { margin-top: var(--space-3); }
-.arxiv-status { ; }
-.arxiv-status:empty { display: none; }
-.arxiv-results { display: flex; flex-direction: column; gap: 8px; max-height: 56vh; overflow: auto; }
+/* arXiv: the second section of the citation dialog (arxiv-search-ui.ts). */
+.arxiv-results { display: flex; flex-direction: column; gap: 2px; }
 .arxiv-results:empty { display: none; }
-/* Flat rows, as .zotero-result: a tint on hover only. */
+
 .arxiv-row { border-radius: var(--radius-sm); padding: 8px 10px; }
 .arxiv-row:hover { background: var(--control-bg); }
 .arxiv-row-head { display: flex; align-items: flex-start; gap: 12px; }
 .arxiv-row-text { flex: 1; min-width: 0; }
 .arxiv-row-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; max-width: 36%; }
-.arxiv-row-side .history-button { min-height: 32px; padding: 0 12px; white-space: nowrap; }
-.arxiv-row-title { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 400; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.arxiv-row-side .tool-button { height: 28px; padding: 0 12px; }
+.arxiv-row-title { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; font-weight: 400; line-height: 1.35; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .arxiv-row-title:hover { text-decoration: underline; }
 .arxiv-row-meta { margin: 2px 0 0; font-size: 12px; line-height: 18px; color: var(--text-soft); }
 .arxiv-row-side .arxiv-row-meta { text-align: right; }
-.arxiv-abstract { margin: 8px 0 0; color: var(--text-soft); }
-.arxiv-cited { font-family: monospace; font-size: 12px; line-height: 20px; }
+.arxiv-abstract { margin: 8px 0 0; font-size: 12px; color: var(--text-soft); }
+.arxiv-cited { font-family: var(--tool-mono); font-size: 11px; line-height: 20px; color: var(--text-soft); }
 
 /* Git follows the history panel's compact type and control scale. */
 /* Same frame as #history-panel: 16px / 12px, and the whole panel scrolls so a
@@ -10938,7 +10884,6 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .collab-dot-more { font-size: 11px; color: var(--text-soft); }
 .collab-dialog-rows { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-top: 8px; }
 .collab-dialog-link { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
-.collab-dialog-link input { flex: 1; }
 .collab-dialog-participants { display: flex; flex-direction: column; gap: 0; margin: 8px 0 16px; }
 .collab-participant { display: flex; align-items: center; gap: 8px; }
 .collab-participant .collab-dot { box-shadow: none; }
@@ -11031,7 +10976,10 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .tool-segmented button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
 .tool-segmented button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
-/* Word count */
+/* Word count: a popover under what opened it (or the editor's top-right
+   corner), the dialog's padding and type, no backdrop. */
+.word-count-popover { position: fixed; z-index: 100; margin: 0; width: min(380px, calc(100vw - 16px)); max-height: calc(100vh - 16px); animation: word-count-in 0.16s ease-out; }
+@keyframes word-count-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 .word-count-scopes { margin: 0 0 16px; }
 .word-count-stats { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6) var(--space-7); }
 .word-count-stat { display: flex; flex-direction: column; gap: 4px; }
@@ -11041,9 +10989,20 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .word-count-name { font-size: 12px; color: var(--text-soft); }
 
 /* Collaborate */
-.collab-dialog .tool-segmented { margin-bottom: 8px; }
-.collab-link-row { display: flex; gap: 8px; }
+.collab-link-row { display: flex; align-items: center; gap: 8px; }
 .collab-link-row .tool-input { flex: 1; font-family: var(--tool-mono); font-size: 11.5px; color: var(--text-soft); }
+.collab-link-row .tool-dialog-spacer { flex: 1; }
+/* "Join with link ▾" in the start view: joining waits here so Start leads. */
+.collab-disclosure { display: inline-flex; align-items: center; gap: 2px; margin: 0; padding: 0; border: 0; background: none; color: var(--text-soft); font: inherit; font-size: 12px; cursor: pointer; }
+.collab-disclosure:hover { color: var(--text); }
+.collab-disclosure:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
+.collab-disclosure svg { transition: transform var(--duration-fast); }
+.collab-disclosure[aria-expanded="true"] { color: var(--text); }
+.collab-disclosure[aria-expanded="true"] svg { transform: rotate(180deg); }
+.collab-join-body { margin-top: 8px; }
+.collab-join-body[hidden] { display: none; }
+/* The clipboard fallback copies from a field nobody sees. */
+.collab-copy-scratch { position: fixed; left: -9999px; top: 0; width: 1px; height: 1px; opacity: 0; }
 .collab-section + .collab-section { margin-top: 16px; }
 .collab-field .tool-dialog-label { margin: 0; }
 .collab-people { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--panel-border); }
@@ -11056,15 +11015,24 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .collab-role { flex: none; padding: 2px 8px; border: 1px solid var(--panel-border-strong); border-radius: 999px; font-size: 11px; line-height: 1.5; color: var(--text-soft); white-space: nowrap; }
 .collab-field { display: flex; flex-direction: column; gap: 8px; margin: 0 0 16px; font-size: 12px; color: var(--text-soft); }
 
-/* Insert citation from Zotero */
-.zotero-dialog { width: min(620px, calc(100vw - 48px)); }
-.zotero-connection-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
-/* The dot sits at the end of the title; its tooltip names the connection. */
-.tool-dialog-title .zotero-connection-dot { display: inline-block; margin-left: 8px; vertical-align: middle; }
-.zotero-connection-dot.is-on { background: var(--success); box-shadow: 0 0 0 3px var(--success-soft); }
-.zotero-connection-dot.is-off { background: var(--danger); }
-/* Connected (or still checking) is the normal state: no dot. */
-.tool-dialog-title .zotero-connection-dot:not(.is-off) { display: none; }
+/* Insert citation: Zotero, then arXiv, in one scrolling body */
+.cite-dialog { width: min(620px, calc(100vw - 48px)); }
+.cite-body { max-height: min(440px, calc(100vh - 300px)); overflow-y: auto; margin: 0 -8px; padding: 0 8px; }
+.cite-section { margin-top: 16px; }
+.cite-section[hidden] { display: none; }
+.cite-section-label { display: flex; align-items: baseline; gap: 8px; }
+.cite-section-label[hidden] { display: none; }
+/* What the section shows: "Recently added", or the words arXiv was searched with. */
+.cite-section-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.cite-section-detail:empty { display: none; }
+.cite-section-status { display: flex; align-items: baseline; gap: 12px; margin: 0 0 4px; font-size: 12px; color: var(--danger-text); }
+.cite-section-status:empty { display: none; }
+.cite-section-retry { padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.cite-section-retry:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
+/* Zotero not connected: one line, the explanation behind its ▾, Settings at the end. */
+.zotero-off { margin: 0; padding: 4px 0; font-size: 13px; color: var(--text-soft); }
+.zotero-off .tool-button { height: 28px; padding: 0 10px; }
+.zotero-off .tool-dialog-spacer { flex: 1; }
 .zotero-target { margin: 0 0 16px; font-size: 12px; color: var(--text-soft); }
 /* main.tex:28 is plain secondary text, not a code chip. */
 .zotero-target code { padding: 0; border-radius: 0; background: none; color: inherit; font: inherit; }
@@ -11074,8 +11042,7 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .zotero-search-wrap .tool-input { padding-left: 34px; }
 .zotero-library { max-width: 220px; height: 32px; padding: 0 30px 0 12px; border: 1px solid var(--input-border); border-radius: var(--radius-sm); background: var(--input-bg); color: var(--text); font: inherit; font-size: 12.5px; text-overflow: ellipsis; }
 .zotero-library:focus { outline: none; border-color: var(--teal-line); box-shadow: 0 0 0 3px var(--accent-soft); }
-.zotero-list-label { margin: 16px 0 8px; }
-.zotero-results { display: flex; flex-direction: column; gap: 2px; height: auto; overflow-y: auto; margin: -4px -8px; padding: 4px 8px; max-height: 252px; }
+.zotero-results { display: flex; flex-direction: column; gap: 2px; }
 /* The key column is as wide as the key, at most 180px (a long key ends in an
    ellipsis); fit-content, not minmax(0, 180px), which would always take 180. */
 .zotero-result { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(180px); gap: 2px 16px; align-items: baseline; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
@@ -11086,8 +11053,9 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .zotero-result-key { grid-column: 2; grid-row: 1 / span 2; align-self: center; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--tool-mono); font-size: 11px; color: var(--text-soft); }
 .zotero-result[aria-selected="true"] .zotero-result-key { color: var(--teal-text); }
 :root[data-theme="light"] .zotero-result[aria-selected="true"] .zotero-result-key { color: var(--accent); }
-.zotero-empty { display: grid; place-items: center; align-content: center; gap: 6px; margin: 0; text-align: center; color: var(--muted); font-size: 12.5px; padding: 16px 0; }
-.zotero-empty strong { font-family: var(--tool-sans); font-size: 16px; font-weight: 600; color: var(--text-soft); }
+/* "Searching…", "No matches": one quiet line where the list would be. */
+.zotero-empty { display: flex; gap: 8px; margin: 0; padding: 4px 0; font-size: 13px; color: var(--text-soft); }
+.zotero-empty strong { font-weight: 400; }
 .zotero-keys { display: flex; gap: 14px; margin: 10px 0 0; font-size: 11.5px; color: var(--text-soft); }
 .zotero-keys kbd { display: inline-block; min-width: 16px; margin-right: 4px; padding: 0 4px; border: 1px solid var(--panel-border-strong); border-bottom-width: 2px; border-radius: 4px; font-family: var(--tool-mono); font-size: 11px; line-height: 16px; text-align: center; color: var(--text-soft); }
 .zotero-status { margin: 10px 0 0; font-size: 12px; color: var(--text-soft); }

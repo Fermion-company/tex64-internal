@@ -65,9 +65,11 @@ export const createSettingsEnvOps = (
     heroEl.classList.add(`is-${state}`);
   };
 
-  const setHeroText = (title: string) => {
+  // `where` is the distribution's folder: a tooltip, not a line of prose.
+  const setHeroText = (title: string, where = "") => {
     if (settingsRuntimeSetupStatus instanceof HTMLElement) {
       settingsRuntimeSetupStatus.textContent = title;
+      settingsRuntimeSetupStatus.title = where;
     }
   };
 
@@ -134,7 +136,6 @@ export const createSettingsEnvOps = (
     }
   };
 
-  // `where` is the distribution's folder: a tooltip, not a line of prose.
   const setDetail = (text: string, where = "") => {
     if (!(detailEl instanceof HTMLElement)) {
       return;
@@ -244,14 +245,21 @@ export const createSettingsEnvOps = (
       detection?.coverage.level === "minimal" || detection?.coverage.level === "broken"
         ? describeCoverage(detection)
         : "";
-    const detectionLine = [describeDetection(detection), coverage]
+    // Build's first row: when TeX is ready it names the distribution and
+    // nothing more; the lines below it appear only when something is wrong.
+    // "Not found" is what the row already says when TeX is missing.
+    const detectionLine = [
+      !summary.runtimeReady && detection?.hasEngine ? describeDetection(detection) : "",
+      coverage,
+    ]
       .filter(Boolean)
       .join("\n");
     setDetail(detectionLine, describeDetectionSource(detection));
 
     if (summary.runtimeReady) {
       setHeroState("ready");
-      setHeroText("TeX is ready.");
+      if (detection?.hasEngine) setHeroText(describeDetection(detection), describeDetectionSource(detection));
+      else setHeroText("TeX is ready.");
       setSetupButton({ visible: false });
       setInstallNote("");
       setChoiceVisible(false);
