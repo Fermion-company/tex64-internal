@@ -178,10 +178,6 @@ export const initBuildOpsUi = (context, deps) => {
         const enabled = Boolean(targetPath) && !preparingBuild && currentBuildState !== "building";
         synctexButton.disabled = !enabled;
         synctexButton.style.display = "inline-flex";
-        const label = synctexButton.querySelector(".synctex-button-label");
-        if (label) {
-            label.textContent = uiText("Jump", "ジャンプ");
-        }
     };
     // The <details> outlives every build, so the toggle handler is bound once and
     // reads whichever line the latest log marked first. Scroll the transcript box

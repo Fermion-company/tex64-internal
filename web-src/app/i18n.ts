@@ -897,6 +897,10 @@ const EN_TO_JA: Record<string, string> = {
   "The PDF cannot display the character {var} ({var}). The current font {var} has no glyph for it. Use a Unicode-aware document class/package (Japanese: ltjsarticle or luatexja, Chinese: ctex, Korean: kotex, otherwise: fontspec with a suitable font).": "PDF で表示できない文字があります: {var}（{var}）。現在のフォント {var} にこのグリフがありません。Unicode 対応の文書クラス/パッケージ（日本語: ltjsarticle または luatexja、中国語: ctex、韓国語: kotex、その他: fontspec + 対応フォント）を使ってください。",
   "The PDF cannot display the character {var} ({var}). Use a Unicode-aware document class/package (Japanese: ltjsarticle or luatexja, Chinese: ctex, Korean: kotex, otherwise: fontspec with a suitable font).": "PDF で表示できない文字があります: {var}（{var}）。Unicode 対応の文書クラス/パッケージ（日本語: ltjsarticle または luatexja、中国語: ctex、韓国語: kotex、その他: fontspec + 対応フォント）を使ってください。",
   "Restart terminal": "ターミナルを再起動",
+  "Draw a figure": "図を描く",
+  "Downloading…": "ダウンロード中…",
+  "Errors": "エラー",
+  "Warnings": "警告",
 };
 
 const TRANSLATABLE_ATTRIBUTES = ["title", "aria-label", "placeholder", "alt"] as const;
@@ -1791,6 +1795,10 @@ const EN_TO_ZH: Record<string, string> = {
   "Italic": "斜体",
   "Emphasize": "强调",
   "Monospace": "等宽",
+  "Draw a figure": "绘制图形",
+  "Downloading…": "正在下载…",
+  "Errors": "错误",
+  "Warnings": "警告",
 };
 
 const EN_TO_KO: Record<string, string> = {
@@ -2630,6 +2638,10 @@ const EN_TO_KO: Record<string, string> = {
   "Italic": "기울임",
   "Emphasize": "강조",
   "Monospace": "고정폭",
+  "Draw a figure": "그림 그리기",
+  "Downloading…": "다운로드 중…",
+  "Errors": "오류",
+  "Warnings": "경고",
 };
 
 const EN_TO_FR: Record<string, string> = {
@@ -3469,6 +3481,10 @@ const EN_TO_FR: Record<string, string> = {
   "Italic": "Italique",
   "Emphasize": "Mise en valeur",
   "Monospace": "Chasse fixe",
+  "Draw a figure": "Dessiner une figure",
+  "Downloading…": "Téléchargement…",
+  "Errors": "Erreurs",
+  "Warnings": "Avertissements",
 };
 
 const EN_TO_DE: Record<string, string> = {
@@ -4308,6 +4324,10 @@ const EN_TO_DE: Record<string, string> = {
   "Italic": "Kursiv",
   "Emphasize": "Hervorheben",
   "Monospace": "Festbreite",
+  "Draw a figure": "Abbildung zeichnen",
+  "Downloading…": "Wird geladen…",
+  "Errors": "Fehler",
+  "Warnings": "Warnungen",
 };
 
 const EN_TO_ES: Record<string, string> = {
@@ -5147,6 +5167,10 @@ const EN_TO_ES: Record<string, string> = {
   "Italic": "Cursiva",
   "Emphasize": "Énfasis",
   "Monospace": "Monoespaciado",
+  "Draw a figure": "Dibujar una figura",
+  "Downloading…": "Descargando…",
+  "Errors": "Errores",
+  "Warnings": "Advertencias",
 };
 
 const TRANSLATIONS_BY_LOCALE: Record<Exclude<UiLocale, "en">, Record<string, string>> = {

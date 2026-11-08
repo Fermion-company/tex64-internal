@@ -1,9 +1,16 @@
-import { TEX64_LINKS } from "../platform-links.js";
-import { formatBytes, openExternalUrl } from "./utils.js";
-import { uiText } from "../i18n.js";
+import { getUiLocale, onUiLocaleChange, setLocalizedAttribute, uiText } from "../i18n.js";
 const MICROSOFT_STORE_UPDATE_MODE = "microsoft-store";
-export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
-    const { settingsUpdateCurrent, settingsUpdateLatest, settingsUpdateStatus, settingsUpdateProgress, settingsUpdateProgressFill, settingsUpdateCheck, settingsUpdateApply, settingsUpdateOpen, updateButton, } = runtime.context.dom;
+// "Update" alone is the figure editor's 「更新」 in the dictionaries; the app's
+// own update is 「アップデート」 (and its counterpart in each language) under
+// "Update app".
+const appUpdateLabel = () => (getUiLocale() === "en" ? "Update" : uiText("Update app", "アップデート"));
+// Updates work like the Claude desktop app: the main process downloads and
+// verifies a new version quietly whenever a check finds one, and the top bar
+// shows one small chip only once the installer is ready. The chip and the one
+// button in Settings > Account save every open file before opening the
+// installer.
+export const createSettingsPlatformUpdateOps = (runtime) => {
+    const { settingsUpdateVersion, settingsUpdateStatus, settingsUpdateAction, updateButton } = runtime.context.dom;
     const isMicrosoftStoreManaged = () => {
         var _a, _b;
         return ((_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.mode) === MICROSOFT_STORE_UPDATE_MODE ||
@@ -15,94 +22,80 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
             runtime.state.updateAutoCheckTimer = null;
         }
     };
+    const getPhase = () => { var _a, _b; return (_b = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _b !== void 0 ? _b : "idle"; };
+    // The verified installer is on disk: "downloaded", or "installing" once it
+    // has been opened (the user may close it and come back).
+    const isInstallerReady = () => {
+        var _a;
+        const phase = getPhase();
+        return (!isMicrosoftStoreManaged() &&
+            Boolean((_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.downloadedPath) &&
+            (phase === "downloaded" || phase === "installing"));
+    };
+    const isDownloading = () => {
+        const phase = getPhase();
+        return !isMicrosoftStoreManaged() && (phase === "available" || phase === "downloading");
+    };
+    // Failures and the Store's own management are the only states with words.
     const resolveUpdateStatusText = () => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
-        const phase = (_b = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _b !== void 0 ? _b : "idle";
-        // The version badges and buttons already say what idle, up-to-date,
-        // available and downloaded mean; only progress and failures get a line.
-        if (phase === "checking") {
-            return uiText("Checking…", "確認中…");
+        var _a, _b, _c, _d, _e;
+        if (isMicrosoftStoreManaged()) {
+            return uiText("Updates are managed automatically by Microsoft Store.", "アップデートは Microsoft Store によって自動的に管理されます。");
         }
-        if (phase === "downloading") {
-            const transferred = formatBytes((_d = (_c = runtime.state.platformUpdateStatus) === null || _c === void 0 ? void 0 : _c.transferredBytes) !== null && _d !== void 0 ? _d : 0);
-            const total = formatBytes((_f = (_e = runtime.state.platformUpdateStatus) === null || _e === void 0 ? void 0 : _e.totalBytes) !== null && _f !== void 0 ? _f : 0);
-            return `${transferred} / ${total}`;
-        }
-        if (phase === "installing") {
-            return uiText("Installer started.", "インストーラを起動しました。");
-        }
-        // The main process's own wording is kept for failures only.
-        if (phase === "error") {
-            const message = ((_h = (_g = runtime.state.platformUpdateStatus) === null || _g === void 0 ? void 0 : _g.message) === null || _h === void 0 ? void 0 : _h.trim()) ||
-                ((_l = (_k = (_j = runtime.state.platformUpdateStatus) === null || _j === void 0 ? void 0 : _j.error) === null || _k === void 0 ? void 0 : _k.message) === null || _l === void 0 ? void 0 : _l.trim());
+        if (getPhase() === "error") {
+            const message = ((_b = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.message) === null || _b === void 0 ? void 0 : _b.trim()) ||
+                ((_e = (_d = (_c = runtime.state.platformUpdateStatus) === null || _c === void 0 ? void 0 : _c.error) === null || _d === void 0 ? void 0 : _d.message) === null || _e === void 0 ? void 0 : _e.trim());
             return message || "Update processing failed.";
         }
         return "";
     };
+    const resolveVersionText = () => {
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+        const current = (_d = (_b = (_a = runtime.state.platformUpdate) === null || _a === void 0 ? void 0 : _a.currentVersion) !== null && _b !== void 0 ? _b : (_c = runtime.state.platformUpdateStatus) === null || _c === void 0 ? void 0 : _c.currentVersion) !== null && _d !== void 0 ? _d : "-";
+        const latest = (_h = (_f = (_e = runtime.state.platformUpdate) === null || _e === void 0 ? void 0 : _e.latestVersion) !== null && _f !== void 0 ? _f : (_g = runtime.state.platformUpdateStatus) === null || _g === void 0 ? void 0 : _g.latestVersion) !== null && _h !== void 0 ? _h : null;
+        const phase = getPhase();
+        const hasNewer = !isMicrosoftStoreManaged() &&
+            Boolean(latest) &&
+            latest !== current &&
+            (Boolean((_j = runtime.state.platformUpdate) === null || _j === void 0 ? void 0 : _j.hasUpdate) ||
+                phase === "available" ||
+                phase === "downloading" ||
+                phase === "downloaded" ||
+                phase === "installing");
+        return hasNewer ? `${current} → ${latest}` : current;
+    };
     const updatePlatformUpdateUi = () => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
-        const currentVersion = (_d = (_b = (_a = runtime.state.platformUpdate) === null || _a === void 0 ? void 0 : _a.currentVersion) !== null && _b !== void 0 ? _b : (_c = runtime.state.platformUpdateStatus) === null || _c === void 0 ? void 0 : _c.currentVersion) !== null && _d !== void 0 ? _d : "-";
-        const latestVersion = (_h = (_f = (_e = runtime.state.platformUpdate) === null || _e === void 0 ? void 0 : _e.latestVersion) !== null && _f !== void 0 ? _f : (_g = runtime.state.platformUpdateStatus) === null || _g === void 0 ? void 0 : _g.latestVersion) !== null && _h !== void 0 ? _h : "-";
-        if (settingsUpdateCurrent instanceof HTMLElement) {
-            settingsUpdateCurrent.textContent = currentVersion;
-        }
-        if (settingsUpdateLatest instanceof HTMLElement) {
-            settingsUpdateLatest.textContent = latestVersion;
+        if (settingsUpdateVersion instanceof HTMLElement) {
+            settingsUpdateVersion.textContent = resolveVersionText();
         }
         const statusText = resolveUpdateStatusText();
         if (settingsUpdateStatus instanceof HTMLElement) {
             settingsUpdateStatus.textContent = statusText;
-            const phase = (_k = (_j = runtime.state.platformUpdateStatus) === null || _j === void 0 ? void 0 : _j.phase) !== null && _k !== void 0 ? _k : "idle";
-            settingsUpdateStatus.classList.toggle("is-error", phase === "error");
-            settingsUpdateStatus.classList.toggle("is-success", phase === "downloaded" || isMicrosoftStoreManaged());
+            settingsUpdateStatus.classList.toggle("is-hidden", !statusText);
+            settingsUpdateStatus.classList.toggle("is-error", getPhase() === "error");
         }
-        const progress = typeof ((_l = runtime.state.platformUpdateStatus) === null || _l === void 0 ? void 0 : _l.progressPercent) === "number" &&
-            Number.isFinite(runtime.state.platformUpdateStatus.progressPercent)
-            ? Math.max(0, Math.min(100, runtime.state.platformUpdateStatus.progressPercent))
-            : 0;
-        const storeManaged = isMicrosoftStoreManaged();
-        const showProgress = !storeManaged && ((_o = (_m = runtime.state.platformUpdateStatus) === null || _m === void 0 ? void 0 : _m.phase) !== null && _o !== void 0 ? _o : "") === "downloading";
-        if (settingsUpdateProgress instanceof HTMLElement) {
-            settingsUpdateProgress.classList.toggle("is-hidden", !showProgress);
-            settingsUpdateProgress.setAttribute("aria-hidden", showProgress ? "false" : "true");
+        const ready = isInstallerReady();
+        const downloading = isDownloading();
+        if (settingsUpdateAction instanceof HTMLButtonElement) {
+            const storeManaged = isMicrosoftStoreManaged();
+            settingsUpdateAction.hidden = storeManaged;
+            settingsUpdateAction.dataset.noI18n = "";
+            settingsUpdateAction.textContent = ready
+                ? appUpdateLabel()
+                : downloading
+                    ? uiText("Downloading…", "ダウンロード中…")
+                    : uiText("Check for updates", "アップデートを確認");
+            settingsUpdateAction.classList.toggle("ghost", !ready);
+            settingsUpdateAction.disabled = storeManaged || downloading || getPhase() === "checking";
+            settingsUpdateAction.setAttribute("aria-busy", downloading || getPhase() === "checking" ? "true" : "false");
         }
-        if (settingsUpdateProgressFill instanceof HTMLElement) {
-            settingsUpdateProgressFill.style.width = `${progress}%`;
-        }
-        const phase = (_q = (_p = runtime.state.platformUpdateStatus) === null || _p === void 0 ? void 0 : _p.phase) !== null && _q !== void 0 ? _q : "idle";
-        const hasUpdate = Boolean((_r = runtime.state.platformUpdate) === null || _r === void 0 ? void 0 : _r.hasUpdate);
-        const hasDownloadedInstaller = Boolean((_s = runtime.state.platformUpdateStatus) === null || _s === void 0 ? void 0 : _s.downloadedPath);
-        if (settingsUpdateCheck instanceof HTMLButtonElement) {
-            settingsUpdateCheck.classList.toggle("is-hidden", storeManaged);
-            settingsUpdateCheck.setAttribute("aria-hidden", storeManaged ? "true" : "false");
-            settingsUpdateCheck.disabled =
-                storeManaged || phase === "checking" || phase === "downloading";
-        }
-        const canApplyUpdate = !storeManaged &&
-            (hasUpdate || hasDownloadedInstaller || phase === "available" || phase === "downloaded");
-        if (settingsUpdateApply instanceof HTMLButtonElement) {
-            settingsUpdateApply.classList.toggle("is-hidden", !canApplyUpdate);
-            settingsUpdateApply.setAttribute("aria-hidden", canApplyUpdate ? "false" : "true");
-            settingsUpdateApply.disabled =
-                !canApplyUpdate || phase === "checking" || phase === "downloading" || phase === "installing";
-        }
-        // Mirror the Apply button in the header bar: show a one-click Update button
-        // whenever an update can be applied. Pulse (is-attention) when ready, show
-        // a spinner (is-busy) while downloading/installing.
         if (updateButton instanceof HTMLButtonElement) {
-            const busy = phase === "downloading" || phase === "installing";
-            updateButton.classList.toggle("is-hidden", !canApplyUpdate);
-            updateButton.setAttribute("aria-hidden", canApplyUpdate ? "false" : "true");
-            updateButton.classList.toggle("is-busy", busy);
-            updateButton.classList.toggle("is-attention", canApplyUpdate && !busy);
-            updateButton.disabled = !canApplyUpdate || phase === "checking" || busy;
+            updateButton.hidden = !ready;
+            const label = updateButton.querySelector(".update-chip-label");
+            if (label)
+                label.textContent = appUpdateLabel();
+            setLocalizedAttribute(updateButton, "aria-label", appUpdateLabel());
         }
-        if (settingsUpdateOpen instanceof HTMLButtonElement) {
-            settingsUpdateOpen.classList.toggle("is-hidden", storeManaged);
-            settingsUpdateOpen.setAttribute("aria-hidden", storeManaged ? "true" : "false");
-            settingsUpdateOpen.disabled = storeManaged;
-        }
-        attentionOps.syncUpdateAttentionUi();
     };
     const handlePlatformUpdate = (payload) => {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y;
@@ -240,47 +233,50 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
         scheduleUpdateAutoCheck();
         return dispatched;
     };
-    if (settingsUpdateCheck instanceof HTMLButtonElement) {
-        settingsUpdateCheck.addEventListener("click", () => {
-            maybeRequestPlatformUpdateCheck(true);
-        });
-    }
-    const applyUpdate = () => {
+    // Every unsaved file is written first; the installer may close the app. A
+    // build that is running keeps running: nothing is asked.
+    let installing = false;
+    const installUpdate = async () => {
         var _a, _b, _c;
-        if (isMicrosoftStoreManaged()) {
+        if (installing || !isInstallerReady()) {
             return;
         }
-        const phase = (_b = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _b !== void 0 ? _b : "idle";
-        const hasDownloadedInstaller = Boolean((_c = runtime.state.platformUpdateStatus) === null || _c === void 0 ? void 0 : _c.downloadedPath);
-        if (phase === "downloaded" || hasDownloadedInstaller) {
+        installing = true;
+        try {
+            const saved = (_c = (await ((_b = (_a = runtime.deps).saveDirtyFiles) === null || _b === void 0 ? void 0 : _b.call(_a)))) !== null && _c !== void 0 ? _c : true;
+            // A file that could not be saved says so in the toolbar; the installer
+            // waits for the next click.
+            if (!saved)
+                return;
             runtime.deps.postToNative({ type: "update:install", openFallbackOnError: true }, true);
-            return;
         }
-        runtime.deps.postToNative({
-            type: "update:download",
-            forceCheck: true,
-            autoInstall: true,
-            openFallbackOnError: true,
-        }, true);
+        finally {
+            installing = false;
+        }
     };
-    if (settingsUpdateApply instanceof HTMLButtonElement) {
-        settingsUpdateApply.addEventListener("click", () => {
-            applyUpdate();
-        });
-    }
+    onUiLocaleChange(() => updatePlatformUpdateUi());
     if (updateButton instanceof HTMLButtonElement) {
         updateButton.addEventListener("click", () => {
-            applyUpdate();
+            void installUpdate();
         });
     }
-    if (settingsUpdateOpen instanceof HTMLButtonElement) {
-        settingsUpdateOpen.addEventListener("click", () => {
-            var _a, _b, _c, _d;
-            if (isMicrosoftStoreManaged()) {
+    if (settingsUpdateAction instanceof HTMLButtonElement) {
+        settingsUpdateAction.addEventListener("click", () => {
+            if (isMicrosoftStoreManaged() || isDownloading()) {
                 return;
             }
-            const fallbackUrl = (_d = (_b = (_a = runtime.state.platformUpdate) === null || _a === void 0 ? void 0 : _a.artifactUrl) !== null && _b !== void 0 ? _b : (_c = runtime.state.platformUpdate) === null || _c === void 0 ? void 0 : _c.notesUrl) !== null && _d !== void 0 ? _d : TEX64_LINKS.download;
-            openExternalUrl(runtime, fallbackUrl);
+            if (isInstallerReady()) {
+                void installUpdate();
+                return;
+            }
+            if (getPhase() === "error") {
+                // Try again in full; if the download fails once more, the download
+                // page opens in the browser instead.
+                markUpdateAutoCheckAt(Date.now());
+                runtime.deps.postToNative({ type: "update:download", forceCheck: true, openFallbackOnError: true }, true);
+                return;
+            }
+            maybeRequestPlatformUpdateCheck(true);
         });
     }
     return {

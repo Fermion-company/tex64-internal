@@ -71,11 +71,25 @@ export const initEditorTabsUi = (
     }
   };
 
+  // One open file needs no tab: the editor's strip appears with the second
+  // file. The PDF pane never shows its lone PDF tab; the × at the end of the
+  // PDF toolbar closes it instead. A split editor on the right keeps its tab
+  // (and ×) even alone, since that is the only way to close it.
+  const syncStripVisibility = (group: EditorGroupState) => {
+    const tabs = group.openTabs;
+    const hidden =
+      group.key === "primary"
+        ? tabs.length <= 1
+        : tabs.length === 1 && /\.pdf$/i.test(tabs[0]);
+    group.root?.classList.toggle("has-single-tab", hidden);
+  };
+
   const render = (group: EditorGroupState) => {
     const tabsList = group.tabsList;
     if (!(tabsList instanceof HTMLElement)) {
       return;
     }
+    syncStripVisibility(group);
     tabsList.innerHTML = "";
     if (group.openTabs.length === 0) {
       deps.setEditorEmptyState(group, true);

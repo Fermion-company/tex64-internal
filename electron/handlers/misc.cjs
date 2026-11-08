@@ -8,7 +8,6 @@ const createMiscHandlers = (deps) => {
     ensureUserSettings,
     workspace,
     shell,
-    Notification,
     sendToRenderer,
     blocksStore,
     apiUsageService,
@@ -54,8 +53,6 @@ const createMiscHandlers = (deps) => {
   const updateHandlers = createUpdateHandlers({
     platformService,
     shell,
-    Notification,
-    getUiLocale: deps.getUiLocale,
     sendToRenderer,
     appPlatform,
     appArch,

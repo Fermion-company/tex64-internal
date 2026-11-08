@@ -236,10 +236,9 @@ select:focus-visible,
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  /* Build & update spinners: always animate (essential status feedback) so
-     the custom spinner — not the OS wait cursor — signals progress. */
-  .build-button-spinner,
-  .update-button-spinner {
+  /* The Build spinner always animates (essential status feedback) so the
+     custom spinner — not the OS wait cursor — signals progress. */
+  .build-button-spinner {
     animation-duration: 0.8s !important;
     animation-iteration-count: infinite !important;
   }
@@ -933,7 +932,7 @@ html[lang="ja"] .launcher-action {
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--muted);
+  color: var(--text-soft);
   cursor: pointer;
   transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
   -webkit-app-region: no-drag;
@@ -941,7 +940,7 @@ html[lang="ja"] .launcher-action {
 
 .topbar-layout-toggle:hover {
   background: var(--control-bg);
-  color: var(--text-soft);
+  color: var(--text);
 }
 
 .topbar-layout-toggle.is-active {
@@ -1010,6 +1009,48 @@ html[lang="ja"] .launcher-action {
   flex-shrink: 0;
 }
 
+/* The update is downloaded and verified: one quiet chip after Code/AI, far
+   from Build. Clicking saves every file, then opens the installer. */
+.update-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px 0 11px;
+  border: 1px solid var(--panel-border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--duration-fast) ease;
+  -webkit-app-region: no-drag;
+}
+
+.update-chip[hidden] {
+  display: none;
+}
+
+.update-chip:hover {
+  background: var(--control-bg);
+}
+
+.update-chip:active {
+  transform: translateY(1px);
+}
+
+.update-chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.update-chip svg {
+  flex-shrink: 0;
+  color: var(--text-soft);
+}
+
 /* ---- AI mode: embedded tex64-ai workspace ---- */
 
 .ai-mode-view {
@@ -1043,7 +1084,8 @@ html[lang="ja"] .launcher-action {
 :root[data-app-mode="ai"] #format-button,
 :root[data-app-mode="ai"] #synctex-button,
 :root[data-app-mode="ai"] #build-button,
-:root[data-app-mode="ai"] .canvas-controls {
+:root[data-app-mode="ai"] #build-issue-count,
+:root[data-app-mode="ai"] #pro-canvas-open {
   display: none !important;
 }
 
@@ -1409,15 +1451,116 @@ html[lang="ja"] .launcher-action {
   overflow: hidden;
 }
 
-.panel-body.outline-panel {
+/* The file panel: the tree, then the Outline and History sections, as in
+   VS Code's Explorer. A closed section is one header row at the bottom; open
+   ones share the height with the tree and scroll on their own. */
+.panel-body.files-panel-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.files-panel-body > .file-tree {
+  flex: 1 1 0;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-height: 0;
+  margin: 0 -6px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.sidebar-section.is-open {
+  flex: 1 1 0;
+}
+
+.sidebar-section:last-child {
+  margin-bottom: -6px;
+}
+
+.sidebar-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.sidebar-section-header:hover {
+  color: var(--text);
+}
+
+.sidebar-section-header:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.sidebar-section-chevron {
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform var(--duration-fast) ease;
+}
+
+.sidebar-section.is-open .sidebar-section-chevron {
+  transform: rotate(90deg);
+}
+
+.sidebar-section-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar-section-body[hidden] {
+  display: none;
+}
+
+.sidebar-section-body.outline-panel {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 4px 12px 12px;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
   scroll-behavior: smooth;
   scrollbar-gutter: stable;
+}
+
+.sidebar-section-body.outline-panel[hidden] {
+  display: none;
+}
+
+/* History keeps its own scrolling frame inside the section; the section
+   header already names it. */
+.sidebar-section-body > #history-panel {
+  height: 100%;
+  padding-top: 4px;
+}
+
+.sidebar-section .history-heading {
+  justify-content: flex-end;
+}
+
+.sidebar-section .history-heading h2 {
+  display: none;
 }
 
 .panel-body.blocks-panel {
@@ -2513,22 +2656,12 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .panel[data-panel="settings"] .settings-help-text.is-error {
   color: var(--danger-text);
 }
-/* Version numbers are plain text at the end of their row, not chips. */
-.panel[data-panel="settings"] .settings-version-badge {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: none;
-  color: var(--text-soft);
-  font-family: inherit;
-  font-size: 14px;
+/* The version line: 「0.1.24 → 0.1.28」, or the current version alone. */
+.settings-update-version {
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
 }
-.panel[data-panel="settings"] .settings-version-badge.is-new {
-  border: 0;
-  background: none;
-  color: var(--text);
+.settings-update-status.is-error {
+  color: var(--danger-text);
 }
 /* 情報: the seven pages are a list of links, one row each, no frames. */
 .panel[data-panel="settings"] [data-settings-page="info"] .settings-actions {
@@ -2645,13 +2778,6 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   line-height: 1;
 }
 
-.settings-nav-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
 .settings-nav-item:hover {
   background: var(--control-bg);
 }
@@ -2666,39 +2792,6 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   letter-spacing: 0;
   color: var(--text);
   transition: color var(--duration-normal) ease;
-}
-
-/* 「更新あり」 is a 6px accent dot. The words stay in the box, clipped and
-   transparent, so a screen reader still reads them (the visually-hidden
-   pattern, with the box itself drawn as the dot). */
-.settings-nav-badge {
-  display: inline-block;
-  flex: none;
-  width: 6px;
-  height: 6px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: var(--accent-strong);
-  color: transparent;
-  font-size: 11px;
-  line-height: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-
-/* Account's alert is good news (an update): its badge is enough, the row stays plain. */
-.settings-nav-item.has-alert:not([data-settings-target="account"]) {
-  border-color: rgba(248, 81, 73, 0.26);
-  background: rgba(248, 81, 73, 0.08);
-}
-
-/* Account "update available" is positive news, not a warning — show it green
-   instead of the red used for runtime-setup alerts. */
-#settings-account-attention {
-  background: var(--accent-strong);
-  color: transparent;
 }
 
 .settings-nav-desc {
@@ -3048,37 +3141,43 @@ html[lang="ja"] .settings-page .panel-button {
   justify-content: flex-end;
 }
 
-/* Project panel: keep controls readable in narrow side panes */
-.panel[data-panel="project"] .settings-item {
-  grid-template-columns: 1fr;
-  gap: 12px;
-  align-items: start;
-}
-
-.panel[data-panel="project"] .settings-control {
-  justify-content: flex-start;
-  width: 100%;
-  flex-wrap: wrap;
-}
-
-.panel[data-panel="project"] #settings-root-select {
-  flex: 1 1 220px;
+/* Settings > Build > Project: the workspace path is plain text, not a box
+   inside the card. */
+.panel[data-panel="settings"] #settings-workspace {
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.panel[data-panel="project"] #settings-workspace {
-  width: 100%;
+.panel[data-panel="settings"] #settings-workspace:hover {
+  background: none;
 }
 
-@container (max-width: 520px) {
-  .panel[data-panel="project"] #settings-root-select {
-    flex-basis: 100%;
-  }
+.panel[data-panel="settings"] [data-settings-page="build"] .settings-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
 
-  .panel[data-panel="project"] #settings-root-auto {
-    width: 100%;
-  }
+/* Main TeX and its 「再検出」 stay on one line. */
+.panel[data-panel="settings"] #settings-root-select {
+  min-width: 0;
+  width: 200px;
+}
+
+.panel[data-panel="settings"] #settings-root-select + #settings-root-auto {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.panel[data-panel="settings"] .settings-control:has(#settings-root-select) {
+  flex-wrap: nowrap;
 }
 
 /* Settings Select */
@@ -3133,51 +3232,6 @@ html[lang="ja"] .settings-page .panel-button {
 
 .settings-inline-compact {
   justify-content: flex-end;
-}
-
-/* Update progress bar */
-.settings-update-progress {
-  width: 100%;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--control-bg);
-  overflow: hidden;
-  margin-top: 14px;
-}
-
-.settings-update-progress-fill {
-  width: 0%;
-  height: 100%;
-  background: var(--accent);
-  border-radius: 999px;
-  transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-/* Version badge (used in update section) */
-.settings-version-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4.5px 10px 3.5px;
-  border-radius: 4px;
-  border: 1px solid var(--panel-border-strong);
-  background: transparent;
-  color: var(--text-soft);
-  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  white-space: nowrap;
-  justify-content: center;
-  box-sizing: border-box;
-}
-
-.settings-version-badge.is-new {
-  color: var(--accent-strong);
-  border-color: var(--accent-soft-strong);
-  background: var(--accent-soft);
 }
 
 /* Settings Input */
@@ -4196,18 +4250,6 @@ html[lang="ja"] .settings-page .panel-button {
   background: var(--accent-soft);
 }
 
-.tab.is-alert::after {
-  content: "";
-  position: absolute;
-  top: 7px;
-  right: 7px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--danger);
-  pointer-events: none;
-}
-
 .tab:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
@@ -4295,41 +4337,51 @@ html[lang="ja"] .settings-page .panel-button {
   display: none;
 }
 
+/* A lone file shows no tab strip (editor-tabs-ui.ts). */
+.editor-group.has-single-tab {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.editor-group.has-single-tab > .editor-tabs {
+  display: none;
+}
+
 .editor-groups[data-split="false"] .editor-splitter {
   display: none;
 }
 
-.canvas-controls { display: inline-flex; align-items: center; gap: 8px; padding-right: 8px; border-right: 1px solid var(--panel-border); }
-:root:not([data-app-mode="code"]) .canvas-controls { display: none; }
-.canvas-tools { display: inline-flex; align-items: center; gap: 6px; }
-#pro-canvas-open {
+/* Draw, Format and Jump: icons only; the tooltip names the action. They sit
+   with the panel toggle in one group, left of Build. */
+:root:not([data-app-mode="code"]) #pro-canvas-open { display: none; }
+.topbar-tool {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   margin: 0;
-  padding: 0 8px;
-  border: 1px solid transparent;
+  padding: 0;
+  border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 1;
+  color: var(--text-soft);
   cursor: pointer;
-  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease;
 }
-#pro-canvas-open[hidden] { display: none; }
-#pro-canvas-open:hover {
+.topbar-tool[hidden] { display: none; }
+.topbar-tool:hover {
   color: var(--text);
   background: var(--control-bg);
 }
-#pro-canvas-open:active { transform: translateY(1px); }
-#pro-canvas-open:focus-visible {
+.topbar-tool:active { transform: translateY(1px); }
+.topbar-tool:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+.topbar-tool svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
 }
 
 .editor-header {
@@ -4355,9 +4407,6 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 #save-button,
-#format-button,
-#synctex-button,
-#update-button,
 #build-button {
   display: inline-flex;
   align-items: center;
@@ -4381,10 +4430,8 @@ html[lang="ja"] .settings-page .panel-button {
     transform 0.12s ease;
 }
 
-/* Secondary actions: no box at rest, a tint on hover. Build keeps its own. */
-#save-button,
-#format-button,
-#synctex-button {
+/* The save state: no box at rest, a tint on hover. Build keeps its own. */
+#save-button {
   gap: 5px;
   border-color: transparent;
   background: transparent;
@@ -4394,11 +4441,7 @@ html[lang="ja"] .settings-page .panel-button {
   letter-spacing: normal;
 }
 
-#pro-canvas-open svg,
 #save-button svg,
-#format-button svg,
-#synctex-button svg,
-#update-button svg,
 #build-button svg {
   flex: 0 0 auto;
   width: 16px;
@@ -4409,15 +4452,6 @@ html[lang="ja"] .settings-page .panel-button {
   gap: 4px;
 }
 
-#format-button {
-  padding: 0 8px 0 7px;
-}
-
-/* Icon side bearings inside the 16px box differ per glyph; trim the left
-   padding so icon + label sit optically centred. */
-#synctex-button {
-  padding: 0 8px 0 7.5px;
-}
 /* The label keeps a reserved width (longest state) so the button does not
    jitter; centre the text inside it. */
 #save-button > span {
@@ -4486,28 +4520,25 @@ html[lang="ja"] .settings-page .panel-button {
   to { opacity: 1; transform: translateY(0); }
 }
 
-#save-button:hover,
-#format-button:hover,
-#synctex-button:hover {
+#save-button:hover {
   color: var(--text);
   background: var(--control-bg);
 }
 
-#save-button:active,
-#format-button:active,
-#synctex-button:active {
+#save-button:active {
   transform: translateY(1px);
 }
 
-/* Save state (save-status-ui.ts). The label keeps one width across
-   Save / Saving / Saved so the toolbar does not shift while typing. */
+/* Save state (save-status-ui.ts). Success is silent: nothing shows while
+   everything is on disk. Unsaved, saving and failed appear at the leading
+   end of the tools, so the icons to the right never move. */
 #save-button > span {
   display: inline-block;
   text-align: center;
 }
 
 #save-button[data-save-state="saved"] {
-  color: var(--text-soft);
+  display: none;
 }
 
 #save-button[data-save-state="dirty"] > span::after {
@@ -4532,9 +4563,6 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 #save-button:focus-visible,
-#format-button:focus-visible,
-#synctex-button:focus-visible,
-#update-button:focus-visible,
 #build-button:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
@@ -4601,81 +4629,86 @@ html[lang="ja"] .settings-page .panel-button {
   border-color: var(--panel-border-strong);
 }
 
+/* The last build's problems, beside Build: errors in the danger colour,
+   warnings alone in the warning colour, nothing when clean. The shape (disc
+   or triangle) carries the difference too. Opens the Problems panel. */
+.build-issue-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  margin: 0 0 0 8px;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.build-issue-count[hidden] {
+  display: none;
+}
+
+.build-issue-count[data-severity="error"] {
+  color: var(--danger-text);
+}
+
+.build-issue-count[data-severity="warning"] {
+  color: var(--warning-text);
+}
+
+.build-issue-count:hover {
+  background: var(--control-bg);
+}
+
+.build-issue-count:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.build-issue-icon {
+  display: none;
+  flex: 0 0 auto;
+  fill: currentColor;
+}
+
+.build-issue-count[data-severity="error"] .build-issue-icon.is-error,
+.build-issue-count[data-severity="warning"] .build-issue-icon.is-warning {
+  display: block;
+}
+
+.build-issue-glyph {
+  fill: none;
+  stroke: var(--panel);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.build-issue-dot {
+  fill: var(--panel);
+}
+
+/* With a count shown, it takes the gap before Build. */
+.build-issue-count:not([hidden]) + #build-button {
+  margin-left: 2px;
+}
+
 #build-button {
   min-width: 30px;
   padding: 0 9px 0 7px;
   gap: 4px;
-  margin-left: 2px;
+  /* Build stands apart from the tools: the third group. */
+  margin-left: 8px;
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   background: var(--accent-soft);
   color: var(--accent-strong);
   font-size: 13px;
   letter-spacing: normal;
   z-index: 4;
-}
-
-#update-button {
-  order: -1;
-  gap: 6px;
-  min-width: 54px;
-  padding: 0 10px 0 9px;
-  margin-left: 0;
-  border-color: transparent;
-  background: transparent;
-  color: var(--text);
-  box-shadow: none;
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: normal;
-  z-index: 4;
-}
-
-.update-button-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transform: translateY(0.5px);
-}
-
-.update-button-spinner {
-  display: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid currentColor;
-  border-top-color: transparent;
-  animation: build-spin 0.8s linear infinite;
-}
-
-#update-button:hover {
-  background: var(--control-bg);
-}
-
-#update-button:active {
-  transform: translateY(1px);
-}
-
-#update-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  transform: none;
-}
-
-/* An update is waiting: the label turns accent, nothing more. */
-#update-button.is-attention {
-  color: var(--accent-strong);
-}
-
-#update-button.is-busy {
-  cursor: default;
-}
-
-#update-button.is-busy .update-button-icon {
-  display: none;
-}
-
-#update-button.is-busy .update-button-spinner {
-  display: inline-block;
 }
 
 .build-button-icon {
@@ -4757,7 +4790,6 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 #synctex-button:disabled:hover {
-  border-color: transparent;
   background: transparent;
 }
 
@@ -5056,8 +5088,6 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .plan-chip,
 .plan-cta,
 .ai-model-badge,
-.settings-nav-badge,
-.settings-version-badge,
 .env-badge,
 .env-choice-badge,
 .ai-proposal-badge,
@@ -8436,13 +8466,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
    the button labels so Build stays inside the window. Titles still name them. */
 @media (max-width: 900px) {
   .top-actions { gap: 4px; padding: 0 8px; }
-  #pro-canvas-open > span,
-  #update-button > span:not(.update-button-icon):not(.update-button-spinner),
-  #save-button > span,
-  #format-button > span,
-  #synctex-button > span.synctex-button-label { display: none; }
-  /* save-status-ui reserves the label width inline; icon-only needs none. */
-  #save-button { min-width: 0 !important; }
+  #save-button > span { display: none; }
 }
 
 @media (max-width: 720px) {

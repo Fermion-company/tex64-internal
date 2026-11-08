@@ -144,37 +144,46 @@
               <span>AI</span>
             </button>
           </nav>
+          <button id="update-button" class="update-chip" type="button" hidden>
+            <span class="update-chip-label" data-no-i18n>Update</span>
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h14"></path>
+              <path d="m13 6 6 6-6 6"></path>
+            </svg>
+          </button>
         </div>
         <div class="topbar-drag"></div>
         <div class="top-actions">
-          <div class="canvas-controls" role="toolbar" aria-label="Figure tools">
-            <div class="canvas-tools" role="group">
-              <button id="pro-canvas-open" type="button" aria-label="Draw a figure">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M12 20h9"></path>
-                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
-                </svg>
-                <span>Draw</span>
-              </button>
-            </div>
-          </div>
-          <button
-            id="update-button"
-            type="button"
-            class="is-hidden"
-            aria-hidden="true"
-            aria-label="Update available"
-            title="Update available"
-          >
-            <span class="update-button-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 3v12"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <path d="M5 20h14"></path>
-              </svg>
-            </span>
-            <span class="update-button-spinner" aria-hidden="true"></span>
-            Update app
+          <button id="save-button" type="button" aria-label="Save" title="Save (Cmd+S)">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+              <polyline points="17 21 17 13 7 13 7 21"/>
+              <polyline points="7 3 7 8 15 8"/>
+            </svg>
+            <span>Save</span>
+          </button>
+          <button id="pro-canvas-open" class="topbar-tool" type="button" aria-label="Draw a figure" title="Draw a figure">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 20h9"></path>
+              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+            </svg>
+          </button>
+          <button id="format-button" class="topbar-tool" type="button" aria-label="Format" title="Format">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 6h16"></path>
+              <path d="M8 10h12"></path>
+              <path d="M4 14h16"></path>
+              <path d="M8 18h12"></path>
+            </svg>
+          </button>
+          <button id="synctex-button" class="topbar-tool" type="button" aria-label="Jump" title="Jump">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="7"></circle>
+              <path d="M12 2v4"></path>
+              <path d="M12 18v4"></path>
+              <path d="M2 12h4"></path>
+              <path d="M18 12h4"></path>
+            </svg>
           </button>
           <button
             id="toggle-bottom-panel-button"
@@ -190,38 +199,6 @@
               <rect class="topbar-layout-fill" x="3" y="15" width="18" height="4" rx="2" fill="currentColor" opacity="0.35"></rect>
             </svg>
           </button>
-          <button id="save-button" type="button" aria-label="Save" title="Save (Cmd+S)">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-              <polyline points="17 21 17 13 7 13 7 21"/>
-              <polyline points="7 3 7 8 15 8"/>
-            </svg>
-            <span>Save</span>
-          </button>
-          <button id="format-button" type="button" aria-label="Format" title="Format">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M4 6h16"></path>
-              <path d="M8 10h12"></path>
-              <path d="M4 14h16"></path>
-              <path d="M8 18h12"></path>
-            </svg>
-            <span>Format</span>
-          </button>
-          <button
-            id="synctex-button"
-            type="button"
-            aria-label="SyncTeX"
-            title="SyncTeX (Forward)"
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="7"></circle>
-              <path d="M12 2v4"></path>
-              <path d="M12 18v4"></path>
-              <path d="M2 12h4"></path>
-              <path d="M18 12h4"></path>
-            </svg>
-            <span class="synctex-button-label">SyncTeX</span>
-          </button>
           <button
             id="collab-participants"
             type="button"
@@ -230,6 +207,19 @@
             title="Collaboration session"
             hidden
           ></button>
+          <button id="build-issue-count" class="build-issue-count" type="button" hidden>
+            <svg class="build-issue-icon is-error" viewBox="0 0 20 20" width="14" height="14" aria-hidden="true">
+              <circle cx="10" cy="10" r="9"></circle>
+              <path class="build-issue-glyph" d="M10 5.2v5.5"></path>
+              <circle class="build-issue-dot" cx="10" cy="14.2" r="1.15"></circle>
+            </svg>
+            <svg class="build-issue-icon is-warning" viewBox="0 0 20 20" width="14" height="14" aria-hidden="true">
+              <path d="M10 1.8 19.3 17.9a.9.9 0 0 1-.8 1.3H1.5a.9.9 0 0 1-.8-1.3z"></path>
+              <path class="build-issue-glyph" d="M10 7.4v4.3"></path>
+              <circle class="build-issue-dot" cx="10" cy="15.1" r="1.1"></circle>
+            </svg>
+            <span class="build-issue-value" data-no-i18n></span>
+          </button>
           <button
             id="build-button"
             type="button"
@@ -285,22 +275,6 @@
               class="tab"
               type="button"
               role="tab"
-              data-tab="outline"
-              aria-selected="false"
-              aria-label="Outline"
-              title="Outline"
-            >
-              <span class="tab-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M8 6h11M8 12h11M8 18h11"></path>
-                  <path d="M5 6h.01M5 12h.01M5 18h.01"></path>
-                </svg>
-              </span>
-            </button>
-            <button
-              class="tab"
-              type="button"
-              role="tab"
               data-tab="blocks"
               aria-selected="false"
               aria-label="Math"
@@ -314,6 +288,7 @@
                 </svg>
               </span>
             </button>
+            <button class="tab" type="button" role="tab" data-tab="git" aria-selected="false" aria-label="Git" title="Git"><span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="7" cy="5" r="2"/><circle cx="17" cy="5" r="2"/><circle cx="7" cy="19" r="2"/><path d="M7 7v10M17 7v2a5 5 0 0 1-5 5H7"/></svg></span></button>
             <button
               class="tab"
               type="button"
@@ -328,45 +303,6 @@
                   <path d="M12 4L20 12L12 20L4 12Z" fill="none"/>
                   <ellipse cx="12" cy="12" rx="6" ry="2.5" transform="rotate(-30 12 12)" fill="none" stroke-width="1" opacity="0.4"/>
                   <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
-                </svg>
-              </span>
-            </button>
-            <button
-              class="tab"
-              id="issues-tab"
-              type="button"
-              role="tab"
-              data-tab="issues"
-              aria-selected="false"
-              aria-label="Issues"
-              title="Issues"
-            >
-              <span class="tab-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 3l9 16H3z"></path>
-                  <path d="M12 9v4"></path>
-                  <path d="M12 17h.01"></path>
-                </svg>
-              </span>
-            </button>
-            <button class="tab" type="button" role="tab" data-tab="git" aria-selected="false" aria-label="Git" title="Git"><span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="7" cy="5" r="2"/><circle cx="17" cy="5" r="2"/><circle cx="7" cy="19" r="2"/><path d="M7 7v10M17 7v2a5 5 0 0 1-5 5H7"/></svg></span></button>
-            <button class="tab" type="button" role="tab" data-tab="history" aria-selected="false" aria-label="History" title="History">
-              <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 11a9 9 0 1 1 2.6 7M3 5v6h6M12 7v5l3 2"/></svg></span>
-            </button>
-            <button
-              class="tab"
-              type="button"
-              role="tab"
-              data-tab="project"
-              aria-selected="false"
-              aria-label="Project"
-              title="Project"
-            >
-              <span class="tab-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M4 7h16M4 17h16"></path>
-                  <circle cx="9" cy="7" r="2"></circle>
-                  <circle cx="15" cy="17" r="2"></circle>
                 </svg>
               </span>
             </button>
@@ -411,41 +347,51 @@
             <div class="panel-header">
               <span class="panel-title">explorer</span>
             </div>
-            <div class="panel-body">
+            <div class="panel-body files-panel-body">
               <div class="workspace-label" id="workspace-label">No workspace selected</div>
               <div class="file-tree" id="file-tree" tabindex="0"></div>
-            </div>
-          </div>
-          <div class="panel no-header" data-panel="outline">
-            <div class="panel-header">
-              <span class="panel-title">Outline</span>
-              <div class="panel-header-actions">
-                <button class="panel-button ghost" id="outline-mode-current" type="button" aria-pressed="true">
-                  Current
+              <section class="sidebar-section" data-section="outline">
+                <button class="sidebar-section-header" type="button" aria-expanded="false" aria-controls="sidebar-section-outline">
+                  <svg class="sidebar-section-chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4"></path></svg>
+                  <span>Outline</span>
                 </button>
-                <button class="panel-button ghost" id="outline-mode-project" type="button" aria-pressed="false">
-                  Project
+                <div class="sidebar-section-body outline-panel" id="sidebar-section-outline" hidden>
+                  <div class="outline-modes" hidden>
+                    <button class="panel-button ghost" id="outline-mode-current" type="button" aria-pressed="true">
+                      Current
+                    </button>
+                    <button class="panel-button ghost" id="outline-mode-project" type="button" aria-pressed="false">
+                      Project
+                    </button>
+                  </div>
+                  <div class="outline-empty" id="outline-empty">Creating index.</div>
+                  <details class="outline-section" data-outline="sections" open>
+                    <summary class="outline-section-title">chapter and verse</summary>
+                    <div class="outline-list" id="outline-sections"></div>
+                  </details>
+                  <details class="outline-section" data-outline="labels" open>
+                    <summary class="outline-section-title">label</summary>
+                    <div class="outline-list" id="outline-labels"></div>
+                  </details>
+                  <details class="outline-section" data-outline="citations" open>
+                    <summary class="outline-section-title">References</summary>
+                    <div class="outline-list" id="outline-citations"></div>
+                  </details>
+                  <details class="outline-section" data-outline="todos" open>
+                    <summary class="outline-section-title">TODO</summary>
+                    <div class="outline-list" id="outline-todos"></div>
+                  </details>
+                </div>
+              </section>
+              <section class="sidebar-section" data-section="history">
+                <button class="sidebar-section-header" type="button" aria-expanded="false" aria-controls="sidebar-section-history">
+                  <svg class="sidebar-section-chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4"></path></svg>
+                  <span>History</span>
                 </button>
-              </div>
-            </div>
-            <div class="panel-body outline-panel">
-              <div class="outline-empty" id="outline-empty">Creating index.</div>
-              <details class="outline-section" data-outline="sections" open>
-                <summary class="outline-section-title">chapter and verse</summary>
-                <div class="outline-list" id="outline-sections"></div>
-              </details>
-              <details class="outline-section" data-outline="labels" open>
-                <summary class="outline-section-title">label</summary>
-                <div class="outline-list" id="outline-labels"></div>
-              </details>
-              <details class="outline-section" data-outline="citations" open>
-                <summary class="outline-section-title">References</summary>
-                <div class="outline-list" id="outline-citations"></div>
-              </details>
-              <details class="outline-section" data-outline="todos" open>
-                <summary class="outline-section-title">TODO</summary>
-                <div class="outline-list" id="outline-todos"></div>
-              </details>
+                <div class="sidebar-section-body" id="sidebar-section-history" hidden>
+                  <div id="history-panel"></div>
+                </div>
+              </section>
             </div>
           </div>
           <div class="panel no-header" data-panel="blocks">
@@ -624,34 +570,6 @@
             </div>
           </div>
           <div class="panel no-header" data-panel="git"><div id="git-panel"></div></div>
-          <div class="panel no-header" data-panel="history"><div id="history-panel"></div></div>
-          <div class="panel no-header" data-panel="project">
-            <div class="panel-header">
-              <span class="panel-title">Project</span>
-            </div>
-            <div class="panel-body settings-panel">
-              <div class="settings-group">
-                <div class="settings-group-title">Project</div>
-                <div class="settings-item">
-                  <div class="settings-label">
-                    <span class="settings-title">Main TeX</span>
-                  </div>
-                  <div class="settings-control">
-                    <select class="settings-select" id="settings-root-select"></select>
-                    <button class="panel-button ghost" id="settings-root-auto" type="button">
-                      automatic detection
-                    </button>
-                  </div>
-                </div>
-                <div class="settings-item">
-                  <div class="settings-label">
-                    <span class="settings-title">Workspace</span>
-                  </div>
-                  <div class="settings-path" id="settings-workspace">Not selected</div>
-                </div>
-              </div>
-            </div>
-          </div>
           <div class="panel no-header" data-panel="search">
             <div class="panel-header">
               <span class="panel-title">Search</span>
@@ -751,12 +669,7 @@
                   <span class="settings-nav-title">Environment</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="account" type="button">
-                  <span class="settings-nav-title-row">
-                    <span class="settings-nav-title">Account</span>
-                    <span class="settings-nav-badge is-hidden" id="settings-account-attention" aria-hidden="true">
-                      Update Available
-                    </span>
-                  </span>
+                  <span class="settings-nav-title">Account</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="zotero" type="button">
                   <span class="settings-nav-title">Zotero</span>
@@ -1008,6 +921,26 @@
                     <div class="settings-page-title">Build</div>
                   </div>
                   <div class="settings-group">
+                    <div class="settings-group-title">Project</div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Main TeX</span>
+                      </div>
+                      <div class="settings-control">
+                        <select class="settings-select" id="settings-root-select"></select>
+                        <button class="panel-button ghost" id="settings-root-auto" type="button">
+                          automatic detection
+                        </button>
+                      </div>
+                    </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Workspace</span>
+                      </div>
+                      <div class="settings-path" id="settings-workspace">Not selected</div>
+                    </div>
+                  </div>
+                  <div class="settings-group">
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Engine</span>
@@ -1210,34 +1143,14 @@
                     <div class="settings-group-title">Updates</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Current</span>
+                        <span class="settings-title settings-update-version" id="settings-update-version" data-no-i18n>-</span>
+                        <span class="settings-desc settings-update-status is-hidden" id="settings-update-status" role="status"></span>
                       </div>
                       <div class="settings-control">
-                        <span class="settings-version-badge" id="settings-update-current">-</span>
+                        <button class="panel-button ghost" id="settings-update-action" type="button">
+                          Check for updates
+                        </button>
                       </div>
-                    </div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">Latest</span>
-                      </div>
-                      <div class="settings-control">
-                        <span class="settings-version-badge" id="settings-update-latest">-</span>
-                      </div>
-                    </div>
-                    <div class="settings-help-text" id="settings-update-status"></div>
-                    <div class="settings-update-progress is-hidden" id="settings-update-progress" aria-hidden="true">
-                      <div class="settings-update-progress-fill" id="settings-update-progress-fill"></div>
-                    </div>
-                    <div class="settings-inline settings-inline-wrap">
-                      <button class="panel-button ghost" id="settings-update-check" type="button">
-                        Check for Updates
-                      </button>
-                      <button class="panel-button is-hidden" id="settings-update-apply" type="button">
-                        Update app
-                      </button>
-                      <button class="panel-button ghost" id="settings-update-open" type="button">
-                        Download
-                      </button>
                     </div>
                   </div>
                 </div>

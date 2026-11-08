@@ -50,6 +50,7 @@ import type { TabKey } from "./app/config.js";
 import { initUiEvents } from "./app/ui-events.js";
 import { initSearchUi } from "./app/search-ui.js";
 import { initSidebarVisibility } from "./app/sidebar-ui.js";
+import { initSidebarSections } from "./app/sidebar-sections-ui.js";
 import { initBottomPanelUi } from "./app/bottom-panel-ui.js";
 import { initTerminalUi } from "./app/terminal-ui.js";
 import { initBillingUi } from "./app/billing-ui.js";
@@ -98,7 +99,6 @@ export const initMain = () => {
     const dom = getDomRefs();
     const {
     tabs,
-    settingsTab,
     editorHost,
     editorViewer,
     editorViewerImage,
@@ -155,6 +155,13 @@ export const initMain = () => {
   let aiChatUi: ReturnType<typeof initAiChatUi> | null = null;
   let billingUi: ReturnType<typeof initBillingUi> | null = null;
   let mathCapture: ReturnType<typeof initMathCapture> | null = null;
+  // The PDF pane has no tab strip: the × at the end of its toolbar closes the
+  // PDF as the tab's × did (an emptied right-hand group gives its space back).
+  const closePdfIn = (groupKey: "primary" | "secondary") => {
+    const group = editorSession?.getEditorGroup(groupKey);
+    const path = group?.currentFilePath;
+    if (group && path && /\.pdf$/i.test(path)) editorSession.closeTab(group, path);
+  };
   const primaryViewer = createViewer({
     editorViewer,
     editorViewerImage,
@@ -183,6 +190,7 @@ export const initMain = () => {
       setActiveTab("ai");
       aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
     },
+    onPdfClose: () => closePdfIn("primary"),
   });
   const secondaryViewer = createViewer({
     editorViewer: editorViewerSecondary,
@@ -212,6 +220,7 @@ export const initMain = () => {
       setActiveTab("ai");
       aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
     },
+    onPdfClose: () => closePdfIn("secondary"),
   });
   const bridgeWindow = window as BridgeWindow;
   bridgeWindow.__tex64TestRecognizeMath = (imageDataUrl: string) => recognizeMath(imageDataUrl);
@@ -298,21 +307,29 @@ export const initMain = () => {
   let onFilesTabActive = () => {};
 
   let onSettingsTabActive = () => {};
-  let setSettingsTabAlert = (_hasAlert: boolean) => {};
   let updateEditorWordWrap = (_enabled: boolean) => {};
   let pendingEditorWordWrapEnabled: boolean | null = null;
   const tabController = initTabController(appContext, {
     onFilesTabActive: () => onFilesTabActive(),
     onSettingsTabActive: () => onSettingsTabActive(),
   });
+  const sidebarSections = initSidebarSections();
+  // Outline and History are sections of the file panel now, and Project is
+  // the first group of Settings > Build: anything that asks for those panels
+  // lands there.
   const setActiveTab = (tabKey: TabKey) => {
-    tabController.setActiveTab(tabKey);
-  };
-  setSettingsTabAlert = (hasAlert) => {
-    if (!(settingsTab instanceof HTMLElement)) {
+    if (tabKey === "outline" || tabKey === "history") {
+      if (!bottomPanelUi.isSidebarVisible()) bottomPanelUi.toggleSidebar();
+      tabController.setActiveTab("files");
+      sidebarSections.open(tabKey);
       return;
     }
-    settingsTab.classList.toggle("is-alert", hasAlert);
+    if (tabKey === "project") {
+      tabController.setActiveTab("settings");
+      settingsUi.openSettingsPage("build");
+      return;
+    }
+    tabController.setActiveTab(tabKey);
   };
   // The full-screen settings overlay covers the sidebar rail, so closing it
   // needs its own affordances: the top-right close button and Escape.
@@ -351,9 +368,7 @@ export const initMain = () => {
     onPdfViewerModeChange: (mode) => {
       void mode;
     },
-    onUpdateAttentionChange: (hasAttention) => {
-      setSettingsTabAlert(hasAttention);
-    },
+    saveDirtyFiles: () => editorSession.saveDirtyFiles(),
     onRuntimeSetupNeeded: () => {
       if (onboardingUi.isVisible()) {
         return;
@@ -1163,6 +1178,11 @@ export const initMain = () => {
   });
   updateIssues = workspaceController.updateIssues;
   setPendingBuildIssuesFocus = workspaceController.setPendingBuildIssuesFocus;
+  // The count beside Build is the way to the Problems panel (no rail icon).
+  appContext.dom.buildIssueCount?.addEventListener("click", () => {
+    if (!bottomPanelUi.isSidebarVisible()) bottomPanelUi.toggleSidebar();
+    setActiveTab("issues");
+  });
 
   const storedActiveTab = (() => {
     try {
@@ -1171,9 +1191,11 @@ export const initMain = () => {
       return undefined;
     }
   })();
-  const initialTab = tabController.normalizeTabKey(
+  const storedTab = tabController.normalizeTabKey(
     storedActiveTab ?? tabs.find((tab) => tab.classList.contains("is-active"))?.dataset.tab
   );
+  // Project now lives in Settings, which should not open by itself at startup.
+  const initialTab: TabKey = storedTab === "project" ? "files" : storedTab;
   setActiveTab(initialTab);
   sidebarUi.loadVisibility();
   sidebarUi.applyVisibility();

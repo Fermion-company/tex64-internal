@@ -22,7 +22,8 @@ export type SettingsUiDeps = {
   postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
   onEditorWordWrapChange?: (enabled: boolean) => void;
   onPdfViewerModeChange?: (mode: "window" | "tab") => void;
-  onUpdateAttentionChange?: (hasAttention: boolean) => void;
+  // Writes every unsaved file before the update installer opens.
+  saveDirtyFiles?: () => Promise<boolean>;
   onRuntimeSetupNeeded?: (summary: EnvStatusSummary) => void;
   // The environment ops own every piece of TeX state, so the first-run gate
   // listens through them rather than tapping the IPC bridge a second time.
