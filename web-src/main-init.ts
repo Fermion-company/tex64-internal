@@ -98,7 +98,6 @@ export const initMain = () => {
     const dom = getDomRefs();
     const {
     tabs,
-    settingsTab,
     editorHost,
     editorViewer,
     editorViewerImage,
@@ -298,7 +297,6 @@ export const initMain = () => {
   let onFilesTabActive = () => {};
 
   let onSettingsTabActive = () => {};
-  let setSettingsTabAlert = (_hasAlert: boolean) => {};
   let updateEditorWordWrap = (_enabled: boolean) => {};
   let pendingEditorWordWrapEnabled: boolean | null = null;
   const tabController = initTabController(appContext, {
@@ -307,12 +305,6 @@ export const initMain = () => {
   });
   const setActiveTab = (tabKey: TabKey) => {
     tabController.setActiveTab(tabKey);
-  };
-  setSettingsTabAlert = (hasAlert) => {
-    if (!(settingsTab instanceof HTMLElement)) {
-      return;
-    }
-    settingsTab.classList.toggle("is-alert", hasAlert);
   };
   // The full-screen settings overlay covers the sidebar rail, so closing it
   // needs its own affordances: the top-right close button and Escape.
@@ -351,9 +343,7 @@ export const initMain = () => {
     onPdfViewerModeChange: (mode) => {
       void mode;
     },
-    onUpdateAttentionChange: (hasAttention) => {
-      setSettingsTabAlert(hasAttention);
-    },
+    saveDirtyFiles: () => editorSession.saveDirtyFiles(),
     onRuntimeSetupNeeded: () => {
       if (onboardingUi.isVisible()) {
         return;

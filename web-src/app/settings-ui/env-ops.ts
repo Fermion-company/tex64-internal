@@ -1,6 +1,5 @@
 import { createEnvStatusManager, type EnvStatusSummary } from "../settings-env.js";
 import type { SettingsUiRuntime } from "./runtime.js";
-import type { SettingsAttentionOps } from "./attention.js";
 import { uiText } from "../i18n.js";
 import {
   describeCoverage,
@@ -36,8 +35,7 @@ type HeroState = "checking" | "missing" | "installing" | "ready";
 // lightweight profile; an already-ready lightweight tree can be expanded to the
 // complete package set from the same screen.
 export const createSettingsEnvOps = (
-  runtime: SettingsUiRuntime,
-  attentionOps: SettingsAttentionOps
+  runtime: SettingsUiRuntime
 ): SettingsEnvOps => {
   const {
     settingsRuntimeSetupStatus,
@@ -320,7 +318,6 @@ export const createSettingsEnvOps = (
     onStatusSummaryChange: (summary) => {
       runtime.state.runtimeStatusSummary = summary;
       updateRuntimeSetupUi();
-      attentionOps.syncUpdateAttentionUi();
       maybePromptRuntimeSetup(summary);
     },
   });

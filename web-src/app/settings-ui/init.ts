@@ -6,7 +6,6 @@ import { getUiLocale } from "../i18n.js";
 import type { SettingsUiApi, SettingsUiDeps } from "./types.js";
 import { createSettingsUiRuntime } from "./runtime.js";
 import { initSettingsUiLocale } from "./ui-locale.js";
-import { createSettingsAttentionOps } from "./attention.js";
 import { createSettingsEngineOps } from "./engine-ops.js";
 import { createSettingsFormatOps } from "./format-ops.js";
 import { createSettingsEditorPreferenceOps } from "./editor-preferences-ops.js";
@@ -24,14 +23,13 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
 
   initSettingsUiLocale(runtime);
 
-  const attentionOps = createSettingsAttentionOps(runtime);
   const engineOps = createSettingsEngineOps(runtime);
   const formatOps = createSettingsFormatOps(runtime);
   const editorPrefOps = createSettingsEditorPreferenceOps(runtime);
-  const envOps = createSettingsEnvOps(runtime, attentionOps);
+  const envOps = createSettingsEnvOps(runtime);
   const platformAuthOps = createSettingsPlatformAuthOps(runtime);
   const accountUsageOps = createSettingsAccountUsageOps(runtime);
-  const platformUpdateOps = createSettingsPlatformUpdateOps(runtime, attentionOps);
+  const platformUpdateOps = createSettingsPlatformUpdateOps(runtime);
   const feedbackOps = createSettingsFeedbackOps(runtime);
   const appearanceOps = createSettingsAppearanceOps(runtime);
 
@@ -43,7 +41,7 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
     onActiveEngineChange: (engine) => engineOps.setProfileEngine(engine),
   });
 
-  const pageNavOps = createSettingsPageNavOps(runtime, attentionOps, {
+  const pageNavOps = createSettingsPageNavOps(runtime, {
     checkEnvironmentStatus: envOps.checkEnvironmentStatus,
     updateRuntimeOnboardingUi: envOps.updateRuntimeOnboardingUi,
     maybeRequestPlatformUpdateCheck: platformUpdateOps.maybeRequestPlatformUpdateCheck,

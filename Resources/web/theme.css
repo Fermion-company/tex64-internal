@@ -236,10 +236,9 @@ select:focus-visible,
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  /* Build & update spinners: always animate (essential status feedback) so
-     the custom spinner — not the OS wait cursor — signals progress. */
-  .build-button-spinner,
-  .update-button-spinner {
+  /* The Build spinner always animates (essential status feedback) so the
+     custom spinner — not the OS wait cursor — signals progress. */
+  .build-button-spinner {
     animation-duration: 0.8s !important;
     animation-iteration-count: infinite !important;
   }
@@ -1008,6 +1007,48 @@ html[lang="ja"] .launcher-action {
 
 .mode-tab svg {
   flex-shrink: 0;
+}
+
+/* The update is downloaded and verified: one quiet chip after Code/AI, far
+   from Build. Clicking saves every file, then opens the installer. */
+.update-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px 0 11px;
+  border: 1px solid var(--panel-border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--duration-fast) ease;
+  -webkit-app-region: no-drag;
+}
+
+.update-chip[hidden] {
+  display: none;
+}
+
+.update-chip:hover {
+  background: var(--control-bg);
+}
+
+.update-chip:active {
+  transform: translateY(1px);
+}
+
+.update-chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.update-chip svg {
+  flex-shrink: 0;
+  color: var(--text-soft);
 }
 
 /* ---- AI mode: embedded tex64-ai workspace ---- */
@@ -2513,22 +2554,12 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .panel[data-panel="settings"] .settings-help-text.is-error {
   color: var(--danger-text);
 }
-/* Version numbers are plain text at the end of their row, not chips. */
-.panel[data-panel="settings"] .settings-version-badge {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: none;
-  color: var(--text-soft);
-  font-family: inherit;
-  font-size: 14px;
+/* The version line: 「0.1.24 → 0.1.28」, or the current version alone. */
+.settings-update-version {
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
 }
-.panel[data-panel="settings"] .settings-version-badge.is-new {
-  border: 0;
-  background: none;
-  color: var(--text);
+.settings-update-status.is-error {
+  color: var(--danger-text);
 }
 /* 情報: the seven pages are a list of links, one row each, no frames. */
 .panel[data-panel="settings"] [data-settings-page="info"] .settings-actions {
@@ -2645,13 +2676,6 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   line-height: 1;
 }
 
-.settings-nav-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
 .settings-nav-item:hover {
   background: var(--control-bg);
 }
@@ -2666,39 +2690,6 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   letter-spacing: 0;
   color: var(--text);
   transition: color var(--duration-normal) ease;
-}
-
-/* 「更新あり」 is a 6px accent dot. The words stay in the box, clipped and
-   transparent, so a screen reader still reads them (the visually-hidden
-   pattern, with the box itself drawn as the dot). */
-.settings-nav-badge {
-  display: inline-block;
-  flex: none;
-  width: 6px;
-  height: 6px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: var(--accent-strong);
-  color: transparent;
-  font-size: 11px;
-  line-height: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-
-/* Account's alert is good news (an update): its badge is enough, the row stays plain. */
-.settings-nav-item.has-alert:not([data-settings-target="account"]) {
-  border-color: rgba(248, 81, 73, 0.26);
-  background: rgba(248, 81, 73, 0.08);
-}
-
-/* Account "update available" is positive news, not a warning — show it green
-   instead of the red used for runtime-setup alerts. */
-#settings-account-attention {
-  background: var(--accent-strong);
-  color: transparent;
 }
 
 .settings-nav-desc {
@@ -3133,51 +3124,6 @@ html[lang="ja"] .settings-page .panel-button {
 
 .settings-inline-compact {
   justify-content: flex-end;
-}
-
-/* Update progress bar */
-.settings-update-progress {
-  width: 100%;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--control-bg);
-  overflow: hidden;
-  margin-top: 14px;
-}
-
-.settings-update-progress-fill {
-  width: 0%;
-  height: 100%;
-  background: var(--accent);
-  border-radius: 999px;
-  transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-/* Version badge (used in update section) */
-.settings-version-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4.5px 10px 3.5px;
-  border-radius: 4px;
-  border: 1px solid var(--panel-border-strong);
-  background: transparent;
-  color: var(--text-soft);
-  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  white-space: nowrap;
-  justify-content: center;
-  box-sizing: border-box;
-}
-
-.settings-version-badge.is-new {
-  color: var(--accent-strong);
-  border-color: var(--accent-soft-strong);
-  background: var(--accent-soft);
 }
 
 /* Settings Input */
@@ -4356,7 +4302,6 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 #save-button,
-#update-button,
 #build-button {
   display: inline-flex;
   align-items: center;
@@ -4392,7 +4337,6 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 #save-button svg,
-#update-button svg,
 #build-button svg {
   flex: 0 0 auto;
   width: 16px;
@@ -4514,7 +4458,6 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 #save-button:focus-visible,
-#update-button:focus-visible,
 #build-button:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
@@ -4593,70 +4536,6 @@ html[lang="ja"] .settings-page .panel-button {
   font-size: 13px;
   letter-spacing: normal;
   z-index: 4;
-}
-
-#update-button {
-  order: -1;
-  gap: 6px;
-  min-width: 54px;
-  padding: 0 10px 0 9px;
-  margin-left: 0;
-  border-color: transparent;
-  background: transparent;
-  color: var(--text);
-  box-shadow: none;
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: normal;
-  z-index: 4;
-}
-
-.update-button-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transform: translateY(0.5px);
-}
-
-.update-button-spinner {
-  display: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid currentColor;
-  border-top-color: transparent;
-  animation: build-spin 0.8s linear infinite;
-}
-
-#update-button:hover {
-  background: var(--control-bg);
-}
-
-#update-button:active {
-  transform: translateY(1px);
-}
-
-#update-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  transform: none;
-}
-
-/* An update is waiting: the label turns accent, nothing more. */
-#update-button.is-attention {
-  color: var(--accent-strong);
-}
-
-#update-button.is-busy {
-  cursor: default;
-}
-
-#update-button.is-busy .update-button-icon {
-  display: none;
-}
-
-#update-button.is-busy .update-button-spinner {
-  display: inline-block;
 }
 
 .build-button-icon {
@@ -5036,8 +4915,6 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .plan-chip,
 .plan-cta,
 .ai-model-badge,
-.settings-nav-badge,
-.settings-version-badge,
 .env-badge,
 .env-choice-badge,
 .ai-proposal-badge,
@@ -8416,7 +8293,6 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
    the button labels so Build stays inside the window. Titles still name them. */
 @media (max-width: 900px) {
   .top-actions { gap: 4px; padding: 0 8px; }
-  #update-button > span:not(.update-button-icon):not(.update-button-spinner),
   #save-button > span { display: none; }
 }
 

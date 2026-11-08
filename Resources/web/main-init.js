@@ -74,7 +74,7 @@ export const initMain = () => {
             document.body.classList.add("is-ready");
         });
         const dom = getDomRefs();
-        const { tabs, settingsTab, editorHost, editorViewer, editorViewerImage, editorViewerPdf, editorHostSecondary, editorViewerSecondary, editorViewerImageSecondary, editorViewerPdfSecondary, editorFallbackSecondary, } = dom;
+        const { tabs, editorHost, editorViewer, editorViewerImage, editorViewerPdf, editorHostSecondary, editorViewerSecondary, editorViewerImageSecondary, editorViewerPdfSecondary, editorFallbackSecondary, } = dom;
         let postToNative = () => false;
         let requestLiveSource = (_payload) => { };
         // A place marked in the live preview names its source file the engine's
@@ -239,7 +239,6 @@ export const initMain = () => {
         let setPendingBuildIssuesFocus = (_value) => { };
         let onFilesTabActive = () => { };
         let onSettingsTabActive = () => { };
-        let setSettingsTabAlert = (_hasAlert) => { };
         let updateEditorWordWrap = (_enabled) => { };
         let pendingEditorWordWrapEnabled = null;
         const tabController = initTabController(appContext, {
@@ -248,12 +247,6 @@ export const initMain = () => {
         });
         const setActiveTab = (tabKey) => {
             tabController.setActiveTab(tabKey);
-        };
-        setSettingsTabAlert = (hasAlert) => {
-            if (!(settingsTab instanceof HTMLElement)) {
-                return;
-            }
-            settingsTab.classList.toggle("is-alert", hasAlert);
         };
         // The full-screen settings overlay covers the sidebar rail, so closing it
         // needs its own affordances: the top-right close button and Escape.
@@ -290,9 +283,7 @@ export const initMain = () => {
             onPdfViewerModeChange: (mode) => {
                 void mode;
             },
-            onUpdateAttentionChange: (hasAttention) => {
-                setSettingsTabAlert(hasAttention);
-            },
+            saveDirtyFiles: () => editorSession.saveDirtyFiles(),
             onRuntimeSetupNeeded: () => {
                 if (onboardingUi.isVisible()) {
                     return;

@@ -1,4 +1,4 @@
-export const createSettingsPageNavOps = (runtime, attentionOps, deps) => {
+export const createSettingsPageNavOps = (runtime, deps) => {
     var _a, _b, _c, _d;
     const { settingsPanel, settingsNav, settingsNavItems, settingsPages, settingsPageItems, settingsBackButtons } = runtime.context.dom;
     // First nav category is the default page shown when the overlay opens.
@@ -34,7 +34,6 @@ export const createSettingsPageNavOps = (runtime, attentionOps, deps) => {
         if (settingsPanel instanceof HTMLElement) {
             settingsPanel.scrollTop = 0;
         }
-        attentionOps.syncUpdateAttentionUi();
         if (resolved === "env") {
             deps.updateRuntimeOnboardingUi();
             deps.checkEnvironmentStatus();

@@ -5,7 +5,7 @@ import { describeCoverage, describeDetection, describeDetectionSource, INSTALL_V
 // build right now, and if not, what do I press?" New installs use the quick
 // lightweight profile; an already-ready lightweight tree can be expanded to the
 // complete package set from the same screen.
-export const createSettingsEnvOps = (runtime, attentionOps) => {
+export const createSettingsEnvOps = (runtime) => {
     const { settingsRuntimeSetupStatus, settingsRuntimeInstallStatus, } = runtime.context.dom;
     const heroEl = document.getElementById("env-hero");
     const setupBtn = document.getElementById("settings-env-setup");
@@ -262,7 +262,6 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
         onStatusSummaryChange: (summary) => {
             runtime.state.runtimeStatusSummary = summary;
             updateRuntimeSetupUi();
-            attentionOps.syncUpdateAttentionUi();
             maybePromptRuntimeSetup(summary);
         },
     });

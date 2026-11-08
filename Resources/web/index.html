@@ -144,6 +144,13 @@
               <span>AI</span>
             </button>
           </nav>
+          <button id="update-button" class="update-chip" type="button" hidden>
+            <span class="update-chip-label" data-no-i18n>Update</span>
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h14"></path>
+              <path d="m13 6 6 6-6 6"></path>
+            </svg>
+          </button>
         </div>
         <div class="topbar-drag"></div>
         <div class="top-actions">
@@ -154,24 +161,6 @@
               <polyline points="7 3 7 8 15 8"/>
             </svg>
             <span>Save</span>
-          </button>
-          <button
-            id="update-button"
-            type="button"
-            class="is-hidden"
-            aria-hidden="true"
-            aria-label="Update available"
-            title="Update available"
-          >
-            <span class="update-button-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 3v12"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <path d="M5 20h14"></path>
-              </svg>
-            </span>
-            <span class="update-button-spinner" aria-hidden="true"></span>
-            Update app
           </button>
           <button id="pro-canvas-open" class="topbar-tool" type="button" aria-label="Draw a figure" title="Draw a figure">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -739,12 +728,7 @@
                   <span class="settings-nav-title">Environment</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="account" type="button">
-                  <span class="settings-nav-title-row">
-                    <span class="settings-nav-title">Account</span>
-                    <span class="settings-nav-badge is-hidden" id="settings-account-attention" aria-hidden="true">
-                      Update Available
-                    </span>
-                  </span>
+                  <span class="settings-nav-title">Account</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="zotero" type="button">
                   <span class="settings-nav-title">Zotero</span>
@@ -1198,34 +1182,14 @@
                     <div class="settings-group-title">Updates</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Current</span>
+                        <span class="settings-title settings-update-version" id="settings-update-version" data-no-i18n>-</span>
+                        <span class="settings-desc settings-update-status is-hidden" id="settings-update-status" role="status"></span>
                       </div>
                       <div class="settings-control">
-                        <span class="settings-version-badge" id="settings-update-current">-</span>
+                        <button class="panel-button ghost" id="settings-update-action" type="button">
+                          Check for updates
+                        </button>
                       </div>
-                    </div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">Latest</span>
-                      </div>
-                      <div class="settings-control">
-                        <span class="settings-version-badge" id="settings-update-latest">-</span>
-                      </div>
-                    </div>
-                    <div class="settings-help-text" id="settings-update-status"></div>
-                    <div class="settings-update-progress is-hidden" id="settings-update-progress" aria-hidden="true">
-                      <div class="settings-update-progress-fill" id="settings-update-progress-fill"></div>
-                    </div>
-                    <div class="settings-inline settings-inline-wrap">
-                      <button class="panel-button ghost" id="settings-update-check" type="button">
-                        Check for Updates
-                      </button>
-                      <button class="panel-button is-hidden" id="settings-update-apply" type="button">
-                        Update app
-                      </button>
-                      <button class="panel-button ghost" id="settings-update-open" type="button">
-                        Download
-                      </button>
                     </div>
                   </div>
                 </div>

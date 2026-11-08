@@ -890,6 +890,7 @@ const EN_TO_JA = {
     "The PDF cannot display the character {var} ({var}). Use a Unicode-aware document class/package (Japanese: ltjsarticle or luatexja, Chinese: ctex, Korean: kotex, otherwise: fontspec with a suitable font).": "PDF で表示できない文字があります: {var}（{var}）。Unicode 対応の文書クラス/パッケージ（日本語: ltjsarticle または luatexja、中国語: ctex、韓国語: kotex、その他: fontspec + 対応フォント）を使ってください。",
     "Restart terminal": "ターミナルを再起動",
     "Draw a figure": "図を描く",
+    "Downloading…": "ダウンロード中…",
 };
 const TRANSLATABLE_ATTRIBUTES = ["title", "aria-label", "placeholder", "alt"];
 // English is the source language and the product default (initI18n resolves to
@@ -1772,6 +1773,7 @@ const EN_TO_ZH = {
     "Emphasize": "强调",
     "Monospace": "等宽",
     "Draw a figure": "绘制图形",
+    "Downloading…": "正在下载…",
 };
 const EN_TO_KO = {
     // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
@@ -2609,6 +2611,7 @@ const EN_TO_KO = {
     "Emphasize": "강조",
     "Monospace": "고정폭",
     "Draw a figure": "그림 그리기",
+    "Downloading…": "다운로드 중…",
 };
 const EN_TO_FR = {
     // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
@@ -3446,6 +3449,7 @@ const EN_TO_FR = {
     "Emphasize": "Mise en valeur",
     "Monospace": "Chasse fixe",
     "Draw a figure": "Dessiner une figure",
+    "Downloading…": "Téléchargement…",
 };
 const EN_TO_DE = {
     // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
@@ -4283,6 +4287,7 @@ const EN_TO_DE = {
     "Emphasize": "Hervorheben",
     "Monospace": "Festbreite",
     "Draw a figure": "Abbildung zeichnen",
+    "Downloading…": "Wird geladen…",
 };
 const EN_TO_ES = {
     // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
@@ -5120,6 +5125,7 @@ const EN_TO_ES = {
     "Emphasize": "Énfasis",
     "Monospace": "Monoespaciado",
     "Draw a figure": "Dibujar una figura",
+    "Downloading…": "Descargando…",
 };
 const TRANSLATIONS_BY_LOCALE = {
     ja: EN_TO_JA,

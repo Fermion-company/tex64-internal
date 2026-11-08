@@ -1,5 +1,4 @@
 import type { SettingsUiRuntime } from "./runtime.js";
-import type { SettingsAttentionOps } from "./attention.js";
 
 export type SettingsPageNavOps = {
   setSettingsPage: (pageId: string | null) => void;
@@ -7,7 +6,6 @@ export type SettingsPageNavOps = {
 
 export const createSettingsPageNavOps = (
   runtime: SettingsUiRuntime,
-  attentionOps: SettingsAttentionOps,
   deps: {
     checkEnvironmentStatus: () => void;
     updateRuntimeOnboardingUi: () => void;
@@ -56,7 +54,6 @@ export const createSettingsPageNavOps = (
     if (settingsPanel instanceof HTMLElement) {
       settingsPanel.scrollTop = 0;
     }
-    attentionOps.syncUpdateAttentionUi();
     if (resolved === "env") {
       deps.updateRuntimeOnboardingUi();
       deps.checkEnvironmentStatus();
