@@ -4230,6 +4230,15 @@ html[lang="ja"] .settings-page .panel-button {
   display: none;
 }
 
+/* A lone file shows no tab strip (editor-tabs-ui.ts). */
+.editor-group.has-single-tab {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.editor-group.has-single-tab > .editor-tabs {
+  display: none;
+}
+
 .editor-groups[data-split="false"] .editor-splitter {
   display: none;
 }

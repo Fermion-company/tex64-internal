@@ -109,6 +109,7 @@ const UI_STRINGS = {
   findInPdf: { en: "Find in PDF", ja: "PDF 内を検索", zh: "在 PDF 中查找", ko: "PDF에서 찾기", fr: "Rechercher dans le PDF", de: "Im PDF suchen", es: "Buscar en el PDF" },
   findPrev: { en: "Previous match (Shift+Enter)", ja: "前の一致 (Shift+Enter)", zh: "上一个匹配 (Shift+Enter)", ko: "이전 결과 (Shift+Enter)", fr: "Résultat précédent (Maj+Entrée)", de: "Vorheriger Treffer (Umschalt+Eingabe)", es: "Resultado anterior (Mayús+Intro)" },
   findNext: { en: "Next match (Enter)", ja: "次の一致 (Enter)", zh: "下一个匹配 (Enter)", ko: "다음 결과 (Enter)", fr: "Résultat suivant (Entrée)", de: "Nächster Treffer (Eingabe)", es: "Resultado siguiente (Intro)" },
+  closePdf: { en: "Close PDF", ja: "PDF を閉じる", zh: "关闭 PDF", ko: "PDF 닫기", fr: "Fermer le PDF", de: "PDF schließen", es: "Cerrar el PDF" },
   findClose: { en: "Close (Esc)", ja: "閉じる (Esc)", zh: "关闭 (Esc)", ko: "닫기 (Esc)", fr: "Fermer (Échap)", de: "Schließen (Esc)", es: "Cerrar (Esc)" },
   findNoMatch: { en: "No results", ja: "見つかりません", zh: "无结果", ko: "결과 없음", fr: "Aucun résultat", de: "Keine Treffer", es: "Sin resultados" },
   download: { en: "Download", ja: "ダウンロード", zh: "下载", ko: "다운로드", fr: "Télécharger", de: "Herunterladen", es: "Descargar" },
@@ -157,6 +158,7 @@ const localizeChrome = () => {
   setTitle("pdf-findbar-prev", "findPrev");
   setTitle("pdf-findbar-next", "findNext");
   setTitle("pdf-findbar-close", "findClose");
+  setTitle("pdf-close", "closePdf");
   setTitle("pdf-download", "download");
   setTitle("pdf-print", "print");
   setTitle("pdf-reload", "reload");
@@ -243,6 +245,13 @@ const initPdfViewer = () => {
   const embedded = isEmbeddedViewer();
   document.body.classList.toggle("is-embedded", embedded);
   localizeChrome();
+  // In the app the PDF pane has no tab strip; this × closes it as the tab's
+  // × did. A separate PDF window closes like any window.
+  const closeButton = document.getElementById("pdf-close");
+  if (closeButton && embedded) {
+    closeButton.hidden = false;
+    closeButton.addEventListener("click", () => bridge?.postMessage?.({ type: "close" }));
+  }
   const titleEl = document.getElementById("pdf-title");
   const statusEl = document.getElementById("pdf-status");
   const sidebarToggleBtn = document.getElementById("pdf-sidebar-toggle");

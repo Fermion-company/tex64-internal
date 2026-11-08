@@ -154,6 +154,13 @@ export const initMain = () => {
   let aiChatUi: ReturnType<typeof initAiChatUi> | null = null;
   let billingUi: ReturnType<typeof initBillingUi> | null = null;
   let mathCapture: ReturnType<typeof initMathCapture> | null = null;
+  // The PDF pane has no tab strip: the × at the end of its toolbar closes the
+  // PDF as the tab's × did (an emptied right-hand group gives its space back).
+  const closePdfIn = (groupKey: "primary" | "secondary") => {
+    const group = editorSession?.getEditorGroup(groupKey);
+    const path = group?.currentFilePath;
+    if (group && path && /\.pdf$/i.test(path)) editorSession.closeTab(group, path);
+  };
   const primaryViewer = createViewer({
     editorViewer,
     editorViewerImage,
@@ -182,6 +189,7 @@ export const initMain = () => {
       setActiveTab("ai");
       aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
     },
+    onPdfClose: () => closePdfIn("primary"),
   });
   const secondaryViewer = createViewer({
     editorViewer: editorViewerSecondary,
@@ -211,6 +219,7 @@ export const initMain = () => {
       setActiveTab("ai");
       aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
     },
+    onPdfClose: () => closePdfIn("secondary"),
   });
   const bridgeWindow = window as BridgeWindow;
   bridgeWindow.__tex64TestRecognizeMath = (imageDataUrl: string) => recognizeMath(imageDataUrl);

@@ -358,6 +358,22 @@ body.is-embedded:is(.is-live, .is-live-pending, .pdf-needs-rebuild) .pdf-toolbar
   margin-left: auto;
 }
 
+/* The pane's close, at the far end of its toolbar (embedded only). */
+.pdf-close {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.pdf-close[hidden] {
+  display: none;
+}
+
+body.is-embedded:is(.is-live, .is-live-pending, .pdf-needs-rebuild) .pdf-close {
+  margin-left: 0;
+}
+
 .pdf-scroll {
   position: absolute;
   top: 0;

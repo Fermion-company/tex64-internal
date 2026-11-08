@@ -182,6 +182,8 @@ export type ViewerDeps = {
     /** The live preview's own source position; the static viewer has none. */
     source?: { file: string; line: number; column: number } | null;
   }) => void;
+  /** The × at the end of the PDF toolbar: close the PDF where it is shown. */
+  onPdfClose?: () => void;
 };
 
 export const createViewer = (deps: ViewerDeps) => {
@@ -350,6 +352,10 @@ export const createViewer = (deps: ViewerDeps) => {
         pdfPath: typeof detail?.path === "string" ? detail.path : null,
         ...(source ? { source } : {}),
       });
+      return;
+    }
+    if (payload.type === "close") {
+      deps.onPdfClose?.();
       return;
     }
     if (payload.type === "live-source") {
