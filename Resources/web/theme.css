@@ -5243,11 +5243,11 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   color: var(--status);
 }
 
+/* No rule above the buttons: the card's 16px gap separates them, as in every other dialog. */
 .announcement-card .modal-actions {
   margin-top: 0;
   padding-top: 0;
   gap: var(--space-3);
-  border-top: 1px solid var(--panel-border);
 }
 
 .announcement-card .modal-actions .panel-button {
