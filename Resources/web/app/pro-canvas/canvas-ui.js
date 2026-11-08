@@ -565,7 +565,7 @@ export const initProCanvasUi = (deps) => {
                 details.hidden = !plotDetailsOpen.has(detailsKey);
                 const kindLabel = document.createElement("label"), kindSelect = document.createElement("select");
                 kindLabel.textContent = uiText("Kind", "種類");
-                for (const [value, text] of [["fn", uiText("Function y=f(x)", "関数 y=f(x)")], ["parametric", uiText("Parametric", "媒介変数")], ["polar", uiText("Polar r(θ)", "極座標 r(θ)")], ["points", uiText("Point list", "点列")]]) {
+                for (const [value, text] of [["fn", uiText("Function y=f(x)", "関数y=f(x)")], ["parametric", uiText("Parametric", "媒介変数")], ["polar", uiText("Polar r(θ)", "極座標r(θ)")], ["points", uiText("Point list", "点列")]]) {
                     const option = document.createElement("option");
                     option.value = value;
                     option.textContent = text;
@@ -622,11 +622,11 @@ export const initProCanvasUi = (deps) => {
             range.className = "pro-canvas-plot-range";
             const rangeTitle = document.createElement("span");
             rangeTitle.className = "pro-canvas-plot-range-title";
-            rangeTitle.textContent = uiText("x range", "x 範囲");
+            rangeTitle.textContent = uiText("x range", "x範囲");
             const xmin = field(uiText("Min", "最小"), String(Number(object.axis.xmin.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n) && n < object.axis.xmax)
                 object.axis.xmin = n; }), xmax = field(uiText("to", "〜"), String(Number(object.axis.xmax.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n) && n > object.axis.xmin)
                 object.axis.xmax = n; }), auto = document.createElement("label"), autoInput = document.createElement("input");
-            auto.textContent = uiText("auto y", "y 自動");
+            auto.textContent = uiText("auto y", "y自動");
             autoInput.type = "checkbox";
             autoInput.checked = object.axis.ymin === null || object.axis.ymax === null;
             autoInput.onchange = () => { snapshot(false); if (autoInput.checked) {
@@ -672,7 +672,7 @@ export const initProCanvasUi = (deps) => {
             const disclosure = document.createElement("details"), summary = document.createElement("summary");
             summary.textContent = uiText("Details", "詳細");
             disclosure.append(summary);
-            for (const [label, key] of [[uiText("x label", "x ラベル"), "xlabel"], [uiText("y label", "y ラベル"), "ylabel"], [uiText("Title", "タイトル"), "title"]]) {
+            for (const [label, key] of [[uiText("x label", "xラベル"), "xlabel"], [uiText("y label", "yラベル"), "ylabel"], [uiText("Title", "タイトル"), "title"]]) {
                 const f = field(label, object.axis[key], "text", v => object.axis[key] = v);
                 disclosure.append(f.row);
             }
@@ -805,7 +805,7 @@ export const initProCanvasUi = (deps) => {
             gridRow.append(gridInput, gridUnit, gridPresets);
             const outputTitle = document.createElement("strong");
             outputTitle.textContent = uiText("Page width", "紙面幅");
-            const outputExplain = createExplain(uiText("Canvas coordinates control drawing space. Page width can independently use 0.8\\linewidth, \\textwidth, and similar LaTeX-relative widths.", "キャンバス座標は作図空間です。紙面幅は 0.8\\linewidth や \\textwidth などで独立して指定できます。"), { topic: uiText("page width", "紙面幅") });
+            const outputExplain = createExplain(uiText("Canvas coordinates control drawing space. Page width can independently use 0.8\\linewidth, \\textwidth, and similar LaTeX-relative widths.", "キャンバス座標は作図空間です。紙面幅は0.8\\linewidthや\\textwidthなどで独立して指定できます。"), { topic: uiText("page width", "紙面幅") });
             outputTitle.classList.add("has-explain");
             outputTitle.append(outputExplain.button);
             const outputRow = document.createElement("div");
@@ -1491,7 +1491,7 @@ export const initProCanvasUi = (deps) => {
             overlay.querySelectorAll("[data-tool]").forEach(b => b.classList.toggle("is-active", b.dataset.tool === tool));
             const snap = overlay.querySelector("[data-action=snap]"), snapEnabled = activeSnap();
             snap.textContent = snapEnabled ? uiText("Snap on", "吸着 オン") : uiText("Snap off", "吸着 オフ");
-            snap.title = tool === "node" ? uiText("Math label placement snap", "数式ラベル配置の吸着") : uiText("Snaps to the grid and to other shapes' edges and centers (hold Alt to suspend)", "グリッドと他の図形の端・中心に吸着します（Alt を押しながらで一時解除）");
+            snap.title = tool === "node" ? uiText("Math label placement snap", "数式ラベル配置の吸着") : uiText("Snaps to the grid and to other shapes' edges and centers (hold Alt to suspend)", "グリッドと他の図形の端・中心に吸着します（Altを押しながらで一時解除）");
             snap.dataset.noI18n = "";
             snap.classList.toggle("is-active", snapEnabled);
             const canvasButton = overlay.querySelector("[data-action=canvas-settings]");
@@ -1525,7 +1525,7 @@ export const initProCanvasUi = (deps) => {
                 plotCardSignature = "";
             }
             const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null, nodeToolHasSelectedLabel = tool === "node" && (one === null || one === void 0 ? void 0 : one.type) === "node";
-            setHint(edited ? (plotIsEmpty(edited) ? "" : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Esc で編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了") : tool !== "select" && !nodeToolHasSelectedLabel ? (_c = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shift で正方形　Alt で吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shift で正円　Alt で吸着オフ"), fill: uiText("Move over an enclosed region to preview · Click to fill · Adjust color or hatch in Style", "囲まれた領域にカーソルを置いて確認　クリックで塗り　色・網掛けはスタイルで調整"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定") }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? uiText("Drag to move · Cmd+G to group · Arrow keys to nudge", "ドラッグ：平行移動　Cmd+G：グループ化　矢印キー：微調整") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Drag to move · Handles resize · Double-click to edit the function and range", "ドラッグ：平行移動　周囲の□：拡大縮小　ダブルクリック：式と範囲を編集") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Drag to move · Double-click to edit the formula", "ドラッグ：平行移動　ダブルクリック：数式編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag to move · End squares resize · Top circle rotates", "線をドラッグ：平行移動　端の□：拡大縮小　上の○：回転") : uiText("Drag to move · Corners resize · Top circle rotates · Double-click edits points", "線をドラッグ：平行移動　四隅：拡大縮小　上の○：回転　ダブルクリック：頂点編集")) : uiText("Drag to move · Handles resize · Top circle rotates · Double-click to edit", "図形をドラッグ：平行移動　周囲の□：拡大縮小　上の○：回転　ダブルクリック：編集"));
+            setHint(edited ? (plotIsEmpty(edited) ? "" : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Escで編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Escで終了") : tool !== "select" && !nodeToolHasSelectedLabel ? (_c = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shiftで水平・垂直・45°　Altで吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shiftで正方形　Altで吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shiftで正円　Altで吸着オフ"), fill: uiText("Move over an enclosed region to preview · Click to fill · Adjust color or hatch in Style", "囲まれた領域にカーソルを置いて確認　クリックで塗り　色・網掛けはスタイルで調整"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enterで確定") }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? uiText("Drag to move · Cmd+G to group · Arrow keys to nudge", "ドラッグ：平行移動　Cmd+G：グループ化　矢印キー：微調整") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Drag to move · Handles resize · Double-click to edit the function and range", "ドラッグ：平行移動　周囲の□：拡大縮小　ダブルクリック：式と範囲を編集") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Drag to move · Double-click to edit the formula", "ドラッグ：平行移動　ダブルクリック：数式編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag to move · End squares resize · Top circle rotates", "線をドラッグ：平行移動　端の□：拡大縮小　上の○：回転") : uiText("Drag to move · Corners resize · Top circle rotates · Double-click edits points", "線をドラッグ：平行移動　四隅：拡大縮小　上の○：回転　ダブルクリック：頂点編集")) : uiText("Drag to move · Handles resize · Top circle rotates · Double-click to edit", "図形をドラッグ：平行移動　周囲の□：拡大縮小　上の○：回転　ダブルクリック：編集"));
         };
         let drag = null;
         let lastClick = null;

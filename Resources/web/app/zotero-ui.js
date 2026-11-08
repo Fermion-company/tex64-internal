@@ -27,35 +27,35 @@ const documentChanged = () => uiText("The document changed. Choose the insertion
 const describeError = (error, activeFilePath = null) => {
     switch (errorCode(error)) {
         case "no-transport":
-            return uiText("Start Zotero, or enter an API key in Settings → Zotero.", "Zotero を起動するか、設定 → Zotero で API キーを入れてください。");
+            return uiText("Start Zotero, or enter an API key in Settings → Zotero.", "Zoteroを起動するか、設定 → ZoteroでAPIキーを入れてください。");
         case "forbidden":
-            return uiText("The API key was rejected.", "API キーが拒否されました。");
+            return uiText("The API key was rejected.", "APIキーが拒否されました。");
         case "timeout":
-            return uiText("Zotero did not answer in time.", "Zotero の応答がありません。");
+            return uiText("Zotero did not answer in time.", "Zoteroの応答がありません。");
         case "unreachable":
-            return uiText("Zotero is not running.", "Zotero が起動していません。");
+            return uiText("Zotero is not running.", "Zoteroが起動していません。");
         case "not-found":
             return uiText("The item is no longer in the library.", "ライブラリにその項目がありません。");
         case "NO_MAIN_FILE":
-            return uiText("Open a .tex document.", ".tex 文書を開いてください。");
+            return uiText("Open a .tex document.", ".tex文書を開いてください。");
         case "NO_BIBTEX":
-            return uiText("Could not get the BibTeX.", "BibTeX を取得できませんでした。");
+            return uiText("Could not get the BibTeX.", "BibTeXを取得できませんでした。");
         case "NO_SAFE_STORAGE":
-            return uiText("This computer cannot store the key securely.", "この PC では鍵を安全に保存できません。");
+            return uiText("This computer cannot store the key securely.", "このPCでは鍵を安全に保存できません。");
         // The project closed while Zotero answered; nothing was written.
         case "STALE_WORKSPACE":
             return documentChanged();
         // The .bib is written under the same lease as saves; Axiom holds it.
         case "AGENT_WORKSPACE_BUSY":
-            return uiText("Axiom is editing this project. Try again when it finishes.", "Axiom がこのプロジェクトを編集中です。終わってからもう一度お試しください。");
+            return uiText("Axiom is editing this project. Try again when it finishes.", "Axiomがこのプロジェクトを編集中です。終わってからもう一度お試しください。");
         // The file belongs to several documents with different .bib files; Build's
         // chooser (or a % !TEX root line) settles which one.
         case "BUILD_TARGET_CHOICE":
             return activeFilePath
                 ? uiText(`${activeFilePath} belongs to more than one document.`, `${activeFilePath} は複数の文書から読み込まれています。`)
-                : uiText("This folder has several documents and no main file is set.", "このフォルダには文書が複数あり、メイン TeX が決まっていません。");
+                : uiText("This folder has several documents and no main file is set.", "このフォルダには文書が複数あり、メインTeXが決まっていません。");
         default:
-            return error instanceof Error && error.message ? error.message : uiText("Zotero request failed.", "Zotero への要求に失敗しました。");
+            return error instanceof Error && error.message ? error.message : uiText("Zotero request failed.", "Zoteroへの要求に失敗しました。");
     }
 };
 const transportLabel = (status) => {
@@ -63,7 +63,7 @@ const transportLabel = (status) => {
         case "bbt":
             return "Better BibTeX";
         case "local":
-            return uiText("Zotero on this computer", "この PC の Zotero");
+            return uiText("Zotero on this computer", "このPCのZotero");
         case "web":
             return status.probe.web.username ? `Zotero Web API (${status.probe.web.username})` : "Zotero Web API";
         default:
@@ -74,7 +74,7 @@ const transportLabel = (status) => {
 export const describeStatus = (status) => {
     var _a;
     if (!status.transport) {
-        return uiText("Start Zotero, or enter an API key in Settings → Zotero.", "Zotero を起動するか、設定 → Zotero で API キーを入れてください。");
+        return uiText("Start Zotero, or enter an API key in Settings → Zotero.", "Zoteroを起動するか、設定 → ZoteroでAPIキーを入れてください。");
     }
     const library = ((_a = status.libraries.find((entry) => entry.id === status.library)) === null || _a === void 0 ? void 0 : _a.name) || "";
     const head = library ? `${transportLabel(status)} · ${library}` : transportLabel(status);
@@ -220,7 +220,7 @@ export const openCiteDialog = (editor, getActiveFilePath) => {
             (_a = window.tex64Bridge) === null || _a === void 0 ? void 0 : _a.postMessage({ type: "app:command", payload: { command: "settings:open" } });
             window.setTimeout(() => { var _a; return (_a = document.querySelector('.settings-nav-item[data-settings-target="zotero"]')) === null || _a === void 0 ? void 0 : _a.click(); }, 300);
         }, "is-quiet");
-        const [line, panel] = explainedHeading(node("p", "zotero-off", uiText("Zotero is not connected", "Zotero につながっていません")), uiText("Start Zotero, or enter an API key in Settings → Zotero.", "Zotero を起動するか、設定 → Zotero で API キーを入れてください。"), { topic: "Zotero", memory: explainOpen, key: "connect" });
+        const [line, panel] = explainedHeading(node("p", "zotero-off", uiText("Zotero is not connected", "Zoteroにつながっていません")), uiText("Start Zotero, or enter an API key in Settings → Zotero.", "Zoteroを起動するか、設定 → ZoteroでAPIキーを入れてください。"), { topic: "Zotero", memory: explainOpen, key: "connect" });
         line.append(node("span", "tool-dialog-spacer"), open);
         results.replaceChildren(line, panel);
     };
@@ -345,7 +345,7 @@ export const openCiteDialog = (editor, getActiveFilePath) => {
     };
     // arXiv's section follows the Zotero one; it shows itself when results arrive.
     const arxiv = createArxivSection(editor, getActiveFilePath, setStatus);
-    const sync = button(uiText("Sync .bib", ".bib を同期"), () => {
+    const sync = button(uiText("Sync .bib", ".bibを同期"), () => {
         if (busy)
             return;
         busy = true;
@@ -372,7 +372,7 @@ export const openCiteDialog = (editor, getActiveFilePath) => {
             sync.disabled = false;
         });
     });
-    sync.title = uiText("Brings the entries already in this document's .bib up to date with Zotero.", "この文書の .bib にある文献を、Zotero の最新の内容に合わせます。");
+    sync.title = uiText("Brings the entries already in this document's .bib up to date with Zotero.", "この文書の .bibにある文献を、Zoteroの最新の内容に合わせます。");
     const close = button(uiText("Close", "閉じる"), () => dialog.close());
     if (zotero)
         actions.append(sync);
@@ -477,7 +477,7 @@ export const attachCitationEditor = (editor, getActiveFilePath) => {
         (_e = editor.onDidChangeModel) === null || _e === void 0 ? void 0 : _e.call(editor, () => texKey === null || texKey === void 0 ? void 0 : texKey.set(isArxivTexModel(editor)));
         editor.addAction({
             id: "tex64.arxiv.search",
-            label: uiText("Search arXiv…", "arXiv を検索…"),
+            label: uiText("Search arXiv…", "arXivを検索…"),
             precondition: texKey ? `${ARXIV_CONTEXT_KEY} && !tex64CollabViewer` : "!tex64CollabViewer",
             run: open,
         });
@@ -493,7 +493,7 @@ export const initZoteroSettingsUi = () => {
     if (!bridge() || !(apiKeyInput instanceof HTMLInputElement) || !(librarySelect instanceof HTMLSelectElement) || !(statusLine instanceof HTMLElement))
         return;
     if (keysLink instanceof HTMLButtonElement) {
-        keysLink.textContent = uiText("Create an API key", "API キーを発行");
+        keysLink.textContent = uiText("Create an API key", "APIキーを発行");
         keysLink.addEventListener("click", () => {
             var _a, _b;
             (_b = (_a = window.tex64Bridge) === null || _a === void 0 ? void 0 : _a.postMessage) === null || _b === void 0 ? void 0 : _b.call(_a, { type: "shell:openExternal", url: ZOTERO_KEYS_URL });

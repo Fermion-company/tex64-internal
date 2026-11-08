@@ -365,7 +365,7 @@ export const createVoiceEditController = (deps: VoiceEditDeps): VoiceEditControl
 
     editor.addAction({
       id: "tex64.voice-edit",
-      label: uiText("Ask Axiom by voice", "Axiom に声で聞く"),
+      label: uiText("Ask Axiom by voice", "Axiomに声で聞く"),
       keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KeyV],
       contextMenuGroupId: "9_ai",
       contextMenuOrder: 1.5,

@@ -876,9 +876,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     const content = editor.getValue();
     if (contentConflicts.has(activePath)) {
       reportSaveError(
-        uiText(
-          "Resolve the edit conflict before saving.",
-          "保存する前に編集競合を解決してください。",
+        uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。",
         ),
       );
       return Promise.resolve(false);
@@ -978,9 +976,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     }
     if (conflicted.length > 0) {
       reportSaveError(
-        uiText(
-          "Resolve the edit conflict before saving.",
-          "保存する前に編集競合を解決してください。",
+        uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。",
         ),
       );
       return false;

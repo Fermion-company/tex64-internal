@@ -164,7 +164,7 @@ export const initCollabUi = () => {
             start.dataset.focusKey = "start-session";
             const startExplain = createExplain(idleRoute === "relay"
                 ? uiText("People can join over the internet. Everything is encrypted between the computers; the relay in between cannot read it.", "インターネット越しに参加できます。内容は参加者の間で暗号化され、間の中継サーバーには読めません。")
-                : uiText("Starting a session opens a port on this computer; macOS may ask to allow incoming connections. Only people on the same network (LAN / VPN) can join.", "セッションを開始するとこの Mac がポートを開きます。macOS が接続の許可を確認することがあります。参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。"), { topic: uiText("starting a session", "セッションの開始"), memory: explainOpen, key: "start" });
+                : uiText("Starting a session opens a port on this computer; macOS may ask to allow incoming connections. Only people on the same network (LAN / VPN) can join.", "セッションを開始するとこのMacがポートを開きます。macOSが接続の許可を確認することがあります。参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。"), { topic: uiText("starting a session", "セッションの開始"), memory: explainOpen, key: "start" });
             const startRow = el("div", "collab-start-row has-explain");
             startRow.append(start, startExplain.button);
             const joinSection = el("div", "collab-section collab-join");
@@ -222,7 +222,7 @@ export const initCollabUi = () => {
                 if (state.route === "relay")
                     invite.append(inviteHeading);
                 else
-                    invite.append(...explainedHeading(inviteHeading, uiText("Only people on the same LAN / VPN can join.", "同じ LAN / VPN の人だけが参加できます。"), { memory: explainOpen, key: "invite" }));
+                    invite.append(...explainedHeading(inviteHeading, uiText("Only people on the same LAN / VPN can join.", "同じLAN / VPNの人だけが参加できます。"), { memory: explainOpen, key: "invite" }));
                 const row = el("div", "collab-link-row collab-dialog-link");
                 // The link itself is not shown (it carries the address and a token);
                 // Copy puts the chosen one on the clipboard and says so for a moment.

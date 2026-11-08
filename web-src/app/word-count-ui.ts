@@ -63,7 +63,7 @@ export const initWordCountUi = (deps: {
     } else if (!result.ok) {
       body.append(el("p", "tool-dialog-error", result.error || uiText("Could not count.", "数えられませんでした。")));
     } else if (!result.document && !result.selection) {
-      body.append(el("p", "tool-dialog-note", uiText("Open a .tex file first.", ".tex ファイルを開いてください。")));
+      body.append(el("p", "tool-dialog-note", uiText("Open a .tex file first.", ".texファイルを開いてください。")));
     } else {
       const documentCounts = result.document && result.document.files.length ? result.document : null;
       // "This file" only for a part of the document, not for its main file.

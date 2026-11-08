@@ -79,7 +79,7 @@ export const openSnippets = (editor = activeEditor) => {
     const fields = [
         [uiText("Name", "名前"), name, ""],
         [uiText("Trigger text", "呼び出し文字"), prefix, uiText("Type this in your document and choose a suggestion.", "本文に入力して、補完候補から選択します。")],
-        [uiText("Code", "コード"), body, uiText("Use ${1:placeholder}, ${2} and $0. After insertion, Tab moves between placeholders.", "${1:初期値}、${2}、$0 を使用。挿入後、Tabで入力箇所を移動します。")],
+        [uiText("Code", "コード"), body, uiText("Use ${1:placeholder}, ${2} and $0. After insertion, Tab moves between placeholders.", "${1:初期値}、${2}、$0を使用。挿入後、Tabで入力箇所を移動します。")],
     ];
     for (const [text, input, explanation] of fields) {
         if (!explanation) {

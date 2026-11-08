@@ -12,12 +12,12 @@ const STRINGS = {
     // ── Usage words (settings › Account) ──
     usage_tokens: { en: "tokens", ja: "トークン", zh: "tokens", ko: "토큰", fr: "jetons", de: "Tokens", es: "tokens" },
     // ── Model picker ──
-    model_requires_pro: { en: "Pro only", ja: "Pro 限定", zh: "仅限 Pro", ko: "Pro 전용", fr: "Pro uniquement", de: "Nur Pro", es: "Solo Pro" },
+    model_requires_pro: { en: "Pro only", ja: "Pro限定", zh: "仅限 Pro", ko: "Pro 전용", fr: "Pro uniquement", de: "Nur Pro", es: "Solo Pro" },
     // ── Status messages ──
     status_quota_reached: { en: "You've reached your monthly token limit.", ja: "今月のトークン上限に達しました。", zh: "您已达到本月的 token 上限。", ko: "이번 달 토큰 한도에 도달했습니다.", fr: "Vous avez atteint votre limite de jetons mensuelle.", de: "Sie haben Ihr monatliches Token-Limit erreicht.", es: "Has alcanzado tu límite de tokens del mes." },
     status_next_reset: { en: "Next reset", ja: "次回リセット", zh: "下次重置", ko: "다음 초기화", fr: "Prochaine réinitialisation", de: "Nächster Reset", es: "Próximo reinicio" },
     status_see_plan: { en: "See plan", ja: "プランを見る", zh: "查看套餐", ko: "플랜 보기", fr: "Voir le plan", de: "Plan ansehen", es: "Ver plan" },
-    status_unavailable: { en: "Axiom is not available.", ja: "Axiom は利用できません。", zh: "Axiom 当前不可用。", ko: "Axiom을 사용할 수 없습니다.", fr: "Axiom n'est pas disponible.", de: "Axiom ist nicht verfügbar.", es: "Axiom no está disponible." },
+    status_unavailable: { en: "Axiom is not available.", ja: "Axiomは利用できません。", zh: "Axiom 当前不可用。", ko: "Axiom을 사용할 수 없습니다.", fr: "Axiom n'est pas disponible.", de: "Axiom ist nicht verfügbar.", es: "Axiom no está disponible." },
     login_processing: { en: "Signing in with Google…", ja: "Googleでログイン中…", zh: "正在使用 Google 登录…", ko: "Google로 로그인 중…", fr: "Connexion avec Google…", de: "Anmeldung mit Google…", es: "Iniciando sesión con Google…" },
     // ── Login / overlay ──
     login: { en: "Login", ja: "ログイン", zh: "登录", ko: "로그인", fr: "Connexion", de: "Anmelden", es: "Entrar" },
@@ -48,8 +48,8 @@ const STRINGS = {
     tool_write_file: { en: "Writing file", ja: "ファイルを書き込み中", zh: "正在写入文件", ko: "파일 쓰는 중", fr: "Écriture du fichier", de: "Datei wird geschrieben", es: "Escribiendo archivo" },
     tool_apply_patch: { en: "Applying changes", ja: "変更を適用中", zh: "正在应用更改", ko: "변경 적용 중", fr: "Application des modifications", de: "Änderungen werden angewendet", es: "Aplicando cambios" },
     tool_get_compile_log: { en: "Checking build log", ja: "ビルドログを確認中", zh: "正在查看编译日志", ko: "빌드 로그 확인 중", fr: "Vérification du journal de compilation", de: "Build-Log wird geprüft", es: "Revisando registro de compilación" },
-    tool_arxiv_search: { en: "Searching arXiv", ja: "arXiv を検索中", zh: "正在搜索 arXiv", ko: "arXiv 검색 중", fr: "Recherche sur arXiv", de: "arXiv wird durchsucht", es: "Buscando en arXiv" },
-    tool_arxiv_bibtex: { en: "Fetching BibTeX", ja: "BibTeX を取得中", zh: "正在获取 BibTeX", ko: "BibTeX 가져오는 중", fr: "Récupération du BibTeX", de: "BibTeX wird geladen", es: "Obteniendo BibTeX" },
+    tool_arxiv_search: { en: "Searching arXiv", ja: "arXivを検索中", zh: "正在搜索 arXiv", ko: "arXiv 검색 중", fr: "Recherche sur arXiv", de: "arXiv wird durchsucht", es: "Buscando en arXiv" },
+    tool_arxiv_bibtex: { en: "Fetching BibTeX", ja: "BibTeXを取得中", zh: "正在获取 BibTeX", ko: "BibTeX 가져오는 중", fr: "Récupération du BibTeX", de: "BibTeX wird geladen", es: "Obteniendo BibTeX" },
     tool_run_command: { en: "Running command", ja: "コマンドを実行中", zh: "正在运行命令", ko: "명령 실행 중", fr: "Exécution de la commande", de: "Befehl wird ausgeführt", es: "Ejecutando comando" },
     tool_check_environment: { en: "Checking environment", ja: "環境を確認中", zh: "正在检查环境", ko: "환경 확인 중", fr: "Vérification de l'environnement", de: "Umgebung wird geprüft", es: "Comprobando entorno" },
     tool_install_environment: { en: "Installing environment", ja: "環境をインストール中", zh: "正在安装环境", ko: "환경 설치 중", fr: "Installation de l'environnement", de: "Umgebung wird installiert", es: "Instalando entorno" },
@@ -69,9 +69,9 @@ const STRINGS = {
     start_build_title: { en: "Typeset and fix problems", ja: "ビルドして問題を直す", zh: "排版并修复问题", ko: "조판하고 문제 고치기", fr: "Composer et corriger", de: "Setzen und Probleme beheben", es: "Componer y corregir problemas" },
     start_build_request: { en: "Compile the document, then fix every error and the warnings that matter.", ja: "文書をビルドして、エラーと意味のある警告をすべて直してください。", zh: "编译文档，然后修复所有错误和重要的警告。", ko: "문서를 조판하고 오류와 의미 있는 경고를 모두 고쳐 주세요.", fr: "Compile le document, puis corrige toutes les erreurs et les avertissements importants.", de: "Setze das Dokument und behebe alle Fehler sowie die wichtigen Warnungen.", es: "Compila el documento y corrige todos los errores y los avisos importantes." },
     start_math_title: { en: "Tidy the mathematics", ja: "数式の記法を整える", zh: "整理公式写法", ko: "수식 표기 정리", fr: "Uniformiser les formules", de: "Formeln vereinheitlichen", es: "Ordenar las fórmulas" },
-    start_math_request: { en: "Unify the mathematics on amsmath: consistent environments, numbering, labels, and references.", ja: "数式を amsmath に統一してください。環境、番号付け、ラベルと参照を揃えます。", zh: "把公式统一到 amsmath：环境、编号、标签与引用保持一致。", ko: "수식을 amsmath로 통일해 주세요. 환경, 번호, 레이블과 참조를 맞춥니다.", fr: "Uniformise les formules avec amsmath : environnements, numérotation, étiquettes et références.", de: "Vereinheitliche die Formeln mit amsmath: Umgebungen, Nummerierung, Labels und Verweise.", es: "Unifica las fórmulas con amsmath: entornos, numeración, etiquetas y referencias." },
+    start_math_request: { en: "Unify the mathematics on amsmath: consistent environments, numbering, labels, and references.", ja: "数式をamsmathに統一してください。環境、番号付け、ラベルと参照を揃えます。", zh: "把公式统一到 amsmath：环境、编号、标签与引用保持一致。", ko: "수식을 amsmath로 통일해 주세요. 환경, 번호, 레이블과 참조를 맞춥니다.", fr: "Uniformise les formules avec amsmath : environnements, numérotation, étiquettes et références.", de: "Vereinheitliche die Formeln mit amsmath: Umgebungen, Nummerierung, Labels und Verweise.", es: "Unifica las fórmulas con amsmath: entornos, numeración, etiquetas y referencias." },
     start_bib_title: { en: "Tidy the references", ja: "参考文献を整える", zh: "整理参考文献", ko: "참고문헌 정리", fr: "Mettre en ordre la bibliographie", de: "Literatur aufräumen", es: "Ordenar la bibliografía" },
-    start_bib_request: { en: "Check the bibliography: every \\cite has an entry, unused entries are noted, and the style is consistent.", ja: "参考文献を点検してください。\\cite に対応する項目があるか、使われていない項目、書式の統一を確認します。", zh: "检查参考文献：每个 \\cite 都有条目，标出未使用的条目，并统一格式。", ko: "참고문헌을 점검해 주세요. 모든 \\cite에 항목이 있는지, 안 쓰인 항목, 서식 통일을 확인합니다.", fr: "Vérifie la bibliographie : chaque \\cite a une entrée, les entrées inutilisées sont signalées et le style est cohérent.", de: "Prüfe die Literatur: jedes \\cite hat einen Eintrag, ungenutzte Einträge werden genannt, der Stil ist einheitlich.", es: "Revisa la bibliografía: cada \\cite tiene su entrada, se anotan las no usadas y el estilo es coherente." },
+    start_bib_request: { en: "Check the bibliography: every \\cite has an entry, unused entries are noted, and the style is consistent.", ja: "参考文献を点検してください。\\citeに対応する項目があるか、使われていない項目、書式の統一を確認します。", zh: "检查参考文献：每个 \\cite 都有条目，标出未使用的条目，并统一格式。", ko: "참고문헌을 점검해 주세요. 모든 \\cite에 항목이 있는지, 안 쓰인 항목, 서식 통일을 확인합니다.", fr: "Vérifie la bibliographie : chaque \\cite a une entrée, les entrées inutilisées sont signalées et le style est cohérent.", de: "Prüfe die Literatur: jedes \\cite hat einen Eintrag, ungenutzte Einträge werden genannt, der Stil ist einheitlich.", es: "Revisa la bibliografía: cada \\cite tiene su entrada, se anotan las no usadas y el estilo es coherente." },
     applied: { en: "Applied", ja: "適用済み", zh: "已应用", ko: "적용됨", fr: "Appliqué", de: "Übernommen", es: "Aplicado" },
     view_diff: { en: "Diff", ja: "差分", zh: "差异", ko: "차이", fr: "Diff", de: "Diff", es: "Diff" },
     undo_run: { en: "Undo", ja: "元に戻す", zh: "撤销", ko: "되돌리기", fr: "Annuler", de: "Rückgängig", es: "Deshacer" },
@@ -87,7 +87,7 @@ const STRINGS = {
     time_hours: { en: "{n}h ago", ja: "{n}時間前", zh: "{n} 小时前", ko: "{n}시간 전", fr: "il y a {n} h", de: "vor {n} Std.", es: "hace {n} h" },
     time_days: { en: "{n}d ago", ja: "{n}日前", zh: "{n} 天前", ko: "{n}일 전", fr: "il y a {n} j", de: "vor {n} T.", es: "hace {n} d" },
     // ── Login line (no overlay) ──
-    login_needed: { en: "Sign in to use Axiom.", ja: "Axiom を使うにはログインしてください。", zh: "登录后即可使用 Axiom。", ko: "Axiom을 사용하려면 로그인하세요.", fr: "Connectez-vous pour utiliser Axiom.", de: "Melden Sie sich an, um Axiom zu nutzen.", es: "Inicia sesión para usar Axiom." },
+    login_needed: { en: "Sign in to use Axiom.", ja: "Axiomを使うにはログインしてください。", zh: "登录后即可使用 Axiom。", ko: "Axiom을 사용하려면 로그인하세요.", fr: "Connectez-vous pour utiliser Axiom.", de: "Melden Sie sich an, um Axiom zu nutzen.", es: "Inicia sesión para usar Axiom." },
     // ── Modes (the pill's words and titles are in the markup + locale dictionary) ──
     // ── Queue ──
     queued: { en: "Queued", ja: "待機中", zh: "排队中", ko: "대기 중", fr: "En attente", de: "In Warteschlange", es: "En cola" },
@@ -98,7 +98,7 @@ const STRINGS = {
     rate_down: { en: "Poor reply", ja: "いまいち", zh: "回答不好", ko: "아쉬운 답변", fr: "Mauvaise réponse", de: "Schlechte Antwort", es: "Mala respuesta" },
     rate_comment: { en: "What was wrong? (optional)", ja: "どこが良くなかったか（任意）", zh: "哪里不好？（可选）", ko: "무엇이 아쉬웠나요? (선택)", fr: "Qu'est-ce qui n'allait pas ? (facultatif)", de: "Was war falsch? (optional)", es: "¿Qué falló? (opcional)" },
     rate_send: { en: "Send", ja: "送る", zh: "发送", ko: "보내기", fr: "Envoyer", de: "Senden", es: "Enviar" },
-    rate_note: { en: "The request and this reply are sent to the TeX64 team.", ja: "依頼文とこの返答が TeX64 の開発チームに送られます。", zh: "请求和此回答将发送给 TeX64 团队。", ko: "요청과 이 답변이 TeX64 팀에 전송됩니다.", fr: "La demande et cette réponse sont envoyées à l'équipe TeX64.", de: "Die Anfrage und diese Antwort gehen an das TeX64-Team.", es: "La solicitud y esta respuesta se envían al equipo de TeX64." },
+    rate_note: { en: "The request and this reply are sent to the TeX64 team.", ja: "依頼文とこの返答がTeX64の開発チームに送られます。", zh: "请求和此回答将发送给 TeX64 团队。", ko: "요청과 이 답변이 TeX64 팀에 전송됩니다.", fr: "La demande et cette réponse sont envoyées à l'équipe TeX64.", de: "Die Anfrage und diese Antwort gehen an das TeX64-Team.", es: "La solicitud y esta respuesta se envían al equipo de TeX64." },
     rate_thanks: { en: "Sent", ja: "送りました", zh: "已发送", ko: "보냈습니다", fr: "Envoyé", de: "Gesendet", es: "Enviado" },
     rate_failed: { en: "Could not send", ja: "送れませんでした", zh: "发送失败", ko: "보내지 못했습니다", fr: "Échec de l'envoi", de: "Senden fehlgeschlagen", es: "No se pudo enviar" },
     branch: { en: "Branch from here", ja: "ここから分岐", zh: "从这里分支", ko: "여기서 분기", fr: "Bifurquer ici", de: "Hier abzweigen", es: "Ramificar desde aquí" },
@@ -113,7 +113,7 @@ const STRINGS = {
     plan_note_label: { en: "Note", ja: "補足", zh: "补充", ko: "보충", fr: "Note", de: "Hinweis", es: "Nota" },
     // ── Review and rules (empty chat) ──
     start_review_changes_title: { en: "Review the uncommitted changes", ja: "変更をレビュー", zh: "审阅未提交的更改", ko: "커밋 전 변경 검토", fr: "Relire les modifications non validées", de: "Nicht eingecheckte Änderungen prüfen", es: "Revisar los cambios sin confirmar" },
-    start_review_changes_request: { en: "Read the uncommitted changes (git diff) and point out mistakes, inconsistencies, and broken structure with file:line. Do not fix anything yet; ask me one by one whether to fix each.", ja: "コミット前の変更（git diff）を通読し、間違い・不整合・崩れを file:line 付きで指摘してください。まだ直さず、直すかどうかを一つずつ聞いてください。", zh: "通读未提交的更改（git diff），以 file:line 指出错误、不一致和结构问题。先不要修改，逐项询问我是否修改。", ko: "커밋 전 변경(git diff)을 읽고 오류·불일치·구조 문제를 file:line과 함께 지적해 주세요. 아직 고치지 말고, 고칠지 하나씩 물어봐 주세요.", fr: "Relis les modifications non validées (git diff) et signale erreurs, incohérences et structure cassée avec file:line. Ne corrige rien encore ; demande-moi une à une si je veux corriger.", de: "Lies die nicht eingecheckten Änderungen (git diff) und nenne Fehler, Widersprüche und kaputte Struktur mit file:line. Noch nichts beheben; frag mich einzeln, ob ich es beheben will.", es: "Lee los cambios sin confirmar (git diff) y señala errores, incoherencias y estructura rota con file:line. No corrijas nada aún; pregúntame uno por uno si corregirlo." },
+    start_review_changes_request: { en: "Read the uncommitted changes (git diff) and point out mistakes, inconsistencies, and broken structure with file:line. Do not fix anything yet; ask me one by one whether to fix each.", ja: "コミット前の変更（git diff）を通読し、間違い・不整合・崩れをfile:line付きで指摘してください。まだ直さず、直すかどうかを一つずつ聞いてください。", zh: "通读未提交的更改（git diff），以 file:line 指出错误、不一致和结构问题。先不要修改，逐项询问我是否修改。", ko: "커밋 전 변경(git diff)을 읽고 오류·불일치·구조 문제를 file:line과 함께 지적해 주세요. 아직 고치지 말고, 고칠지 하나씩 물어봐 주세요.", fr: "Relis les modifications non validées (git diff) et signale erreurs, incohérences et structure cassée avec file:line. Ne corrige rien encore ; demande-moi une à une si je veux corriger.", de: "Lies die nicht eingecheckten Änderungen (git diff) und nenne Fehler, Widersprüche und kaputte Struktur mit file:line. Noch nichts beheben; frag mich einzeln, ob ich es beheben will.", es: "Lee los cambios sin confirmar (git diff) y señala errores, incoherencias y estructura rota con file:line. No corrijas nada aún; pregúntame uno por uno si corregirlo." },
     rules_title: { en: "Writing rules for this document", ja: "この文書の書き方の規則", zh: "这篇文档的写作规则", ko: "이 문서의 작성 규칙", fr: "Règles d'écriture de ce document", de: "Schreibregeln für dieses Dokument", es: "Reglas de escritura de este documento" },
     rules_missing: { en: "Not written yet", ja: "まだありません", zh: "尚未编写", ko: "아직 없습니다", fr: "Pas encore écrites", de: "Noch nicht angelegt", es: "Aún no existen" },
     // ── Voice ──
@@ -133,9 +133,9 @@ const STRINGS = {
     mention_empty: { en: "No match", ja: "該当なし", zh: "无匹配", ko: "일치 없음", fr: "Aucun résultat", de: "Kein Treffer", es: "Sin coincidencias" },
     // ── Settings › Account ──
     usage_month: { en: "This month", ja: "今月", zh: "本月", ko: "이번 달", fr: "Ce mois-ci", de: "Diesen Monat", es: "Este mes" },
-    usage_resets: { en: "Resets on {date}", ja: "{date} にリセット", zh: "{date} 重置", ko: "{date}에 초기화", fr: "Réinitialisation le {date}", de: "Zurückgesetzt am {date}", es: "Se reinicia el {date}" },
+    usage_resets: { en: "Resets on {date}", ja: "{date}にリセット", zh: "{date} 重置", ko: "{date}에 초기화", fr: "Réinitialisation le {date}", de: "Zurückgesetzt am {date}", es: "Se reinicia el {date}" },
     open_plans: { en: "Plans", ja: "プランを見る", zh: "查看套餐", ko: "플랜 보기", fr: "Plans", de: "Pläne", es: "Planes" },
-    ask_axiom: { en: "Ask Axiom", ja: "Axiom に聞く", zh: "问 Axiom", ko: "Axiom에게 묻기", fr: "Demander à Axiom", de: "Axiom fragen", es: "Preguntar a Axiom" },
+    ask_axiom: { en: "Ask Axiom", ja: "Axiomに聞く", zh: "问 Axiom", ko: "Axiom에게 묻기", fr: "Demander à Axiom", de: "Axiom fragen", es: "Preguntar a Axiom" },
     selection_word: { en: "selection", ja: "選択範囲", zh: "选区", ko: "선택 영역", fr: "sélection", de: "Auswahl", es: "selección" },
     tool_compile_document: { en: "Typesetting", ja: "ビルド中", zh: "正在排版", ko: "조판 중", fr: "Composition", de: "Setzen", es: "Componiendo" },
     tool_run_build: { en: "Typesetting", ja: "ビルド中", zh: "正在排版", ko: "조판 중", fr: "Composition", de: "Setzen", es: "Componiendo" },

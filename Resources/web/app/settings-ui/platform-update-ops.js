@@ -40,7 +40,7 @@ export const createSettingsPlatformUpdateOps = (runtime) => {
     const resolveUpdateStatusText = () => {
         var _a, _b, _c, _d, _e;
         if (isMicrosoftStoreManaged()) {
-            return uiText("Updates are managed automatically by Microsoft Store.", "アップデートは Microsoft Store によって自動的に管理されます。");
+            return uiText("Updates are managed automatically by Microsoft Store.", "アップデートはMicrosoft Storeによって自動的に管理されます。");
         }
         if (getPhase() === "error") {
             const message = ((_b = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.message) === null || _b === void 0 ? void 0 : _b.trim()) ||

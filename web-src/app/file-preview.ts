@@ -63,7 +63,7 @@ export const createFilePreviewBroker = (
   ): Promise<{ ok: boolean; dataUrl?: string | null; error?: string }> => {
     const trimmed = typeof path === "string" ? path.trim() : "";
     if (!trimmed) {
-      return Promise.resolve({ ok: false, error: uiText("path is empty.", "path が空です。") });
+      return Promise.resolve({ ok: false, error: uiText("path is empty.", "pathが空です。") });
     }
     const cacheKey = `${workspaceScopeKey}\0${trimmed}`;
     const cached = cache.get(cacheKey);

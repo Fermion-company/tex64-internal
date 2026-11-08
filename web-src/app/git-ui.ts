@@ -229,7 +229,7 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
       for (const item of plan.changes || []) content.append(el("p", "", item.path));
       await new Promise<void>(resolve => {
         const modal = dialog(uiText("Set changes aside", "変更を退避"), content, uiText("Set aside", "退避"), async () => { await call("shelve", {planId: plan.planId}); },
-          uiText("Keeps these changes on this Mac and returns the files to the current commit.", "変更をこの Mac に退避し、ファイルを現在のコミットに戻します。"));
+          uiText("Keeps these changes on this Mac and returns the files to the current commit.", "変更をこのMacに退避し、ファイルを現在のコミットに戻します。"));
         modal.addEventListener("close", () => resolve());
       });
     }));
@@ -276,7 +276,7 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
     const open = (label: string, action: () => void) => button(label, () => { modal.close(); action(); });
     content.append(open(uiText("Connect GitHub…", "GitHubに接続…"), () => void connectDialog()),
       open(uiText("Commit identity…", "作成者…"), () => void authorDialog()),
-      open(uiText("Git authentication…", "Git の認証…"), () => void authenticationDialog()),
+      open(uiText("Git authentication…", "Gitの認証…"), () => void authenticationDialog()),
       open(uiText("Sign in to GitHub…", "GitHubにログイン…"), () => void run(async () => { await call("authenticate"); })));
     const modal = dialog(uiText("Git settings", "Git設定"), content);
   }

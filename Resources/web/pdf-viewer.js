@@ -23,7 +23,7 @@ const UI_LOCALE_STORAGE_KEY = "tex64.ui.locale.v1";
 const UI_STRINGS = {
   noPdf: {
     en: "No PDF is loaded.",
-    ja: "PDF が未読み込みです。",
+    ja: "PDFが未読み込みです。",
     zh: "尚未加载 PDF。",
     ko: "PDF가 로드되지 않았습니다.",
     fr: "Aucun PDF n’est chargé.",
@@ -41,7 +41,7 @@ const UI_STRINGS = {
   },
   askAxiom: {
     en: "Ask Axiom",
-    ja: "Axiom に聞く",
+    ja: "Axiomに聞く",
     zh: "问 Axiom",
     ko: "Axiom에게 묻기",
     fr: "Demander à Axiom",
@@ -78,7 +78,8 @@ const UI_STRINGS = {
   rebuildNeeded: { en: "Rebuild needed", ja: "再ビルドが必要", zh: "需要重新编译", ko: "다시 빌드 필요", fr: "Recompilation nécessaire", de: "Neu kompilieren", es: "Es necesario recompilar" },
   live: { en: "Live", ja: "ライブ", zh: "实时", ko: "라이브", fr: "Direct", de: "Live", es: "En vivo" },
   liveUpdating: { en: "Updating…", ja: "更新中...", zh: "正在更新…", ko: "업데이트 중…", fr: "Mise à jour…", de: "Aktualisierung…", es: "Actualizando…" },
-  buildFailedLastGood: { en: "Build failed · previous PDF retained", ja: "ビルド失敗・前のPDFを保持", zh: "编译失败 · 已保留先前的 PDF", ko: "빌드 실패 · 이전 PDF 유지", fr: "Échec de la compilation · PDF précédent conservé", de: "Build fehlgeschlagen · vorherige PDF bleibt", es: "Error de compilación · se conserva el PDF anterior" },
+  // The failure itself is the count beside Build; here only what is on screen.
+  buildFailedLastGood: { en: "Showing the previous PDF", ja: "前のPDFを表示中", zh: "正在显示上一版 PDF", ko: "이전 PDF 표시 중", fr: "PDF précédent affiché", de: "Vorherige PDF wird angezeigt", es: "Mostrando el PDF anterior" },
   liveExactRendering: { en: "Rendering exact changes…", ja: "差分を描画中…", zh: "正在精确渲染差异…", ko: "변경 사항을 정밀 렌더링 중…", fr: "Rendu exact des modifications…", de: "Exakte Änderungen werden gerendert…", es: "Renderizando cambios exactos…" },
   liveCompiling: { en: "Compiling…", ja: "組版中…", zh: "正在编译…", ko: "컴파일 중…", fr: "Compilation…", de: "Satz läuft…", es: "Compilando…" },
   liveFullCompile: { en: "Live · full compile", ja: "ライブ・全体組版", zh: "实时 · 完整编译", ko: "라이브 · 전체 컴파일", fr: "Direct · compilation complète", de: "Live · vollständiger Satz", es: "En vivo · compilación completa" },
@@ -106,10 +107,10 @@ const UI_STRINGS = {
   rotateLeft: { en: "Rotate left", ja: "左に回転", zh: "向左旋转", ko: "왼쪽으로 회전", fr: "Pivoter à gauche", de: "Nach links drehen", es: "Girar a la izquierda" },
   rotateRight: { en: "Rotate right", ja: "右に回転", zh: "向右旋转", ko: "오른쪽으로 회전", fr: "Pivoter à droite", de: "Nach rechts drehen", es: "Girar a la derecha" },
   search: { en: "Search", ja: "検索", zh: "搜索", ko: "검색", fr: "Rechercher", de: "Suchen", es: "Buscar" },
-  findInPdf: { en: "Find in PDF", ja: "PDF 内を検索", zh: "在 PDF 中查找", ko: "PDF에서 찾기", fr: "Rechercher dans le PDF", de: "Im PDF suchen", es: "Buscar en el PDF" },
+  findInPdf: { en: "Find in PDF", ja: "PDF内を検索", zh: "在 PDF 中查找", ko: "PDF에서 찾기", fr: "Rechercher dans le PDF", de: "Im PDF suchen", es: "Buscar en el PDF" },
   findPrev: { en: "Previous match (Shift+Enter)", ja: "前の一致 (Shift+Enter)", zh: "上一个匹配 (Shift+Enter)", ko: "이전 결과 (Shift+Enter)", fr: "Résultat précédent (Maj+Entrée)", de: "Vorheriger Treffer (Umschalt+Eingabe)", es: "Resultado anterior (Mayús+Intro)" },
   findNext: { en: "Next match (Enter)", ja: "次の一致 (Enter)", zh: "下一个匹配 (Enter)", ko: "다음 결과 (Enter)", fr: "Résultat suivant (Entrée)", de: "Nächster Treffer (Eingabe)", es: "Resultado siguiente (Intro)" },
-  closePdf: { en: "Close PDF", ja: "PDF を閉じる", zh: "关闭 PDF", ko: "PDF 닫기", fr: "Fermer le PDF", de: "PDF schließen", es: "Cerrar el PDF" },
+  closePdf: { en: "Close PDF", ja: "PDFを閉じる", zh: "关闭 PDF", ko: "PDF 닫기", fr: "Fermer le PDF", de: "PDF schließen", es: "Cerrar el PDF" },
   findClose: { en: "Close (Esc)", ja: "閉じる (Esc)", zh: "关闭 (Esc)", ko: "닫기 (Esc)", fr: "Fermer (Échap)", de: "Schließen (Esc)", es: "Cerrar (Esc)" },
   findNoMatch: { en: "No results", ja: "見つかりません", zh: "无结果", ko: "결과 없음", fr: "Aucun résultat", de: "Keine Treffer", es: "Sin resultados" },
   download: { en: "Download", ja: "ダウンロード", zh: "下载", ko: "다운로드", fr: "Télécharger", de: "Herunterladen", es: "Descargar" },
@@ -388,7 +389,7 @@ const initPdfViewer = () => {
       return;
     }
     if (buildPreviewState === "failed") {
-      setStatusDirect(uiString("buildFailedLastGood"), "error");
+      setStatusDirect(uiString("buildFailedLastGood"));
       return;
     }
     setStatusDirect(text, tone);
@@ -2675,7 +2676,7 @@ const initPdfViewer = () => {
             : "";
         }
         if (buildPreviewState === "building") setStatusDirect("", "busy");
-        else if (buildPreviewState === "failed") setStatusDirect(uiString("buildFailedLastGood"), "error");
+        else if (buildPreviewState === "failed") setStatusDirect(uiString("buildFailedLastGood"));
         else if (isLive()) setStatus("", "idle");
         else if (isLivePending()) setStatus("", "idle");
         else refreshStaticStatus();

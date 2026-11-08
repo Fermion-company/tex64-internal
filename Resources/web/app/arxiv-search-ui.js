@@ -31,20 +31,20 @@ const describe = (reason, activeFilePath = null) => {
         return documentChanged();
     // The .bib is written under the same lease as saves; Axiom holds it.
     if (code === "AGENT_WORKSPACE_BUSY")
-        return uiText("Axiom is editing this project. Try again when it finishes.", "Axiom がこのプロジェクトを編集中です。終わってからもう一度お試しください。");
+        return uiText("Axiom is editing this project. Try again when it finishes.", "Axiomがこのプロジェクトを編集中です。終わってからもう一度お試しください。");
     // The file belongs to several documents with different .bib files; Build's
     // chooser (or a % !TEX root line) settles which one.
     if (code === "BUILD_TARGET_CHOICE") {
         return activeFilePath
             ? uiText(`${activeFilePath} belongs to more than one document.`, `${activeFilePath} は複数の文書から読み込まれています。`)
-            : uiText("This folder has several documents and no main file is set.", "このフォルダには文書が複数あり、メイン TeX が決まっていません。");
+            : uiText("This folder has several documents and no main file is set.", "このフォルダには文書が複数あり、メインTeXが決まっていません。");
     }
     if (code === "NETWORK")
-        return uiText("Cannot reach arXiv.", "arXiv に接続できません。");
+        return uiText("Cannot reach arXiv.", "arXivに接続できません。");
     if (code === "RATE_LIMIT")
-        return uiText("arXiv is busy.", "arXiv が混み合っています。");
+        return uiText("arXiv is busy.", "arXivが混み合っています。");
     if (code === "TIMEOUT")
-        return uiText("arXiv did not answer in time.", "arXiv の応答がありません。");
+        return uiText("arXiv did not answer in time.", "arXivの応答がありません。");
     return reason instanceof Error ? reason.message : String(reason);
 };
 /** What the document still needs so BibTeX / biber finds the appended entry. */
@@ -52,8 +52,8 @@ const bibHint = (result) => {
     if (!result.suggestion)
         return "";
     const where = result.suggestion.place === "preamble"
-        ? uiText("Add %s to the preamble.", "プリアンブルに %s を加えてください。")
-        : uiText("Add %s before \\end{document}.", "\\end{document} の前に %s を加えてください。");
+        ? uiText("Add %s to the preamble.", "プリアンブルに%sを加えてください。")
+        : uiText("Add %s before \\end{document}.", "\\end{document}の前に%sを加えてください。");
     const lines = result.suggestion.lines.join(uiText(" and ", " と "));
     const head = result.created
         ? uiText(`Created ${result.bibPath}.`, `${result.bibPath} を作成しました。`)

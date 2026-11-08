@@ -29,18 +29,14 @@ export const describeSaveFailure = (message: string) => {
     return uiText("The disk is full.", "ディスクの空き容量が足りません。");
   }
   if (/changed on disk/i.test(message)) {
-    return uiText(
-      "Another app changed the file. Your text is kept.",
-      "ほかのアプリが書き換えました。編集中の内容は残っています。",
+    return uiText("Another app changed the file. Your text is kept.", "ほかのアプリが書き換えました。編集中の内容は残っています。",
     );
   }
   if (/edit conflict/i.test(message)) {
     return uiText("Resolve the edit conflict first.", "先に編集の競合を解決してください。");
   }
   if (/project operation is protecting|save has expired/i.test(message)) {
-    return uiText(
-      "A project operation is in progress. Saving will resume when it finishes.",
-      "プロジェクトの操作中です。終わると保存を再開します。",
+    return uiText("A project operation is in progress. Saving will resume when it finishes.", "プロジェクトの操作中です。終わると保存を再開します。",
     );
   }
   if (/timed out/i.test(message)) {

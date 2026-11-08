@@ -140,24 +140,24 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
   })[key] ?? key;
   const bibLabel = (tool: string) => (tool === "none" ? words("None", "なし") : tool);
   const messageFor = (code: string): string => ({
-    ZIP_NOT_ZIP: words("Choose a Prism .zip.", "Prism の .zip を選んでください。"),
-    ZIP_NOT_FOUND: words("The zip was not found.", "zip が見つかりません。"),
-    ZIP_INVALID: words("The file could not be read as a zip.", "zip として読めません。"),
-    ZIP_TOO_LARGE: words("The zip is larger than 2 GB.", "zip が 2 GB を超えています。"),
-    ZIP_TOO_MANY: words("The zip holds too many files.", "zip のファイル数が多すぎます。"),
-    ZIP_EMPTY: words("The zip is empty.", "zip が空です。"),
-    ZIP_UNSAFE_PATH: words("The zip holds a path outside its folder.", "zip にフォルダ外を指すパスがあります。"),
+    ZIP_NOT_ZIP: words("Choose a Prism .zip.", "Prismの .zipを選んでください。"),
+    ZIP_NOT_FOUND: words("The zip was not found.", "zipが見つかりません。"),
+    ZIP_INVALID: words("The file could not be read as a zip.", "zipとして読めません。"),
+    ZIP_TOO_LARGE: words("The zip is larger than 2 GB.", "zipが2 GBを超えています。"),
+    ZIP_TOO_MANY: words("The zip holds too many files.", "zipのファイル数が多すぎます。"),
+    ZIP_EMPTY: words("The zip is empty.", "zipが空です。"),
+    ZIP_UNSAFE_PATH: words("The zip holds a path outside its folder.", "zipにフォルダ外を指すパスがあります。"),
     DEST_NAME: words("No free folder name at the destination.", "展開先に空いているフォルダ名がありません。"),
-    NO_TEX: words("No .tex file in the zip.", "zip に .tex がありません。"),
-    NO_MAIN: words("No file with \\documentclass and \\begin{document} was found.", "\\documentclass と \\begin{document} を含むファイルがありません。"),
-    TEX_MISSING: words("TeX is not installed.", "TeX が入っていません。"),
+    NO_TEX: words("No .tex file in the zip.", "zipに .texがありません。"),
+    NO_MAIN: words("No file with \\documentclass and \\begin{document} was found.", "\\documentclassと\\begin{document}を含むファイルがありません。"),
+    TEX_MISSING: words("TeX is not installed.", "TeXが入っていません。"),
     BUILD_BUSY: words("Another build is running.", "別のビルドが実行中です。"),
     SESSION_ENDED: words("This import has ended. Start it again.", "この読み込みは終了しています。やり直してください。"),
     UNKNOWN_PROJECT: words("Unknown project.", "不明なプロジェクトです。"),
-    UNAVAILABLE: words("Prism import is not available.", "Prism の読み込みは使えません。"),
-    COMPARE_FAILED: words("The PDFs could not be compared.", "PDF を比較できませんでした。"),
-    NO_PRISM_PDF: words("No Prism PDF to compare with.", "比較する Prism の PDF がありません。"),
-  })[code] ?? words("Prism import failed.", "Prism から読み込めませんでした。") + ` (${code})`;
+    UNAVAILABLE: words("Prism import is not available.", "Prismの読み込みは使えません。"),
+    COMPARE_FAILED: words("The PDFs could not be compared.", "PDFを比較できませんでした。"),
+    NO_PRISM_PDF: words("No Prism PDF to compare with.", "比較するPrismのPDFがありません。"),
+  })[code] ?? words("Prism import failed.", "Prismから読み込めませんでした。") + ` (${code})`;
 
   let modal: HTMLDialogElement | null = null;
   let sessionId: string | null = null;
@@ -337,7 +337,7 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
     const changed = diff.filter((row) => !row.same);
     const list = el("ul", "prism-diff-list");
     if (changed.length === 0) {
-      list.append(el("li", "prism-diff-same", words("Same structure as the Prism PDF", "Prism の PDF と構成が一致")));
+      list.append(el("li", "prism-diff-same", words("Same structure as the Prism PDF", "PrismのPDFと構成が一致")));
     } else {
       for (const row of changed) {
         const item = el("li", "prism-diff-row");
@@ -403,7 +403,7 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
   const ensureDialog = () => {
     if (modal) return modal;
     modal = el("dialog", "history-confirm prism-import") as HTMLDialogElement;
-    const heading = el("h2", "", words("Import from Prism", "Prism から読み込む"));
+    const heading = el("h2", "", words("Import from Prism", "Prismから読み込む"));
     heading.id = "prism-import-title";
     modal.setAttribute("aria-labelledby", heading.id);
 
@@ -527,7 +527,7 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
 
   const envDetail = (): string => {
     if (!env) return "";
-    if (!env.ready) return words("TeX not found", "TeX が見つかりません");
+    if (!env.ready) return words("TeX not found", "TeXが見つかりません");
     const missing = current?.project.missingPackages ?? [];
     if (missing.length === 0) return env.distribution;
     const prefix = env.autoInstall

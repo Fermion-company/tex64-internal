@@ -396,9 +396,7 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
       if (event.isMainFrame === false || event.errorCode === -3) return;
       lastLoadFailed = true;
       showFallback(
-        uiText(
-          "Could not connect to the AI workspace.",
-          "AIワークスペースに接続できませんでした。"
+        uiText("Could not connect to the AI workspace.", "AIワークスペースに接続できませんでした。"
         )
       );
     });
@@ -409,9 +407,7 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
     element.addEventListener("render-process-gone", () => {
       if (webview !== element) return;
       showFallback(
-        uiText(
-          "The AI workspace stopped.",
-          "AIワークスペースが停止しました。",
+        uiText("The AI workspace stopped.", "AIワークスペースが停止しました。",
         ),
       );
     });

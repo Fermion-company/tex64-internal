@@ -227,7 +227,7 @@ export const initBuildProfilesUi = (context, deps) => {
             return;
         }
         const message = deep
-            ? uiText("Delete the PDF and auxiliary files?", "PDF と補助ファイルを削除しますか？")
+            ? uiText("Delete the PDF and auxiliary files?", "PDFと補助ファイルを削除しますか？")
             : uiText("Delete the auxiliary files?", "補助ファイルを削除しますか？");
         if (!window.confirm(message)) {
             return;

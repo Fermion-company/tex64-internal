@@ -32,7 +32,7 @@ const rules: ResolutionRule[] = [
   },
   {
     test: (_issue, message) => message.includes("latexmk"),
-    resolution: () => uiText("Check the status of latexmk in Settings > Build and click \"Install\".", "設定 > ビルド で latexmk の状態を確認し、「インストール」をクリックしてください。"),
+    resolution: () => uiText("Check the status of latexmk in Settings > Build and click \"Install\".", "設定 > ビルド でlatexmkの状態を確認し、「インストール」をクリックしてください。"),
   },
   {
     test: (_issue, message) => message.includes("latexindent"),
@@ -54,16 +54,12 @@ const rules: ResolutionRule[] = [
   {
     test: (_issue, message) =>
       /class\s+revtex4-2\s+warning:\s+no type size specified/i.test(message),
-    resolution: () => uiText(
-      "Specify a font-size option in documentclass (for example: \\documentclass[10pt]{revtex4-2}).",
-      "Please specify the font size in the documentclass option (e.g. \\documentclass[10pt]{revtex4-2})."
+    resolution: () => uiText("Specify a font-size option in documentclass (for example: \\documentclass[10pt]{revtex4-2}).", "Please specify the font size in the documentclass option (e.g. \\documentclass[10pt]{revtex4-2})."
     ),
   },
   {
     test: (_issue, message) => /(?:package\s+)?xypdf\s+error:/i.test(message),
-    resolution: () => uiText(
-      "qcircuit/xypic may fail with lualatex. Change the Engine in Settings > Build to pdflatex and rebuild.",
-      "qcircuit/xypic may fail with lualatex. Please change the Engine in Settings > Build to pdflatex and rebuild."
+    resolution: () => uiText("qcircuit/xypic may fail with lualatex. Change the Engine in Settings > Build to pdflatex and rebuild.", "qcircuit/xypic may fail with lualatex. Please change the Engine in Settings > Build to pdflatex and rebuild."
     ),
   },
   {
@@ -87,7 +83,7 @@ const rules: ResolutionRule[] = [
   },
   {
     test: (_issue, message) => message.includes("This file format cannot be edited"),
-    resolution: () => uiText("Open a text file such as .tex and edit it.", ".tex などのテキストファイルを開いて編集してください。"),
+    resolution: () => uiText("Open a text file such as .tex and edit it.", ".texなどのテキストファイルを開いて編集してください。"),
     shown: NOT_SHOWN,
   },
   {
@@ -98,7 +94,7 @@ const rules: ResolutionRule[] = [
   },
   {
     test: (_issue, message) => message.includes("screen capture"),
-    resolution: () => uiText("Allow TeX64 in System Settings > Privacy & Security > Screen Recording, then restart the app.", "システム設定 > プライバシーとセキュリティ > 画面収録 で TeX64 を許可し、アプリを再起動してください。"),
+    resolution: () => uiText("Allow TeX64 in System Settings > Privacy & Security > Screen Recording, then restart the app.", "システム設定 > プライバシーとセキュリティ > 画面収録 でTeX64を許可し、アプリを再起動してください。"),
   },
   {
     test: (_issue, message) =>
@@ -106,7 +102,7 @@ const rules: ResolutionRule[] = [
       message.includes("Window list") ||
       message.includes("Captureable window"),
     resolution: () => uiText("Allow TeX64 in System Settings > Privacy & Security > Screen Recording, then restart the app. Click Formula import again to open the settings guide.", "Allow TeX64 in System Settings > Privacy & Security > Screen Recording, then restart the app. Click \"Formula import\" again to open the settings guide."),
-    shown: () => uiText("Allow TeX64 in System Settings > Privacy & Security > Screen Recording, then restart the app.", "システム設定 > プライバシーとセキュリティ > 画面収録 で TeX64 を許可し、アプリを再起動してください。"),
+    shown: () => uiText("Allow TeX64 in System Settings > Privacy & Security > Screen Recording, then restart the app.", "システム設定 > プライバシーとセキュリティ > 画面収録 でTeX64を許可し、アプリを再起動してください。"),
   },
   {
     test: (_issue, message) => message.includes("failed to cut"),
@@ -157,9 +153,7 @@ const rules: ResolutionRule[] = [
 
 const warningFallback: ResolutionRule = {
   test: () => true,
-  resolution: () => uiText(
-    "Warnings may not automatically identify the destination. Check the surrounding lines in the build log and fix it.",
-    "Warnings may not be able to automatically identify the destination. Please check the preceding and following lines in the build log and correct it."
+  resolution: () => uiText("Warnings may not automatically identify the destination. Check the surrounding lines in the build log and fix it.", "Warnings may not be able to automatically identify the destination. Please check the preceding and following lines in the build log and correct it."
   ),
 };
 

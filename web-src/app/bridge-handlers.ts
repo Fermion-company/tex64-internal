@@ -881,7 +881,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         if (isAiModeAgentPayload(message.payload)) break;
         deps.agent?.handleError(
           (message.payload as { message?: string; conversationId?: string }).message ??
-            uiText("Axiom error", "Axiom エラー"),
+            uiText("Axiom error", "Axiomエラー"),
           (message.payload as { message?: string; conversationId?: string }).conversationId
         );
         break;

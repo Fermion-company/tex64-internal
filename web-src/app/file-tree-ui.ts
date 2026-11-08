@@ -373,9 +373,7 @@ export const initFileTreeUi = (
       return renameTargetType === "dir" ? path.startsWith(`${renameTargetPath}/`) : false;
     });
     if (hasDirtyAffected) {
-      const message = uiText(
-        "There are unsaved changes. Please save before renaming.",
-        "There are unsaved changes. Please save and rename."
+      const message = uiText("There are unsaved changes. Please save before renaming.", "There are unsaved changes. Please save and rename."
       );
       setRenameModalHelp(message, true);
       deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
@@ -471,9 +469,7 @@ export const initFileTreeUi = (
       return kind === "dir" ? entryPath.startsWith(`${path}/`) : false;
     });
     if (hasDirtyAffected) {
-      const message = uiText(
-        "There are unsaved changes. Please save before deleting.",
-        "There are unsaved changes. Please save before deleting."
+      const message = uiText("There are unsaved changes. Please save before deleting.", "There are unsaved changes. Please save before deleting."
       );
       deps.updateIssues(1, message, "error", [
         { severity: "error", message },
@@ -522,9 +518,7 @@ export const initFileTreeUi = (
       return payload.kind === "dir" ? path.startsWith(`${payload.path}/`) : false;
     });
     if (hasDirtyAffected) {
-      const message = uiText(
-        "There are unsaved changes. Please save before moving.",
-        "There are unsaved changes. Please save before moving."
+      const message = uiText("There are unsaved changes. Please save before moving.", "There are unsaved changes. Please save before moving."
       );
       deps.updateIssues(1, message, "error", [
         { severity: "error", message },

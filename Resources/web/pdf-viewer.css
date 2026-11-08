@@ -605,3 +605,7 @@ body.is-live #pdf-fit-page { display: none; }
 .pdf-ask-axiom:hover {
   background: var(--accent-soft);
 }
+
+/* Same Japanese/Latin gap as the editor UI; the PDF text layer keeps its own. */
+body { text-autospace: normal; }
+.textLayer, input { text-autospace: no-autospace; }

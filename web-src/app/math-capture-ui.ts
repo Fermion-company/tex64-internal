@@ -214,8 +214,8 @@ export const initMathCaptureUi = (
     permissionTitle.querySelector(".explain-toggle")?.remove();
     permissionPanel?.remove();
     const [, panel] = explainedHeading(permissionTitle, [
-      uiText("Find TeX64 in the app list and turn on the switch.", "アプリ一覧から TeX64 を見つけ、スイッチをオンにします。"),
-      uiText("Restart TeX64 and try again.", "TeX64 を再起動してから再試行してください。"),
+      uiText("Find TeX64 in the app list and turn on the switch.", "アプリ一覧からTeX64を見つけ、スイッチをオンにします。"),
+      uiText("Restart TeX64 and try again.", "TeX64を再起動してから再試行してください。"),
     ]);
     permissionTitle.closest(".modal-header")?.after(panel);
     permissionPanel = panel;

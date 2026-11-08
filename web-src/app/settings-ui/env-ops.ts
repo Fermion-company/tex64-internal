@@ -107,7 +107,7 @@ export const createSettingsEnvOps = (
       case "extract":
         return uiText("Preparing…", "準備中…");
       case "texlive":
-        return uiText("Installing TeX Live…", "TeX Live をインストール中…");
+        return uiText("Installing TeX Live…", "TeX Liveをインストール中…");
       case "packages":
         return uiText("Installing packages…", "パッケージをインストール中…");
       case "finalize":

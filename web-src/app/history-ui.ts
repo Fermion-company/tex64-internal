@@ -62,7 +62,7 @@ export const initHistoryUi = (editor: EditorSessionApi, diff: DiffModalApi) => {
   const comparison = el("div", "history-comparison"); comparison.setAttribute("aria-live", "polite");
   selection.append(compareRow, comparison, restore);
   const storage = el("div", "history-storage"); const usage = el("p");
-  const limit = el("input", "history-limit"); limit.type = "number"; limit.min = "1"; limit.max = "100"; limit.value = "2"; limit.setAttribute("aria-label", uiText("History limit in GiB", "履歴の容量上限 GiB"));
+  const limit = el("input", "history-limit"); limit.type = "number"; limit.min = "1"; limit.max = "100"; limit.value = "2"; limit.setAttribute("aria-label", uiText("History limit in GiB", "履歴の容量上限GiB"));
   // The settings open on the limit, not on the usage line's ▾.
   limit.autofocus = true;
   const storageExplain = createExplain([

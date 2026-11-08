@@ -63,24 +63,24 @@ export const initBuildOpsUi = (context, deps) => {
     const synctexErrorNotice = (error) => {
         if (/PDF not found|PDF has not been generated/i.test(error)) {
             return {
-                message: uiText("No PDF yet. Build first.", "PDF がまだありません。先にビルドしてください。"),
+                message: uiText("No PDF yet. Build first.", "PDFがまだありません。先にビルドしてください。"),
                 build: true,
             };
         }
         if (/SyncTeX data was not found/i.test(error)) {
             return {
-                message: uiText("This PDF has no position data (SyncTeX). Build it again.", "この PDF には位置情報（SyncTeX）がありません。ビルドし直してください。"),
+                message: uiText("This PDF has no position data (SyncTeX). Build it again.", "このPDFには位置情報（SyncTeX）がありません。ビルドし直してください。"),
                 build: true,
             };
         }
         if (/not part of this PDF/i.test(error)) {
-            return { message: uiText("This file is not part of the PDF.", "このファイルは PDF に含まれていません。") };
+            return { message: uiText("This file is not part of the PDF.", "このファイルはPDFに含まれていません。") };
         }
         if (/does not appear in the PDF|position was not found/i.test(error)) {
-            return { message: uiText("This line does not appear in the PDF.", "この行は PDF に出力されていません。") };
+            return { message: uiText("This line does not appear in the PDF.", "この行はPDFに出力されていません。") };
         }
         if (/only (supports|available for) .*TeX files|No TeX file selected/i.test(error)) {
-            return { message: uiText("Jump works from a .tex file.", "ジャンプは .tex ファイルから使えます。") };
+            return { message: uiText("Jump works from a .tex file.", "ジャンプは .texファイルから使えます。") };
         }
         return { message: `${uiText("Could not jump:", "ジャンプできませんでした：")} ${error}` };
     };
@@ -273,7 +273,7 @@ export const initBuildOpsUi = (context, deps) => {
         const targetPath = resolveSynctexForwardTarget(overridePath, activePath, lastBuildMainFile, rootPath);
         if (!targetPath) {
             if (((_a = options.source) !== null && _a !== void 0 ? _a : "manual") === "manual") {
-                showSynctexNotice(uiText("Jump works from a .tex file.", "ジャンプは .tex ファイルから使えます。"), "info");
+                showSynctexNotice(uiText("Jump works from a .tex file.", "ジャンプは .texファイルから使えます。"), "info");
             }
             return;
         }
@@ -500,7 +500,7 @@ export const initBuildOpsUi = (context, deps) => {
         const title = el("h2", "", uiText("Build target", "ビルド対象"));
         const note = el("p", "build-target-note", requested
             ? uiText(`${requested} belongs to more than one document.`, `${requested} は複数の文書から読み込まれています。`)
-            : uiText("No main file is set.", "メイン TeX が決まっていません。"));
+            : uiText("No main file is set.", "メインTeXが決まっていません。"));
         const list = el("div", "build-target-list");
         list.setAttribute("role", "listbox");
         const pick = (path) => {
@@ -522,8 +522,8 @@ export const initBuildOpsUi = (context, deps) => {
             list.append(row);
         });
         const titleRow = explainedHeading(title, requested
-            ? uiText("Remembered for this file until the app closes. A % !TEX root line in the file settles it for good.", "この起動中はこのファイルについて記憶します。ファイル先頭の % !TEX root 行で固定できます。")
-            : uiText("Settings › Main TeX fixes the choice for this folder.", "設定の「メイン TeX」でこのフォルダの既定にできます。"));
+            ? uiText("Remembered for this file until the app closes. A % !TEX root line in the file settles it for good.", "この起動中はこのファイルについて記憶します。ファイル先頭の% !TEX root行で固定できます。")
+            : uiText("Settings › Main TeX fixes the choice for this folder.", "設定の「メインTeX」でこのフォルダの既定にできます。"));
         const actions = el("div", "history-confirm-actions");
         const cancel = el("button", "history-button", uiText("Cancel", "キャンセル"));
         cancel.type = "button";
@@ -856,7 +856,7 @@ export const initBuildOpsUi = (context, deps) => {
                 openedGroup.viewer.syncPdf(syncPayload);
             }
             if (payload.notTypeset === true && (payloadMeta === null || payloadMeta === void 0 ? void 0 : payloadMeta.source) !== "auto-build") {
-                showSynctexNotice(uiText("This line does not appear in the PDF, so the first page is shown.", "この行は PDF に出力されないため、先頭ページを表示しました。"), "info");
+                showSynctexNotice(uiText("This line does not appear in the PDF, so the first page is shown.", "この行はPDFに出力されないため、先頭ページを表示しました。"), "info");
             }
             if (matchedInFlight) {
                 flushQueuedSynctexForward();
@@ -902,7 +902,7 @@ export const initBuildOpsUi = (context, deps) => {
             }
             return;
         }
-        const errorMessage = (_l = payload.error) !== null && _l !== void 0 ? _l : uiText("SyncTeX failed.", "SyncTeX に失敗しました。");
+        const errorMessage = (_l = payload.error) !== null && _l !== void 0 ? _l : uiText("SyncTeX failed.", "SyncTeXに失敗しました。");
         if (isEnvMissingMessage(errorMessage)) {
             // Missing TeX tools: the Issues entry carries the fix-it action.
             const issue = { severity: "error", message: errorMessage, action: "open-runtime" };

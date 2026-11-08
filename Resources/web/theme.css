@@ -11152,3 +11152,8 @@ button.axiom-try-tab:focus-visible { outline: 2px solid var(--accent-strong); ou
 @media (prefers-reduced-motion: reduce) {
   .axiom-try *, .axiom-try *::before { transition: none !important; }
 }
+
+/* Japanese and Latin get their gap from the browser (1/8 em), not from typed spaces.
+   Code, the editor, the terminal, fields and the PDF text keep their own spacing. */
+body { text-autospace: normal; }
+.monaco-editor, .xterm, code, pre, kbd, samp, input, textarea, .textLayer, [contenteditable="true"] { text-autospace: no-autospace; }
