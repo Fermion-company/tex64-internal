@@ -1404,6 +1404,7 @@ export const initMain = () => {
                     else
                         aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTranscribeResult(payload);
                 },
+                handleSteerResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleSteerResult(payload),
                 handleDocumentMap: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleDocumentMap(payload),
                 handleMessageDelta: (text, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleMessageDelta(text, conversationId),
                 handleTool: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTool(payload),

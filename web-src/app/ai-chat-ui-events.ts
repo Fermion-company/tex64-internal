@@ -4,6 +4,7 @@ import type { AiImageAttachment } from "./ai-chat-attachments.js";
 import type { ContextExtras } from "./ai-chat-context-payload.js";
 import type { AgentQuestion } from "./types.js";
 import { aiText } from "./ai-i18n.js";
+import { canSteer, createAiChatSteering, steerTurnShape, type SteerResultPayload, type SteerTurnShape } from "./ai-chat-steer.js";
 import { createQuestionElement, readPlanRequest, readQuestionAnswer } from "./ai-chat-message.js";
 import type { AgentPlan } from "./types.js";
 
@@ -63,6 +64,8 @@ type InitAiChatEventBindingsParams = {
   resetToNewChatState: () => void;
   onModeChange?: (mode: AxiomMode) => void;
   scrollToBottom?: (force?: boolean) => void;
+  /** A guest in someone else's collaboration session: its turns run on the host. */
+  isCollabGuest?: () => boolean;
 };
 
 const MODE_STORAGE_KEY = "tex64.axiom.mode";
@@ -120,6 +123,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     resetToNewChatState,
     onModeChange,
     scrollToBottom,
+    isCollabGuest,
   } = params;
 
   // ── Mode: Agent edits and builds, Ask only answers ──
@@ -159,8 +163,20 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
 
   const buildPayload = () => buildContextPayload({ axiomMode: mode });
 
-  // ── Queue: a request typed while a turn runs waits behind it ──
+  // ── Queue: a request typed while a turn runs waits behind it, unless the
+  // running turn can take it as a correction (see ai-chat-steer.ts) ──
   const makeQueueId = () => `q-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 6)}`;
+  // What each turn this window started was started with; a steer must match it.
+  const runShapes = new Map<string, SteerTurnShape>();
+  const steering = createAiChatSteering({ postToNative });
+  // A turn that ended while the host was still answering a steer drains its
+  // queue once that answer is in (a refused steer joins the queue first).
+  const drainWhenSteered = new Set<string>();
+
+  const enqueue = (chat: ChatState, item: QueuedTurn, label: string) => {
+    chat.queue.push(item);
+    appendMessage({ role: "user", text: label, queued: true, queueId: item.id }, chat.id);
+  };
 
   const dispatchQueued = (chat: ChatState, item: QueuedTurn) => {
     removeQueuedMessage(chat.id, item.id);
@@ -168,7 +184,9 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     settleLiveProposals(chat);
     appendMessage({ role: "user", text: item.text }, chat.id);
     const sent = requestAgentRun(chat.id, item.text, item.parts, item.contextPayload);
-    if (!sent) {
+    if (sent) {
+      runShapes.set(chat.id, steerTurnShape(item.contextPayload));
+    } else {
       // Put it back at the front; the reader can send it again by hand.
       chat.queue.unshift(item);
       appendMessage({ role: "user", text: item.text, queued: true, queueId: item.id }, chat.id);
@@ -181,10 +199,36 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
   const drainQueue = (chatId: string) => {
     const chat = getChat(chatId);
     if (!chat || runningConversations.has(chat.id)) return;
+    if (steering.isPending(chat.id)) {
+      drainWhenSteered.add(chat.id);
+      return;
+    }
     const next = chat.queue[0];
     if (!next) return;
     if (isAiBlocked() || needsLogin()) return;
     dispatchQueued(chat, next);
+  };
+
+  /** The host's answer to a steer: in the running turn, or in the queue. */
+  const settleSteer = (chatId: string, item: QueuedTurn, label: string, accepted: boolean) => {
+    const drain = drainWhenSteered.delete(chatId);
+    // The chat may have been rebuilt (a state refresh) or dropped (another
+    // folder) while the host answered.
+    const chat = getChat(chatId);
+    if (!chat) return;
+    if (accepted) {
+      appendMessage({ role: "user", text: label }, chat.id);
+      // The work goes on below the correction.
+      if (runningConversations.has(chat.id)) {
+        clearThinkingMessage(chat.id);
+        upsertThinkingMessage(chat.id, chat.statusMessage);
+      }
+    } else {
+      enqueue(chat, item, label);
+    }
+    renderHistoryList();
+    updateSendState();
+    if (drain) drainQueue(chat.id);
   };
 
   let sendGuard = false;
@@ -193,7 +237,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
   // a half-typed draft is kept.
   const submitMessage = (
     rawText: string,
-    opts?: { clearInput?: boolean; extras?: ContextExtras; queueIfRunning?: boolean },
+    opts?: { clearInput?: boolean; extras?: ContextExtras; queueIfRunning?: boolean; steerIfRunning?: boolean },
   ) => {
     if (sendGuard) return;
     const clearInput = opts?.clearInput !== false;
@@ -242,8 +286,10 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     const userLabel = text || "The image has been sent.";
     const attachmentNote = hasAttachments ? `\n[attached images ${pendingAttachments.length}]` : "";
 
-    // A running turn keeps the chat: the new request waits behind it, in
-    // view, and goes out by itself when the turn ends.
+    // A running turn keeps the chat. Words typed into the composer go into
+    // that turn and show once the host has taken them; anything else, or
+    // words the host does not take, waits behind it, in view, and goes out
+    // by itself when the turn ends.
     if (runningConversations.has(chat.id) && opts?.queueIfRunning !== false) {
       const item: QueuedTurn = {
         id: makeQueueId(),
@@ -251,8 +297,19 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
         parts: requestParts,
         contextPayload,
       };
-      chat.queue.push(item);
-      appendMessage({ role: "user", text: `${userLabel}${attachmentNote}`, queued: true, queueId: item.id }, chat.id);
+      const label = `${userLabel}${attachmentNote}`;
+      const steered =
+        opts?.steerIfRunning === true &&
+        !opts.extras &&
+        canSteer({
+          parts: requestParts,
+          contextPayload,
+          runningShape: runShapes.get(chat.id),
+          queued: chat.queue.length,
+          collabGuest: isCollabGuest?.() === true,
+        }) &&
+        steering.steer(chat.id, requestMessage, (accepted) => settleSteer(chat.id, item, label, accepted));
+      if (!steered) enqueue(chat, item, label);
       if (clearInput && aiInput instanceof HTMLTextAreaElement) {
         aiInput.value = "";
         autoGrow();
@@ -279,6 +336,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     sendGuard = true;
     const sent = requestAgentRun(chat.id, requestMessage, requestParts, contextPayload);
     if (sent) {
+      runShapes.set(chat.id, steerTurnShape(contextPayload));
       clearPendingAttachments();
       clearMentionPaths?.();
     }
@@ -287,7 +345,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
 
   const handleSend = () => {
     if (!(aiInput instanceof HTMLTextAreaElement)) return;
-    submitMessage(aiInput.value, { clearInput: true });
+    submitMessage(aiInput.value, { clearInput: true, steerIfRunning: true });
   };
 
   if (aiSend instanceof HTMLButtonElement) aiSend.addEventListener("click", handleSend);
@@ -577,7 +635,9 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
         { type: "agent:resume", conversationId: chat.id, context: contextToSend },
         true
       );
-      if (!posted) {
+      if (posted) {
+        runShapes.set(chat.id, steerTurnShape(contextToSend));
+      } else {
         runningConversations.delete(chat.id);
         resumableConversations.add(chat.id);
         chat.statusMessage = "";
@@ -594,5 +654,13 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
       if (aiInput instanceof HTMLTextAreaElement) aiInput.focus();
     });
   }
-  return { submitMessage, drainQueue, getMode: () => mode, setMode, syncModeLabels, openStepQuestion };
+  return {
+    submitMessage,
+    drainQueue,
+    handleSteerResult: (payload: SteerResultPayload) => steering.handleSteerResult(payload),
+    getMode: () => mode,
+    setMode,
+    syncModeLabels,
+    openStepQuestion,
+  };
 };

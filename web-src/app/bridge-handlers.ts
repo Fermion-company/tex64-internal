@@ -222,6 +222,7 @@ type BridgeHandlersDeps = {
     handleBranchResult?: (payload: { ok?: boolean; conversationId?: string; error?: string }) => void;
     handleProposalScope?: (payload: { conversationId?: string; proposalId?: string; page?: number }) => void;
     handleTranscribeResult?: (payload: { requestId?: string; ok?: boolean; text?: string; error?: string }) => void;
+    handleSteerResult?: (payload: { requestId?: string; conversationId?: string; accepted?: boolean }) => void;
     handleDocumentMap: (payload: {
       requestId?: string;
       mainFile?: string | null;
@@ -805,6 +806,11 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         break;
       case "agent:transcribeResult":
         deps.agent?.handleTranscribeResult?.(message.payload as { requestId?: string; ok?: boolean; text?: string; error?: string });
+        break;
+      case "agent:steerResult":
+        // The AI workspace reads its own answers through its webview.
+        if (isAiModeAgentPayload(message.payload)) break;
+        deps.agent?.handleSteerResult?.(message.payload as { requestId?: string; conversationId?: string; accepted?: boolean });
         break;
       case "agent:documentMap":
         deps.agent?.handleDocumentMap?.(message.payload as Parameters<NonNullable<typeof deps.agent>["handleDocumentMap"]>[0]);

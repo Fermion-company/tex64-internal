@@ -2625,8 +2625,9 @@ const handleRendererMessage = (event, message) => {
     return;
   }
   if (type === "agent:steer") {
+    // Code and the AI workspace both come here; a guest's turns run on the host.
     const turn = validateAiModeTurn(message);
-    const accepted = turn.ok && require("./services/openprism/steering.cjs").acceptSteering(agentService, message.conversationId, message);
+    const accepted = turn.ok && !collabHub.isGuest() && require("./services/openprism/steering.cjs").acceptSteering(agentService, message.conversationId, message);
     sendToRenderer("agent:steerResult", { requestId: message.requestId, conversationId: message.conversationId, accepted });
     return;
   }
