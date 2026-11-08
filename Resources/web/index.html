@@ -189,8 +189,8 @@
             id="toggle-bottom-panel-button"
             type="button"
             class="topbar-layout-toggle"
-            aria-label="Math and Terminal panel"
-            title="Show or hide Math and Terminal"
+            aria-label="Terminal"
+            title="Terminal"
             aria-pressed="false"
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1313,18 +1313,17 @@
           <div class="bottom-panel" id="bottom-panel" aria-hidden="true">
             <div class="bottom-panel-header">
               <div class="bottom-panel-tabs">
-                <button class="bottom-panel-tab is-active" type="button" data-bottom-tab="blocks">Math</button>
-                <button class="bottom-panel-tab" type="button" data-bottom-tab="terminal">Terminal</button>
+                <button class="bottom-panel-tab is-active" type="button" data-bottom-tab="terminal">Terminal</button>
               </div>
-              <button class="bottom-panel-close is-hidden" id="bottom-panel-terminal-window" data-terminal-action type="button" aria-label="Open terminal window" title="Open terminal window"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7M21 3l-9 9M10 5H4v15h15v-6"/></svg></button>
-              <button class="bottom-panel-close is-hidden" id="bottom-panel-terminal-new" data-terminal-action type="button" aria-label="New terminal" title="New terminal (Ctrl/Cmd+T)">
+              <button class="bottom-panel-close" id="bottom-panel-terminal-window" data-terminal-action type="button" aria-label="Open terminal window" title="Open terminal window"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7M21 3l-9 9M10 5H4v15h15v-6"/></svg></button>
+              <button class="bottom-panel-close" id="bottom-panel-terminal-new" data-terminal-action type="button" aria-label="New terminal" title="New terminal (Ctrl/Cmd+T)">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
               </button>
-              <button class="bottom-panel-close is-hidden" id="bottom-panel-terminal-split" data-terminal-action type="button" aria-label="Split terminal" title="Split terminal (Ctrl/Cmd+Shift+T)">
+              <button class="bottom-panel-close" id="bottom-panel-terminal-split" data-terminal-action type="button" aria-label="Split terminal" title="Split terminal (Ctrl/Cmd+Shift+T)">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
               </button>
               <button
-                class="bottom-panel-close is-hidden"
+                class="bottom-panel-close"
                 id="bottom-panel-terminal-restart"
                 type="button"
                 aria-label="Restart terminal"
@@ -1340,7 +1339,7 @@
                 </svg>
               </button>
             </div>
-            <div class="bottom-panel-body" id="bottom-panel-body" data-pane="blocks">
+            <div class="bottom-panel-body" id="bottom-panel-body">
               <div class="terminal-host" id="terminal-host"></div>
             </div>
           </div>

@@ -9067,7 +9067,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 /* Math preview panel sizing and contrast are defined in the hover block above. */
 
 /* =============================================================================
-   Bottom Panel (VS Code-style terminal / math wide view)
+   Bottom Panel (VS Code-style terminal)
    ============================================================================= */
 
 .bottom-panel-resizer {
@@ -9178,15 +9178,10 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   color: var(--text);
 }
 
-/* Restart sits next to Close on the right; hidden unless the Terminal pane
-   is active (toggled from bottom-panel-ui). */
+/* New, Split and Restart sit on the right, before Close; the window button
+   stays beside the Terminal tab. */
 #bottom-panel-terminal-new {
   margin-left: auto;
-}
-
-#bottom-panel-terminal-restart.is-hidden,
-[data-terminal-action].is-hidden {
-  display: none;
 }
 
 .bottom-panel-body {
@@ -9245,15 +9240,6 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   text-decoration: underline;
   text-underline-offset: 2px;
   z-index: 5;
-}
-
-/* Pane switching: terminal-host is permanent; block-compose is moved in/out. */
-.bottom-panel-body[data-pane="terminal"] > .block-compose {
-  display: none;
-}
-
-.bottom-panel-body[data-pane="blocks"] > .terminal-host {
-  display: none;
 }
 
 /* --- Plans / billing modal (mirrors the tex64.com /pricing layout) --- */

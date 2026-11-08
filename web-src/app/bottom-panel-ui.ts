@@ -1,20 +1,21 @@
 import type { AppContext } from "./context.js";
 
 const STORAGE_KEY_SIDEBAR = "tex64.layout.sidebarVisible";
-const STORAGE_KEY_BOTTOM = "tex64.layout.bottomPanelVisible";
+// Retired: the panel's open state was only ever restored onto its Math tab,
+// which is gone (the math input stays in the sidebar). The terminal is never
+// started by itself at launch, so the stale value is dropped, not read.
+const STORAGE_KEY_BOTTOM_RETIRED = "tex64.layout.bottomPanelVisible";
 const STORAGE_KEY_BOTTOM_HEIGHT = "tex64.layout.bottomPanelHeight";
 const MIN_PANEL_HEIGHT = 120;
 const MAX_PANEL_HEIGHT = 600;
 const DEFAULT_PANEL_HEIGHT = 220;
-
-export type BottomTab = "blocks" | "terminal";
 
 export type BottomPanelApi = {
   openBottomPanel: () => void;
   closeBottomPanel: () => void;
   toggleBottomPanel: () => void;
   isBottomPanelOpen: () => boolean;
-  /** Open the panel with the Terminal tab active (used by Ctrl+`). */
+  /** Open the panel and focus the terminal (used by Ctrl+`). */
   openTerminal: () => void;
   toggleSidebar: () => void;
   isSidebarVisible: () => boolean;
@@ -37,7 +38,6 @@ export const initBottomPanelUi = (
     bottomPanelResizer,
     bottomPanelClose,
     bottomPanelTerminalRestart,
-    bottomPanelBody,
     bottomPanelTabs,
     toggleSidebarButton,
     toggleBottomPanelButton,
@@ -45,18 +45,12 @@ export const initBottomPanelUi = (
 
   const editorSection = document.querySelector<HTMLElement>("section.editor");
   const mainEl = document.querySelector<HTMLElement>(".main");
-  const blockCompose = document.querySelector<HTMLElement>(".block-compose");
-  const sidebarBlocksBody = document.querySelector<HTMLElement>(".blocks-panel");
 
   let sidebarVisible = true;
   let bottomPanelOpen = false;
   let panelHeight = DEFAULT_PANEL_HEIGHT;
-  let activeBottomTab: BottomTab = "blocks";
-  /** remember where block-compose originally lived */
-  let blockComposeOriginalParent: HTMLElement | null = sidebarBlocksBody;
 
   const tabButtons = bottomPanelTabs ?? [];
-  const terminalActions = document.querySelectorAll<HTMLElement>("[data-terminal-action]");
 
   // --- Persistence ---
 
@@ -64,8 +58,7 @@ export const initBottomPanelUi = (
     try {
       const sv = localStorage.getItem(STORAGE_KEY_SIDEBAR);
       if (sv !== null) sidebarVisible = sv !== "false";
-      const bv = localStorage.getItem(STORAGE_KEY_BOTTOM);
-      if (bv !== null) bottomPanelOpen = bv === "true";
+      localStorage.removeItem(STORAGE_KEY_BOTTOM_RETIRED);
       const bh = localStorage.getItem(STORAGE_KEY_BOTTOM_HEIGHT);
       if (bh !== null) {
         const parsed = parseInt(bh, 10);
@@ -79,51 +72,8 @@ export const initBottomPanelUi = (
   const saveState = () => {
     try {
       localStorage.setItem(STORAGE_KEY_SIDEBAR, String(sidebarVisible));
-      localStorage.setItem(STORAGE_KEY_BOTTOM, String(bottomPanelOpen));
       localStorage.setItem(STORAGE_KEY_BOTTOM_HEIGHT, String(panelHeight));
     } catch { /* ignore */ }
-  };
-
-  // --- DOM manipulation ---
-
-  const moveBlocksToBottom = () => {
-    if (!blockCompose || !bottomPanelBody) return;
-    if (blockCompose.parentElement === bottomPanelBody) return;
-    bottomPanelBody.appendChild(blockCompose);
-  };
-
-  const moveBlocksToSidebar = () => {
-    if (!blockCompose || !blockComposeOriginalParent) return;
-    if (blockCompose.parentElement === blockComposeOriginalParent) return;
-    blockComposeOriginalParent.appendChild(blockCompose);
-  };
-
-  // --- Tabs (Blocks / Terminal) ---
-
-  const applyActiveTab = () => {
-    if (bottomPanelBody) {
-      bottomPanelBody.dataset.pane = activeBottomTab;
-    }
-    tabButtons.forEach((button) => {
-      const tab = button.getAttribute("data-bottom-tab");
-      button.classList.toggle("is-active", tab === activeBottomTab);
-    });
-    if (bottomPanelTerminalRestart) {
-      bottomPanelTerminalRestart.classList.toggle("is-hidden", activeBottomTab !== "terminal");
-    }
-    terminalActions.forEach((button) => button.classList.toggle("is-hidden", activeBottomTab !== "terminal"));
-  };
-
-  const setActiveBottomTab = (tab: BottomTab) => {
-    activeBottomTab = tab === "terminal" ? "terminal" : "blocks";
-    applyActiveTab();
-    if (activeBottomTab === "terminal") {
-      if (bottomPanelOpen) {
-        deps.onTerminalShow?.();
-      }
-    } else {
-      deps.onTerminalHide?.();
-    }
   };
 
   // --- Apply layout ---
@@ -135,12 +85,10 @@ export const initBottomPanelUi = (
       editorSection.classList.add("has-bottom-panel");
       editorSection.style.setProperty("--bottom-panel-height", `${panelHeight}px`);
       bottomPanel.setAttribute("aria-hidden", "false");
-      moveBlocksToBottom();
     } else {
       editorSection.classList.remove("has-bottom-panel");
       editorSection.style.removeProperty("--bottom-panel-height");
       bottomPanel.setAttribute("aria-hidden", "true");
-      moveBlocksToSidebar();
     }
 
     // Toggle button state
@@ -149,7 +97,7 @@ export const initBottomPanelUi = (
       toggleBottomPanelButton.setAttribute("aria-pressed", String(bottomPanelOpen));
     }
 
-    if (bottomPanelOpen && activeBottomTab === "terminal") {
+    if (bottomPanelOpen) {
       deps.onTerminalShow?.();
     } else {
       deps.onTerminalHide?.();
@@ -191,8 +139,9 @@ export const initBottomPanelUi = (
   const openTerminal = () => {
     if (!bottomPanelOpen) {
       openBottomPanel();
+    } else {
+      deps.onTerminalShow?.();
     }
-    setActiveBottomTab("terminal");
   };
 
   const toggleSidebar = () => {
@@ -216,8 +165,8 @@ export const initBottomPanelUi = (
     let rafId: number | null = null;
 
     // Apply the latest pointer position once per animation frame. The CSS var
-    // change reflows the grid, which makes the embedded MathLive field (and the
-    // editor) re-layout — coalescing to one update per frame keeps it smooth.
+    // change reflows the grid, which makes the editor and the terminal
+    // re-layout — coalescing to one update per frame keeps it smooth.
     const applyResize = () => {
       rafId = null;
       const delta = startY - pendingClientY;
@@ -287,19 +236,11 @@ export const initBottomPanelUi = (
   document.getElementById("bottom-panel-terminal-new")?.addEventListener("click", () => deps.onTerminalCreate?.());
   document.getElementById("bottom-panel-terminal-split")?.addEventListener("click", () => deps.onTerminalSplit?.());
   tabButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      const tab: BottomTab =
-        button.getAttribute("data-bottom-tab") === "terminal" ? "terminal" : "blocks";
-      if (!bottomPanelOpen) {
-        openBottomPanel();
-      }
-      setActiveBottomTab(tab);
-    });
+    button.addEventListener("click", openTerminal);
   });
 
-  // Ctrl+` toggles the terminal, VS Code-style: opens the panel on the
-  // Terminal tab (focusing the shell), or closes the panel when the terminal
-  // is already showing. (Build shortcuts remain click-only by policy — this
+  // Ctrl+` toggles the terminal, VS Code-style: opens the panel (focusing
+  // the shell), or closes it when it is already showing. (Build shortcuts remain click-only by policy — this
   // is a panel toggle, not a build binding.)
   document.addEventListener("keydown", (event) => {
     if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
@@ -309,7 +250,7 @@ export const initBottomPanelUi = (
       return;
     }
     event.preventDefault();
-    if (bottomPanelOpen && activeBottomTab === "terminal") {
+    if (bottomPanelOpen) {
       closeBottomPanel();
     } else {
       openTerminal();
@@ -320,7 +261,6 @@ export const initBottomPanelUi = (
 
   loadState();
   applySidebar();
-  applyActiveTab();
   applyBottomPanel();
   initResizer();
 
