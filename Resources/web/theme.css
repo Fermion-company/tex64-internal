@@ -10860,7 +10860,6 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .collab-dot-more { font-size: 11px; color: var(--text-soft); }
 .collab-dialog-rows { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-top: 8px; }
 .collab-dialog-link { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
-.collab-dialog-link input { flex: 1; }
 .collab-dialog-participants { display: flex; flex-direction: column; gap: 0; margin: 8px 0 16px; }
 .collab-participant { display: flex; align-items: center; gap: 8px; }
 .collab-participant .collab-dot { box-shadow: none; }
@@ -10953,7 +10952,10 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .tool-segmented button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
 .tool-segmented button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
-/* Word count */
+/* Word count: a popover under what opened it (or the editor's top-right
+   corner), the dialog's padding and type, no backdrop. */
+.word-count-popover { position: fixed; z-index: 100; margin: 0; width: min(380px, calc(100vw - 16px)); max-height: calc(100vh - 16px); animation: word-count-in 0.16s ease-out; }
+@keyframes word-count-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 .word-count-scopes { margin: 0 0 16px; }
 .word-count-stats { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6) var(--space-7); }
 .word-count-stat { display: flex; flex-direction: column; gap: 4px; }
@@ -10963,9 +10965,20 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .word-count-name { font-size: 12px; color: var(--text-soft); }
 
 /* Collaborate */
-.collab-dialog .tool-segmented { margin-bottom: 8px; }
-.collab-link-row { display: flex; gap: 8px; }
+.collab-link-row { display: flex; align-items: center; gap: 8px; }
 .collab-link-row .tool-input { flex: 1; font-family: var(--tool-mono); font-size: 11.5px; color: var(--text-soft); }
+.collab-link-row .tool-dialog-spacer { flex: 1; }
+/* "Join with link ▾" in the start view: joining waits here so Start leads. */
+.collab-disclosure { display: inline-flex; align-items: center; gap: 2px; margin: 0; padding: 0; border: 0; background: none; color: var(--text-soft); font: inherit; font-size: 12px; cursor: pointer; }
+.collab-disclosure:hover { color: var(--text); }
+.collab-disclosure:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
+.collab-disclosure svg { transition: transform var(--duration-fast); }
+.collab-disclosure[aria-expanded="true"] { color: var(--text); }
+.collab-disclosure[aria-expanded="true"] svg { transform: rotate(180deg); }
+.collab-join-body { margin-top: 8px; }
+.collab-join-body[hidden] { display: none; }
+/* The clipboard fallback copies from a field nobody sees. */
+.collab-copy-scratch { position: fixed; left: -9999px; top: 0; width: 1px; height: 1px; opacity: 0; }
 .collab-section + .collab-section { margin-top: 16px; }
 .collab-field .tool-dialog-label { margin: 0; }
 .collab-people { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--panel-border); }

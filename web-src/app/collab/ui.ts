@@ -20,8 +20,14 @@ export const initCollabUi = () => {
   let defaultName = "";
   // The route a new session takes, from the last status call.
   let idleRoute: "lan" | "relay" = "lan";
-  // Which invite link the host is showing: the edit link or the view link.
+  // Which invite link the host copies: the edit link or the view link.
   let linkAccess: "edit" | "view" = "edit";
+  // The start view's "Join with link ▾": open while the dialog is, or when it
+  // opened on an invite link.
+  let joinOpen = false;
+  // The link just copied reads "Copied" on its button for a moment.
+  let copied: "edit" | "view" | null = null;
+  let copiedTimer: number | null = null;
 
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = "") => {
     const node = document.createElement(tag);
@@ -112,6 +118,22 @@ export const initCollabUi = () => {
     return input;
   };
   const initialOf = (name: string) => (Array.from(name.trim())[0] || "?").toUpperCase();
+  // The clipboard API, else a copy from a field that is never shown.
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      const scratch = el("textarea", "collab-copy-scratch") as HTMLTextAreaElement;
+      scratch.value = text;
+      scratch.setAttribute("aria-hidden", "true");
+      dialog?.append(scratch);
+      scratch.select();
+      const copied = document.execCommand("copy");
+      scratch.remove();
+      return copied;
+    }
+  };
 
   // `resetFocus`: the dialog is opening, or an action (start, join, leave)
   // has just finished, so focus starts over.
@@ -158,8 +180,16 @@ export const initCollabUi = () => {
       const startRow = el("div", "collab-start-row has-explain");
       startRow.append(start, startExplain.button);
       const joinSection = el("div", "collab-section collab-join");
-      joinSection.append(el("p", "tool-dialog-label", uiText("Invite link", "招待リンク")));
+      // Joining waits behind ▾ so that Start is the one obvious action.
+      const joinToggle = el("button", "collab-disclosure", uiText("Join with link", "リンクで参加"));
+      joinToggle.type = "button";
+      joinToggle.dataset.focusKey = "join-toggle";
+      joinToggle.insertAdjacentHTML("beforeend", '<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+      const joinBody = el("div", "collab-join-body");
+      joinBody.id = "collab-join-body";
+      joinToggle.setAttribute("aria-controls", joinBody.id);
       const linkField = field("collab-join-input", uiText("Invite link", "招待リンク"));
+      linkField.placeholder = uiText("Invite link", "招待リンク");
       linkField.value = pendingLink;
       linkField.dataset.noI18n = "true";
       linkField.dataset.focusKey = "join-link";
@@ -167,17 +197,31 @@ export const initCollabUi = () => {
       join.dataset.focusKey = "join";
       const row = el("div", "collab-link-row");
       row.append(linkField, join);
-      joinSection.append(row);
+      joinBody.append(row);
+      joinSection.append(joinToggle, joinBody);
       const startSection = el("div", "collab-section collab-start");
       startSection.append(startRow, startExplain.panel);
+      // A pasted link makes Join the action and puts Start away; closing the ▾
+      // brings Start back.
       const syncPrimary = () => {
-        const hasLink = linkField.value.trim().length > 0;
+        const hasLink = joinOpen && linkField.value.trim().length > 0;
         join.classList.toggle("is-primary", hasLink);
         start.classList.toggle("is-primary", !hasLink);
         startSection.hidden = hasLink;
       };
+      const syncJoin = () => {
+        joinToggle.setAttribute("aria-expanded", String(joinOpen));
+        joinBody.hidden = !joinOpen;
+        syncPrimary();
+      };
+      joinToggle.addEventListener("click", () => {
+        joinOpen = !joinOpen;
+        syncJoin();
+        if (joinOpen) linkField.focus();
+      });
+      if (pendingLink) joinOpen = true;
       linkField.addEventListener("input", () => { pendingLink = linkField.value; syncPrimary(); });
-      syncPrimary();
+      syncJoin();
       content.append(nameRow, startSection, joinSection);
       firstFocus = pendingLink ? linkField : nameField;
     } else {
@@ -186,17 +230,29 @@ export const initCollabUi = () => {
         const inviteHeading = el("p", "tool-dialog-label", uiText("Invite link", "招待リンク"));
         if (state.route === "relay") invite.append(inviteHeading);
         else invite.append(...explainedHeading(inviteHeading, uiText("Only people on the same LAN / VPN can join.", "同じ LAN / VPN の人だけが参加できます。"), { memory: explainOpen, key: "invite" }));
+        const row = el("div", "collab-link-row collab-dialog-link");
+        // The link itself is not shown (it carries the address and a token);
+        // Copy puts the chosen one on the clipboard and says so for a moment.
         const linkFor = () => (linkAccess === "view" && state.viewInviteLink ? state.viewInviteLink : state.inviteLink || "");
-        const link = field("", uiText("Invite link", "招待リンク"));
-        link.readOnly = true;
-        link.value = linkFor();
-        link.dataset.noI18n = "true";
-        link.dataset.focusKey = "invite-link";
-        const copy = button(uiText("Copy", "コピー"), () => {
-          void navigator.clipboard?.writeText(linkFor()).then(
-            () => { copy.textContent = uiText("Copied", "コピー済み"); },
-            () => { link.select(); },
-          );
+        const copyLabel = () => (copied === linkAccess ? uiText("Link copied", "コピーしました") : uiText("Copy", "コピー"));
+        const copy = button(copyLabel(), () => {
+          const access = linkAccess;
+          void copyText(linkFor()).then((done) => {
+            if (!done) {
+              errorText = uiText("Could not copy the link.", "リンクをコピーできませんでした。");
+              renderDialog();
+              return;
+            }
+            copied = access;
+            copy.textContent = copyLabel();
+            if (copiedTimer !== null) window.clearTimeout(copiedTimer);
+            copiedTimer = window.setTimeout(() => {
+              copiedTimer = null;
+              copied = null;
+              const current = dialog?.querySelector<HTMLElement>('[data-focus-key="copy"]');
+              if (current) current.textContent = uiText("Copy", "コピー");
+            }, 1600);
+          });
         }, true);
         copy.dataset.focusKey = "copy";
         if (state.viewInviteLink) {
@@ -213,15 +269,13 @@ export const initCollabUi = () => {
             option.addEventListener("click", () => {
               linkAccess = value;
               for (const other of access.querySelectorAll("button")) other.setAttribute("aria-pressed", String(other === option));
-              link.value = linkFor();
-              copy.textContent = uiText("Copy", "コピー");
+              copy.textContent = copyLabel();
             });
             access.append(option);
           }
-          invite.append(access);
+          row.append(access);
         }
-        const row = el("div", "collab-link-row collab-dialog-link");
-        row.append(link, copy);
+        row.append(el("span", "tool-dialog-spacer"), copy);
         invite.append(row);
         content.append(invite);
       }
@@ -320,6 +374,10 @@ export const initCollabUi = () => {
         dialog?.remove();
         dialog = null;
         explainOpen.clear();
+        joinOpen = false;
+        copied = null;
+        if (copiedTimer !== null) window.clearTimeout(copiedTimer);
+        copiedTimer = null;
       });
       document.body.append(dialog);
       try {

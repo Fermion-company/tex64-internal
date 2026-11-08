@@ -1,8 +1,10 @@
-// File › Word Count…: one dialog with the counts of the document the active
-// file belongs to (main file and every file it reads), of the active file
-// when that is only part of it, and of the selection. Counting happens in
-// the main process (electron/services/word-count.cjs) on the saved files,
-// with the unsaved editor buffers sent along.
+// File › Word Count…: a small popover with the counts of the document the
+// active file belongs to (main file and every file it reads), of the active
+// file when that is only part of it, and of the selection. It hangs from what
+// opened it, or from the top-right of the editor for a menu or command; no
+// backdrop, and Esc or a click outside closes it. Counting happens in the main
+// process (electron/services/word-count.cjs) on the saved files, with the
+// unsaved editor buffers sent along.
 var _a;
 import { getUiLocale, uiText } from "./i18n.js";
 import { explainedHeading } from "./explain.js";
@@ -10,7 +12,9 @@ import { markFocus, restoreFocus } from "./focus-key.js";
 const bridge = (_a = window.tex64WordCount) !== null && _a !== void 0 ? _a : null;
 export const initWordCountUi = (deps) => {
     let dialog = null;
-    // Changing the scope rebuilds the dialog; the title's ▾ stays as the user left it.
+    let anchor = null;
+    let returnFocus = null;
+    // Changing the scope rebuilds the popover; the title's ▾ stays as the user left it.
     const explainOpen = new Set();
     const el = (tag, className = "", text = "") => {
         const node = document.createElement(tag);
@@ -99,23 +103,66 @@ export const initWordCountUi = (deps) => {
             }
             titleExplain = uiText("Spaces, comments, math and commands are not counted.", "空白・コメント・数式・コマンドは数えません。");
         }
-        const actions = el("div", "tool-dialog-actions");
-        const close = el("button", "tool-button", uiText("Close", "閉じる"));
-        close.type = "button";
-        close.addEventListener("click", () => dialog === null || dialog === void 0 ? void 0 : dialog.close());
-        close.dataset.focusKey = "close";
-        actions.append(close);
-        // Changing the scope rebuilds the dialog: focus stays on the control the
-        // user was on. On opening the dialog itself holds focus (Esc closes it),
-        // so no ring is drawn on Close before the user has done anything.
+        // Changing the scope rebuilds the popover: focus stays on the control the
+        // user was on. On opening the popover itself holds focus (Esc closes it),
+        // so no ring is drawn before the user has done anything.
         const focusMark = markFocus(dialog);
-        dialog.replaceChildren(...(titleExplain ? explainedHeading(title, titleExplain, { memory: explainOpen, key: "title" }) : [title]), body, actions);
+        dialog.replaceChildren(...(titleExplain ? explainedHeading(title, titleExplain, { memory: explainOpen, key: "title" }) : [title]), body);
         if (!restoreFocus(dialog, focusMark)) {
             dialog.tabIndex = -1;
-            dialog.focus();
+            dialog.focus({ preventScroll: true });
         }
+        place();
     };
-    const open = async () => {
+    // Below the control that opened it, right edges aligned; else the top-right
+    // corner of the editor. Always inside the window.
+    const place = () => {
+        var _a;
+        if (!dialog)
+            return;
+        const margin = 8;
+        const width = dialog.offsetWidth;
+        const height = dialog.offsetHeight;
+        const editor = (_a = document.querySelector(".editor-group.is-active .editor-surface")) !== null && _a !== void 0 ? _a : document.getElementById("editor-groups");
+        const from = (anchor === null || anchor === void 0 ? void 0 : anchor.isConnected) ? anchor.getBoundingClientRect() : null;
+        const area = editor === null || editor === void 0 ? void 0 : editor.getBoundingClientRect();
+        let right = from ? from.right : area && area.width ? area.right - margin : window.innerWidth - margin;
+        let top = from ? from.bottom + 6 : area && area.height ? area.top + margin : margin;
+        right = Math.min(Math.max(right, width + margin), window.innerWidth - margin);
+        top = Math.min(Math.max(top, margin), Math.max(margin, window.innerHeight - height - margin));
+        dialog.style.left = `${Math.round(right - width)}px`;
+        dialog.style.top = `${Math.round(top)}px`;
+    };
+    // Esc hands focus back to where it was; a click outside leaves it where it lands.
+    const close = (restore = false) => {
+        if (!dialog)
+            return;
+        dialog.remove();
+        dialog = null;
+        anchor = null;
+        explainOpen.clear();
+        document.removeEventListener("pointerdown", onPointerDown, true);
+        document.removeEventListener("keydown", onKeyDown, true);
+        window.removeEventListener("resize", place);
+        const target = returnFocus;
+        returnFocus = null;
+        if (restore && (target === null || target === void 0 ? void 0 : target.isConnected))
+            target.focus({ preventScroll: true });
+    };
+    const onPointerDown = (event) => {
+        const target = event.target;
+        if (dialog && target && !dialog.contains(target) && !(anchor === null || anchor === void 0 ? void 0 : anchor.contains(target)))
+            close();
+    };
+    const onKeyDown = (event) => {
+        if (event.key !== "Escape" || !dialog)
+            return;
+        event.preventDefault();
+        event.stopPropagation();
+        close(true);
+    };
+    // `from`: the control that opened the popover, when there is one.
+    const open = async (from = null) => {
         var _a, _b;
         if (!bridge)
             return;
@@ -127,15 +174,15 @@ export const initWordCountUi = (deps) => {
             if (!snapshot.truncated)
                 buffers[snapshot.path] = snapshot.content;
         }
+        anchor = from;
         if (!dialog) {
-            dialog = el("dialog", "tool-dialog word-count-dialog");
-            dialog.addEventListener("close", () => {
-                dialog === null || dialog === void 0 ? void 0 : dialog.remove();
-                dialog = null;
-                explainOpen.clear();
-            });
+            returnFocus = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+            dialog = el("div", "tool-dialog word-count-dialog word-count-popover");
+            dialog.setAttribute("role", "dialog");
             document.body.append(dialog);
-            dialog.showModal();
+            document.addEventListener("pointerdown", onPointerDown, true);
+            document.addEventListener("keydown", onKeyDown, true);
+            window.addEventListener("resize", place);
         }
         scope = "document";
         render(null, activePath);

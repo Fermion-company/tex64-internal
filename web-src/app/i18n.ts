@@ -910,6 +910,10 @@ const EN_TO_JA: Record<string, string> = {
   "Format Document": "ドキュメントを整形",
   "Format Selection": "選択範囲を整形",
   "Text Style": "書式",
+  // Collaborate: the invite link is copied, not shown; joining waits behind ▾.
+  "Join with link": "リンクで参加",
+  "Link copied": "コピーしました",
+  "Could not copy the link.": "リンクをコピーできませんでした。",
 };
 
 const TRANSLATABLE_ATTRIBUTES = ["title", "aria-label", "placeholder", "alt"] as const;
@@ -1819,6 +1823,10 @@ const EN_TO_ZH: Record<string, string> = {
   "Format Document": "格式化文档",
   "Format Selection": "格式化所选内容",
   "Text Style": "文本样式",
+  // Collaborate: the invite link is copied, not shown; joining waits behind ▾.
+  "Join with link": "通过链接加入",
+  "Link copied": "已复制链接",
+  "Could not copy the link.": "无法复制链接。",
 };
 
 const EN_TO_KO: Record<string, string> = {
@@ -2673,6 +2681,10 @@ const EN_TO_KO: Record<string, string> = {
   "Format Document": "문서 서식",
   "Format Selection": "선택 영역 서식",
   "Text Style": "텍스트 스타일",
+  // Collaborate: the invite link is copied, not shown; joining waits behind ▾.
+  "Join with link": "링크로 참가",
+  "Link copied": "링크를 복사했습니다",
+  "Could not copy the link.": "링크를 복사할 수 없습니다.",
 };
 
 const EN_TO_FR: Record<string, string> = {
@@ -3527,6 +3539,10 @@ const EN_TO_FR: Record<string, string> = {
   "Format Document": "Mettre en forme le document",
   "Format Selection": "Mettre en forme la sélection",
   "Text Style": "Style du texte",
+  // Collaborate: the invite link is copied, not shown; joining waits behind ▾.
+  "Join with link": "Rejoindre avec un lien",
+  "Link copied": "Lien copié",
+  "Could not copy the link.": "Impossible de copier le lien.",
 };
 
 const EN_TO_DE: Record<string, string> = {
@@ -4381,6 +4397,10 @@ const EN_TO_DE: Record<string, string> = {
   "Format Document": "Dokument formatieren",
   "Format Selection": "Auswahl formatieren",
   "Text Style": "Textstil",
+  // Collaborate: the invite link is copied, not shown; joining waits behind ▾.
+  "Join with link": "Über Link beitreten",
+  "Link copied": "Link kopiert",
+  "Could not copy the link.": "Der Link konnte nicht kopiert werden.",
 };
 
 const EN_TO_ES: Record<string, string> = {
@@ -5235,6 +5255,10 @@ const EN_TO_ES: Record<string, string> = {
   "Format Document": "Dar formato al documento",
   "Format Selection": "Dar formato a la selección",
   "Text Style": "Estilo de texto",
+  // Collaborate: the invite link is copied, not shown; joining waits behind ▾.
+  "Join with link": "Unirse con un enlace",
+  "Link copied": "Enlace copiado",
+  "Could not copy the link.": "No se pudo copiar el enlace.",
 };
 
 const TRANSLATIONS_BY_LOCALE: Record<Exclude<UiLocale, "en">, Record<string, string>> = {
