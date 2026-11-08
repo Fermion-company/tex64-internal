@@ -500,12 +500,18 @@ body.has-onboarding .launcher {
   padding: 32px;
   align-items: flex-start;
 }
-/* No recent projects yet (the list is emptied on every render): a narrower
-   pair so the short empty line does not leave the actions off to the left.
-   The empty-state line itself is always in the DOM, so it cannot be the test. */
+/* No recent projects yet (the list is emptied on every render): there is
+   nothing to show on the right, so the column goes and the brand and the two
+   actions stand alone in the middle. */
 .launcher-container:has(.launcher-recent-list:empty) {
-  max-width: 640px;
-  gap: var(--space-8);
+  max-width: calc(240px + 64px);
+  justify-content: center;
+}
+.launcher-container:has(.launcher-recent-list:empty) .launcher-right {
+  display: none;
+}
+.launcher-container:has(.launcher-recent-list:empty) .launcher-brand {
+  justify-content: center;
 }
 
 /* Left column - brand and actions */
@@ -664,11 +670,14 @@ html[lang="ja"] .launcher-action {
 
 
 /* Recent Projects Section */
+/* The right column mirrors the left one: the header row is as tall as the
+   brand row and the same 32px gap follows, so the first recent project lines
+   up with 「フォルダを開く」. Header text starts where the item names start. */
 .launcher-recent {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 32px;
   min-height: 0;
 }
 
@@ -676,6 +685,8 @@ html[lang="ja"] .launcher-action {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 48px;
+  padding: 0 12px;
 }
 
 .launcher-recent-title {
