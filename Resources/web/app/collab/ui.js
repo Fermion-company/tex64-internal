@@ -165,8 +165,12 @@ export const initCollabUi = () => {
             const startExplain = createExplain(idleRoute === "relay"
                 ? uiText("People can join over the internet. Everything is encrypted between the computers; the relay in between cannot read it.", "インターネット越しに参加できます。内容は参加者の間で暗号化され、間の中継サーバーには読めません。")
                 : uiText("Starting a session opens a port on this computer; macOS may ask to allow incoming connections. Only people on the same network (LAN / VPN) can join.", "セッションを開始するとこのMacがポートを開きます。macOSが接続の許可を確認することがあります。参加できるのは同じネットワーク（LAN / VPN）にいる人だけです。"), { topic: uiText("starting a session", "セッションの開始"), memory: explainOpen, key: "start" });
-            const startRow = el("div", "collab-start-row has-explain");
-            startRow.append(start, startExplain.button);
+            // The ▾ explains the dialog, so it sits by the title like every other
+            // dialog's; beside Start it read as a split button with a menu.
+            title.classList.add("has-explain");
+            title.append(startExplain.button);
+            const startRow = el("div", "collab-start-row");
+            startRow.append(start);
             const joinSection = el("div", "collab-section collab-join");
             // Joining waits behind ▾ so that Start is the one obvious action.
             const joinToggle = el("button", "collab-disclosure", uiText("Join with link", "リンクで参加"));
@@ -188,7 +192,8 @@ export const initCollabUi = () => {
             joinBody.append(row);
             joinSection.append(joinToggle, joinBody);
             const startSection = el("div", "collab-section collab-start");
-            startSection.append(startRow, startExplain.panel);
+            startSection.append(startRow);
+            content.append(startExplain.panel);
             // A pasted link makes Join the action and puts Start away; closing the ▾
             // brings Start back.
             const syncPrimary = () => {

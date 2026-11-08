@@ -19,6 +19,8 @@
 
 :root {
   color-scheme: dark;
+  /* The ▾ of every select: the explain toggle's chevron, in --text-soft. */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23A9A79F' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   
   /* Deep Space Theme - Softened Contrast */
   --bg: #141413; /* Slightly lighter than pure black */
@@ -121,6 +123,7 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%235E5D59' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
   --bg: #FAF9F5;
   --bg-accent: #F3F2EC;
@@ -1435,7 +1438,7 @@ html[lang="ja"] .launcher-action {
 
 .panel-button.ghost {
   background: transparent;
-  color: var(--muted);
+  color: var(--text-soft);
 }
 
 .panel-button.danger {
@@ -2929,12 +2932,19 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .settings-page .panel-button {
   padding: calc(var(--space-2) + 0.5px) var(--space-5) calc(var(--space-2) - 0.5px);
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
   height: 32px;
   border: 1px solid var(--panel-border-strong);
   background: transparent;
+  /* Full text colour: a grey label read as disabled (「再検出」). */
+  color: var(--text);
   transition: background var(--duration-normal) ease, border-color var(--duration-normal) ease;
+}
+
+.settings-page .panel-button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 html[lang="ja"] .settings-page .panel-button {
@@ -11004,7 +11014,7 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .collab-link-row .tool-input { flex: 1; font-family: var(--tool-mono); font-size: 11.5px; color: var(--text-soft); }
 .collab-link-row .tool-dialog-spacer { flex: 1; }
 /* "Join with link ▾" in the start view: joining waits here so Start leads. */
-.collab-disclosure { display: inline-flex; align-items: center; gap: 2px; margin: 0; padding: 0; border: 0; background: none; color: var(--text-soft); font: inherit; font-size: 12px; cursor: pointer; }
+.collab-disclosure { display: inline-flex; align-items: center; gap: 4px; margin: 0; padding: 0; border: 0; background: none; color: var(--text-soft); font: inherit; font-size: 12px; cursor: pointer; }
 .collab-disclosure:hover { color: var(--text); }
 .collab-disclosure:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
 .collab-disclosure svg { transition: transform var(--duration-fast); }
@@ -11168,3 +11178,39 @@ button.axiom-try-tab:focus-visible { outline: 2px solid var(--accent-strong); ou
    Code, the editor, the terminal, fields and the PDF text keep their own spacing. */
 body { text-autospace: normal; }
 .monaco-editor, .xterm, code, pre, kbd, samp, input, textarea, .textLayer, [contenteditable="true"] { text-autospace: no-autospace; }
+
+/* One pop-up button for every select: the OS control drew its own heavy ⌄
+   against the right edge, so each dialog's selects looked unstyled. Same
+   height, padding, border and chevron as the settings selects everywhere. */
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select) {
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 32px 0 12px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--input-bg);
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 12px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 30px;
+  text-overflow: ellipsis;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select):hover:not(:disabled) {
+  border-color: var(--input-border-strong, var(--panel-border-strong));
+}
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select):focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select):disabled {
+  opacity: 0.55;
+  cursor: default;
+}
