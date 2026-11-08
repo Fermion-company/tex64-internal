@@ -1153,6 +1153,11 @@ export const initMain = () => {
   });
   updateIssues = workspaceController.updateIssues;
   setPendingBuildIssuesFocus = workspaceController.setPendingBuildIssuesFocus;
+  // The count beside Build is the way to the Problems panel (no rail icon).
+  appContext.dom.buildIssueCount?.addEventListener("click", () => {
+    if (!bottomPanelUi.isSidebarVisible()) bottomPanelUi.toggleSidebar();
+    setActiveTab("issues");
+  });
 
   const storedActiveTab = (() => {
     try {

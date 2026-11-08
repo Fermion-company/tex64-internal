@@ -1,6 +1,5 @@
 export const getDomRefs = () => ({
   tabs: Array.from(document.querySelectorAll<HTMLButtonElement>(".tab[data-tab]")),
-  issuesTab: document.getElementById("issues-tab"),
   settingsTab: document.getElementById("settings-tab"),
   editorGroups: document.getElementById("editor-groups"),
   editorSplitter: document.getElementById("editor-splitter"),
@@ -22,6 +21,7 @@ export const getDomRefs = () => ({
   saveButton: document.getElementById("save-button"),
   formatButton: document.getElementById("format-button"),
   buildButton: document.getElementById("build-button"),
+  buildIssueCount: document.getElementById("build-issue-count"),
   synctexButton: document.getElementById("synctex-button"),
   updateButton: document.getElementById("update-button"),
   issuesList: document.getElementById("issues-list"),

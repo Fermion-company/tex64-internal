@@ -1,6 +1,6 @@
-import { getUiLocale } from "./i18n.js";
+import { getUiLocale, setLocalizedAttribute, uiText } from "./i18n.js";
 export const initWorkspaceController = (context, deps) => {
-    const { issuesTab, workspaceLabel, settingsWorkspace, } = context.dom;
+    const { buildIssueCount, workspaceLabel, settingsWorkspace, } = context.dom;
     let currentIssues = [];
     let baseIssues = [];
     let duplicateLabelIssues = [];
@@ -29,10 +29,28 @@ export const initWorkspaceController = (context, deps) => {
         workspaceName = label;
         syncWorkspaceLabel();
     };
-    const setIssuesStatus = (status) => {
-        if (issuesTab instanceof HTMLElement) {
-            issuesTab.dataset.status = status;
+    // Beside Build: the number of errors in the danger colour, or of warnings
+    // in the warning colour when there are only warnings; nothing when clean.
+    // It counts what the Problems panel lists, since it is the way there.
+    const renderIssueCount = (issues) => {
+        if (!(buildIssueCount instanceof HTMLButtonElement)) {
+            return;
         }
+        const errors = issues.filter((issue) => issue.severity === "error").length;
+        const warnings = issues.length - errors;
+        const severity = errors > 0 ? "error" : warnings > 0 ? "warning" : null;
+        buildIssueCount.hidden = severity === null;
+        if (!severity) {
+            return;
+        }
+        const count = severity === "error" ? errors : warnings;
+        buildIssueCount.dataset.severity = severity;
+        const value = buildIssueCount.querySelector(".build-issue-value");
+        if (value)
+            value.textContent = String(count);
+        const label = `${severity === "error" ? uiText("Errors", "エラー") : uiText("Warnings", "警告")} ${count}`;
+        setLocalizedAttribute(buildIssueCount, "aria-label", label);
+        setLocalizedAttribute(buildIssueCount, "title", label);
     };
     const getIssueLocationRank = (issue) => {
         const hasPath = typeof issue.path === "string" && issue.path.trim().length > 0;
@@ -152,12 +170,9 @@ export const initWorkspaceController = (context, deps) => {
         const hasError = sorted.some((issue) => issue.severity === "error");
         const status = hasError ? "error" : sorted.length > 0 ? "info" : "success";
         currentIssues = sorted;
-        setIssuesStatus(status);
+        renderIssueCount(sorted);
         deps.issuesUi.render(sorted);
         deps.editorSession.syncIssueMarkers(sorted);
-        if (issuesTab instanceof HTMLElement) {
-            issuesTab.classList.toggle("is-alert", hasError);
-        }
         if (sorted.length === 0) {
             deps.editorSession.clearIssueHighlight();
         }

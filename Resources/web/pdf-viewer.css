@@ -341,33 +341,13 @@ body.is-embedded .pdf-fit-control span {
   font-variant-numeric: tabular-nums;
 }
 
-.pdf-status.is-busy {
-  padding: 4px 8px;
-  border-radius: 999px;
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-}
-
-.pdf-status.is-busy::before {
-  content: "";
-  width: 9px;
-  height: 9px;
-  border: 1.5px solid currentColor;
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: pdf-status-spin .7s linear infinite;
-}
-
 .pdf-status.is-error {
   color: var(--danger-text);
 }
 
-@keyframes pdf-status-spin {
-  to { transform: rotate(360deg); }
-}
-
-/* The embedded viewer normally hides secondary chrome, but Live progress is
-   primary feedback: retain it while the exact surface is updating. */
+/* The embedded viewer normally hides secondary chrome. Live and a stale
+   paper keep the status slot for their words (an error, a search count,
+   「ビルドし直してください」); progress itself shows in the Build button. */
 body.is-embedded .pdf-toolbar-status {
   display: none;
 }

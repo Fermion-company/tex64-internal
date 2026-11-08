@@ -891,6 +891,8 @@ const EN_TO_JA = {
     "Restart terminal": "ターミナルを再起動",
     "Draw a figure": "図を描く",
     "Downloading…": "ダウンロード中…",
+    "Errors": "エラー",
+    "Warnings": "警告",
 };
 const TRANSLATABLE_ATTRIBUTES = ["title", "aria-label", "placeholder", "alt"];
 // English is the source language and the product default (initI18n resolves to
@@ -1774,6 +1776,8 @@ const EN_TO_ZH = {
     "Monospace": "等宽",
     "Draw a figure": "绘制图形",
     "Downloading…": "正在下载…",
+    "Errors": "错误",
+    "Warnings": "警告",
 };
 const EN_TO_KO = {
     // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
@@ -2612,6 +2616,8 @@ const EN_TO_KO = {
     "Monospace": "고정폭",
     "Draw a figure": "그림 그리기",
     "Downloading…": "다운로드 중…",
+    "Errors": "오류",
+    "Warnings": "경고",
 };
 const EN_TO_FR = {
     // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
@@ -3450,6 +3456,8 @@ const EN_TO_FR = {
     "Monospace": "Chasse fixe",
     "Draw a figure": "Dessiner une figure",
     "Downloading…": "Téléchargement…",
+    "Errors": "Erreurs",
+    "Warnings": "Avertissements",
 };
 const EN_TO_DE = {
     // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
@@ -4288,6 +4296,8 @@ const EN_TO_DE = {
     "Monospace": "Festbreite",
     "Draw a figure": "Abbildung zeichnen",
     "Downloading…": "Wird geladen…",
+    "Errors": "Fehler",
+    "Warnings": "Warnungen",
 };
 const EN_TO_ES = {
     // The ▾ beside a heading or control (explain.ts); {topic} is what it explains.
@@ -5126,6 +5136,8 @@ const EN_TO_ES = {
     "Monospace": "Monoespaciado",
     "Draw a figure": "Dibujar una figura",
     "Downloading…": "Descargando…",
+    "Errors": "Errores",
+    "Warnings": "Advertencias",
 };
 const TRANSLATIONS_BY_LOCALE = {
     ja: EN_TO_JA,

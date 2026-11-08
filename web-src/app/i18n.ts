@@ -899,6 +899,8 @@ const EN_TO_JA: Record<string, string> = {
   "Restart terminal": "ターミナルを再起動",
   "Draw a figure": "図を描く",
   "Downloading…": "ダウンロード中…",
+  "Errors": "エラー",
+  "Warnings": "警告",
 };
 
 const TRANSLATABLE_ATTRIBUTES = ["title", "aria-label", "placeholder", "alt"] as const;
@@ -1795,6 +1797,8 @@ const EN_TO_ZH: Record<string, string> = {
   "Monospace": "等宽",
   "Draw a figure": "绘制图形",
   "Downloading…": "正在下载…",
+  "Errors": "错误",
+  "Warnings": "警告",
 };
 
 const EN_TO_KO: Record<string, string> = {
@@ -2636,6 +2640,8 @@ const EN_TO_KO: Record<string, string> = {
   "Monospace": "고정폭",
   "Draw a figure": "그림 그리기",
   "Downloading…": "다운로드 중…",
+  "Errors": "오류",
+  "Warnings": "경고",
 };
 
 const EN_TO_FR: Record<string, string> = {
@@ -3477,6 +3483,8 @@ const EN_TO_FR: Record<string, string> = {
   "Monospace": "Chasse fixe",
   "Draw a figure": "Dessiner une figure",
   "Downloading…": "Téléchargement…",
+  "Errors": "Erreurs",
+  "Warnings": "Avertissements",
 };
 
 const EN_TO_DE: Record<string, string> = {
@@ -4318,6 +4326,8 @@ const EN_TO_DE: Record<string, string> = {
   "Monospace": "Festbreite",
   "Draw a figure": "Abbildung zeichnen",
   "Downloading…": "Wird geladen…",
+  "Errors": "Fehler",
+  "Warnings": "Warnungen",
 };
 
 const EN_TO_ES: Record<string, string> = {
@@ -5159,6 +5169,8 @@ const EN_TO_ES: Record<string, string> = {
   "Monospace": "Monoespaciado",
   "Draw a figure": "Dibujar una figura",
   "Downloading…": "Descargando…",
+  "Errors": "Errores",
+  "Warnings": "Advertencias",
 };
 
 const TRANSLATIONS_BY_LOCALE: Record<Exclude<UiLocale, "en">, Record<string, string>> = {

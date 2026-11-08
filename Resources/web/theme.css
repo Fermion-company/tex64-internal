@@ -1084,6 +1084,7 @@ html[lang="ja"] .launcher-action {
 :root[data-app-mode="ai"] #format-button,
 :root[data-app-mode="ai"] #synctex-button,
 :root[data-app-mode="ai"] #build-button,
+:root[data-app-mode="ai"] #build-issue-count,
 :root[data-app-mode="ai"] #pro-canvas-open {
   display: none !important;
 }
@@ -4142,18 +4143,6 @@ html[lang="ja"] .settings-page .panel-button {
   background: var(--accent-soft);
 }
 
-.tab.is-alert::after {
-  content: "";
-  position: absolute;
-  top: 7px;
-  right: 7px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--danger);
-  pointer-events: none;
-}
-
 .tab:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
@@ -4522,6 +4511,74 @@ html[lang="ja"] .settings-page .panel-button {
 .editor-tab:hover {
   color: var(--text);
   border-color: var(--panel-border-strong);
+}
+
+/* The last build's problems, beside Build: errors in the danger colour,
+   warnings alone in the warning colour, nothing when clean. The shape (disc
+   or triangle) carries the difference too. Opens the Problems panel. */
+.build-issue-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  margin: 0 0 0 8px;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.build-issue-count[hidden] {
+  display: none;
+}
+
+.build-issue-count[data-severity="error"] {
+  color: var(--danger-text);
+}
+
+.build-issue-count[data-severity="warning"] {
+  color: var(--warning-text);
+}
+
+.build-issue-count:hover {
+  background: var(--control-bg);
+}
+
+.build-issue-count:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.build-issue-icon {
+  display: none;
+  flex: 0 0 auto;
+  fill: currentColor;
+}
+
+.build-issue-count[data-severity="error"] .build-issue-icon.is-error,
+.build-issue-count[data-severity="warning"] .build-issue-icon.is-warning {
+  display: block;
+}
+
+.build-issue-glyph {
+  fill: none;
+  stroke: var(--panel);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.build-issue-dot {
+  fill: var(--panel);
+}
+
+/* With a count shown, it takes the gap before Build. */
+.build-issue-count:not([hidden]) + #build-button {
+  margin-left: 2px;
 }
 
 #build-button {

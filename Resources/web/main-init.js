@@ -67,7 +67,7 @@ import { prepareRendererForQuit } from "./app/quit-preparation.js";
 import { setupSaveStatusUi } from "./app/save-status-ui.js";
 export const initMain = () => {
     window.addEventListener("DOMContentLoaded", () => {
-        var _a, _b, _c, _d, _e, _f, _g, _h;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
         initAppearanceTheme();
         initI18n();
         requestAnimationFrame(() => {
@@ -1047,6 +1047,12 @@ export const initMain = () => {
         });
         updateIssues = workspaceController.updateIssues;
         setPendingBuildIssuesFocus = workspaceController.setPendingBuildIssuesFocus;
+        // The count beside Build is the way to the Problems panel (no rail icon).
+        (_h = appContext.dom.buildIssueCount) === null || _h === void 0 ? void 0 : _h.addEventListener("click", () => {
+            if (!bottomPanelUi.isSidebarVisible())
+                bottomPanelUi.toggleSidebar();
+            setActiveTab("issues");
+        });
         const storedActiveTab = (() => {
             var _a;
             try {
@@ -1056,7 +1062,7 @@ export const initMain = () => {
                 return undefined;
             }
         })();
-        const initialTab = tabController.normalizeTabKey(storedActiveTab !== null && storedActiveTab !== void 0 ? storedActiveTab : (_h = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _h === void 0 ? void 0 : _h.dataset.tab);
+        const initialTab = tabController.normalizeTabKey(storedActiveTab !== null && storedActiveTab !== void 0 ? storedActiveTab : (_j = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _j === void 0 ? void 0 : _j.dataset.tab);
         setActiveTab(initialTab);
         sidebarUi.loadVisibility();
         sidebarUi.applyVisibility();

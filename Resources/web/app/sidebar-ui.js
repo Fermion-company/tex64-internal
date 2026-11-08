@@ -7,7 +7,6 @@ export const initSidebarVisibility = (context, deps) => {
         "outline",
         "blocks",
         "ai",
-        "issues",
         "history",
         "git",
         "project",

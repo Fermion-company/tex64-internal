@@ -366,15 +366,15 @@ const initPdfViewer = () => {
     state,
   };
 
+  // Progress lives in the Build button only: a busy paper shows nothing here.
+  // Words appear for a stale paper, a search count and failures.
   const setStatusDirect = (text, tone = "idle") => {
     if (!statusEl) return;
     statusEl.textContent = text;
-    statusEl.classList.toggle("is-busy", tone === "busy");
     statusEl.classList.toggle("is-error", tone === "error");
   };
   const setStatus = (text, tone = "idle") => {
     if (buildPreviewState === "building") {
-      // A manual Build shows the spinner alone.
       setStatusDirect("", "busy");
       return;
     }
@@ -436,6 +436,9 @@ const initPdfViewer = () => {
     zoomLabel.textContent = `${Math.round(value * 100)}%`;
   };
 
+  // The last complete page count shown. While a rebuilt paper is still
+  // arriving its count is partial; the previous one stays instead of "—".
+  let lastPageCount = 0;
   const updatePageCount = () => {
     if (pageInput) {
       pageInput.max = String(state.pageCount || 1);
@@ -443,6 +446,7 @@ const initPdfViewer = () => {
     if (pageCountEl) {
       pageCountEl.textContent = `/ ${state.pageCount || 0}`;
     }
+    if (state.pageCount > 0) lastPageCount = state.pageCount;
   };
 
   const clampScale = (value) => clampZoomScale(value, MIN_SCALE, MAX_SCALE);
@@ -2001,9 +2005,13 @@ const initPdfViewer = () => {
   };
   const renderLiveToolbar = () => {
     if (pageCountEl) {
-      pageCountEl.textContent = liveToolbar.pageCountAuthoritative
-        ? `/ ${liveToolbar.pageCount}`
-        : "/ —";
+      if (liveToolbar.pageCountAuthoritative) {
+        pageCountEl.textContent = `/ ${liveToolbar.pageCount}`;
+        if (liveToolbar.pageCount > 0) lastPageCount = liveToolbar.pageCount;
+      } else {
+        const kept = Math.max(lastPageCount, liveToolbar.pageCount);
+        pageCountEl.textContent = kept > 0 ? `/ ${kept}` : "/ —";
+      }
     }
     if (pageInputForLive) {
       pageInputForLive.max = String(liveToolbar.pageCount || 1);
@@ -2049,11 +2057,10 @@ const initPdfViewer = () => {
     }
     const view = resolvePdfLiveStatus(data?.status, data?.presentationPending);
     if (!view) return;
-    // While typing the paper just follows the keys: no "updating" or "rendering"
-    // chatter. The spinner shows only for the canonical full compile (and a
-    // manual Build, handled in setStatus); errors keep their text.
-    if (view.key === "liveCompiling") setStatus("", "busy");
-    else if (view.tone === "error") setStatus(uiString(view.key), "error");
+    // While typing the paper just follows the keys: no "updating", "rendering"
+    // or compile chatter, and no spinner (progress belongs to the Build
+    // button); errors keep their text.
+    if (view.tone === "error") setStatus(uiString(view.key), "error");
     else setStatus("", "idle");
     if (statusEl) statusEl.title = view.detail;
   };
