@@ -321,7 +321,7 @@ select:focus-visible,
 .document-menu button[aria-current="page"] {
   background: var(--accent-soft);
   color: var(--accent-strong);
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .topbar-actions {
@@ -490,7 +490,7 @@ select:focus-visible,
 
 .native-model-menu button[aria-selected="true"] {
   color: var(--accent-strong);
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .native-model-option-name {
@@ -695,7 +695,7 @@ select:focus-visible,
 .queued-message-state {
   color: var(--ink-faint);
   font-size: 10px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0.04em;
 }
 
@@ -1233,6 +1233,11 @@ select:focus-visible,
   line-height: 1.6;
 }
 
+/* Empty, the chat box rests at two lines (2 × 20px) and grows as you type. */
+.agent-composer textarea {
+  min-height: 40px;
+}
+
 .agent-composer textarea::placeholder,
 .large-composer textarea::placeholder {
   color: var(--placeholder);
@@ -1378,7 +1383,7 @@ select:focus-visible,
 .heading-number {
   color: var(--accent-strong);
   font-size: 13.5px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .block-heading-field textarea {
@@ -1388,7 +1393,7 @@ select:focus-visible,
   color: var(--ink);
   font-family: var(--font-ui);
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.5;
 }
 
@@ -1696,12 +1701,12 @@ select:focus-visible,
     border-radius: 7px;
     color: var(--ink-faint);
     font-size: 11px;
-    font-weight: 620;
   }
 
   .mobile-view-tabs button[aria-pressed="true"] {
     background: var(--accent-soft);
     color: var(--accent-strong);
+    font-weight: 600;
   }
 
   .workspace-grid {
@@ -1728,7 +1733,7 @@ select:focus-visible,
   }
 
   .agent-composer textarea {
-    min-height: 76px;
+    min-height: 42px;
     font-size: 13px;
   }
 
@@ -1815,12 +1820,6 @@ select:focus-visible,
   flex-basis: 44px;
 }
 
-/* Two-line title (13px + 10.5px) is ~35–36px of text; its 5px vertical
-   padding would push it past the 43px inside the bottom border. */
-[data-platform="native"] .native-workspace-title {
-  padding-block: 0;
-}
-
 /* ---- 紙面 (PDF) surface: preview, compile banner, element card ---- */
 
 .paper-surface {
@@ -1875,6 +1874,40 @@ select:focus-visible,
   color: var(--accent-strong);
 }
 
+/* Build failure: one line in flow under the PDF toolbar, so it never covers
+   the page. The line itself opens the cause; Build stays in the header. */
+.build-failure-line {
+  display: flex;
+  flex: none;
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.build-failure-line > button,
+.build-failure-line > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding: 7px 12px;
+  color: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-failure-line > button:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.build-failure-line > button:focus-visible {
+  outline-offset: -2px;
+}
+
 .element-card {
   /* 位置は PdfPreview の selectionCard ラッパー（選択要素の直下）が決める。 */
   display: flex;
@@ -1905,6 +1938,7 @@ select:focus-visible,
 .element-card-head strong {
   color: var(--ink);
   font-size: 12.5px;
+  font-weight: 600;
 }
 
 .element-card-head button {
@@ -1913,7 +1947,7 @@ select:focus-visible,
   border-radius: 6px;
   color: var(--ink-faint);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .element-card-head button:hover {
@@ -2057,6 +2091,7 @@ select:focus-visible,
   margin: 0;
   color: var(--ink);
   font-size: 16px;
+  font-weight: 600;
 }
 
 .native-new-document p {
@@ -2094,7 +2129,7 @@ select:focus-visible,
   border-radius: 6px;
   color: var(--ink-faint);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .native-new-document-actions button:hover:not(:disabled) {
@@ -2121,7 +2156,7 @@ select:focus-visible,
   font-size: 12px;
 }
 
-/* 紙面ツールバー右端の組版ボタン。手動でいつでも組み直せる唯一の入口。 */
+/* 紙面ツールバー右端のビルドボタン。手動でいつでも組み直せる唯一の入口。 */
 .paper-build-button {
   margin-left: 8px;
   height: 24px;
@@ -2132,7 +2167,7 @@ select:focus-visible,
   color: var(--accent-strong);
   font-family: inherit;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
   cursor: pointer;
 }
 

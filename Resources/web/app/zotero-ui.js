@@ -132,7 +132,14 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
     library.hidden = true;
     const controls = node("div", "zotero-controls");
     controls.append(searchWrap, library);
+    // Names the list only when nothing is typed ("Recently added"); search
+    // results need no heading, the list itself is the answer.
     const listLabel = node("p", "tool-dialog-label zotero-list-label");
+    const setListLabel = (text) => {
+        listLabel.textContent = text;
+        listLabel.hidden = !text;
+    };
+    setListLabel("");
     const results = node("div", "zotero-results");
     results.setAttribute("role", "listbox");
     const status = node("p", "zotero-status");
@@ -219,7 +226,7 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
     };
     // With nothing typed: the library's newest items, where the door can list them.
     const showRecent = async (serial) => {
-        listLabel.textContent = uiText("Recently added", "最近追加した文献");
+        setListLabel(uiText("Recently added", "最近追加した文献"));
         if (!(current === null || current === void 0 ? void 0 : current.transport)) {
             notConnected();
             return;
@@ -234,7 +241,7 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
             if (items.length)
                 renderResults();
             else {
-                listLabel.textContent = "";
+                setListLabel("");
                 results.replaceChildren();
             }
         }
@@ -252,7 +259,7 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
             await showRecent(serial);
             return;
         }
-        listLabel.textContent = uiText("Results", "検索結果");
+        setListLabel("");
         empty("", uiText("Searching…", "検索中…"));
         try {
             const result = await call("search", { query });
@@ -260,7 +267,6 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
                 return;
             items = result.items;
             highlighted = 0;
-            listLabel.textContent = `${uiText("Results", "検索結果")} · ${items.length}`;
             if (items.length)
                 renderResults();
             else

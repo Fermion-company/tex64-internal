@@ -1802,6 +1802,37 @@ export function DocumentWorkspace() {
     setSaveState("saved");
   };
 
+  // One line under the PDF toolbar. The header already has the Build button,
+  // so the line only takes the reader to the cause.
+  const nativeBuildFailure =
+    workspacePdf.native && workspacePdf.failure && nativeDocument
+      ? workspacePdf.failure
+      : null;
+  const failureIssue = workspacePdf.issue;
+  const buildFailureLine = nativeBuildFailure ? (
+    <div className="build-failure-line" role="alert">
+      {failureIssue ? (
+        <button
+          type="button"
+          aria-label={`${nativeBuildFailure} ${failureIssue.line ? "原因の箇所を開く" : "ソースを開く"}`}
+          onClick={() =>
+            getNativeHost()?.send("source:reveal", {
+              requestId: `ai-source-${Date.now()}`,
+              ...workspaceRequestFields(nativeWorkspaceIdentity),
+              documentMainFile: nativeMainFile,
+              path: failureIssue.file || nativeMainFile,
+              line: failureIssue.line || 1,
+            })
+          }
+        >
+          {nativeBuildFailure}
+        </button>
+      ) : (
+        <span>{nativeBuildFailure}</span>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div className="workspace-shell">
       <header className="app-topbar">
@@ -1822,7 +1853,6 @@ export function DocumentWorkspace() {
             >
               <span className="document-switcher-titles">
                 <strong>{nativeDocument?.name ?? "ワークスペース未選択"}</strong>
-                <small>ワークスペース</small>
               </span>
             </div>
           ) : (
@@ -2127,6 +2157,7 @@ export function DocumentWorkspace() {
                           : "まだ紙面がありません"
                   }
                   buildFailed={workspacePdf.native && Boolean(workspacePdf.failure)}
+                  notice={buildFailureLine}
                   toolbarAction={
                     !workspacePdf.native && activeDocument ? (
                       <button
@@ -2137,7 +2168,7 @@ export function DocumentWorkspace() {
                           void runCompile(activeDocument.id, activeDocument.revision)
                         }
                       >
-                        {compiling ? "組版中…" : "組版"}
+                        {compiling ? "ビルド中…" : "ビルド"}
                       </button>
                     ) : null
                   }
@@ -2227,15 +2258,7 @@ export function DocumentWorkspace() {
                   }
                 />
                 {workspacePdf.native && !paragraphEditor.paragraph && (sourceLocator.error || paragraphEditor.error) ? <div className="compile-banner" role="alert">{sourceLocator.error || paragraphEditor.error}</div> : null}
-                {workspacePdf.native &&
-                workspacePdf.failure &&
-                nativeDocument ? (
-                  <div className="compile-banner" role="alert">
-                    <span>{workspacePdf.failure}</span>
-                    {workspacePdf.issue ? <button onClick={() => getNativeHost()?.send("source:reveal", { requestId: `ai-source-${Date.now()}`, ...workspaceRequestFields(nativeWorkspaceIdentity), documentMainFile: nativeMainFile, path: workspacePdf.issue!.file || nativeMainFile, line: workspacePdf.issue!.line || 1 })}>{workspacePdf.issue.line ? "原因の箇所を開く" : "ソースを開く"}</button> : null}
-                    <button disabled={workspacePdf.building} onClick={() => { if (nativeMainFile) requestWorkspaceBuild({ mainFile: nativeMainFile }, nativeWorkspaceIdentity); }}>再ビルド</button>
-                  </div>
-                ) : compileFailed && activeDocument ? (
+                {compileFailed && activeDocument && !nativeBuildFailure ? (
                   <div className="compile-banner" role="alert">
                     <span>紙面を更新できませんでした。</span>
                     <button

@@ -169,7 +169,14 @@ export const openZoteroDialog = (editor: CitationEditor, getActiveFilePath: () =
   library.hidden = true;
   const controls = node("div", "zotero-controls");
   controls.append(searchWrap, library);
+  // Names the list only when nothing is typed ("Recently added"); search
+  // results need no heading, the list itself is the answer.
   const listLabel = node("p", "tool-dialog-label zotero-list-label");
+  const setListLabel = (text: string) => {
+    listLabel.textContent = text;
+    listLabel.hidden = !text;
+  };
+  setListLabel("");
   const results = node("div", "zotero-results");
   results.setAttribute("role", "listbox");
   const status = node("p", "zotero-status");
@@ -262,7 +269,7 @@ export const openZoteroDialog = (editor: CitationEditor, getActiveFilePath: () =
 
   // With nothing typed: the library's newest items, where the door can list them.
   const showRecent = async (serial: number) => {
-    listLabel.textContent = uiText("Recently added", "最近追加した文献");
+    setListLabel(uiText("Recently added", "最近追加した文献"));
     if (!current?.transport) {
       notConnected();
       return;
@@ -275,7 +282,7 @@ export const openZoteroDialog = (editor: CitationEditor, getActiveFilePath: () =
       highlighted = 0;
       if (items.length) renderResults();
       else {
-        listLabel.textContent = "";
+        setListLabel("");
         results.replaceChildren();
       }
     } catch (error) {
@@ -292,14 +299,13 @@ export const openZoteroDialog = (editor: CitationEditor, getActiveFilePath: () =
       await showRecent(serial);
       return;
     }
-    listLabel.textContent = uiText("Results", "検索結果");
+    setListLabel("");
     empty("", uiText("Searching…", "検索中…"));
     try {
       const result = await call<{ items: ZoteroItem[] }>("search", { query });
       if (serial !== searchSerial) return;
       items = result.items;
       highlighted = 0;
-      listLabel.textContent = `${uiText("Results", "検索結果")} · ${items.length}`;
       if (items.length) renderResults();
       else empty(uiText("No matches", "見つかりません"));
       if (!current?.transport) {

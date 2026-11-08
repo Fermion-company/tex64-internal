@@ -174,7 +174,7 @@ export const initMathCaptureUi = (
     if (mathCaptureCropApply instanceof HTMLElement) {
       mathCaptureCropApply.classList.toggle("is-busy", busy);
       mathCaptureCropApply.textContent = busy
-        ? (message ?? uiText("Recognizing...", "認識中…"))
+        ? (message ?? uiText("Recognizing…", "認識中…"))
         : uiText("Confirm", "確定");
       (mathCaptureCropApply as HTMLButtonElement).disabled = busy;
     }

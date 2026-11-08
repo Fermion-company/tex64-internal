@@ -449,7 +449,7 @@ export const initFileTreeUi = (context, deps) => {
         },
         {
             type: "action",
-            label: uiText("New file...", "新しいファイル..."),
+            label: uiText("New file…", "新しいファイル…"),
             action: () => {
                 selectedTreePath = path;
                 selectedTreeType = "file";
@@ -458,7 +458,7 @@ export const initFileTreeUi = (context, deps) => {
         },
         {
             type: "action",
-            label: uiText("New folder...", "新しいフォルダー..."),
+            label: uiText("New folder…", "新しいフォルダ…"),
             action: () => {
                 selectedTreePath = path;
                 selectedTreeType = "file";
@@ -497,7 +497,7 @@ export const initFileTreeUi = (context, deps) => {
         { type: "separator" },
         {
             type: "action",
-            label: uiText("Rename...", "名前の変更..."),
+            label: uiText("Rename…", "名前の変更…"),
             action: () => openRenameModal(path, "file"),
         },
         {
@@ -510,7 +510,7 @@ export const initFileTreeUi = (context, deps) => {
     const buildFolderContextMenu = (path) => [
         {
             type: "action",
-            label: uiText("New file...", "新しいファイル..."),
+            label: uiText("New file…", "新しいファイル…"),
             action: () => {
                 selectedTreePath = path;
                 selectedTreeType = "dir";
@@ -519,7 +519,7 @@ export const initFileTreeUi = (context, deps) => {
         },
         {
             type: "action",
-            label: uiText("New folder...", "新しいフォルダー..."),
+            label: uiText("New folder…", "新しいフォルダ…"),
             action: () => {
                 selectedTreePath = path;
                 selectedTreeType = "dir";
@@ -558,7 +558,7 @@ export const initFileTreeUi = (context, deps) => {
         { type: "separator" },
         {
             type: "action",
-            label: uiText("Rename...", "名前の変更..."),
+            label: uiText("Rename…", "名前の変更…"),
             action: () => openRenameModal(path, "dir"),
         },
         {

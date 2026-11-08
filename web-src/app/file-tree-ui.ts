@@ -564,7 +564,7 @@ export const initFileTreeUi = (
     },
     {
       type: "action",
-      label: uiText("New file...", "新しいファイル..."),
+      label: uiText("New file…", "新しいファイル…"),
       action: () => {
         selectedTreePath = path;
         selectedTreeType = "file";
@@ -573,7 +573,7 @@ export const initFileTreeUi = (
     },
     {
       type: "action",
-      label: uiText("New folder...", "新しいフォルダー..."),
+      label: uiText("New folder…", "新しいフォルダ…"),
       action: () => {
         selectedTreePath = path;
         selectedTreeType = "file";
@@ -611,7 +611,7 @@ export const initFileTreeUi = (
     { type: "separator" },
     {
       type: "action",
-      label: uiText("Rename...", "名前の変更..."),
+      label: uiText("Rename…", "名前の変更…"),
       action: () => openRenameModal(path, "file"),
     },
     {
@@ -625,7 +625,7 @@ export const initFileTreeUi = (
   const buildFolderContextMenu = (path: string): ContextMenuItem[] => [
     {
       type: "action",
-      label: uiText("New file...", "新しいファイル..."),
+      label: uiText("New file…", "新しいファイル…"),
       action: () => {
         selectedTreePath = path;
         selectedTreeType = "dir";
@@ -634,7 +634,7 @@ export const initFileTreeUi = (
     },
     {
       type: "action",
-      label: uiText("New folder...", "新しいフォルダー..."),
+      label: uiText("New folder…", "新しいフォルダ…"),
       action: () => {
         selectedTreePath = path;
         selectedTreeType = "dir";
@@ -672,7 +672,7 @@ export const initFileTreeUi = (
     { type: "separator" },
     {
       type: "action",
-      label: uiText("Rename...", "名前の変更..."),
+      label: uiText("Rename…", "名前の変更…"),
       action: () => openRenameModal(path, "dir"),
     },
     {

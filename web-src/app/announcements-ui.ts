@@ -285,7 +285,7 @@ export const initAnnouncementsUi = (
     isSubmitting = true;
     if (submitBtn instanceof HTMLButtonElement) submitBtn.disabled = true;
     inputEl.disabled = true;
-    setStatus(uiText("Sending...", "送信中..."));
+    setStatus(uiText("Sending…", "送信中…"));
     deps.postToNative(
       { type: "feedback:send", category: "general", message },
       true

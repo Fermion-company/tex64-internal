@@ -31,6 +31,14 @@ export const initPrismImportUi = (deps) => {
         build: words("Build", "ビルド"),
         compare: words("Compare", "比較"),
     })[step];
+    // The status line while a step runs: step name + 中… (environment reads as a verb).
+    const runningLabel = (step) => ({
+        extract: words("Unpacking…", "展開中…"),
+        analyze: words("Detecting…", "判定中…"),
+        env: words("Checking environment…", "環境を確認中…"),
+        build: words("Building…", "ビルド中…"),
+        compare: words("Comparing…", "比較中…"),
+    })[step];
     const diffLabel = (key) => {
         var _a;
         return (_a = ({
@@ -56,13 +64,13 @@ export const initPrismImportUi = (deps) => {
             NO_TEX: words("No .tex file in the zip.", "zip に .tex がありません。"),
             NO_MAIN: words("No file with \\documentclass and \\begin{document} was found.", "\\documentclass と \\begin{document} を含むファイルがありません。"),
             TEX_MISSING: words("TeX is not installed.", "TeX が入っていません。"),
-            BUILD_BUSY: words("Another typeset is running.", "別の組版が実行中です。"),
+            BUILD_BUSY: words("Another build is running.", "別のビルドが実行中です。"),
             SESSION_ENDED: words("This import has ended. Start it again.", "この読み込みは終了しています。やり直してください。"),
             UNKNOWN_PROJECT: words("Unknown project.", "不明なプロジェクトです。"),
             UNAVAILABLE: words("Prism import is not available.", "Prism の読み込みは使えません。"),
             COMPARE_FAILED: words("The PDFs could not be compared.", "PDF を比較できませんでした。"),
             NO_PRISM_PDF: words("No Prism PDF to compare with.", "比較する Prism の PDF がありません。"),
-        })[code]) !== null && _a !== void 0 ? _a : words("Prism import failed.", "Prism の読み込みに失敗しました。") + ` (${code})`;
+        })[code]) !== null && _a !== void 0 ? _a : words("Prism import failed.", "Prism から読み込めませんでした。") + ` (${code})`;
     };
     let modal = null;
     let sessionId = null;
@@ -85,15 +93,15 @@ export const initPrismImportUi = (deps) => {
     const stepStatus = new Map();
     const stepDetail = new Map();
     // DOM
-    let stepsList;
     let projectRow;
     let projectSelect;
     let mainSelect;
     let engineSelect;
     let bibSelect;
     let fields;
+    // The one line under the fields, just above the buttons: the running step
+    // while working, the comparison when done, the failed step and its reason.
     let diffBox;
-    let errorBox;
     let openButton;
     let closeButton;
     const call = async (action, payload = {}) => {
@@ -115,22 +123,9 @@ export const initPrismImportUi = (deps) => {
         STEPS.forEach((step) => { stepStatus.set(step, "pending"); stepDetail.set(step, ""); });
         renderSteps();
     };
+    // Steps re-render the result line: the running step lives there now.
     const renderSteps = () => {
-        var _a;
-        if (!stepsList)
-            return;
-        stepsList.replaceChildren();
-        for (const step of STEPS) {
-            const status = (_a = stepStatus.get(step)) !== null && _a !== void 0 ? _a : "pending";
-            const item = el("li", `prism-step is-${status}`);
-            const mark = el("span", "prism-step-mark", status === "done" ? "✓" : status === "failed" ? "×" : status === "running" ? "…" : "·");
-            const name = el("span", "prism-step-name", stepLabel(step));
-            item.append(mark, name);
-            const detail = stepDetail.get(step);
-            if (detail)
-                item.append(el("span", "history-date", detail));
-            stepsList.append(item);
-        }
+        renderDiff();
         renderCloseLabel();
     };
     // Closing also stops a step still running, so the button says so then.
@@ -138,7 +133,7 @@ export const initPrismImportUi = (deps) => {
         if (!closeButton)
             return;
         const running = ["extract", "analyze", "build", "compare"].some((step) => stepStatus.get(step) === "running");
-        closeButton.textContent = running ? words("Cancel", "中止") : words("Close", "閉じる");
+        closeButton.textContent = running ? words("Cancel", "キャンセル") : words("Close", "閉じる");
     };
     const fillSelect = (select, values, labels, selected) => {
         select.replaceChildren();
@@ -169,16 +164,21 @@ export const initPrismImportUi = (deps) => {
     const countText = (value) => `${value} ${words("", "件")}`.trim();
     const ordinal = (index) => (getUiLocale() === "ja" ? `${index + 1} 番目` : `#${index + 1}`);
     const joiner = () => words(", ", "、");
+    // One line: the failed step (marked) and why it stopped, as the issue lines read.
+    const failureLine = (step, reason) => {
+        const line = el("div", "prism-step is-failed");
+        if (step)
+            line.append(el("span", "prism-step-name", stepLabel(step)));
+        line.append(el("span", "history-error", reason));
+        return line;
+    };
+    const issueText = (issue) => `${issue.path ? `${issue.path}${issue.line ? `:${issue.line}` : ""}  ` : ""}${issue.message}`;
     const renderIssues = (result) => {
         const box = el("div", "prism-issues");
-        const issues = result.build.issues;
-        if (issues.length === 0) {
-            box.append(el("p", "history-error", words("Typesetting failed.", "組版に失敗しました。")));
-        }
-        for (const issue of issues) {
-            const where = issue.path ? `${issue.path}${issue.line ? `:${issue.line}` : ""}  ` : "";
-            box.append(el("p", "history-error", `${where}${issue.message}`));
-        }
+        const [first, ...rest] = result.build.issues;
+        box.append(failureLine("build", first ? issueText(first) : words("Build failed.", "ビルドできませんでした。")));
+        for (const issue of rest)
+            box.append(el("p", "history-error", issueText(issue)));
         const more = el("button", "history-button", words("Details", "詳細"));
         more.type = "button";
         // The Issues panel belongs to the open workspace: open this project first
@@ -217,18 +217,38 @@ export const initPrismImportUi = (deps) => {
         return box;
     };
     const renderDiff = () => {
-        var _a, _b;
-        diffBox.replaceChildren();
-        diffBox.classList.toggle("is-stale", busy);
-        if (!current || !current.result)
+        var _a, _b, _c, _d;
+        if (!diffBox)
             return;
+        diffBox.replaceChildren();
+        const running = STEPS.find((step) => stepStatus.get(step) === "running");
+        if (running) {
+            const line = el("div", "prism-step is-running");
+            line.append(el("span", "prism-step-name", runningLabel(running)));
+            const detail = stepDetail.get(running);
+            if (detail)
+                line.append(el("span", "history-date", detail));
+            diffBox.append(line);
+            return;
+        }
+        const failed = (_a = STEPS.find((step) => stepStatus.get(step) === "failed")) !== null && _a !== void 0 ? _a : null;
+        const reason = sessionError || (current === null || current === void 0 ? void 0 : current.error) || "";
+        if (reason) {
+            diffBox.append(failureLine(failed, reason));
+            return;
+        }
+        if (!current || !current.result) {
+            if (failed && stepDetail.get(failed))
+                diffBox.append(failureLine(failed, (_b = stepDetail.get(failed)) !== null && _b !== void 0 ? _b : ""));
+            return;
+        }
         const { build, diff, compareError } = current.result;
         if (!build.ok) {
             diffBox.append(renderIssues(current.result));
             return;
         }
         if (!diff) {
-            diffBox.append(el("p", "", messageFor(compareError || "COMPARE_FAILED")));
+            diffBox.append(failureLine("compare", messageFor(compareError || "COMPARE_FAILED")));
             return;
         }
         const changed = diff.filter((row) => !row.same);
@@ -251,7 +271,7 @@ export const initPrismImportUi = (deps) => {
                     text = `Prism ${countText(row.prism)} → TeX64 ${countText(row.local)}`;
                     if (row.first) {
                         const detail = row.first.prism == null
-                            ? words(`${ordinal(row.first.index)} added: ${(_a = row.first.local) !== null && _a !== void 0 ? _a : ""}`, `${ordinal(row.first.index)}が増加: ${(_b = row.first.local) !== null && _b !== void 0 ? _b : ""}`)
+                            ? words(`${ordinal(row.first.index)} added: ${(_c = row.first.local) !== null && _c !== void 0 ? _c : ""}`, `${ordinal(row.first.index)}が増加: ${(_d = row.first.local) !== null && _d !== void 0 ? _d : ""}`)
                             : row.first.local == null
                                 ? words(`${ordinal(row.first.index)} missing: ${row.first.prism}`, `${ordinal(row.first.index)}が消失: ${row.first.prism}`)
                                 : words(`first difference ${ordinal(row.first.index)}: ${row.first.prism} → ${row.first.local}`, `最初の相違 ${ordinal(row.first.index)}: ${row.first.prism} → ${row.first.local}`);
@@ -271,8 +291,6 @@ export const initPrismImportUi = (deps) => {
     const renderAll = () => {
         renderSteps();
         renderFields();
-        renderDiff();
-        errorBox.textContent = sessionError || (current === null || current === void 0 ? void 0 : current.error) || "";
         openButton.hidden = !current;
         openButton.disabled = busy || !current;
         projectRow.hidden = states.length <= 1;
@@ -284,10 +302,10 @@ export const initPrismImportUi = (deps) => {
     };
     const releaseDiffHeight = () => { if (diffBox)
         diffBox.style.minHeight = ""; };
+    // The detail after 「ビルド中…」: the seconds so far.
     const buildProgressText = () => {
         const seconds = buildStartedAt > 0 ? Math.max(0, Math.floor((Date.now() - buildStartedAt) / 1000)) : 0;
-        const phase = words("Building…", "ビルド中…");
-        return seconds > 0 ? `${phase} ${seconds}s` : phase;
+        return seconds > 0 ? `${seconds}s` : "";
     };
     const startBuildTimer = () => {
         buildStartedAt = Date.now();
@@ -310,7 +328,6 @@ export const initPrismImportUi = (deps) => {
         const heading = el("h2", "", words("Import from Prism", "Prism から読み込む"));
         heading.id = "prism-import-title";
         modal.setAttribute("aria-labelledby", heading.id);
-        stepsList = el("ol", "prism-steps");
         projectRow = el("label", "prism-field");
         projectRow.append(el("span", "", words("Project", "プロジェクト")));
         projectSelect = el("select", "history-name");
@@ -352,7 +369,6 @@ export const initPrismImportUi = (deps) => {
             });
         }
         diffBox = el("div", "prism-diff");
-        errorBox = el("p", "history-error");
         const actions = el("div", "history-confirm-actions");
         openButton = el("button", "history-button is-primary", words("Open", "開く"));
         openButton.type = "button";
@@ -368,7 +384,7 @@ export const initPrismImportUi = (deps) => {
         renderCloseLabel();
         closeButton.addEventListener("click", () => finish());
         actions.append(closeButton, openButton);
-        modal.append(heading, stepsList, projectRow, fields, diffBox, errorBox, actions);
+        modal.append(heading, projectRow, fields, diffBox, actions);
         modal.addEventListener("cancel", (event) => { event.preventDefault(); finish(); });
         modal.addEventListener("close", () => { modal === null || modal === void 0 ? void 0 : modal.remove(); modal = null; });
         document.body.append(modal);
@@ -380,7 +396,7 @@ export const initPrismImportUi = (deps) => {
             dialog.showModal();
         renderAll();
     };
-    // Closing ends the session, also one still unpacking; a typeset still
+    // Closing ends the session, also one still unpacking; a build still
     // running is cancelled with it.
     const finish = () => {
         stopBuildTimer();
@@ -444,7 +460,7 @@ export const initPrismImportUi = (deps) => {
         if (missing.length === 0)
             return env.distribution;
         const prefix = env.autoInstall
-            ? words("Installed during typesetting", "組版時に導入")
+            ? words("Installed during the build", "ビルド時に導入")
             : words("Missing", "未導入");
         return `${prefix}: ${missing.join(", ")}`;
     };

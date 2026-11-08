@@ -259,7 +259,7 @@ export const initAnnouncementsUi = (deps) => {
         if (submitBtn instanceof HTMLButtonElement)
             submitBtn.disabled = true;
         inputEl.disabled = true;
-        setStatus(uiText("Sending...", "送信中..."));
+        setStatus(uiText("Sending…", "送信中…"));
         deps.postToNative({ type: "feedback:send", category: "general", message }, true);
         // We don't wait for the platform:feedback ack here — the queued
         // pipeline in feedback-ops will retry on failure. Dismiss immediately

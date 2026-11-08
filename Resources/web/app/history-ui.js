@@ -95,7 +95,7 @@ export const initHistoryUi = (editor, diff) => {
     limit.autofocus = true;
     const storageExplain = createExplain([
         uiText("Stored only on this computer.", "このPCにだけ保存します。"),
-        uiText("Private files, Git settings and build logs are excluded. Source files and input images are kept. Files over 128 MiB stop recording; nothing is silently omitted.", "秘密情報・Git設定・組版ログは対象外です。ソースと入力画像は記録します。128 MiBを超えるファイルがあれば記録を中止し、黙って除外しません。"),
+        uiText("Private files, Git settings and build logs are excluded. Source files and input images are kept. Files over 128 MiB stop recording; nothing is silently omitted.", "秘密情報・Git設定・ビルドログは対象外です。ソースと入力画像は記録します。128 MiBを超えるファイルがあれば記録を中止し、黙って除外しません。"),
     ], { topic: uiText("history storage", "履歴の保存") });
     const usageRow = el("div", "has-explain");
     usageRow.append(usage, storageExplain.button);

@@ -465,7 +465,7 @@ class AgentService {
         // and starting a conflicting turn while that build is still active.
         this.sendStatus(
           "stopping",
-          "Finishing partial changes...",
+          "Finishing partial changes…",
           targetConversationId,
         );
       }
@@ -475,7 +475,7 @@ class AgentService {
       entry?.controller?.abort?.();
       this.sendStatus(
         "stopping",
-        "Finishing partial changes...",
+        "Finishing partial changes…",
         activeConversationId,
       );
     });
@@ -718,7 +718,7 @@ class AgentService {
     } else {
       try {
         run = this.startConversationRun(normalizedConversationId);
-        this.sendStatus("running", "Undoing changes...", normalizedConversationId);
+        this.sendStatus("running", "Undoing changes…", normalizedConversationId);
       } catch (error) {
         const message = error?.message || "Cannot undo while the workspace is being updated.";
         if (emitRenderer) {
@@ -852,7 +852,7 @@ class AgentService {
     } else {
       try {
         run = this.startConversationRun(conversationId);
-        this.sendStatus("running", "Applying change...", conversationId);
+        this.sendStatus("running", "Applying change…", conversationId);
       } catch (cause) {
         const error = cause?.message || "Cannot apply while the workspace is being updated.";
         this.sendToRenderer("agent:applyResult", { proposalId, ok: false, error });
@@ -906,7 +906,7 @@ class AgentService {
     let run;
     try {
       run = this.startConversationRun(conversationId);
-      this.sendStatus("running", "Applying changes...", conversationId);
+      this.sendStatus("running", "Applying changes…", conversationId);
     } catch (cause) {
       const error = cause?.message || "Cannot apply while the workspace is being updated.";
       ids.forEach((proposalId) =>
@@ -1022,7 +1022,7 @@ class AgentService {
     const run = prestartedRun ?? this.startConversationRun(conversationId);
     const isCurrentRun = () => this.isRunCurrent(conversationId, run.token);
     if (!prestartedRun) {
-      this.sendStatus("running", "Preparing...", conversationId);
+      this.sendStatus("running", "Preparing…", conversationId);
     }
     try {
       // A run can arrive before the renderer asks for agent:state. Restore the

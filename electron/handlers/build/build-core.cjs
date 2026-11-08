@@ -637,7 +637,7 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       sendIssues(0, "No build is running.", "info", []);
       return;
     }
-    sendIssues(0, "Canceling build...", "info", []);
+    sendIssues(0, "Canceling build…", "info", []);
   };
 
   // The document a Jump from `requestedFile` lands in, decided like a Build

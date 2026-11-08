@@ -411,7 +411,7 @@ export function AgentPanel({
           ) : null}
           <textarea
             ref={composerRef}
-            rows={3}
+            rows={2}
             value={prompt}
             disabled={!canSubmit}
             onPaste={onPaste}

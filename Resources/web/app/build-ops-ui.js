@@ -454,7 +454,7 @@ export const initBuildOpsUi = (context, deps) => {
                 buildCancelRequested = true;
                 buildProgressPhase = "cancelling";
                 renderBuildButtonProgress();
-                deps.updateIssues(0, uiText("Canceling build...", "ビルドをキャンセルしています..."), "info", []);
+                deps.updateIssues(0, uiText("Canceling build…", "ビルドをキャンセル中…"), "info", []);
             }
         }
     };

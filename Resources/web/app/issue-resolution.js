@@ -113,7 +113,7 @@ const rules = [
             message.includes("Names that include parent directories cannot be used") ||
             message.includes("Trailing / cannot be used") ||
             message.includes("/ cannot be used in name"),
-        resolution: () => uiText("Enter a relative path within the workspace, without / or ..", "Please enter the path relative to your workspace without including / or ..."),
+        resolution: () => uiText("Enter a relative path within the workspace, without / or ..", "ワークスペース内の相対パスで、/ や .. を含めずに入力してください。"),
     },
     {
         test: (_issue, message) => message.includes("Invalid destination"),

@@ -162,7 +162,7 @@ export function useSourceLocator(context: SourceLocatorContext = {}): SourceLoca
         } catch {
           if (requestEpoch !== requestEpochRef.current) return;
           updateCurrentState({
-            error: "本文の場所を確かめられませんでした。組版し直すと直ることがあります。",
+            error: "本文の場所を確かめられませんでした。ビルドし直すと直ることがあります。",
             location: null,
           });
         } finally {

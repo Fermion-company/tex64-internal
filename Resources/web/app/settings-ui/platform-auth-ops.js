@@ -23,7 +23,7 @@ export const createSettingsPlatformAuthOps = (runtime) => {
             settingsAuthLogin.classList.toggle("is-hidden", !showLogin);
             settingsAuthLogin.setAttribute("aria-hidden", showLogin ? "false" : "true");
             settingsAuthLogin.disabled = pending;
-            settingsAuthLogin.textContent = pending ? "Signing in..." : "Login";
+            settingsAuthLogin.textContent = pending ? "Signing in…" : "Login";
         }
         if (settingsAuthLogout instanceof HTMLButtonElement) {
             settingsAuthLogout.classList.toggle("is-hidden", !authenticated);

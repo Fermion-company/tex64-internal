@@ -171,7 +171,7 @@ const writeToolResultApplied = (value) => {
 
 const COMPILE_FAILURE_SUFFIXES = Object.freeze({
   en: " Changes made so far were saved, but a compilation error remains.",
-  ja: "ここまでの変更は保存しましたが、組版エラーが残っています。",
+  ja: "ここまでの変更は保存しましたが、ビルドエラーが残っています。",
   zh: " 已保存目前的更改，但仍有编译错误。",
   ko: " 지금까지의 변경 사항은 저장했지만 컴파일 오류가 남아 있습니다.",
   fr: " Les modifications ont été enregistrées, mais une erreur de compilation subsiste.",
@@ -576,7 +576,7 @@ const runAgentConversation = async (
   try {
     // ---- Resolve settings & policy ----
     if (!prestartedRun) {
-      service.sendStatus("running", "Preparing...", targetConversationId);
+      service.sendStatus("running", "Preparing…", targetConversationId);
     }
     throwIfRunAborted();
     const persistedSettings = await awaitAbortable(
@@ -725,7 +725,7 @@ const runAgentConversation = async (
       ...chatHistory,
       { role: "user", content: userContent },
     ];
-    service.sendStatus("running", "Thinking...", targetConversationId);
+    service.sendStatus("running", "Thinking…", targetConversationId);
   } catch (error) {
     await agentsApi?.close().catch(() => {});
     if (isCurrentRun()) {
@@ -1008,7 +1008,7 @@ const runAgentConversation = async (
           quota: "利用可能なトークン上限に達したため、次のAI呼び出し前に停止しました。",
           access: "Axiomを利用できない状態になったため、次のAI呼び出し前に停止しました。",
           turn_budget: "このターンの処理上限に達したため、次のAI呼び出し前に停止しました。",
-          compiled: "ここまでの変更は保存し、組版結果まで反映しました。",
+          compiled: "ここまでの変更は保存し、ビルド結果まで反映しました。",
         },
         zh: {
           iterations: `已达到处理上限（${iterations} 次），Axiom 已在此停止。`,

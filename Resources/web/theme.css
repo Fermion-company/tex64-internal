@@ -144,7 +144,9 @@
 
   --text: #141413;
   --text-soft: #5E5D59;
-  --muted: #87867F;
+  /* ≥ 4.5:1 on every light surface: 4.85 on --panel-muted, 5.03 on --panel,
+     5.30 on --bg, 5.58 on --panel-strong. */
+  --muted: #696863;
 
   --accent: #1A7A75;
   --accent-strong: #10706B;
@@ -391,7 +393,7 @@ body.has-onboarding .launcher {
 
 .onboarding-brand-name {
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--text-soft);
 }
@@ -407,7 +409,7 @@ body.has-onboarding .launcher {
 
 .onboarding-headline {
   font-size: 22px;
-  font-weight: 680;
+  font-weight: 600;
   line-height: 1.3;
   color: var(--text);
 }
@@ -468,14 +470,14 @@ body.has-onboarding .launcher {
 
 .onboarding-gauge-percent {
   font-size: 26px;
-  font-weight: 680;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text);
 }
 
 .onboarding-gauge-eta {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--text-soft);
 }
 
@@ -648,9 +650,13 @@ html[lang="ja"] .launcher-action {
 .launcher-action-title {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1;
   letter-spacing: 0;
+}
+
+.launcher-action.primary .launcher-action-title {
+  font-weight: 600;
 }
 
 .launcher-action-desc {
@@ -675,7 +681,7 @@ html[lang="ja"] .launcher-action {
 
 .launcher-recent-title {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text-soft);
 }
 
@@ -784,7 +790,8 @@ html[lang="ja"] .launcher-action {
 
 .launcher-recent-item-name {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
+  letter-spacing: 0;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -815,8 +822,8 @@ html[lang="ja"] .launcher-action {
   border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-soft);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 400;
   cursor: pointer;
   transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
@@ -850,7 +857,8 @@ html[lang="ja"] .launcher-action {
   background: transparent;
   color: var(--text);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
+  letter-spacing: 0;
   cursor: pointer;
   transition: background 0.12s ease;
 }
@@ -862,6 +870,7 @@ html[lang="ja"] .launcher-action {
 .launcher-lang-option.is-active {
   background: var(--accent-soft);
   color: var(--accent-strong);
+  font-weight: 600;
 }
 
 .launcher-lang-toggle:hover {
@@ -979,8 +988,8 @@ html[lang="ja"] .launcher-action {
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 400;
   line-height: 1;
   cursor: pointer;
   transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
@@ -993,6 +1002,7 @@ html[lang="ja"] .launcher-action {
 .mode-tab.is-active {
   background: var(--panel);
   color: var(--text);
+  font-weight: 600;
   box-shadow: inset 0 0 0 1px var(--panel-border-strong);
 }
 
@@ -1134,7 +1144,7 @@ html[lang="ja"] .launcher-action {
   color: var(--text-soft);
   font-family: "Instrument Sans", "Noto Sans JP", "Hiragino Sans", -apple-system, sans-serif;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1;
   letter-spacing: 0.01em;
   text-transform: none;
@@ -1254,7 +1264,7 @@ html[lang="ja"] .launcher-action {
 
 .panel-title {
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
   color: var(--text);
 }
 
@@ -1357,7 +1367,7 @@ html[lang="ja"] .launcher-action {
   white-space: nowrap;
   transition: color 0.15s ease;
   text-align: center;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .block-mode-toggle:not(.is-edit) .block-mode-toggle-label--insert {
@@ -1485,7 +1495,7 @@ html[lang="ja"] .launcher-action {
 
 .block-math-preview-label {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text-soft);
 }
 
@@ -1871,7 +1881,7 @@ math-field.block-math-field::placeholder {
 
 .block-settings-section-title {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text-soft);
 }
 
@@ -1981,7 +1991,7 @@ math-field.block-math-field::placeholder {
 
 .search-rename-title {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text-soft);
   /* The English source is lower-case ("rename"); the caps stay until it is not. */
   text-transform: uppercase;
@@ -2057,8 +2067,8 @@ math-field.block-math-field::placeholder {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 400;
   padding: 3px 10px;
   border-radius: var(--radius-sm);
   color: var(--muted);
@@ -2083,7 +2093,7 @@ math-field.block-math-field::placeholder {
   align-items: center;
   gap: 4px;
   padding: 4px 12px 4px 8px;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
   color: #fff;
   background: var(--accent);
@@ -2174,7 +2184,7 @@ math-field.block-math-field::placeholder {
   background: var(--panel-strong);
   border-bottom: 1px solid var(--panel-border);
   padding: 6px 12px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text);
   display: flex;
@@ -2184,7 +2194,7 @@ math-field.block-math-field::placeholder {
 
 .search-file-count {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-soft);
   border: 1px solid var(--panel-border);
   border-radius: 999px;
@@ -2219,7 +2229,7 @@ math-field.block-math-field::placeholder {
 
 .search-match-line {
   font-family: "SF Mono", Menlo, monospace;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
   opacity: 0.7;
 }
@@ -2338,14 +2348,16 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 }
 .panel[data-panel="settings"] .settings-page-title {
   font-size: 22px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0.01em;
 }
+/* The selected page: one neutral fill and the 600 weight, no accent line. */
 .panel[data-panel="settings"] .settings-nav-item.is-active {
-  background: var(--accent-soft);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
 }
 .panel[data-panel="settings"] .settings-nav-item.is-active .settings-nav-title {
   color: var(--text);
+  font-weight: 600;
 }
 .settings-overlay-close {
   position: absolute;
@@ -2362,7 +2374,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   background: transparent;
   color: var(--text-soft);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   white-space: nowrap;
   cursor: pointer;
   -webkit-app-region: no-drag;
@@ -2406,7 +2418,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   padding: 0 0 var(--space-7);
 }
 .panel[data-panel="settings"] .settings-page-title {
-  font-size: 27px;
+  font-size: 22px;
   font-weight: 600;
   letter-spacing: 0.01em;
   color: var(--text);
@@ -2419,8 +2431,9 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   /* 16px above and below the content: a row's own 16px on top, this 16px at
      the foot (the last row drops its bottom padding below). */
   padding: 0 var(--space-7) var(--space-5);
+  /* A card is its fill; no border on top of it. */
   background: var(--panel-muted);
-  border: 1px solid var(--panel-border);
+  border: 0;
   border-radius: var(--radius-lg);
   overflow: hidden;
   container-type: normal;
@@ -2433,7 +2446,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   padding: 16px 0 14px;
   border-bottom: 1px solid var(--panel-border);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text-soft);
 }
 .panel[data-panel="settings"] .settings-group-title::before {
@@ -2479,9 +2492,72 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 }
 .panel[data-panel="settings"] .settings-title {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.35;
   color: var(--text);
+}
+/* Status lines (Zotero's connection, the update state) are text rows inside
+   the card, not boxes of their own. Success reads as plain text. */
+.panel[data-panel="settings"] .settings-help-text {
+  margin: 0;
+  padding: var(--space-5) 0 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+.panel[data-panel="settings"] .settings-help-text.is-warning {
+  color: var(--warning-text);
+}
+.panel[data-panel="settings"] .settings-help-text.is-error {
+  color: var(--danger-text);
+}
+/* Version numbers are plain text at the end of their row, not chips. */
+.panel[data-panel="settings"] .settings-version-badge {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text-soft);
+  font-family: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+.panel[data-panel="settings"] .settings-version-badge.is-new {
+  border: 0;
+  background: none;
+  color: var(--text);
+}
+/* 情報: the seven pages are a list of links, one row each, no frames. */
+.panel[data-panel="settings"] [data-settings-page="info"] .settings-actions {
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  gap: 0;
+  /* 8px + half of the 32px row above the first label, the same below the last. */
+  padding: var(--space-3) 0 0;
+  margin-bottom: calc(-1 * var(--space-3));
+}
+.panel[data-panel="settings"] [data-settings-page="info"] .panel-button {
+  justify-content: flex-start;
+  width: 100%;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 400;
+  text-align: left;
+}
+.panel[data-panel="settings"] [data-settings-page="info"] .panel-button:hover {
+  background: transparent;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .panel[data-panel="settings"] .settings-description,
 .panel[data-panel="settings"] .settings-nav-desc,
@@ -2538,6 +2614,11 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .panel[data-panel="settings"] .settings-subsection + .settings-inline {
   margin-top: 10px;
 }
+/* 「verbatim 環境」 labels the field below it like a row label: 14px / 400. */
+.panel[data-panel="settings"] .settings-subsection-title {
+  font-size: 14px;
+  font-weight: 400;
+}
 
 /* Settings Navigation Menu */
 .settings-nav {
@@ -2571,59 +2652,40 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   gap: 8px;
 }
 
-.settings-nav-item::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--accent);
-  transform: scaleY(0);
-  transition: transform var(--duration-normal) ease;
-  border-radius: 0 2px 2px 0;
-}
-
 .settings-nav-item:hover {
   background: var(--control-bg);
 }
 
-.settings-nav-item:hover::before {
-  transform: scaleY(1);
-}
-
 .settings-nav-item:active {
-  background: var(--accent-soft);
+  background: var(--control-bg);
 }
 
 .settings-nav-title {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
+  letter-spacing: 0;
   color: var(--text);
   transition: color var(--duration-normal) ease;
 }
 
+/* 「更新あり」 is a 6px accent dot. The words stay in the box, clipped and
+   transparent, so a screen reader still reads them (the visually-hidden
+   pattern, with the box itself drawn as the dot). */
 .settings-nav-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px calc(7px - 0.06em) 4px 7px;
-  border-radius: 4px;
-  border: 1px solid var(--teal-line);
-  background: var(--teal-soft);
-  color: var(--teal-text);
-  font-family: "Instrument Sans", "Noto Sans JP", "Hiragino Sans", -apple-system, sans-serif;
-  font-size: 10px;
-  font-weight: 500;
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent-strong);
+  color: transparent;
+  font-size: 11px;
   line-height: 1;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   white-space: nowrap;
-  justify-content: center;
+  overflow: hidden;
   box-sizing: border-box;
-  /* 20px tall badge in a 13px title line: the 3.5px overhang each side sits in
-     the row's 8px padding, so Account stays as tall as the other rows (31px). */
-  margin-block: -3.5px;
 }
 
 /* Account's alert is good news (an update): its badge is enough, the row stays plain. */
@@ -2635,13 +2697,8 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 /* Account "update available" is positive news, not a warning — show it green
    instead of the red used for runtime-setup alerts. */
 #settings-account-attention {
-  border-color: var(--teal-line);
-  background: var(--teal-soft);
-  color: var(--teal-text);
-}
-
-.settings-nav-item:hover .settings-nav-title {
-  color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: transparent;
 }
 
 .settings-nav-desc {
@@ -2770,7 +2827,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   padding: calc(var(--space-2) + 0.5px) var(--space-5) calc(var(--space-2) - 0.5px);
   border-radius: var(--radius-sm);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   height: 32px;
   border: 1px solid var(--panel-border-strong);
   background: transparent;
@@ -2816,7 +2873,7 @@ html[lang="ja"] .settings-page .panel-button {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text-soft);
   padding-bottom: 14px;
   margin-bottom: 4px;
@@ -2900,17 +2957,16 @@ html[lang="ja"] .settings-page .panel-button {
 
 .settings-title {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text);
   letter-spacing: 0.01em;
   line-height: 1.4;
 }
 
 .settings-desc {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-soft);
   line-height: 1.5;
-  opacity: 0.85;
 }
 
 /* Settings Help Text */
@@ -2954,11 +3010,11 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 .settings-runtime-setup-status {
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .settings-runtime-onboarding {
-  font-weight: 500;
+  font-weight: 400;
   margin-top: 10px;
 }
 
@@ -3037,7 +3093,7 @@ html[lang="ja"] .settings-page .panel-button {
   padding: 8px 12px;
   font-size: 12px;
   font-family: inherit;
-  font-weight: 500;
+  font-weight: 400;
   transition: all 0.15s ease;
   cursor: pointer;
   appearance: none;
@@ -3109,7 +3165,7 @@ html[lang="ja"] .settings-page .panel-button {
   color: var(--text-soft);
   font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1;
   letter-spacing: 0.02em;
   text-transform: none;
@@ -3135,7 +3191,7 @@ html[lang="ja"] .settings-page .panel-button {
   padding: 8px 12px;
   font-size: 12px;
   font-family: inherit;
-  font-weight: 500;
+  font-weight: 400;
   transition: all 0.15s ease;
 }
 
@@ -3143,7 +3199,7 @@ html[lang="ja"] .settings-page .panel-button {
   max-width: 80px;
   text-align: center;
   font-family: "SF Mono", Menlo, monospace;
-  font-weight: 600;
+  font-weight: 400;
   font-size: 13px;
   padding: 8px 10px;
 }
@@ -3159,7 +3215,7 @@ html[lang="ja"] .settings-page .panel-button {
   font-size: 12px;
   color: var(--text-soft);
   white-space: nowrap;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 /* Disabled States */
@@ -3211,8 +3267,8 @@ html[lang="ja"] .settings-page .panel-button {
   border-radius: 999px;
   padding: 8px 16px;
   font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
+  font-weight: 400;
+  letter-spacing: 0;
   cursor: pointer;
   transition: all var(--duration-normal) ease;
 }
@@ -3292,16 +3348,16 @@ html[lang="ja"] .settings-page .panel-button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px calc(7px - 0.06em) 4px 7px;
+  padding: 4px calc(7px - 0.02em) 4px 7px;
   border-radius: 4px;
   border: 1px solid var(--panel-border-strong);
   background: transparent;
   color: var(--text-soft);
   font-family: "Instrument Sans", "Noto Sans JP", "Hiragino Sans", -apple-system, sans-serif;
-  font-size: 10px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 400;
   line-height: 1;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   white-space: nowrap;
   justify-self: start;
@@ -3370,30 +3426,34 @@ html[lang="ja"] .settings-page .panel-button {
    Environment screen — status-first, one-click setup
    ============================================================================= */
 
+/* The environment page is one quiet status row (mark + text) on the page
+   itself: no card around it, no tinted box in any state. The mark's colour
+   carries the state. */
 .panel[data-panel="settings"] .settings-group.env-group {
-  padding: 18px 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
 }
 
 .env-hero {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 18px;
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
-  transition: background 0.2s ease, border-color 0.2s ease;
+  gap: var(--space-3);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
 }
 
 .env-hero-icon {
   flex: 0 0 auto;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
+  width: 20px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent-soft);
+  background: none;
 }
 
 .env-hero-text {
@@ -3404,8 +3464,8 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 .env-hero-title {
-  font-size: 15px;
-  font-weight: 650;
+  font-size: 14px;
+  font-weight: 400;
   line-height: 1.35;
   color: var(--text);
 }
@@ -3416,32 +3476,11 @@ html[lang="ja"] .settings-page .panel-button {
   color: var(--text-soft);
 }
 
-.env-hero.is-checking,
-.env-hero.is-installing {
-  border-color: var(--accent-soft-strong);
-  background: var(--accent-soft);
-}
-/* Ready: the check and the success colour say so; no box of its own. */
-.env-hero.is-ready {
-  border-color: transparent;
-  background: transparent;
-}
-.env-hero.is-ready .env-hero-icon {
-  background: transparent;
-}
-.env-hero.is-missing {
-  border-color: rgba(255, 211, 138, 0.32);
-  background: rgba(255, 211, 138, 0.08);
-}
-.env-hero.is-missing .env-hero-icon {
-  background: rgba(255, 211, 138, 0.16);
-}
-
 .env-hero.is-checking .env-hero-icon::before,
 .env-hero.is-installing .env-hero-icon::before {
   content: "";
-  width: 20px;
-  height: 20px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   border: 2px solid var(--accent-strong);
   border-top-color: transparent;
@@ -3449,16 +3488,16 @@ html[lang="ja"] .settings-page .panel-button {
 }
 .env-hero.is-ready .env-hero-icon::before {
   content: "";
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   background: var(--success-text);
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 .env-hero.is-missing .env-hero-icon::before {
   content: "";
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   background: var(--warning-text);
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 8v5'/%3E%3Cpath d='M12 16h.01'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 8v5'/%3E%3Cpath d='M12 16h.01'/%3E%3C/svg%3E") center / contain no-repeat;
@@ -3493,11 +3532,10 @@ html[lang="ja"] .settings-page .panel-button {
 /* Detection line: which TeX we found, and where. Kept quiet — it is reassurance,
    not an instruction. */
 .env-detail {
-  margin-top: 10px;
-  /* No box: the text starts where the status title does (hero padding 18 +
-     border 1 + icon 44 + gap 16). */
-  padding: 0 18px;
-  padding-inline-start: calc(18px + 1px + 44px + var(--space-5));
+  margin-top: var(--space-1);
+  /* No box: the text starts where the status title does (mark 20 + gap 8). */
+  padding: 0;
+  padding-inline-start: calc(20px + var(--space-3));
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-soft);
@@ -3541,16 +3579,16 @@ html[lang="ja"] .settings-page .panel-button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px calc(7px - 0.06em) 4px 7px;
+  padding: 4px calc(7px - 0.02em) 4px 7px;
   border-radius: 4px;
   border: 1px solid var(--teal-line);
   background: var(--teal-soft);
   color: var(--teal-text);
   font-family: "Instrument Sans", "Noto Sans JP", "Hiragino Sans", -apple-system, sans-serif;
-  font-size: 10px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 400;
   line-height: 1;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   white-space: nowrap;
   min-height: 16px;
@@ -3563,7 +3601,7 @@ html[lang="ja"] .settings-page .panel-button {
 
 .env-choice-title {
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 600;
   color: var(--text);
 }
 
@@ -3575,8 +3613,8 @@ html[lang="ja"] .settings-page .panel-button {
 
 .env-choice-size {
   margin-top: 2px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 400;
   color: var(--text-soft);
   opacity: 0.85;
 }
@@ -3713,7 +3751,7 @@ html[lang="ja"] .settings-page .panel-button {
 
 .env-registry-title {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text-soft);
 }
 
@@ -3756,13 +3794,13 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 .env-registry-meta {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 
 .env-registry-flag {
-  font-size: 9px;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--warning);
   background: var(--warning-soft);
@@ -3780,7 +3818,7 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 .outline-empty {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -3796,7 +3834,7 @@ html[lang="ja"] .settings-page .panel-button {
 
 .outline-section-title {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   /* The English sources are lower-case ("label"); the caps stay until they are not. */
   text-transform: uppercase;
   color: var(--text-soft);
@@ -3836,7 +3874,8 @@ html[lang="ja"] .settings-page .panel-button {
   border: none; /* Remove block borders */
   background: transparent;
   color: var(--text-soft);
-  font-size: 12px;
+  font-size: 13px;
+  letter-spacing: 0;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   text-align: left;
@@ -3850,8 +3889,8 @@ html[lang="ja"] .settings-page .panel-button {
 
 /* Hierarchy indentation */
 .outline-item[data-level="1"] { padding-left: 8px; }
-.outline-item[data-level="2"] { padding-left: 20px; font-size: 11px; }
-.outline-item[data-level="3"] { padding-left: 32px; font-size: 11px; color: var(--muted); }
+.outline-item[data-level="2"] { padding-left: 20px; }
+.outline-item[data-level="3"] { padding-left: 32px; color: var(--muted); }
 
 .outline-item:hover {
   background: rgba(255, 255, 255, 0.05);
@@ -3871,7 +3910,7 @@ html[lang="ja"] .settings-page .panel-button {
 .outline-item.is-active {
   background: var(--accent-soft);
   color: var(--accent-strong);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .outline-item[data-kind="todo"] {
@@ -3905,7 +3944,7 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 .outline-meta {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
   opacity: 0.7;
 }
@@ -3916,7 +3955,7 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 .workspace-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -3968,7 +4007,8 @@ html[lang="ja"] .settings-page .panel-button {
   cursor: pointer;
   padding: 3px 6px;
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: 13px;
+  letter-spacing: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3978,7 +4018,7 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 .file-folder summary.is-selected {
-  background: var(--accent-soft);
+  background: var(--control-bg);
   color: var(--text);
 }
 
@@ -4031,7 +4071,8 @@ html[lang="ja"] .settings-page .panel-button {
   color: var(--text);
   padding: 3px 6px 3px 18px;
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: 13px;
+  letter-spacing: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4047,11 +4088,11 @@ html[lang="ja"] .settings-page .panel-button {
   background: var(--panel-muted);
 }
 
+/* The open file: a neutral fill and the 600 weight; the accent is not used. */
 .file-item.is-active {
-  background: var(--accent-soft-strong);
-  border-color: var(--accent-soft-strong);
-  color: var(--accent-strong);
-  font-weight: 500;
+  background: var(--control-bg);
+  color: var(--text);
+  font-weight: 600;
 }
 
 .file-item.is-drop-target {
@@ -4274,8 +4315,8 @@ html[lang="ja"] .settings-page .panel-button {
   background: transparent;
   color: var(--text);
   font-family: inherit;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   line-height: 1;
   cursor: pointer;
   transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
@@ -4326,10 +4367,10 @@ html[lang="ja"] .settings-page .panel-button {
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   padding: 0 8px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   cursor: pointer;
   user-select: none;
   transition:
@@ -4348,8 +4389,8 @@ html[lang="ja"] .settings-page .panel-button {
   border-color: transparent;
   background: transparent;
   color: var(--text);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   letter-spacing: normal;
 }
 
@@ -4431,8 +4472,8 @@ html[lang="ja"] .settings-page .panel-button {
   border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 400;
   cursor: pointer;
 }
 
@@ -4532,7 +4573,8 @@ html[lang="ja"] .settings-page .panel-button {
   color: var(--text-soft);
   border-radius: 0;
   padding: 0 12px;
-  font-size: 11px;
+  font-size: 13px;
+  letter-spacing: 0;
   cursor: pointer;
   margin-bottom: -1px;
   position: relative;
@@ -4567,7 +4609,7 @@ html[lang="ja"] .settings-page .panel-button {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   background: var(--accent-soft);
   color: var(--accent-strong);
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: normal;
   z-index: 4;
 }
@@ -4582,8 +4624,8 @@ html[lang="ja"] .settings-page .panel-button {
   background: transparent;
   color: var(--text);
   box-shadow: none;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   letter-spacing: normal;
   z-index: 4;
 }
@@ -4676,7 +4718,7 @@ html[lang="ja"] .settings-page .panel-button {
   height: 32px;
   margin: 2px 0;
   font-size: 11px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -4733,11 +4775,11 @@ html[lang="ja"] .settings-page .panel-button {
 @media (min-width: 901px) {
   #build-button,
   #build-button.is-busy {
-    width: 96px;
-    min-width: 96px;
-    flex: 0 0 96px;
-    /* Idle content is centred, so this only matters when busy: 60px for the
-       label, enough for 「ビルド中…」 in full. */
+    width: 102px;
+    min-width: 102px;
+    flex: 0 0 102px;
+    /* Idle content is centred, so this only matters when busy: 66px for the
+       13px label, enough for 「ビルド中…」 (5 × 13px) in full. */
     padding: 0 8px 0 6px;
   }
 }
@@ -4802,9 +4844,9 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 .editor-status {
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.02em;
   color: var(--accent-strong);
 }
 
@@ -4845,9 +4887,10 @@ html[lang="ja"] .settings-page .panel-button {
   padding: 16px;
 }
 
-/* The PDF page view keeps its own paper margin; the frame only needs 8px. */
+/* The PDF view fills the pane: the pages sit on the pane background, with no
+   frame, radius or shadow around the viewer (it keeps its own paper margin). */
 .editor-viewer[data-view="pdf"] .editor-viewer-body {
-  padding: var(--space-3);
+  padding: 0;
 }
 
 .editor-viewer-media {
@@ -4869,7 +4912,13 @@ html[lang="ja"] .settings-page .panel-button {
 .editor-viewer-pdf {
   width: 100%;
   height: 100%;
-  border-radius: var(--radius-sm);
+}
+
+.editor-viewer[data-view="pdf"] .editor-viewer-pdf {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .editor-viewer-message {
@@ -5087,7 +5136,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .announcement-card .announcement-title {
   font-family: var(--announce-sans);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   line-height: 24px;
   color: var(--text);
@@ -5200,8 +5249,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .announcement-card .modal-actions .panel-button {
   font-family: var(--announce-sans);
-  font-size: 13.5px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   height: 32px;
   padding: 0 var(--space-5);
   border-radius: var(--radius-sm);
@@ -5227,6 +5276,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   background: var(--accent);
   border: none;
   padding: 0 22px;
+  font-weight: 600;
 }
 
 .announcement-card #announcement-modal-link:hover,
@@ -5258,7 +5308,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
     padding: 28px 24px 24px;
   }
 
-  .announcement-card .announcement-title { font-size: 18px; font-weight: 600; line-height: 24px; }
+  .announcement-card .announcement-title { font-size: 16px; font-weight: 600; line-height: 24px; }
 
   .announcement-card .announcement-body {
     font-size: 14px;
@@ -5266,7 +5316,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 .modal-title {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text);
   line-height: 24px;
@@ -5295,10 +5345,10 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 .diff-title {
-  font-size: 18px;
+  font-size: 16px;
   /* Larger title */
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   color: var(--text);
   margin-bottom: 0;
 }
@@ -5350,7 +5400,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 #diff-modal-submit {
   background: var(--accent);
   color: #fff;
-  font-weight: 500;
+  font-weight: 600;
   border: none;
   box-shadow: none;
 }
@@ -5376,8 +5426,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .diff-summary-item {
   padding: 2px 8px;
   border-radius: 999px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 400;
+  letter-spacing: 0;
 }
 
 .diff-summary-item.is-add {
@@ -5453,7 +5503,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .modal-label {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text-soft);
   flex-shrink: 0;
 }
@@ -5465,7 +5515,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   white-space: nowrap;
   text-align: left;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text);
   font-family: "SF Mono", Menlo, Monaco, monospace;
 }
@@ -5546,8 +5596,8 @@ input.modal-input {
 
 .modal-actions .panel-button {
   padding: 0 14px;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   border-radius: var(--radius-sm);
   min-width: 72px;
   justify-content: center;
@@ -5587,6 +5637,7 @@ input.modal-input {
 }
 
 .context-menu-item {
+  letter-spacing: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -5595,7 +5646,7 @@ input.modal-input {
   border: none;
   background: transparent;
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   padding: 6px 8px;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -5616,7 +5667,7 @@ input.modal-input {
 }
 
 .context-menu-shortcut {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -5661,7 +5712,7 @@ input.modal-input {
   cursor: pointer;
   color: var(--text);
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
 }
 
 /* Marked lines inside the transcript: the few that matter among thousands of
@@ -5832,7 +5883,7 @@ input.modal-input {
   margin-left: auto;
   overflow: hidden;
   font-family: "SF Mono", Menlo, monospace;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--text-soft);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -6014,7 +6065,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   gap: 16px;
 }
 
-.code-comment-modal-title { font-size: 18px; margin: 0; line-height: 24px; }
+.code-comment-modal-title { font-size: 16px; margin: 0; line-height: 24px; }
 
 .code-comment-modal-input {
   min-height: 130px;
@@ -6124,7 +6175,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   background: var(--control-bg);
   color: var(--text-soft);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: 0.01em;
   cursor: pointer;
   white-space: nowrap;
@@ -6226,7 +6277,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--text);
   line-height: 1.2;
   white-space: nowrap;
@@ -6240,16 +6291,16 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4.5px calc(5px - 0.06em) 3.5px 5px;
+  padding: 4.5px calc(5px - 0.02em) 3.5px 5px;
   border-radius: 4px;
   border: 1px solid var(--teal-line);
   background: var(--teal-soft);
   color: var(--teal-text);
   font-family: "Instrument Sans", "Noto Sans JP", "Hiragino Sans", -apple-system, sans-serif;
-  font-size: 9px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 400;
   line-height: 1;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   white-space: nowrap;
   justify-content: center;
@@ -6316,7 +6367,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   cursor: pointer;
   font-family: inherit;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.01em;
   color: #fff;
   background: var(--accent);
@@ -6463,7 +6514,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   gap: 16px;
 }
 .ai-chat-delete-modal-title {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text);
   line-height: 24px;
@@ -6814,11 +6865,11 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 .ai-code-lang {
   font-family: "SF Mono", Menlo, monospace;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 400;
   color: var(--text-soft);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
 }
 .ai-code-copy {
   font-size: 10px;
@@ -7087,16 +7138,16 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px calc(7px - 0.06em) 4px 7px;
+  padding: 4px calc(7px - 0.02em) 4px 7px;
   border-radius: 4px;
   border: 1px solid var(--teal-line);
   background: var(--teal-soft);
   color: var(--teal-text);
   font-family: "Instrument Sans", "Noto Sans JP", "Hiragino Sans", -apple-system, sans-serif;
-  font-size: 10px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 400;
   line-height: 1;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   white-space: nowrap;
   justify-content: center;
@@ -7145,16 +7196,16 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px calc(5px - 0.06em) 4px 5px;
+  padding: 4px calc(5px - 0.02em) 4px 5px;
   border-radius: 4px;
   border: 1px solid var(--panel-border-strong);
   background: transparent;
   color: var(--text-soft);
   font-family: "Instrument Sans", "Noto Sans JP", "Hiragino Sans", -apple-system, sans-serif;
-  font-size: 9px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 400;
   line-height: 1;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   white-space: nowrap;
   justify-content: center;
@@ -7479,7 +7530,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 .ai-status-line {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.4;
 }
 .ai-status-detail {
@@ -7524,8 +7575,8 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   padding: 7px 8px 7px 10px;
 }
 .ai-topbar-title {
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
 }
 .ai-chat-log {
   padding: 16px 12px 12px;
@@ -7869,7 +7920,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   background: transparent;
   color: var(--text-soft);
   font-size: 11.5px;
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: 0;
 }
 .ai-model-trigger:hover {
@@ -7925,7 +7976,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .ai-proposal-path {
   font-family: inherit;
   font-size: 12.5px;
-  font-weight: 500;
+  font-weight: 400;
   opacity: 1;
   color: var(--text);
 }
@@ -7940,7 +7991,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   padding: 0;
   border-radius: 0;
   background: transparent;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -7978,7 +8029,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   padding: 0 0 0 8px;
   background: transparent;
   border-radius: 0;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: 0;
 }
 /* Buttons look like buttons: a border, a little room, and a hover. */
@@ -7997,7 +8048,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   background: transparent;
   color: var(--text);
   font-size: 11.5px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.2;
 }
 .ai-proposal-actions .panel-button:hover,
@@ -8326,7 +8377,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 
 .capture-crop-hint.is-error {
   color: var(--danger-text);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .capture-crop-actions {
@@ -8870,7 +8921,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   background: transparent;
   color: var(--muted);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 400;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -8904,7 +8955,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   background: transparent;
   color: var(--muted);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 400;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -8944,7 +8995,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   border: none;
   padding: 0 4px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 400;
   color: #94a3b8;
   cursor: pointer;
   height: 100%;
@@ -9222,9 +9273,9 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .plans-head { text-align: left; max-width: 40rem; margin: 0; }
 .plans-heading {
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   color: var(--text);
 }
 
@@ -9260,7 +9311,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .plan-card-name {
   margin: 0;
   font-size: 22px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text);
 }
@@ -9269,16 +9320,16 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px calc(7px - 0.06em) 4px 7px;
+  padding: 4px calc(7px - 0.02em) 4px 7px;
   border-radius: 4px;
   border: 1px solid var(--teal-line);
   background: var(--teal-soft);
   color: var(--teal-text);
   font-family: "Instrument Sans", "Noto Sans JP", "Hiragino Sans", -apple-system, sans-serif;
-  font-size: 10px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 400;
   line-height: 1;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   white-space: nowrap;
   justify-content: center;
@@ -9293,7 +9344,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 .plan-price {
   font-size: 32px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text);
   line-height: 1;
@@ -9301,7 +9352,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .plan-price-meta {
   font-size: 12px;
   color: var(--text-soft);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .plan-desc {
@@ -9341,7 +9392,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   background: transparent;
   color: var(--text);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   cursor: pointer;
   transition: background 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
   line-height: 1;
@@ -9356,6 +9407,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+  font-weight: 600;
 }
 .plan-cta.primary:hover {
   background: var(--accent-hover);
@@ -9536,7 +9588,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   background: transparent;
   color: var(--text-soft);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   white-space: nowrap;
   cursor: pointer;
   -webkit-app-region: no-drag;
@@ -9721,7 +9773,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-canvas-popover { position: fixed; z-index: 6; display: grid; width: 286px; gap: 8px; padding: 12px; color: var(--text); border: 1px solid var(--panel-border); border-radius: var(--radius-md); background: var(--panel-strong); box-shadow: 0 12px 32px rgb(0 0 0 / 28%); font-size: 11px; }
 .pro-canvas-canvas-popover-title { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
 .pro-canvas-canvas-popover-title button { width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: var(--text-soft); }
-.pro-canvas-canvas-popover > strong { color: var(--text-soft); font-size: 12px; font-weight: 500; }
+.pro-canvas-canvas-popover > strong { color: var(--text-soft); font-size: 12px; font-weight: 400; }
 .pro-canvas-canvas-dimensions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .pro-canvas-canvas-dimensions label { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px; color: var(--text-soft); }
 .pro-canvas-canvas-dimensions input { grid-column: 1; grid-row: 2; width: 100%; box-sizing: border-box; }
@@ -9816,7 +9868,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-inline-editor { position: fixed; z-index: 5; box-sizing: border-box; min-width: 26px; max-width: 220px; padding: 2px 4px; transform: translate(-50%, -50%); color: #111827; background: #ffffff; border: 1px solid var(--accent); border-radius: 3px; font-family: KaTeX_Math, serif; line-height: 1.2; box-shadow: var(--shadow-sm); }
 .pro-canvas-plot-card { position: fixed; z-index: 5; box-sizing: border-box; width: 320px; max-height: calc(100vh - 16px); overflow: auto; padding: 12px; color: var(--text); border: 1px solid var(--panel-border); border-radius: var(--radius-md); background: var(--panel-strong); box-shadow: 0 12px 32px rgb(0 0 0 / 28%); font-size: 11px; word-break: keep-all; }
 .pro-canvas-plot-card-header { display: flex; align-items: center; justify-content: space-between; margin: -2px 0 6px; cursor: grab; }
-.pro-canvas-plot-card-header strong { font-size: 12px; font-weight: 500; color: var(--text-soft); }
+.pro-canvas-plot-card-header strong { font-size: 12px; font-weight: 400; color: var(--text-soft); }
 .pro-canvas-plot-card-header button { width: 24px; height: 24px; padding: 0; border: 0 !important; background: transparent !important; color: var(--text-soft); }
 .pro-canvas-plot-card-header button:hover { color: var(--text); }
 .pro-canvas-plot-card button, .pro-canvas-plot-card input, .pro-canvas-plot-card select, .pro-canvas-plot-card textarea { box-sizing: border-box; min-width: 0; color: var(--text); border: 1px solid var(--panel-border); border-radius: var(--radius-sm); background: var(--panel); }
@@ -9835,7 +9887,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-plot-points { width: 100%; padding: 5px 6px; resize: vertical; font: 10px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .pro-canvas-plot-points.is-error { border-color: #dc2626; }
 .pro-canvas-color-chip { position: relative; width: 16px; height: 16px; border: 2px solid var(--panel-strong); border-radius: 50%; box-shadow: 0 0 0 1px var(--panel-border); cursor: pointer; }
-.pro-canvas-color-chip:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pro-canvas-color-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .pro-canvas-color-chip input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .pro-canvas-plot-expr { width: 100%; padding: 5px 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .pro-canvas-plot-expr.is-error { border-color: #dc2626; }
@@ -9860,12 +9912,12 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-inspector { overflow: auto; padding: 16px; border-left: 1px solid var(--panel-border); background: var(--panel-strong); }
 .pro-canvas-inspector section { margin-bottom: 16px; }
 .pro-canvas-inspector section[hidden] { display: none; }
-.pro-canvas-inspector h3 { margin: 0 0 8px; color: var(--text-soft); font-size: 12px; font-weight: 500; }
+.pro-canvas-inspector h3 { margin: 0 0 8px; color: var(--text-soft); font-size: 12px; font-weight: 400; }
 .pro-canvas-geometry, .pro-canvas-style { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .pro-canvas-geometry label, .pro-canvas-style label { display: grid; gap: 4px; color: var(--text-soft); font-size: 10px; }
 .pro-canvas-geometry input, .pro-canvas-style input[type="number"], .pro-canvas-style input[type="text"], .pro-canvas-style input[type="color"], .pro-canvas-style select { box-sizing: border-box; width: 100%; min-width: 0; color: var(--text); background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius-sm); }
 .pro-canvas-style h4, .pro-canvas-plot-series { grid-column: 1 / -1; }
-.pro-canvas-style h4 { margin: 4px 0 0; color: var(--text-soft); font-size: 12px; font-weight: 500; }
+.pro-canvas-style h4 { margin: 4px 0 0; color: var(--text-soft); font-size: 12px; font-weight: 400; }
 .pro-canvas-node-anchor-row { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 10px; color: var(--text-soft); font-size: 10px; }
 .pro-canvas-node-menu-anchor { display: grid; align-content: start; gap: 6px; }
 .pro-canvas-node-anchor-grid { display: grid; grid-template-columns: repeat(3, 22px); grid-auto-rows: 22px; gap: 3px; padding: 4px; border: 1px solid var(--panel-border); border-radius: var(--radius-md); background: var(--panel); }
@@ -9895,7 +9947,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-node-font-row .pro-canvas-segments { flex: 0 0 auto; }
 .pro-canvas-node-font-row .pro-canvas-segments button { min-width: 0; }
 .pro-canvas-node-menu { position: fixed; z-index: 6; display: grid; grid-template-columns: auto minmax(205px, 1fr); gap: 8px; width: 338px; box-sizing: border-box; padding: 12px; color: var(--text); border: 1px solid var(--panel-border); border-radius: var(--radius-md); background: var(--panel-strong); box-shadow: 0 12px 32px rgb(0 0 0 / 28%); font-size: 10px; }
-.pro-canvas-node-menu strong { display: block; margin-bottom: 6px; color: var(--text-soft); font-size: 12px; font-weight: 500; }
+.pro-canvas-node-menu strong { display: block; margin-bottom: 6px; color: var(--text-soft); font-size: 12px; font-weight: 400; }
 .pro-canvas-node-menu-font { display: grid; align-content: start; gap: 6px; }
 .pro-canvas-node-menu .pro-canvas-node-font-row { display: flex; align-items: center; justify-content: space-between; gap: 7px; min-height: 25px; color: var(--text-soft); }
 .pro-canvas-node-menu button, .pro-canvas-node-menu select { box-sizing: border-box; min-width: 0; padding: 4px 6px; color: var(--text); border: 1px solid var(--panel-border); border-radius: var(--radius-sm); background: var(--panel); font-size: 10px; }
@@ -9921,7 +9973,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-style .pro-canvas-segments svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 .pro-canvas-style .pro-canvas-segments button.is-active { color: var(--accent-strong); background: var(--accent-soft); }
 .pro-canvas-pattern-grid button.is-active { color: white; border-color: var(--accent); background: var(--accent); }
-.pro-canvas-style-badge { justify-self: end; display: inline-flex; align-items: center; line-height: 1; padding: 3px calc(5px - 0.06em) 3px 5px; color: var(--text-soft); border: 1px solid var(--panel-border-strong); border-radius: 4px; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; }
+.pro-canvas-style-badge { justify-self: end; display: inline-flex; align-items: center; line-height: 1; padding: 3px calc(5px - 0.02em) 3px 5px; color: var(--text-soft); border: 1px solid var(--panel-border-strong); border-radius: 4px; font-size: 11px; letter-spacing: 0.02em; text-transform: uppercase; }
 .pro-canvas-color-field { display: inline-flex !important; grid-template-columns: auto 22px; align-items: center; gap: 5px !important; }
 .pro-canvas-color-well { position: relative; width: 22px; min-width: 22px; height: 22px; min-height: 22px !important; padding: 0 !important; border: 2px solid var(--panel-strong) !important; border-radius: 50% !important; box-shadow: 0 0 0 1px var(--panel-border); }
 .pro-canvas-color-well.is-none { background: linear-gradient(135deg, white 44%, #dc2626 45%, #dc2626 55%, white 56%) !important; }
@@ -9969,7 +10021,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 .pro-canvas-code-popover textarea:focus, .pro-canvas-text-popover input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 /* Its actions are dialog buttons (.tool-button, .tool-button.is-primary). */
-.pro-canvas-code-popover button { box-sizing: border-box; height: 32px; margin-left: 8px; padding: 0 14px; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+.pro-canvas-code-popover button { box-sizing: border-box; height: 32px; margin-left: 8px; padding: 0 14px; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; font-size: 12.5px; font-weight: 400; cursor: pointer; }
 .pro-canvas-code-popover button:hover { background: var(--control-bg); }
 .pro-canvas-code-popover button.is-primary { color: #fff; border-color: var(--accent); background: var(--accent); }
 .pro-canvas-code-popover button.is-primary:hover { background: var(--accent-hover); }
@@ -9998,7 +10050,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   color: var(--text-soft);
   font: inherit;
   font-size: 11.5px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1;
   cursor: pointer;
   transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
@@ -10012,6 +10064,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .ai-mode-option.is-active {
   background: var(--panel-strong);
   color: var(--text);
+  font-weight: 600;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 .ai-mode-option:focus-visible {
@@ -10140,8 +10193,8 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   border-radius: 5px;
   background: var(--control-bg);
   color: var(--text-soft);
-  font-size: 10.5px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 400;
   line-height: 18px;
   text-align: center;
 }
@@ -10154,7 +10207,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 .ai-step-title {
   font-size: 12.5px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.35;
 }
 .ai-step-scope {
@@ -10338,7 +10391,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .ai-mention-group {
   padding: 6px 8px 2px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text-soft);
 }
 .ai-mention-item {
@@ -10490,12 +10543,12 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   gap: 12px;
 }
 .settings-usage-plan {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 400;
   color: var(--text);
 }
 .settings-usage-reset {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-soft);
 }
 .settings-usage-bar {
@@ -10603,7 +10656,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 .ai-plan-step-title {
   font-size: 12.5px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.4;
 }
 .ai-plan-step-what {
@@ -10670,7 +10723,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   color: var(--text);
 }
 .ai-empty-foot .ai-start-title {
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text-soft);
 }
 .ai-empty-foot:hover .ai-start-title {
@@ -10716,18 +10769,16 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .history-confirm { width: min(520px, calc(100vw - 48px)); max-height: calc(100vh - 48px); overflow-y: auto; box-sizing: border-box; padding: 24px; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-lg); color: var(--text); background: var(--panel-strong); box-shadow: var(--shadow); font-size: 13px; line-height: 20px; }
 /* The same backdrop as .modal (the light theme's is with the other light overrides). */
 .history-confirm::backdrop, .snippets-dialog::backdrop, .tool-dialog::backdrop { background: color-mix(in srgb, var(--bg) 62%, transparent); }
-.history-confirm h2 { font-size: 18px; line-height: 24px; font-weight: 600; margin: 0 0 16px; }
+.history-confirm h2 { font-size: 16px; line-height: 24px; font-weight: 600; margin: 0 0 16px; }
 .history-confirm-actions { justify-content: flex-end; margin-top: 16px; }
 .history-restore-files { max-height: 35vh; overflow: auto; padding: 12px; border: 1px solid var(--panel-border); border-radius: 6px; overflow-wrap: anywhere; }
 .history-selection[hidden], .history-button[hidden], .history-name[hidden], .history-pinned[hidden] { display: none; }
 /* Prism import: one dialog, the five steps, three selects, the difference list. */
 .prism-import { display: flex; flex-direction: column; gap: 16px; }
 .prism-import h2 { margin: 0; }
-.prism-steps { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; }
 .prism-step { display: flex; align-items: baseline; gap: 6px; color: var(--text-soft); }
 .prism-step.is-running, .prism-step.is-done { color: var(--text); }
 .prism-step.is-failed { color: var(--danger, #d9534f); }
-.prism-step-mark { display: inline-block; width: 1em; text-align: center; font-variant-numeric: tabular-nums; }
 .prism-step .history-date { margin-left: 2px; }
 .prism-fields { display: flex; flex-direction: column; gap: 8px; }
 .prism-fields[hidden], .prism-field[hidden] { display: none; }
@@ -10736,7 +10787,6 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 /* Project row and the field group below it read as one column of 8px rows. */
 .prism-import > .prism-field:not([hidden]) + .prism-fields { margin-top: -8px; }
 .prism-diff:empty { display: none; }
-.prism-diff.is-stale { opacity: .5; }
 .prism-issues { display: flex; flex-direction: column; gap: 4px; }
 .prism-issues p { margin: 0; overflow-wrap: anywhere; }
 .prism-issues .history-button { align-self: flex-start; }
@@ -10747,7 +10797,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .prism-import .history-confirm-actions { margin-top: 0; }
 .launcher.is-zip-drop, .file-tree.is-zip-drop { outline: 2px dashed var(--accent); outline-offset: -4px; }
 .snippets-dialog { width: min(820px, calc(100vw - 48px)); max-height: calc(100vh - 48px); box-sizing: border-box; overflow: auto; background: var(--panel-strong); color: var(--text); padding: 24px; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow); font-size: 13px; line-height: 1.55; }
-.snippets-dialog h2 { margin: 0 0 16px; font-size: 18px; font-weight: 600; line-height: 24px; }
+.snippets-dialog h2 { margin: 0 0 16px; font-size: 16px; font-weight: 600; line-height: 24px; }
 .snippets-columns { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(250px, 2fr); gap: 16px; }
 .snippets-library, .snippets-form, .snippets-form label, .snippets-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .snippets-form { gap: 12px; }
@@ -10759,7 +10809,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .snippets-dialog input:focus, .snippets-dialog textarea:focus { outline: none; border-color: var(--teal-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .snippets-dialog input { height: 32px; padding: 0 12px; }
 .snippets-dialog textarea { font-family: monospace; resize: vertical; min-height: 160px; }
-.snippets-dialog button { box-sizing: border-box; min-height: 32px; background: transparent; color: var(--text); border: 1px solid var(--panel-border-strong); border-radius: var(--radius-sm); padding: 0 14px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+.snippets-dialog button { box-sizing: border-box; min-height: 32px; background: transparent; color: var(--text); border: 1px solid var(--panel-border-strong); border-radius: var(--radius-sm); padding: 0 14px; font: inherit; font-size: 12.5px; font-weight: 400; cursor: pointer; }
 .snippets-dialog button:hover:not(:disabled) { background: var(--control-bg); }
 .snippets-dialog .snippets-list button[aria-pressed="true"] { background: var(--accent-soft); }
 .snippets-dialog button:disabled { opacity: .4; cursor: default; }
@@ -10779,7 +10829,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 
 
 
-.snippets-dialog button.is-primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+.snippets-dialog button.is-primary { border-color: var(--accent); background: var(--accent); color: #fff; font-weight: 600; }
 .snippets-dialog button.is-primary:hover:not(:disabled) { background: var(--accent-hover); }
 /* Delete sits in the Actions menu: the danger colour, as .tool-button.is-danger. */
 .snippets-dialog button.is-danger { color: var(--danger-text); }
@@ -10815,7 +10865,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .arxiv-row-text { flex: 1; min-width: 0; }
 .arxiv-row-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; max-width: 36%; }
 .arxiv-row-side .history-button { min-height: 32px; padding: 0 12px; white-space: nowrap; }
-.arxiv-row-title { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 600; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.arxiv-row-title { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 400; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .arxiv-row-title:hover { text-decoration: underline; }
 .arxiv-row-meta { margin: 2px 0 0; font-size: 12px; line-height: 18px; color: var(--text-soft); }
 .arxiv-row-side .arxiv-row-meta { text-align: right; }
@@ -10899,12 +10949,15 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   line-height: 1.55;
 }
 .tool-dialog[open] { animation: tool-dialog-in 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
+/* When the dialog box itself holds focus (on opening, so that no button
+   shows a ring at rest), it is not a control and draws no ring. */
+.tool-dialog:focus-visible { outline: none; }
 @keyframes tool-dialog-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-.tool-dialog-title { margin: 0 0 16px; font-family: inherit; font-size: 18px; font-weight: 600; line-height: 24px; color: var(--text); }
+.tool-dialog-title { margin: 0 0 16px; font-family: inherit; font-size: 16px; font-weight: 600; line-height: 24px; color: var(--text); }
 /* The project name after a title (共同編集 · thesis): quieter than the title itself. */
 .tool-dialog-title-detail { margin-left: 6px; font-weight: 400; color: var(--muted); }
 .collab-dialog .tool-dialog-title, .collab-dialog .tool-dialog-title-detail { min-width: 0; overflow-wrap: anywhere; }
-.tool-dialog-label { margin: 0 0 8px; font-size: 12px; font-weight: 500; color: var(--text-soft); }
+.tool-dialog-label { margin: 0 0 8px; font-size: 12px; font-weight: 400; color: var(--text-soft); }
 .tool-dialog-note { margin: var(--space-4) 0 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .tool-dialog-note code, .tool-dialog code { font-family: var(--tool-mono); font-size: 11.5px; color: var(--text-soft); }
 .tool-dialog-error { margin: 12px 0 0; font-size: 12px; color: var(--danger-text); }
@@ -10937,11 +10990,11 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .tool-dialog-error:empty { display: none; }
 .tool-dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .tool-dialog-actions .tool-dialog-spacer { flex: 1; }
-.tool-button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background var(--duration-fast), border-color var(--duration-fast); }
+.tool-button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; font-size: 13px; font-weight: 400; white-space: nowrap; cursor: pointer; transition: background var(--duration-fast), border-color var(--duration-fast); }
 .tool-button:hover:not(:disabled) { background: var(--control-bg); }
 .tool-button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .tool-button:disabled { opacity: 0.5; cursor: default; }
-.tool-button.is-primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+.tool-button.is-primary { border-color: var(--accent); background: var(--accent); color: #fff; font-weight: 600; }
 .tool-button.is-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .tool-button.is-quiet { border-color: transparent; color: var(--text-soft); }
 .tool-button.is-danger { border-color: var(--danger-border); color: var(--danger-text); }
@@ -10949,17 +11002,17 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .tool-input { box-sizing: border-box; width: 100%; height: 32px; padding: 0 12px; border: 1px solid var(--input-border); border-radius: var(--radius-sm); background: var(--input-bg); color: var(--text); font: inherit; font-size: 13px; }
 .tool-input:focus { outline: none; border-color: var(--teal-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .tool-segmented { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--panel-border); border-radius: var(--radius-md); background: var(--input-bg); }
-.tool-segmented button { height: 26px; padding: 0 14px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-soft); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+.tool-segmented button { height: 26px; padding: 0 14px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-soft); font: inherit; font-size: 12.5px; font-weight: 400; cursor: pointer; }
 .tool-segmented button:hover { color: var(--text); }
-.tool-segmented button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-strong); }
+.tool-segmented button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
 .tool-segmented button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
 /* Word count */
 .word-count-scopes { margin: 0 0 16px; }
-.word-count-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; overflow: hidden; border: 1px solid var(--panel-border); border-radius: var(--radius-md); background: var(--panel-border); }
-.word-count-stat { display: flex; flex-direction: column; gap: 4px; padding: 16px; background: var(--panel-strong); }
+.word-count-stats { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6) var(--space-7); }
+.word-count-stat { display: flex; flex-direction: column; gap: 4px; }
 .word-count-stat.is-major .word-count-value { font-family: var(--tool-serif); font-size: 34px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
-.word-count-value { font-size: 18px; font-weight: 500; line-height: 1.2; color: var(--text); font-variant-numeric: tabular-nums; }
+.word-count-value { font-size: 18px; font-weight: 400; line-height: 1.2; color: var(--text); font-variant-numeric: tabular-nums; }
 .word-count-value small { margin-left: 3px; font-size: 12px; font-weight: 400; color: var(--text-soft); }
 .word-count-name { font-size: 12px; color: var(--text-soft); }
 
@@ -10986,8 +11039,11 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .tool-dialog-title .zotero-connection-dot { display: inline-block; margin-left: 8px; vertical-align: middle; }
 .zotero-connection-dot.is-on { background: var(--success); box-shadow: 0 0 0 3px var(--success-soft); }
 .zotero-connection-dot.is-off { background: var(--danger); }
-.zotero-target { margin: 0 0 16px; font-size: 12.5px; color: var(--text-soft); }
-.zotero-target code { padding: 1px 5px; border-radius: 4px; background: var(--control-bg); }
+/* Connected (or still checking) is the normal state: no dot. */
+.tool-dialog-title .zotero-connection-dot:not(.is-off) { display: none; }
+.zotero-target { margin: 0 0 16px; font-size: 12px; color: var(--text-soft); }
+/* main.tex:28 is plain secondary text, not a code chip. */
+.zotero-target code { padding: 0; border-radius: 0; background: none; color: inherit; font: inherit; }
 .zotero-controls { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .zotero-search-wrap { position: relative; }
 .zotero-search-wrap svg { position: absolute; top: 50%; left: 11px; width: 15px; height: 15px; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
@@ -11001,15 +11057,15 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 .zotero-result { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(180px); gap: 2px 16px; align-items: baseline; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .zotero-result:hover { background: var(--control-bg); }
 .zotero-result[aria-selected="true"] { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--teal-line); }
-.zotero-result-title { grid-column: 1; font-size: 13.5px; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; }
+.zotero-result-title { grid-column: 1; font-size: 13px; font-weight: 400; line-height: 1.35; overflow-wrap: anywhere; }
 .zotero-result-meta { grid-column: 1; font-size: 12px; color: var(--text-soft); }
 .zotero-result-key { grid-column: 2; grid-row: 1 / span 2; align-self: center; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--tool-mono); font-size: 11px; color: var(--text-soft); }
 .zotero-result[aria-selected="true"] .zotero-result-key { color: var(--teal-text); }
 :root[data-theme="light"] .zotero-result[aria-selected="true"] .zotero-result-key { color: var(--accent); }
 .zotero-empty { display: grid; place-items: center; align-content: center; gap: 6px; margin: 0; text-align: center; color: var(--muted); font-size: 12.5px; padding: 16px 0; }
-.zotero-empty strong { font-family: var(--tool-sans); font-size: 17px; font-weight: 600; color: var(--text-soft); }
+.zotero-empty strong { font-family: var(--tool-sans); font-size: 16px; font-weight: 600; color: var(--text-soft); }
 .zotero-keys { display: flex; gap: 14px; margin: 10px 0 0; font-size: 11.5px; color: var(--text-soft); }
-.zotero-keys kbd { display: inline-block; min-width: 16px; margin-right: 4px; padding: 0 4px; border: 1px solid var(--panel-border-strong); border-bottom-width: 2px; border-radius: 4px; font-family: var(--tool-mono); font-size: 10.5px; line-height: 16px; text-align: center; color: var(--text-soft); }
+.zotero-keys kbd { display: inline-block; min-width: 16px; margin-right: 4px; padding: 0 4px; border: 1px solid var(--panel-border-strong); border-bottom-width: 2px; border-radius: 4px; font-family: var(--tool-mono); font-size: 11px; line-height: 16px; text-align: center; color: var(--text-soft); }
 .zotero-status { margin: 10px 0 0; font-size: 12px; color: var(--text-soft); }
 .zotero-status:empty { display: none; }
 .zotero-status.is-error { color: var(--danger-text); }
@@ -11023,17 +11079,17 @@ button.explain-toggle.explain-toggle[aria-expanded="true"] { color: var(--text);
 #announcement-modal[data-template="axiom-try"] .announcement-card { width: min(780px, 94vw); max-height: calc(100dvh - 24px); grid-template-rows: auto minmax(0, 1fr) auto; }
 #announcement-modal[data-template="axiom-try"] .modal-body { min-height: 0; overflow-y: auto; margin: -4px; padding: 4px; }
 #announcement-modal[data-template="axiom-try"] .modal-actions { flex-wrap: wrap; }
-#announcement-modal[data-template="axiom-try"] .announcement-card .announcement-title { font-size: 18px; font-weight: 600; line-height: 24px; }
-#announcement-modal[data-template="axiom-try"] #announcement-modal-link { color: var(--text); background: transparent; border: 1px solid var(--panel-border-strong); }
+#announcement-modal[data-template="axiom-try"] .announcement-card .announcement-title { font-size: 16px; font-weight: 600; line-height: 24px; }
+#announcement-modal[data-template="axiom-try"] #announcement-modal-link { color: var(--text); background: transparent; border: 1px solid var(--panel-border-strong); font-weight: 400; }
 #announcement-modal[data-template="axiom-try"] #announcement-modal-link:hover { color: var(--text); background: var(--control-bg); }
-.announcement-card #announcement-modal-primary { color: #ffffff; background: var(--accent); border: none; padding: 0 22px; }
+.announcement-card #announcement-modal-primary { color: #ffffff; background: var(--accent); border: none; padding: 0 22px; font-weight: 600; }
 .announcement-card #announcement-modal-primary:hover { color: #ffffff; background: var(--accent-hover); transform: none; }
 .axiom-try { display: grid; gap: 14px; margin-top: 4px; }
 #announcement-modal[data-template="axiom-try"] .announcement-card:focus { outline: none; }
 .axiom-try-tabs { display: inline-flex; justify-self: start; gap: 2px; padding: 2px; border: 1px solid var(--panel-border); border-radius: var(--radius-md); background: var(--input-bg); }
-button.axiom-try-tab { height: 26px; padding: 0 14px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-soft); font-family: var(--announce-sans); font-size: 12.5px; font-weight: 500; line-height: 1; cursor: pointer; transition: background var(--duration-fast), color var(--duration-fast); }
+button.axiom-try-tab { height: 26px; padding: 0 14px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-soft); font-family: var(--announce-sans); font-size: 12.5px; font-weight: 400; line-height: 1; cursor: pointer; transition: background var(--duration-fast), color var(--duration-fast); }
 button.axiom-try-tab:hover { color: var(--text); }
-button.axiom-try-tab[aria-selected="true"] { background: var(--accent-soft); color: var(--accent-strong); }
+button.axiom-try-tab[aria-selected="true"] { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
 button.axiom-try-tab:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
 .axiom-try-holder { border-radius: var(--radius-md); }
 .axiom-try-holder:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
@@ -11091,12 +11147,12 @@ button.axiom-try-tab:focus-visible { outline: 2px solid var(--accent-strong); ou
 .axiom-try-stage[data-phase="3"] .axiom-try-math-row.is-changed { background-size: 100% 100%; }
 .axiom-try-math .katex { font-size: 1em; }
 
-.axiom-try-allowance { font-size: 12.5px; font-weight: 500; color: var(--text-soft); }
+.axiom-try-allowance { font-size: 12.5px; font-weight: 400; color: var(--text-soft); }
 .axiom-try-allowance + .explain-panel { margin: -6px 0 0; }
 /* Narrow windows stack the panes. The source pane keeps the height of its
    longest example, so the added lines do not push the page down. */
 @media (max-width: 700px) {
-  #announcement-modal[data-template="axiom-try"] .announcement-card .announcement-title { font-size: 18px; font-weight: 600; line-height: 24px; }
+  #announcement-modal[data-template="axiom-try"] .announcement-card .announcement-title { font-size: 16px; font-weight: 600; line-height: 24px; }
   .axiom-try-panes { grid-template-columns: minmax(0, 1fr); }
   .axiom-try-source { min-height: 174px; }
   .axiom-try-paper { min-height: 120px; }

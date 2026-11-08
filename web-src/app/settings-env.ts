@@ -82,7 +82,7 @@ export const createEnvStatusManager = (params: {
     if (statusBadge) {
       if (available === null) {
         statusBadge.className = "env-badge checking";
-        statusBadge.textContent = "Checking...";
+        statusBadge.textContent = "Checking…";
       } else {
         statusBadge.className = available ? "env-badge ok" : "env-badge error";
         statusBadge.textContent = available ? "Available" : "Not found";

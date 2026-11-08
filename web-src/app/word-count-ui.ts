@@ -117,10 +117,14 @@ export const initWordCountUi = (deps: {
     close.dataset.focusKey = "close";
     actions.append(close);
     // Changing the scope rebuilds the dialog: focus stays on the control the
-    // user was on; Close takes it on opening.
+    // user was on. On opening the dialog itself holds focus (Esc closes it),
+    // so no ring is drawn on Close before the user has done anything.
     const focusMark = markFocus(dialog);
     dialog.replaceChildren(...(titleExplain ? explainedHeading(title, titleExplain, { memory: explainOpen, key: "title" }) : [title]), body, actions);
-    if (!restoreFocus(dialog, focusMark)) close.focus();
+    if (!restoreFocus(dialog, focusMark)) {
+      dialog.tabIndex = -1;
+      dialog.focus();
+    }
   };
 
   const open = async () => {

@@ -29,10 +29,10 @@ const STRINGS = {
     login_err_confirm: { en: "Could not confirm login status.", ja: "ログイン状態を確認できませんでした。", zh: "无法确认登录状态。", ko: "로그인 상태를 확인할 수 없습니다.", fr: "Impossible de confirmer l'état de connexion.", de: "Anmeldestatus konnte nicht bestätigt werden.", es: "No se pudo confirmar el estado de inicio de sesión." },
     login_err_validate: { en: "Login validation failed.", ja: "ログインの検証に失敗しました。", zh: "登录验证失败。", ko: "로그인 검증에 실패했습니다.", fr: "Échec de la validation de la connexion.", de: "Login-Überprüfung fehlgeschlagen.", es: "Falló la validación del inicio de sesión." },
     // ── Agent activity (thinking bubble / status line) ──
-    status_thinking: { en: "Thinking...", ja: "考え中...", zh: "思考中...", ko: "생각 중...", fr: "Réflexion...", de: "Denkt nach...", es: "Pensando..." },
-    status_working: { en: "Working...", ja: "作業中...", zh: "处理中...", ko: "작업 중...", fr: "En cours...", de: "Arbeitet...", es: "Trabajando..." },
-    status_preparing: { en: "Preparing...", ja: "準備中...", zh: "准备中...", ko: "준비 중...", fr: "Préparation...", de: "Vorbereitung...", es: "Preparando..." },
-    status_finishing: { en: "Finishing partial changes...", ja: "途中までの変更を反映中...", zh: "正在应用已完成的更改...", ko: "완료된 변경 사항 반영 중...", fr: "Application des modifications effectuées...", de: "Bisherige Änderungen werden übernommen...", es: "Aplicando los cambios realizados..." },
+    status_thinking: { en: "Thinking…", ja: "考え中…", zh: "思考中…", ko: "생각 중…", fr: "Réflexion…", de: "Denkt nach…", es: "Pensando…" },
+    status_working: { en: "Working…", ja: "作業中…", zh: "处理中…", ko: "작업 중…", fr: "En cours…", de: "Arbeitet…", es: "Trabajando…" },
+    status_preparing: { en: "Preparing…", ja: "準備中…", zh: "准备中…", ko: "준비 중…", fr: "Préparation…", de: "Vorbereitung…", es: "Preparando…" },
+    status_finishing: { en: "Finishing partial changes…", ja: "途中までの変更を反映中…", zh: "正在应用已完成的更改…", ko: "완료된 변경 사항 반영 중…", fr: "Application des modifications effectuées…", de: "Bisherige Änderungen werden übernommen…", es: "Aplicando los cambios realizados…" },
     // ── Tool activity labels (shown while the agent runs a tool) ──
     tool_read_file: { en: "Reading file", ja: "ファイルを読み取り中", zh: "正在读取文件", ko: "파일 읽는 중", fr: "Lecture du fichier", de: "Datei wird gelesen", es: "Leyendo archivo" },
     tool_list_files: { en: "Checking folder structure", ja: "フォルダ構成を確認中", zh: "正在查看目录结构", ko: "폴더 구조 확인 중", fr: "Analyse des dossiers", de: "Ordnerstruktur wird geprüft", es: "Revisando carpetas" },
@@ -66,8 +66,8 @@ const STRINGS = {
     empty_title: { en: "Axiom", ja: "Axiom", zh: "Axiom", ko: "Axiom", fr: "Axiom", de: "Axiom", es: "Axiom" },
     start_review_title: { en: "Read through and suggest improvements", ja: "通読して改善点を挙げる", zh: "通读并提出改进点", ko: "통독하고 개선점 제안", fr: "Relire et proposer des améliorations", de: "Durchlesen und Verbesserungen vorschlagen", es: "Leer y proponer mejoras" },
     start_review_request: { en: "Read the whole document and list the places to improve first, with reasons.", ja: "文書全体を通読して、先に直すべき箇所を理由付きで挙げてください。", zh: "通读整篇文档，列出应优先修改的地方并说明理由。", ko: "문서 전체를 읽고 먼저 고쳐야 할 곳을 이유와 함께 제시해 주세요.", fr: "Lis tout le document et liste les endroits à améliorer en premier, avec les raisons.", de: "Lies das ganze Dokument und nenne zuerst die Stellen, die verbessert werden sollten, mit Begründung.", es: "Lee todo el documento y enumera lo que conviene mejorar primero, con motivos." },
-    start_build_title: { en: "Typeset and fix problems", ja: "組版して問題を直す", zh: "排版并修复问题", ko: "조판하고 문제 고치기", fr: "Composer et corriger", de: "Setzen und Probleme beheben", es: "Componer y corregir problemas" },
-    start_build_request: { en: "Compile the document, then fix every error and the warnings that matter.", ja: "文書を組版して、エラーと意味のある警告をすべて直してください。", zh: "编译文档，然后修复所有错误和重要的警告。", ko: "문서를 조판하고 오류와 의미 있는 경고를 모두 고쳐 주세요.", fr: "Compile le document, puis corrige toutes les erreurs et les avertissements importants.", de: "Setze das Dokument und behebe alle Fehler sowie die wichtigen Warnungen.", es: "Compila el documento y corrige todos los errores y los avisos importantes." },
+    start_build_title: { en: "Typeset and fix problems", ja: "ビルドして問題を直す", zh: "排版并修复问题", ko: "조판하고 문제 고치기", fr: "Composer et corriger", de: "Setzen und Probleme beheben", es: "Componer y corregir problemas" },
+    start_build_request: { en: "Compile the document, then fix every error and the warnings that matter.", ja: "文書をビルドして、エラーと意味のある警告をすべて直してください。", zh: "编译文档，然后修复所有错误和重要的警告。", ko: "문서를 조판하고 오류와 의미 있는 경고를 모두 고쳐 주세요.", fr: "Compile le document, puis corrige toutes les erreurs et les avertissements importants.", de: "Setze das Dokument und behebe alle Fehler sowie die wichtigen Warnungen.", es: "Compila el documento y corrige todos los errores y los avisos importantes." },
     start_math_title: { en: "Tidy the mathematics", ja: "数式の記法を整える", zh: "整理公式写法", ko: "수식 표기 정리", fr: "Uniformiser les formules", de: "Formeln vereinheitlichen", es: "Ordenar las fórmulas" },
     start_math_request: { en: "Unify the mathematics on amsmath: consistent environments, numbering, labels, and references.", ja: "数式を amsmath に統一してください。環境、番号付け、ラベルと参照を揃えます。", zh: "把公式统一到 amsmath：环境、编号、标签与引用保持一致。", ko: "수식을 amsmath로 통일해 주세요. 환경, 번호, 레이블과 참조를 맞춥니다.", fr: "Uniformise les formules avec amsmath : environnements, numérotation, étiquettes et références.", de: "Vereinheitliche die Formeln mit amsmath: Umgebungen, Nummerierung, Labels und Verweise.", es: "Unifica las fórmulas con amsmath: entornos, numeración, etiquetas y referencias." },
     start_bib_title: { en: "Tidy the references", ja: "参考文献を整える", zh: "整理参考文献", ko: "참고문헌 정리", fr: "Mettre en ordre la bibliographie", de: "Literatur aufräumen", es: "Ordenar la bibliografía" },
@@ -137,8 +137,8 @@ const STRINGS = {
     open_plans: { en: "Plans", ja: "プランを見る", zh: "查看套餐", ko: "플랜 보기", fr: "Plans", de: "Pläne", es: "Planes" },
     ask_axiom: { en: "Ask Axiom", ja: "Axiom に聞く", zh: "问 Axiom", ko: "Axiom에게 묻기", fr: "Demander à Axiom", de: "Axiom fragen", es: "Preguntar a Axiom" },
     selection_word: { en: "selection", ja: "選択範囲", zh: "选区", ko: "선택 영역", fr: "sélection", de: "Auswahl", es: "selección" },
-    tool_compile_document: { en: "Typesetting", ja: "組版中", zh: "正在排版", ko: "조판 중", fr: "Composition", de: "Setzen", es: "Componiendo" },
-    tool_run_build: { en: "Typesetting", ja: "組版中", zh: "正在排版", ko: "조판 중", fr: "Composition", de: "Setzen", es: "Componiendo" },
+    tool_compile_document: { en: "Typesetting", ja: "ビルド中", zh: "正在排版", ko: "조판 중", fr: "Composition", de: "Setzen", es: "Componiendo" },
+    tool_run_build: { en: "Typesetting", ja: "ビルド中", zh: "正在排版", ko: "조판 중", fr: "Composition", de: "Setzen", es: "Componiendo" },
     tool_git_diff: { en: "Reading the changes", ja: "変更を読んでいます", zh: "正在读取更改", ko: "변경 사항 읽는 중", fr: "Lecture des modifications", de: "Änderungen werden gelesen", es: "Leyendo los cambios" },
     tool_record_plan: { en: "Writing the plan", ja: "計画をまとめています", zh: "正在整理计划", ko: "계획 정리 중", fr: "Rédaction du plan", de: "Plan wird erstellt", es: "Redactando el plan" },
     tool_check_references: { en: "Checking labels and figures", ja: "ラベルと図表を照合中", zh: "正在核对标签与图表", ko: "레이블과 그림 확인 중", fr: "Vérification des étiquettes et figures", de: "Labels und Abbildungen werden geprüft", es: "Comprobando etiquetas y figuras" },
@@ -158,14 +158,15 @@ export const aiText = (key) => {
 // is locale-agnostic). Map the known ones to localized text; anything else
 // (e.g. tool detail labels already localized upstream) passes through.
 const BACKEND_STATUS_KEYS = {
-    "Thinking...": "status_thinking",
-    "Working...": "status_working",
-    "Preparing...": "status_preparing",
-    "Finishing partial changes...": "status_finishing",
+    "Thinking…": "status_thinking",
+    "Working…": "status_working",
+    "Preparing…": "status_preparing",
+    "Finishing partial changes…": "status_finishing",
 };
 /** Localize a backend-issued status string when it is one of the known ones. */
 export const localizeAgentStatus = (text) => {
-    const key = BACKEND_STATUS_KEYS[text.trim()];
+    // Older builds and saved runs end these with "..." instead of "…".
+    const key = BACKEND_STATUS_KEYS[text.trim().replace(/\.\.\.$/, "…")];
     return key ? aiText(key) : text;
 };
 /** Localized label for an agent tool by tool name; falls back to `fallback`. */

@@ -74,7 +74,7 @@ const EXAMPLES: Example[] = [
     tab: { en: "Fix an error", ja: "エラー修正", zh: "修复错误", ko: "오류 수정", fr: "Corriger une erreur", de: "Satzfehler beheben", es: "Corregir un error" },
     ask: {
       en: "Fix this typesetting error",
-      ja: "この組版エラーを直して",
+      ja: "このビルドエラーを直して",
       zh: "修复这个排版错误",
       ko: "이 조판 오류를 고쳐 줘",
       fr: "Corrige cette erreur de composition",

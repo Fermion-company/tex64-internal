@@ -280,7 +280,7 @@ export const initAiModeUi = (deps) => {
         if (webview || creating || !host)
             return;
         creating = true;
-        showFallback(uiText("Connecting to the AI workspace…", "AIワークスペースに接続しています…"));
+        showFallback(uiText("Connecting to the AI workspace…", "AIワークスペースに接続中…"));
         const config = await ((_a = bridge === null || bridge === void 0 ? void 0 : bridge.getConfig) === null || _a === void 0 ? void 0 : _a.call(bridge).catch(() => null));
         creating = false;
         if (!(config === null || config === void 0 ? void 0 : config.ok) || !config.url) {
@@ -394,7 +394,7 @@ export const initAiModeUi = (deps) => {
         // discard the guest so getConfig starts the server again and returns its
         // new port/token.
         discardWebview();
-        showFallback(uiText("Reconnecting to the AI workspace…", "AIワークスペースに再接続しています…"));
+        showFallback(uiText("Reconnecting to the AI workspace…", "AIワークスペースに再接続中…"));
         void createWebview();
     });
     /**

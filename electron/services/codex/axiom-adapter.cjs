@@ -43,7 +43,7 @@ const isSnapshotTextFile = (relativePath) => {
 
 const COMPILE_FAILURE_MESSAGES = Object.freeze({
   en: 'Changes made so far were saved, but a compilation error remains.',
-  ja: 'ここまでの変更は保存しましたが、組版エラーが残っています。',
+  ja: 'ここまでの変更は保存しましたが、ビルドエラーが残っています。',
   zh: '已保存目前的更改，但仍有编译错误。',
   ko: '지금까지의 변경 사항은 저장했지만 컴파일 오류가 남아 있습니다.',
   fr: 'Les modifications ont été enregistrées, mais une erreur de compilation subsiste.',
@@ -53,7 +53,7 @@ const COMPILE_FAILURE_MESSAGES = Object.freeze({
 
 const WORKSPACE_SYNC_FAILURE_MESSAGES = Object.freeze({
   en: 'The document was built, but editor synchronization did not finish. Reload TeX64 before saving an open file.',
-  ja: '文書は組版しましたが、エディタとの同期が完了しませんでした。開いているファイルを保存する前にTeX64を再読み込みしてください。',
+  ja: '文書はビルドしましたが、エディタとの同期が完了しませんでした。開いているファイルを保存する前にTeX64を再読み込みしてください。',
   zh: '文档已编译，但编辑器同步未完成。请在保存已打开的文件前重新加载 TeX64。',
   ko: '문서는 컴파일했지만 편집기 동기화가 완료되지 않았습니다. 열린 파일을 저장하기 전에 TeX64를 다시 로드하세요.',
   fr: 'Le document a été compilé, mais la synchronisation de l’éditeur n’est pas terminée. Rechargez TeX64 avant d’enregistrer un fichier ouvert.',
@@ -242,7 +242,7 @@ const ensureCodexAuth = async (service, codex, conversationId, signal) => {
   // login/completed can arrive immediately after loginStart returns. The
   // listener above cannot observe an event that already fired, so close that
   // window with an authoritative account recheck.
-  let loginStatusMessage = 'Waiting for ChatGPT sign-in...';
+  let loginStatusMessage = 'Waiting for ChatGPT sign-in…';
   try {
     const statusAfterListener = await awaitAbortable(codex.getStatus(), signal);
     if (statusAfterListener.authenticated) finishLoginFromStatus();
@@ -758,7 +758,7 @@ const runCodexConversation = async (
   };
   try {
     if (!prestartedRun) {
-      service.sendStatus('running', 'Preparing...', targetConversationId);
+      service.sendStatus('running', 'Preparing…', targetConversationId);
     }
     if (run.controller.signal.aborted) throw new Error('aborted');
     const settings = await awaitAbortable(
@@ -812,7 +812,7 @@ const runCodexConversation = async (
     throwIfAborted(run.controller.signal);
     assertWorkspaceCurrent();
 
-    service.sendStatus('running', 'Thinking...', targetConversationId);
+    service.sendStatus('running', 'Thinking…', targetConversationId);
 
     // ---- イベント購読を張ってからターン開始（取りこぼし防止） ----
     let expectedTurnId = null;

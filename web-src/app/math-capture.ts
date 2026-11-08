@@ -348,10 +348,10 @@ export const initMathCapture = (
         return;
       }
       // Show loading state while OCR processes
-      deps.captureUi.setCropBusy(true, "Recognizing...");
+      deps.captureUi.setCropBusy(true, "Recognizing…");
       try {
         const result = await deps.onCaptureImage(dataUrl, (current, total) => {
-          deps.captureUi.setCropBusy(true, `Recognizing... (${current}/${total})`);
+          deps.captureUi.setCropBusy(true, `Recognizing… (${current}/${total})`);
         });
         if (result.ok) {
           deps.captureUi.closeCropper();

@@ -170,7 +170,7 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
         setChoiceVisible(false);
         setInstallNote("");
         showProgress(true);
-        setProgress(2, uiText("Starting…", "開始しています…"));
+        setProgress(2, uiText("Starting…", "起動中…"));
     };
     const updateRuntimeSetupUi = () => {
         // While an install is in flight the hero is owned by the install handlers;

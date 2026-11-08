@@ -25,9 +25,9 @@ function createEducationService({app,BrowserWindow,dialog,getMainWindow,getRoot,
       let errorLog='';child.stderr.on('data',b=>{errorLog=(errorLog+b.toString()).slice(-6000);});
       const base=await new Promise((resolve,reject)=>{
         let buffer='';
-        const timer=setTimeout(()=>reject(Error('採点サービスの起動がタイムアウトしました')),15000);
+        const timer=setTimeout(()=>reject(Error('採点サービスの起動がタイムアウトしました。')),15000);
         child.once('error',e=>{clearTimeout(timer);reject(e);});
-        child.once('exit',()=>{clearTimeout(timer);reject(Error(errorLog||'採点サービスが終了しました'));});
+        child.once('exit',()=>{clearTimeout(timer);reject(Error(errorLog||'採点サービスが終了しました。'));});
         child.stdout.on('data',b=>{
           buffer+=b.toString();
           if(!buffer.includes('\n'))return;
@@ -35,11 +35,11 @@ function createEducationService({app,BrowserWindow,dialog,getMainWindow,getRoot,
         });
       });
       for(let i=0;i<100;i++){
-        if(running.exitCode!==null)throw Error(errorLog||'採点サービスが終了しました');
+        if(running.exitCode!==null)throw Error(errorLog||'採点サービスが終了しました。');
         try {const res=await fetch(base+'/api/v1/health');const health=await res.json();if(health.instance===instance)return base;}catch{}
         await new Promise(r=>setTimeout(r,100));
       }
-      throw Error('採点サービスに接続できません');
+      throw Error('採点サービスに接続できませんでした。');
     })().catch(e=>{child?.kill();child=null;ready=null;throw e;});
     return ready;
   }
@@ -49,10 +49,10 @@ function createEducationService({app,BrowserWindow,dialog,getMainWindow,getRoot,
       const task=spawn(python,['-m','scoring64.education_project',...args],{cwd:root,env:env(),stdio:['ignore','pipe','pipe']});
       tasks.add(task);task.once('exit',()=>tasks.delete(task));
       let output='',errors='';
-      const timer=setTimeout(()=>{task.kill();reject(Error('教材の組版がタイムアウトしました'));},900000);
+      const timer=setTimeout(()=>{task.kill();reject(Error('教材のビルドがタイムアウトしました。'));},900000);
       task.stdout.on('data',b=>{output+=b.toString();});task.stderr.on('data',b=>{errors=(errors+b.toString()).slice(-12000);});
       task.once('error',e=>{clearTimeout(timer);reject(e);});
-      task.once('exit',code=>{clearTimeout(timer);if(code!==0)return reject(Error(errors||output||'教材を生成できませんでした'));try{resolve(JSON.parse(output.trim().split('\n').at(-1)));}catch{reject(Error('教材の生成結果を読み取れませんでした'));}});
+      task.once('exit',code=>{clearTimeout(timer);if(code!==0)return reject(Error(errors||output||'教材を生成できませんでした。'));try{resolve(JSON.parse(output.trim().split('\n').at(-1)));}catch{reject(Error('教材の生成結果を読み取れませんでした。'));}});
     });
   }
   async function showScoring(projectId,createNew=false) {
@@ -87,7 +87,7 @@ function createEducationService({app,BrowserWindow,dialog,getMainWindow,getRoot,
     const base=await start();
     const form=new FormData();form.append('file',new Blob([fs.readFileSync(result.package)]),'exam.s64exam');
     const response=await fetch(base+'/api/v1/education/import',{method:'POST',headers:{'x-scoring64':'1'},body:form});
-    const imported=await response.json();if(!response.ok)throw Error(imported.detail||'教材を取り込めませんでした');
+    const imported=await response.json();if(!response.ok)throw Error(imported.detail||'教材を取り込めませんでした。');
     await showScoring(imported.projectId);
   }
   async function importPdf() {
@@ -96,12 +96,12 @@ function createEducationService({app,BrowserWindow,dialog,getMainWindow,getRoot,
     const file=result.filePaths[0],base=await start();
     const form=new FormData();form.append('file',new Blob([fs.readFileSync(file)]),path.basename(file));
     const response=await fetch(base+'/api/v1/education/pdf',{method:'POST',headers:{'x-scoring64':'1'},body:form});
-    const imported=await response.json();if(!response.ok)throw Error(imported.detail||'PDFを取り込めませんでした');
+    const imported=await response.json();if(!response.ok)throw Error(imported.detail||'PDFを取り込めませんでした。');
     await showScoring(imported.projectId);
   }
   app.on('before-quit',()=>{child?.kill();for(const task of tasks)task.kill();});
   return {
-    menu:()=>({label:'教育',submenu:[{label:'新しい解答用紙・採点を作成…',click:()=>guarded(()=>showScoring(undefined,true))},{label:'組版したPDFから採点を作成…',click:()=>guarded(importPdf)},{type:'separator'},{label:'番号連携付きの教材を作成…',click:()=>guarded(create)},{label:'保存した教材を組版して採点へ送る',click:()=>guarded(buildAndImport)},{type:'separator'},{label:'採点ワークスペースを開く',click:()=>guarded(()=>showScoring())},{label:'原稿へ戻る',click:()=>{getMainWindow()?.show();getMainWindow()?.focus();}}]}),
+    menu:()=>({label:'教育',submenu:[{label:'新しい解答用紙・採点を作成…',click:()=>guarded(()=>showScoring(undefined,true))},{label:'ビルドしたPDFから採点を作成…',click:()=>guarded(importPdf)},{type:'separator'},{label:'番号連携付きの教材を作成…',click:()=>guarded(create)},{label:'保存した教材をビルドして採点へ送る',click:()=>guarded(buildAndImport)},{type:'separator'},{label:'採点ワークスペースを開く',click:()=>guarded(()=>showScoring())},{label:'原稿へ戻る',click:()=>{getMainWindow()?.show();getMainWindow()?.focus();}}]}),
     startup:()=>guarded(async()=>{if(process.env.TEX64_EDUCATION_PROJECT){await openProject(process.env.TEX64_EDUCATION_PROJECT);}await showScoring();}),
   };
 }

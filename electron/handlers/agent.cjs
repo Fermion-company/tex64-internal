@@ -297,7 +297,7 @@ const createAgentHandlers = (deps) => {
     }
     const isCurrentRun = () =>
       agentService.isRunCurrent(normalizedConversationId, run.token);
-    agentService.sendStatus("running", "Preparing...", normalizedConversationId);
+    agentService.sendStatus("running", "Preparing…", normalizedConversationId);
     let delegated = false;
     try {
       const allowed = await guardAiAccess(
@@ -479,7 +479,7 @@ const createAgentHandlers = (deps) => {
       // several edits. Hold one writer lease across both phases so a Code save
       // cannot make the scan stale between reading and applying.
       run = agentService.startConversationRun(conversationId);
-      agentService.sendStatus("running", "Renaming symbols...", conversationId);
+      agentService.sendStatus("running", "Renaming symbols…", conversationId);
     } catch (error) {
       sendToRenderer("search:renameResult", {
         ok: false,

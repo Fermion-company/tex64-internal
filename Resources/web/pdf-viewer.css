@@ -209,7 +209,10 @@ body.is-embedded #pdf-thumbnails {
   flex-wrap: wrap;
 }
 
+/* In the app the viewer has no frame of its own: the toolbar sits on the pane
+   background, so the selected main.pdf tab runs straight into it. */
 body.is-embedded .pdf-toolbar {
+  background: var(--bg);
   flex-wrap: nowrap;
   gap: 4px;
   padding: 5px 6px;
@@ -576,7 +579,7 @@ body.is-live #pdf-fit-page { display: none; }
   text-align: left;
   border-radius: 6px;
   padding: 6px 8px;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.2;
 }
 

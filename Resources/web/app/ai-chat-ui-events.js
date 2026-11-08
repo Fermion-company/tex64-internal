@@ -460,7 +460,7 @@ export const initAiChatEventBindings = (params) => {
                 // Keep the conversation locked until main reports a terminal state.
                 // Main may still be compiling a completed partial edit; reopening send
                 // here can replace its run token and abandon that definitive build.
-                chat.statusMessage = "Finishing partial changes...";
+                chat.statusMessage = aiText("status_finishing");
                 upsertThinkingMessage(chat.id, chat.statusMessage);
                 renderHistoryList();
                 updateSendState();
@@ -477,7 +477,7 @@ export const initAiChatEventBindings = (params) => {
                 return;
             }
             const contextToSend = buildPayload();
-            chat.statusMessage = "Thinking...";
+            chat.statusMessage = aiText("status_thinking");
             runningConversations.add(chat.id);
             resumableConversations.delete(chat.id);
             upsertThinkingMessage(chat.id, chat.statusMessage);

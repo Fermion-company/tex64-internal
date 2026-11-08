@@ -298,7 +298,7 @@ export const initSearchUi = (context: AppContext, deps: SearchUiDeps): SearchUiA
       kinds: string[];
     };
     setRenameBusy(true);
-    setRenameStatus(uiText("Creating a proposal...", "提案を作成中..."), "busy");
+    setRenameStatus(uiText("Creating a proposal…", "提案を作成中…"), "busy");
     const context = deps.buildRenameContext ? deps.buildRenameContext() : undefined;
     deps.postToNative({
       type: "search:renameSymbol",
@@ -347,7 +347,7 @@ export const initSearchUi = (context: AppContext, deps: SearchUiDeps): SearchUiA
       return;
     }
     searchResultsData = [];
-    searchMessage = uiText("Searching...", "検索中...");
+    searchMessage = uiText("Searching…", "検索中…");
     renderSearchResults();
     deps.postToNative({
       type: "search",

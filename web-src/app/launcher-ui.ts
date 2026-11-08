@@ -55,12 +55,14 @@ export const initLauncherUi = (
   let recentProjects: RecentProject[] = [];
   let recentExpanded = false;
 
-  const updateActionSelection = () => {
+  // Focus follows the arrow keys only; on opening, Enter still runs the selected
+  // action without a focus ring drawn before the user has done anything.
+  const updateActionSelection = (moveFocus = false) => {
     launcherActions.forEach((btn, index) => {
       if (btn instanceof HTMLElement) {
         if (index === selectedActionIndex) {
           btn.classList.add("is-selected");
-          requestAnimationFrame(() => btn.focus());
+          if (moveFocus) requestAnimationFrame(() => btn.focus());
         } else {
           btn.classList.remove("is-selected");
         }
@@ -197,14 +199,14 @@ export const initLauncherUi = (
     }
     if (event.key === "ArrowDown") {
       selectedActionIndex = (selectedActionIndex + 1) % launcherActions.length;
-      updateActionSelection();
+      updateActionSelection(true);
       event.preventDefault();
       return;
     }
     if (event.key === "ArrowUp") {
       selectedActionIndex =
         (selectedActionIndex - 1 + launcherActions.length) % launcherActions.length;
-      updateActionSelection();
+      updateActionSelection(true);
       event.preventDefault();
       return;
     }

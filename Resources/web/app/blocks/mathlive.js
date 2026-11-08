@@ -169,7 +169,7 @@ export const initMathLive = (context, deps) => {
                 const debugInfo = `MathLive: ${hasMathLive ? "OK" : "NG"}, MathfieldElement: ${hasMathfieldElement ? "OK" : "NG"}, LoadError: ${loadError || "none"}`;
                 scheduleSetupRetry();
                 if (!existingFallback) {
-                    createMathInputFallback("MathLive loading...", preservedValue);
+                    createMathInputFallback("MathLive loading…", preservedValue);
                 }
                 try {
                     await Promise.race([

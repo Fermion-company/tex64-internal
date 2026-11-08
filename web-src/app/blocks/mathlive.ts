@@ -244,7 +244,7 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
         }, LoadError: ${loadError || "none"}`;
         scheduleSetupRetry();
         if (!existingFallback) {
-          createMathInputFallback("MathLive loading...", preservedValue);
+          createMathInputFallback("MathLive loading…", preservedValue);
         }
         try {
           await Promise.race([
