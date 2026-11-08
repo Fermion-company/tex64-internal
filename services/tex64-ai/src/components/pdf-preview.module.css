@@ -82,8 +82,9 @@
 
 .fitButtonActive,
 .fitButtonActive:hover:not(:disabled) {
-  color: var(--accent);
-  background: var(--accent-faint);
+  color: var(--ink);
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
 .pageIndicator {
@@ -135,7 +136,7 @@
   flex: none;
   background: #ffffff;
   border: 1px solid var(--line);
-  box-shadow: 0 10px 28px rgba(24, 14, 36, 0.14);
+  box-shadow: 0 10px 28px rgba(20, 20, 19, 0.14);
 }
 
 .pageCanvas {
@@ -182,14 +183,14 @@
 }
 
 .regionHighlight.regionHovered {
-  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
-  background: color-mix(in srgb, var(--accent) 3%, transparent);
+  border-color: color-mix(in srgb, var(--paper-ink) 22%, transparent);
+  background: color-mix(in srgb, var(--paper-ink) 3%, transparent);
 }
 
 .regionHighlight.regionSelected,
 .regionHighlight.regionSelected.regionHovered {
   border-color: color-mix(in srgb, var(--accent) 42%, transparent);
-  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  background: color-mix(in srgb, var(--paper-ink) 4%, transparent);
 }
 
 /* --- refresh pill / error banner ---------------------------------------- */
@@ -217,7 +218,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--ink-soft);
   animation: dotPulse 1.2s ease-in-out infinite;
 }
 
@@ -276,14 +277,14 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--accent);
+  color: var(--accent-strong);
   font-family: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 
 .retryButton:hover {
-  background: var(--accent-faint);
+  background: var(--hover);
 }
 
 /* 選択要素の直下にアンカーされる編集カードの受け皿。中身は .element-card。 */
@@ -314,7 +315,7 @@
   max-width: 190px;
   margin: 0;
   padding: 3px 4px 3px 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border: 1px solid var(--line-strong);
   border-radius: 999px;
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   color: var(--ink);
@@ -328,10 +329,16 @@
 .anchor:hover,
 .anchor:focus-visible,
 .anchorActive {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  border-color: var(--ink-faint);
+  background: color-mix(in srgb, var(--ink) 6%, var(--panel));
   transform: translate(-2px, -50%);
   outline: none;
+}
+
+/* The current step and keyboard focus are marked in teal. */
+.anchor:focus-visible,
+.anchor.anchorActive {
+  border-color: var(--accent);
 }
 
 .anchor {
@@ -360,6 +367,10 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.anchorActive .anchorDot {
   background: var(--accent);
 }
 
@@ -395,7 +406,7 @@
   transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
 }
 .textLayer :global(.markedContent) { display: contents; }
-.textLayer ::selection { background: rgba(155, 47, 201, .28); }
+.textLayer ::selection { background: var(--selection); }
 .editingText :global(span) { cursor: pointer; }
 .textLayer .searchHit { background: rgba(255, 204, 0, .32); }
 .textLayer .activeSearchHit { background: rgba(255, 143, 0, .52); }

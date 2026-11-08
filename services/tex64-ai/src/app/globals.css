@@ -1,42 +1,45 @@
-/* Design tokens. The dark theme is the design's home — the values mirror the
-   TeX64 Builder handoff (prototypes/tex64-builder, artboard 7a). The paper
-   stays warm in both themes. */
+/* Design tokens. The chrome mirrors the TeX64 editor's palette in
+   Resources/web/theme.css (warm neutral greys and one teal accent); each
+   comment names the theme.css token it copies. Here :root is the light theme
+   (theme.css :root[data-theme="light"]) and [data-theme="dark"] mirrors
+   theme.css :root. Accent is kept for the primary action, the current
+   selection marker and focus; hover and selected fills are neutral. The
+   paper (--paper*) stays warm in both themes. */
 :root {
-  --app-bg: #f7f5fa;
-  --header: #ffffff;
-  --panel: #ffffff;
-  --panel-muted: #f6f2f9;
-  --workspace: #efeaf4;
+  --app-bg: #FAF9F5; /* --bg */
+  --header: #F4F3EE; /* --panel (the editor's .topbar) */
+  --panel: #F4F3EE; /* --panel */
+  --panel-muted: #F0EFE9; /* --panel-muted */
+  --workspace: #FAF9F5; /* --bg (the editor's PDF viewer) */
   --paper: #fbf8f2;
   --paper-ink: #222222;
   --paper-muted: #6b6b6b;
-  --paper-accent: #9b2fc9;
   --paper-caption: #9a9286;
-  --ink: #241e2b;
-  --ink-soft: #5f5570;
-  --ink-faint: #8c819d;
-  --chat-body: #4b4157;
-  --chat-name: #6a5c80;
-  --placeholder: #a89bbd;
-  --line: rgba(48, 35, 62, 0.1);
-  --line-strong: rgba(48, 35, 62, 0.16);
-  --accent: #9b2fc9;
-  --accent-strong: #8b2fcb;
-  --accent-soft: rgba(155, 47, 201, 0.13);
-  --accent-faint: rgba(155, 47, 201, 0.1);
-  /* Keyboard focus ring (mirrors the main app's --focus-ring). Derived from
-     --accent so it follows the theme; 70% keeps it at >= 3:1 on the panels. */
-  --focus-ring: color-mix(in srgb, var(--accent) 70%, transparent);
-  --surface-raised: #efe7f6;
-  --surface-deep: #9b2fc9;
-  --brand-gradient: linear-gradient(135deg, #6b2aa0, #9b2fc9);
-  --cta-gradient: linear-gradient(135deg, #8b2fcb, #ff5dc8);
-  --brand-glow: 0 0 14px rgba(255, 93, 200, 0.35);
-  --success: #2f7d5c;
-  --danger: #b84b59;
-  --hover: rgba(48, 35, 62, 0.05);
-  --shadow-menu: 0 16px 40px rgba(42, 28, 58, 0.16);
-  --shadow-paper: 0 24px 60px rgba(42, 28, 58, 0.18);
+  --ink: #141413; /* --text */
+  --ink-soft: #5E5D59; /* --text-soft */
+  --ink-faint: #696863; /* --muted */
+  --chat-body: #141413; /* --text (the editor's .ai-message) */
+  --chat-name: #5E5D59; /* --text-soft */
+  --placeholder: #696863; /* --muted (the editor's .ai-chat-textarea::placeholder) */
+  --line: #E3E1D8; /* --panel-border */
+  --line-strong: #D1CFC5; /* --panel-border-strong */
+  --hover: rgba(20, 20, 19, 0.05); /* --control-bg */
+  --surface-raised: rgba(20, 20, 19, 0.05); /* --control-bg (the editor's user turn) */
+  --accent: #1A7A75; /* --accent; white text 5.14:1 */
+  --accent-hover: #176B66; /* --accent-hover; white text 6.30:1 */
+  --accent-strong: #10706B; /* --accent-strong */
+  --accent-soft: rgba(30, 138, 132, 0.12); /* --accent-soft */
+  --accent-faint: rgba(30, 138, 132, 0.06); /* no theme.css token: --accent-soft at half alpha */
+  /* Keyboard focus ring. theme.css --focus-ring (rgba(30, 138, 132, 0.4)) is
+     only 1.6:1 on these panels; 80% of --accent keeps it at >= 3.19:1. */
+  --focus-ring: color-mix(in srgb, var(--accent) 80%, transparent);
+  --selection: rgba(30, 138, 132, 0.4); /* --focus-ring, the editor's text-selection fill */
+  --success: #15803D; /* --success-text */
+  --danger: #B91C1C; /* --danger-text (used here as a text colour; 5.6:1 or more) */
+  --danger-soft: rgba(220, 38, 38, 0.1); /* --danger-soft */
+  --danger-border: rgba(220, 38, 38, 0.28); /* --danger-border */
+  --shadow-menu: 0 12px 32px rgba(20, 20, 19, 0.1), 0 1px 2px rgba(20, 20, 19, 0.06); /* --shadow */
+  --shadow-paper: 0 24px 60px rgba(20, 20, 19, 0.18);
   --font-ui: Inter, "Noto Sans JP", ui-sans-serif, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
   --font-paper: var(--font-noto-serif, "Noto Serif JP"), "Noto Serif JP", "Yu Mincho",
@@ -45,29 +48,33 @@
 }
 
 :root[data-theme="dark"] {
-  --app-bg: #0e081a;
-  --header: #110a1c;
-  --panel: #1b1029;
-  --panel-muted: #150b22;
-  --workspace: #0e081a;
-  --ink: #f4eefb;
-  --ink-soft: #b6a8c9;
-  --ink-faint: #7c6e92;
-  --chat-body: #d9ceea;
-  --chat-name: #c9b8e8;
-  --placeholder: #5c4d72;
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.12);
-  --accent: #ff5dc8;
-  --accent-strong: #ff8fda;
-  --accent-soft: rgba(255, 93, 200, 0.16);
-  --accent-faint: rgba(255, 93, 200, 0.12);
-  --surface-raised: #2a1c3d;
-  --surface-deep: #3d2a5c;
-  --success: #7ac7a0;
-  --danger: #f18b98;
-  --hover: rgba(255, 255, 255, 0.05);
-  --shadow-menu: 0 18px 46px rgba(0, 0, 0, 0.5);
+  --app-bg: #141413; /* --bg */
+  --header: #1C1C1B; /* --panel (the editor's .topbar) */
+  --panel: #1C1C1B; /* --panel */
+  --panel-muted: #181817; /* --panel-muted */
+  --workspace: #141413; /* --bg (the editor's PDF viewer) */
+  --ink: #E9E7E0; /* --text */
+  --ink-soft: #A9A79F; /* --text-soft */
+  --ink-faint: #87867F; /* --muted */
+  --chat-body: #E9E7E0; /* --text */
+  --chat-name: #A9A79F; /* --text-soft */
+  --placeholder: #87867F; /* --muted */
+  --line: #2B2B29; /* --panel-border */
+  --line-strong: #363634; /* --panel-border-strong */
+  --hover: rgba(250, 249, 245, 0.05); /* --control-bg */
+  --surface-raised: rgba(250, 249, 245, 0.05); /* --control-bg */
+  --accent: #1F7F79; /* --accent; white text 4.81:1 */
+  --accent-hover: #1C7570; /* --accent-hover; white text 5.49:1 */
+  --accent-strong: #7FD3DC; /* --accent-strong */
+  --accent-soft: rgba(127, 211, 220, 0.14); /* --accent-soft */
+  --accent-faint: rgba(127, 211, 220, 0.07); /* no theme.css token: --accent-soft at half alpha */
+  --focus-ring: rgba(127, 211, 220, 0.45); /* --focus-ring; 3.06:1 or more on the panels */
+  --selection: rgba(127, 211, 220, 0.45); /* --focus-ring, the editor's text-selection fill */
+  --success: #6fdca5; /* --success-text */
+  --danger: #FF7B72; /* --danger-text */
+  --danger-soft: rgba(248, 81, 73, 0.15); /* --danger-soft */
+  --danger-border: rgba(248, 81, 73, 0.4); /* --danger-border */
+  --shadow-menu: 0 10px 28px rgba(0, 0, 0, 0.42), 0 1px 2px rgba(0, 0, 0, 0.3); /* --shadow */
   --shadow-paper: 0 30px 70px rgba(0, 0, 0, 0.5);
   color-scheme: dark;
 }
@@ -125,7 +132,7 @@ textarea {
 }
 
 ::selection {
-  background: rgba(255, 93, 200, 0.28);
+  background: var(--selection);
 }
 
 :focus:not(:focus-visible) {
@@ -319,9 +326,10 @@ select:focus-visible,
 }
 
 .document-menu button[aria-current="page"] {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
+  background: var(--hover);
+  color: var(--ink);
   font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
 .topbar-actions {
@@ -489,8 +497,12 @@ select:focus-visible,
 }
 
 .native-model-menu button[aria-selected="true"] {
-  color: var(--accent-strong);
+  color: var(--ink);
   font-weight: 600;
+}
+
+.native-model-menu button[aria-selected="true"] > svg {
+  color: var(--accent-strong);
 }
 
 .native-model-option-name {
@@ -560,8 +572,8 @@ select:focus-visible,
 }
 
 .topbar-icon-button:hover {
-  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
-  color: var(--accent-strong);
+  background: var(--hover);
+  color: var(--ink);
 }
 
 .native-command-bar .topbar-icon-button {
@@ -579,7 +591,7 @@ select:focus-visible,
   height: 28px;
   gap: 6px;
   border: 0;
-  background: var(--cta-gradient);
+  background: var(--accent);
   padding: 0 15px;
   color: #fff;
   font-size: 12px;
@@ -587,7 +599,7 @@ select:focus-visible,
 }
 
 .topbar-new-button:hover {
-  filter: brightness(1.08);
+  background: var(--accent-hover);
 }
 
 .topbar-build-button {
@@ -716,8 +728,8 @@ select:focus-visible,
   height: 22px;
   place-items: center;
   border-radius: 6px;
-  background: var(--brand-gradient);
-  color: #fff;
+  background: var(--ink);
+  color: var(--panel);
 }
 
 .assistant-name strong {
@@ -741,7 +753,7 @@ select:focus-visible,
 .question-card {
   margin-top: 2px;
   padding: 12px 14px 12px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--line-strong);
   border-radius: 12px;
   background: var(--panel);
 }
@@ -777,8 +789,7 @@ select:focus-visible,
 }
 
 .question-option:hover {
-  border-color: var(--accent);
-  background: var(--accent-faint);
+  background: var(--hover);
 }
 
 .question-fields {
@@ -833,6 +844,10 @@ select:focus-visible,
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.question-send:hover:not(:disabled) {
+  background: var(--accent-hover);
 }
 
 .question-send:disabled {
@@ -894,7 +909,7 @@ select:focus-visible,
 }
 
 .proposal-list.is-latest .proposal-row.is-active {
-  background: var(--accent-faint);
+  background: var(--hover);
   color: var(--ink);
 }
 
@@ -1003,7 +1018,7 @@ select:focus-visible,
 
 .run-timeline li.is-active svg {
   animation: spin 0.9s linear infinite;
-  color: var(--accent);
+  color: var(--ink-soft);
 }
 
 .run-timeline li.is-upcoming {
@@ -1051,8 +1066,8 @@ select:focus-visible,
   padding: 4px 6px 4px 10px;
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   border-radius: 999px;
-  background: var(--accent-faint);
-  color: var(--accent-strong);
+  background: var(--hover);
+  color: var(--ink);
   font-size: 11.5px;
   font-weight: 600;
 }
@@ -1064,11 +1079,12 @@ select:focus-visible,
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  color: var(--accent-strong);
+  color: var(--ink-soft);
 }
 
 .selection-chip button:hover {
-  background: var(--accent-soft);
+  background: var(--hover);
+  color: var(--ink);
 }
 
 .agent-composer,
@@ -1088,7 +1104,7 @@ select:focus-visible,
 
 .agent-composer-wrap.is-dragging .agent-composer {
   border-color: var(--accent);
-  background: var(--accent-faint);
+  background: var(--hover);
 }
 
 .composer-attach {
@@ -1219,7 +1235,7 @@ select:focus-visible,
 
 .agent-composer:focus-within,
 .large-composer:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 54%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
 }
 
 .agent-composer textarea,
@@ -1258,12 +1274,12 @@ select:focus-visible,
   height: 29px;
   place-items: center;
   border-radius: 999px;
-  background: var(--surface-deep);
+  background: var(--accent);
   color: #fff;
 }
 
 .composer-submit:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--surface-deep) 78%, #fff 22%);
+  background: var(--accent-hover);
 }
 
 .composer-submit:disabled {
@@ -1381,7 +1397,7 @@ select:focus-visible,
 }
 
 .heading-number {
-  color: var(--accent-strong);
+  color: var(--ink-soft);
   font-size: 13.5px;
   font-weight: 600;
 }
@@ -1414,7 +1430,7 @@ select:focus-visible,
 }
 
 .block-quote-fields {
-  border-left: 2px solid var(--paper-accent);
+  border-left: 2px solid var(--accent);
   padding: 7px 0 7px 15px;
 }
 
@@ -1459,7 +1475,7 @@ select:focus-visible,
   height: 4px;
   border-radius: 50%;
   margin: 9px 0 0 2px;
-  background: var(--paper-accent);
+  background: var(--accent);
 }
 
 .block-list-fields textarea {
@@ -1480,12 +1496,12 @@ select:focus-visible,
 
 .block-list-fields > div:hover > button,
 .block-list-fields > div:focus-within > button {
-  color: #999199;
+  color: var(--ink-faint);
 }
 
 .block-list-fields > div > button:hover {
-  background: #f0ebf5;
-  color: #b84b59;
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .add-list-item {
@@ -1496,13 +1512,13 @@ select:focus-visible,
   gap: 5px;
   margin-left: 16px;
   padding: 4px 6px;
-  color: #746c74;
+  color: var(--ink-faint);
   font-family: var(--font-ui);
   font-size: 9.5px;
 }
 
 .add-list-item:hover {
-  color: var(--paper-accent);
+  color: var(--accent);
 }
 
 .block-equation {
@@ -1530,9 +1546,12 @@ select:focus-visible,
   text-align: center;
 }
 
-.equation-render:hover:not(:disabled),
+.equation-render:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
 .equation-render:focus-visible {
-  border-color: #ff5dc8;
+  border-color: var(--accent);
 }
 
 .equation-render .katex-display {
@@ -1554,7 +1573,7 @@ select:focus-visible,
 
 .equation-source input {
   border-radius: 4px;
-  background: rgba(155, 47, 201, 0.05);
+  background: var(--panel-muted);
   padding: 8px 10px;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
@@ -1595,7 +1614,7 @@ select:focus-visible,
   display: block;
   height: 9px;
   border-radius: 999px;
-  background: #ece7ed;
+  background: color-mix(in srgb, var(--paper-ink) 8%, var(--paper));
   animation: pulse-fade 1.3s ease-in-out infinite alternate;
 }
 
@@ -1704,9 +1723,10 @@ select:focus-visible,
   }
 
   .mobile-view-tabs button[aria-pressed="true"] {
-    background: var(--accent-soft);
-    color: var(--accent-strong);
+    background: var(--hover);
+    color: var(--ink);
     font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--line-strong);
   }
 
   .workspace-grid {
@@ -1842,7 +1862,7 @@ select:focus-visible,
   align-items: center;
   gap: 10px;
   padding: 9px 12px 9px 16px;
-  border: 1px solid color-mix(in srgb, var(--danger) 42%, transparent);
+  border: 1px solid var(--danger-border);
   border-radius: 12px;
   background: var(--panel);
   box-shadow: var(--shadow-menu);
@@ -1994,14 +2014,14 @@ select:focus-visible,
 }
 
 .element-card-head .element-card-confirm {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
+  background: var(--accent);
+  color: #fff;
   font-weight: 600;
 }
 
 .element-card-head .element-card-confirm:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--accent-strong);
+  background: var(--accent-hover);
+  color: #fff;
 }
 
 .element-card-head .element-card-confirm:disabled {
@@ -2016,7 +2036,7 @@ select:focus-visible,
 }
 
 .element-card-head .element-card-delete:hover {
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
@@ -2039,7 +2059,7 @@ select:focus-visible,
 
 .paragraph-edit-area:focus-visible {
   outline: none;
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
 }
 
 .paragraph-syntax {
@@ -2114,7 +2134,7 @@ select:focus-visible,
 
 .native-new-document input:focus-visible {
   outline: none;
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
 }
 
 .native-new-document-actions {
@@ -2138,13 +2158,14 @@ select:focus-visible,
 }
 
 .native-new-document-actions .native-new-document-create {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
+  background: var(--accent);
+  color: #fff;
   font-weight: 600;
 }
 
 .native-new-document-actions .native-new-document-create:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: var(--accent-hover);
+  color: #fff;
 }
 
 .native-new-document-actions button:disabled {
@@ -2163,8 +2184,8 @@ select:focus-visible,
   padding: 0 12px;
   border: none;
   border-radius: 6px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
+  background: var(--accent);
+  color: #fff;
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -2172,7 +2193,7 @@ select:focus-visible,
 }
 
 .paper-build-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: var(--accent-hover);
 }
 
 .paper-build-button:disabled {
@@ -2281,7 +2302,7 @@ select:focus-visible,
 
 .paper-block.is-selected {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent) !important;
-  background: var(--accent-faint) !important;
+  background: var(--hover) !important;
 }
 
 .paper-block.is-fresh {
@@ -2290,7 +2311,7 @@ select:focus-visible,
 
 @keyframes block-arrive {
   0% {
-    background: var(--accent-soft);
+    background: var(--hover);
   }
   100% {
     background: transparent;
@@ -2322,7 +2343,7 @@ select:focus-visible,
 .math-wysiwyg-panel { position: fixed; z-index: 1000; display: flex; align-items: stretch; gap: 6px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: var(--shadow-menu); overflow-x: auto; }
 .math-wysiwyg-panel[aria-hidden="true"] { display: none; }
 .math-wysiwyg-item { display: inline-flex; align-items: center; gap: 8px; flex: none; padding: 4px 8px; color: var(--ink); background: var(--panel-muted); border: 1px solid transparent; border-radius: 6px; white-space: nowrap; }
-.math-wysiwyg-item.is-active { background: var(--accent-soft); border-color: var(--accent); }
+.math-wysiwyg-item.is-active { background: var(--hover); border-color: var(--accent); }
 .math-wysiwyg-symbol { display: inline-flex; font-size: 16px; }
 .math-wysiwyg-label { font-size: 11px; color: var(--ink-soft); }
 
