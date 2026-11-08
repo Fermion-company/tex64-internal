@@ -1,9 +1,11 @@
-// Zotero: the editor command "Insert citation from Zotero…" (search dialog
-// with a .bib sync button) and the Settings → Zotero page. Everything that
-// talks to Zotero runs in the main process behind `tex64Zotero`.
+// "Insert citation…": one dialog with two result sections, Zotero (the
+// library, instant) and arXiv (arxiv-search-ui.ts, over the network), a .bib
+// sync button, and the Settings → Zotero page. Everything that talks to Zotero
+// runs in the main process behind `tex64Zotero`.
 import { uiText } from "./i18n.js";
 import { explainedHeading } from "./explain.js";
 import { citationDocumentFor, insertCitation } from "./citation-insert.js";
+import { ARXIV_CONTEXT_KEY, arxivBridge, createArxivSection, isArxivTexModel } from "./arxiv-search-ui.js";
 const ZOTERO_KEYS_URL = "https://www.zotero.org/settings/keys/new";
 const bridge = () => window.tex64Zotero;
 const call = async (action, payload = {}) => {
@@ -87,23 +89,20 @@ const bibHint = (result) => {
     const command = result.style === "biblatex" ? `\\addbibresource{${file}}` : `\\bibliography{${stem}}`;
     return uiText(`add ${command} to the document`, `文書に ${command} を追加してください`);
 };
-// ---- Search dialog -----------------------------------------------------------
+// ---- Citation dialog ---------------------------------------------------------
 let dialogOpen = false;
 const SEARCH_ICON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6 14 14" stroke-linecap="round"/></svg>';
-export const openZoteroDialog = (editor, getActiveFilePath) => {
+export const openCiteDialog = (editor, getActiveFilePath) => {
     var _a;
-    if (dialogOpen || !bridge())
+    const zotero = Boolean(bridge());
+    if (dialogOpen || (!zotero && !(arxivBridge() && isArxivTexModel(editor))))
         return;
     dialogOpen = true;
     const model = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor);
-    const dialog = node("dialog", "tool-dialog zotero-dialog");
+    const dialog = node("dialog", "tool-dialog cite-dialog");
     const heading = node("h2", "tool-dialog-title", uiText("Insert citation", "引用を挿入"));
-    heading.id = "zotero-dialog-title";
+    heading.id = "cite-dialog-title";
     dialog.setAttribute("aria-labelledby", heading.id);
-    // Connected or not; the tooltip names where results come from.
-    const dot = node("span", "zotero-connection-dot");
-    dot.dataset.noI18n = "true";
-    heading.append(dot);
     // Where the \cite goes: file and line.
     const target = node("p", "zotero-target");
     target.dataset.noI18n = "true";
@@ -122,7 +121,7 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
     // A plain text input: in a search input Escape clears the text instead of
     // closing the dialog.
     search.type = "text";
-    search.placeholder = uiText("Title, author or year", "題名・著者・年");
+    search.placeholder = zotero ? uiText("Title, author or year", "題名・著者・年") : uiText("Search in English", "英語で検索");
     search.setAttribute("aria-label", search.placeholder);
     search.autocomplete = "off";
     search.spellcheck = false;
@@ -132,16 +131,19 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
     library.hidden = true;
     const controls = node("div", "zotero-controls");
     controls.append(searchWrap, library);
-    // Names the list only when nothing is typed ("Recently added"); search
-    // results need no heading, the list itself is the answer.
-    const listLabel = node("p", "tool-dialog-label zotero-list-label");
-    const setListLabel = (text) => {
-        listLabel.textContent = text;
-        listLabel.hidden = !text;
+    // Each section is named by its source; with nothing typed, Zotero's list is
+    // the library's newest items ("Recently added").
+    const listLabel = node("p", "tool-dialog-label cite-section-label", "Zotero");
+    const listDetail = node("span", "cite-section-detail");
+    listLabel.append(listDetail);
+    const setListLabel = (detail, visible = true) => {
+        listDetail.textContent = detail;
+        listLabel.hidden = !visible;
     };
-    setListLabel("");
     const results = node("div", "zotero-results");
     results.setAttribute("role", "listbox");
+    const zoteroSection = node("section", "cite-section cite-zotero");
+    zoteroSection.append(listLabel, results);
     const status = node("p", "zotero-status");
     status.setAttribute("role", "status");
     const actions = node("div", "tool-dialog-actions");
@@ -166,10 +168,6 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
     };
     const renderConnection = () => {
         var _a, _b;
-        const on = Boolean(current === null || current === void 0 ? void 0 : current.transport);
-        dot.classList.toggle("is-on", on);
-        dot.classList.toggle("is-off", Boolean(current) && !on);
-        dot.title = current && on ? transportLabel(current) : "";
         const libraries = (_a = current === null || current === void 0 ? void 0 : current.libraries) !== null && _a !== void 0 ? _a : [];
         library.replaceChildren(...libraries.map((entry) => new Option(entry.name, entry.id)));
         library.value = (_b = current === null || current === void 0 ? void 0 : current.library) !== null && _b !== void 0 ? _b : "";
@@ -213,16 +211,18 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
         Array.from(results.children).forEach((child, position) => child.setAttribute("aria-selected", String(position === highlighted)));
         (_b = (_a = results.children[highlighted]) === null || _a === void 0 ? void 0 : _a.scrollIntoView) === null || _b === void 0 ? void 0 : _b.call(_a, { block: "nearest" });
     };
+    // One quiet line where the Zotero results would be; what to do waits behind ▾.
     const notConnected = () => {
+        setListLabel("", false);
         const open = button(uiText("Settings", "設定"), () => {
             var _a;
             dialog.close();
             (_a = window.tex64Bridge) === null || _a === void 0 ? void 0 : _a.postMessage({ type: "app:command", payload: { command: "settings:open" } });
             window.setTimeout(() => { var _a; return (_a = document.querySelector('.settings-nav-item[data-settings-target="zotero"]')) === null || _a === void 0 ? void 0 : _a.click(); }, 300);
-        });
-        const box = node("div", "zotero-empty");
-        box.append(...explainedHeading(node("strong", "", uiText("Zotero is not connected", "Zotero につながっていません")), uiText("Start Zotero, or enter an API key in Settings → Zotero.", "Zotero を起動するか、設定 → Zotero で API キーを入れてください。"), { topic: "Zotero", memory: explainOpen, key: "connect" }), open);
-        results.replaceChildren(box);
+        }, "is-quiet");
+        const [line, panel] = explainedHeading(node("p", "zotero-off", uiText("Zotero is not connected", "Zotero につながっていません")), uiText("Start Zotero, or enter an API key in Settings → Zotero.", "Zotero を起動するか、設定 → Zotero で API キーを入れてください。"), { topic: "Zotero", memory: explainOpen, key: "connect" });
+        line.append(node("span", "tool-dialog-spacer"), open);
+        results.replaceChildren(line, panel);
     };
     // With nothing typed: the library's newest items, where the door can list them.
     const showRecent = async (serial) => {
@@ -241,7 +241,7 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
             if (items.length)
                 renderResults();
             else {
-                setListLabel("");
+                setListLabel("", false);
                 results.replaceChildren();
             }
         }
@@ -343,6 +343,8 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
             sync.disabled = false;
         }
     };
+    // arXiv's section follows the Zotero one; it shows itself when results arrive.
+    const arxiv = createArxivSection(editor, getActiveFilePath, setStatus);
     const sync = button(uiText("Sync .bib", ".bib を同期"), () => {
         if (busy)
             return;
@@ -372,7 +374,9 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
     });
     sync.title = uiText("Brings the entries already in this document's .bib up to date with Zotero.", "この文書の .bib にある文献を、Zotero の最新の内容に合わせます。");
     const close = button(uiText("Close", "閉じる"), () => dialog.close());
-    actions.append(sync, node("span", "tool-dialog-spacer"), close);
+    if (zotero)
+        actions.append(sync);
+    actions.append(node("span", "tool-dialog-spacer"), close);
     library.addEventListener("change", () => {
         const chosen = library.value;
         void call("settings", { library: chosen })
@@ -384,6 +388,9 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
             .catch((error) => setStatus(describeError(error), true));
     });
     search.addEventListener("input", () => {
+        arxiv === null || arxiv === void 0 ? void 0 : arxiv.setQuery(search.value);
+        if (!zotero)
+            return;
         if (searchTimer !== null)
             window.clearTimeout(searchTimer);
         searchTimer = window.setTimeout(() => void runSearch(), 250);
@@ -398,21 +405,36 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
             highlight(highlighted - 1);
         }
         else if (event.key === "Enter") {
+            // The highlighted Zotero item; with none, arXiv searches without waiting.
             event.preventDefault();
-            void insert(highlighted);
+            if (items.length)
+                void insert(highlighted);
+            else
+                arxiv === null || arxiv === void 0 ? void 0 : arxiv.searchNow();
         }
     });
     dialog.addEventListener("close", () => {
         var _a;
         dialogOpen = false;
+        if (searchTimer !== null)
+            window.clearTimeout(searchTimer);
+        arxiv === null || arxiv === void 0 ? void 0 : arxiv.dispose();
         dialog.remove();
         (_a = editor.focus) === null || _a === void 0 ? void 0 : _a.call(editor);
     });
     renderTarget();
-    dialog.append(heading, target, controls, listLabel, results, status, actions);
+    const body = node("div", "cite-body");
+    if (zotero)
+        body.append(zoteroSection);
+    if (arxiv)
+        body.append(arxiv.element);
+    dialog.append(heading, target, controls, body, status, actions);
     document.body.append(dialog);
     dialog.showModal();
     search.focus();
+    if (!zotero)
+        return;
+    setListLabel("", false);
     empty("", uiText("Checking…", "確認中…"));
     void call("status")
         .then((next) => {
@@ -424,25 +446,42 @@ export const openZoteroDialog = (editor, getActiveFilePath) => {
         empty("", describeError(error));
     });
 };
-/** Context-menu command on every editor; enabled for LaTeX models only. */
-export const attachZoteroEditor = (editor, getActiveFilePath) => {
-    var _a, _b, _c;
-    if (!bridge() || typeof (editor === null || editor === void 0 ? void 0 : editor.addAction) !== "function")
+/**
+ * The two commands that open the citation dialog, on every editor. The Zotero
+ * one is the context-menu entry ("Insert citation…", LaTeX models); the arXiv
+ * one stays a command (.tex files). Both open the same dialog.
+ */
+export const attachCitationEditor = (editor, getActiveFilePath) => {
+    var _a, _b, _c, _d, _e;
+    if (typeof (editor === null || editor === void 0 ? void 0 : editor.addAction) !== "function")
         return;
-    const isTex = (_a = editor.createContextKey) === null || _a === void 0 ? void 0 : _a.call(editor, "tex64.isTexFile", false);
-    const syncKey = () => { var _a, _b, _c; return isTex === null || isTex === void 0 ? void 0 : isTex.set(((_c = (_b = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) === null || _b === void 0 ? void 0 : _b.getLanguageId) === null || _c === void 0 ? void 0 : _c.call(_b)) === "latex"); };
-    syncKey();
-    (_b = editor.onDidChangeModel) === null || _b === void 0 ? void 0 : _b.call(editor, syncKey);
-    (_c = editor.onDidChangeModelLanguage) === null || _c === void 0 ? void 0 : _c.call(editor, syncKey);
-    editor.addAction({
-        id: "tex64.zotero.insert",
-        label: uiText("Cite from Zotero…", "Zotero から引用…"),
-        contextMenuGroupId: "9_cite",
-        contextMenuOrder: 1,
-        // A view-only guest's .bib is the host's; nothing is cited from there.
-        precondition: isTex ? "tex64.isTexFile && !tex64CollabViewer" : "!tex64CollabViewer",
-        run: () => openZoteroDialog(editor, getActiveFilePath),
-    });
+    const open = () => openCiteDialog(editor, getActiveFilePath);
+    if (bridge()) {
+        const isTex = (_a = editor.createContextKey) === null || _a === void 0 ? void 0 : _a.call(editor, "tex64.isTexFile", false);
+        const syncKey = () => { var _a, _b, _c; return isTex === null || isTex === void 0 ? void 0 : isTex.set(((_c = (_b = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) === null || _b === void 0 ? void 0 : _b.getLanguageId) === null || _c === void 0 ? void 0 : _c.call(_b)) === "latex"); };
+        syncKey();
+        (_b = editor.onDidChangeModel) === null || _b === void 0 ? void 0 : _b.call(editor, syncKey);
+        (_c = editor.onDidChangeModelLanguage) === null || _c === void 0 ? void 0 : _c.call(editor, syncKey);
+        editor.addAction({
+            id: "tex64.zotero.insert",
+            label: uiText("Insert citation…", "引用を挿入…"),
+            contextMenuGroupId: "9_cite",
+            contextMenuOrder: 1,
+            // A view-only guest's .bib is the host's; nothing is cited from there.
+            precondition: isTex ? "tex64.isTexFile && !tex64CollabViewer" : "!tex64CollabViewer",
+            run: open,
+        });
+    }
+    if (arxivBridge()) {
+        const texKey = (_d = editor.createContextKey) === null || _d === void 0 ? void 0 : _d.call(editor, ARXIV_CONTEXT_KEY, isArxivTexModel(editor));
+        (_e = editor.onDidChangeModel) === null || _e === void 0 ? void 0 : _e.call(editor, () => texKey === null || texKey === void 0 ? void 0 : texKey.set(isArxivTexModel(editor)));
+        editor.addAction({
+            id: "tex64.arxiv.search",
+            label: uiText("Search arXiv…", "arXiv を検索…"),
+            precondition: texKey ? `${ARXIV_CONTEXT_KEY} && !tex64CollabViewer` : "!tex64CollabViewer",
+            run: open,
+        });
+    }
 };
 // ---- Settings → Zotero -----------------------------------------------------
 export const initZoteroSettingsUi = () => {

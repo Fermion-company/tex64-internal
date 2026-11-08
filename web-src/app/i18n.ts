@@ -900,6 +900,16 @@ const EN_TO_JA: Record<string, string> = {
   // Settings: the theme that follows the OS, and the TeX row now on Build.
   "System": "システム",
   "Open Settings > Build": "設定 > ビルド を開く",
+  // Insert citation: one dialog for Zotero and arXiv.
+  "Insert citation…": "引用を挿入…",
+  "Insert citation": "引用を挿入",
+  // Editor context menu: Monaco's items that stay, and the Text Style submenu.
+  "Go to Definition": "定義へ移動",
+  "Go to References": "参照を検索",
+  "Rename Symbol": "名前を変更",
+  "Format Document": "ドキュメントを整形",
+  "Format Selection": "選択範囲を整形",
+  "Text Style": "書式",
 };
 
 const TRANSLATABLE_ATTRIBUTES = ["title", "aria-label", "placeholder", "alt"] as const;
@@ -1799,6 +1809,16 @@ const EN_TO_ZH: Record<string, string> = {
   "Dark": "深色",
   "Light": "浅色",
   "Open Settings > Build": "打开 设置 > 构建",
+  // Insert citation: one dialog for Zotero and arXiv.
+  "Insert citation…": "插入引用…",
+  "Insert citation": "插入引用",
+  // Editor context menu: Monaco's items that stay, and the Text Style submenu.
+  "Go to Definition": "转到定义",
+  "Go to References": "查找引用",
+  "Rename Symbol": "重命名符号",
+  "Format Document": "格式化文档",
+  "Format Selection": "格式化所选内容",
+  "Text Style": "文本样式",
 };
 
 const EN_TO_KO: Record<string, string> = {
@@ -2643,6 +2663,16 @@ const EN_TO_KO: Record<string, string> = {
   "Dark": "다크",
   "Light": "라이트",
   "Open Settings > Build": "설정 > 빌드 열기",
+  // Insert citation: one dialog for Zotero and arXiv.
+  "Insert citation…": "인용 삽입…",
+  "Insert citation": "인용 삽입",
+  // Editor context menu: Monaco's items that stay, and the Text Style submenu.
+  "Go to Definition": "정의로 이동",
+  "Go to References": "참조 찾기",
+  "Rename Symbol": "기호 이름 바꾸기",
+  "Format Document": "문서 서식",
+  "Format Selection": "선택 영역 서식",
+  "Text Style": "텍스트 스타일",
 };
 
 const EN_TO_FR: Record<string, string> = {
@@ -3487,6 +3517,16 @@ const EN_TO_FR: Record<string, string> = {
   "Dark": "Sombre",
   "Light": "Clair",
   "Open Settings > Build": "Ouvrir Paramètres > Compiler",
+  // Insert citation: one dialog for Zotero and arXiv.
+  "Insert citation…": "Insérer une citation…",
+  "Insert citation": "Insérer une citation",
+  // Editor context menu: Monaco's items that stay, and the Text Style submenu.
+  "Go to Definition": "Atteindre la définition",
+  "Go to References": "Rechercher les références",
+  "Rename Symbol": "Renommer le symbole",
+  "Format Document": "Mettre en forme le document",
+  "Format Selection": "Mettre en forme la sélection",
+  "Text Style": "Style du texte",
 };
 
 const EN_TO_DE: Record<string, string> = {
@@ -4331,6 +4371,16 @@ const EN_TO_DE: Record<string, string> = {
   "Dark": "Dunkel",
   "Light": "Hell",
   "Open Settings > Build": "Einstellungen > Erstellen öffnen",
+  // Insert citation: one dialog for Zotero and arXiv.
+  "Insert citation…": "Zitat einfügen…",
+  "Insert citation": "Zitat einfügen",
+  // Editor context menu: Monaco's items that stay, and the Text Style submenu.
+  "Go to Definition": "Gehe zu Definition",
+  "Go to References": "Verweise suchen",
+  "Rename Symbol": "Symbol umbenennen",
+  "Format Document": "Dokument formatieren",
+  "Format Selection": "Auswahl formatieren",
+  "Text Style": "Textstil",
 };
 
 const EN_TO_ES: Record<string, string> = {
@@ -5175,6 +5225,16 @@ const EN_TO_ES: Record<string, string> = {
   "Dark": "Oscuro",
   "Light": "Claro",
   "Open Settings > Build": "Abrir Configuración > Compilar",
+  // Insert citation: one dialog for Zotero and arXiv.
+  "Insert citation…": "Insertar cita…",
+  "Insert citation": "Insertar cita",
+  // Editor context menu: Monaco's items that stay, and the Text Style submenu.
+  "Go to Definition": "Ir a la definición",
+  "Go to References": "Buscar referencias",
+  "Rename Symbol": "Cambiar el nombre del símbolo",
+  "Format Document": "Dar formato al documento",
+  "Format Selection": "Dar formato a la selección",
+  "Text Style": "Estilo de texto",
 };
 
 const TRANSLATIONS_BY_LOCALE: Record<Exclude<UiLocale, "en">, Record<string, string>> = {
