@@ -1504,6 +1504,7 @@ export const initMain = () => {
         if (voiceEdit.ownsRequest(payload?.requestId)) voiceEdit.handleTranscribeResult(payload);
         else aiChatUi?.handleTranscribeResult(payload);
       },
+      handleSteerResult: (payload) => aiChatUi?.handleSteerResult(payload),
       handleDocumentMap: (payload) => aiChatUi?.handleDocumentMap(payload),
       handleMessageDelta: (text, conversationId) =>
         aiChatUi?.handleMessageDelta(text, conversationId),
