@@ -88,7 +88,7 @@ export const initSettingsUi = (context, deps) => {
         if (typeof patch.compileEngine === "string") {
             engineOps.setCompileEngine(patch.compileEngine);
         }
-        if (patch.appearanceTheme === "dark" || patch.appearanceTheme === "light") {
+        if (patch.appearanceTheme === "dark" || patch.appearanceTheme === "light" || patch.appearanceTheme === "system") {
             appearanceOps.setAppearanceThemeState(patch.appearanceTheme);
         }
         if (typeof patch.wordWrapEnabled === "boolean") {

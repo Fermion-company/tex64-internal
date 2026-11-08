@@ -1409,8 +1409,8 @@ app.whenReady().then(() => {
   if (!hasSingleInstanceLock) {
     return;
   }
-  // The app's own default theme; the renderer sends the saved choice once it loads.
-  nativeTheme.themeSource = "dark";
+  // The app follows the OS until the renderer sends a saved dark or light choice.
+  nativeTheme.themeSource = "system";
   protocol.handle(WORKSPACE_PDF_SCHEME, handleWorkspacePdfRequest);
   runStartupWebBuildIfNeeded();
   createMainWindow();
@@ -2579,8 +2579,9 @@ const handleRendererMessage = (event, message) => {
     return;
   }
   if (type === "appearance:theme") {
-    // The AI workspace webview reads prefers-color-scheme, which follows this.
-    if (message.theme === "dark" || message.theme === "light") nativeTheme.themeSource = message.theme;
+    // The AI workspace webview reads prefers-color-scheme, which follows this;
+    // "system" hands it back to the OS.
+    if (message.theme === "dark" || message.theme === "light" || message.theme === "system") nativeTheme.themeSource = message.theme;
     return;
   }
   if (type === "feedback:send") {

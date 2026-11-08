@@ -738,17 +738,11 @@
                 <button class="settings-nav-item" data-settings-target="general" type="button">
                   <span class="settings-nav-title">General</span>
                 </button>
-                <button class="settings-nav-item" data-settings-target="editor" type="button">
-                  <span class="settings-nav-title">Editor</span>
-                </button>
                 <button class="settings-nav-item" data-settings-target="build" type="button">
                   <span class="settings-nav-title">Build</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="format" type="button">
                   <span class="settings-nav-title">Format</span>
-                </button>
-                <button class="settings-nav-item" data-settings-target="env" type="button">
-                  <span class="settings-nav-title">Environment</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="account" type="button">
                   <span class="settings-nav-title-row">
@@ -760,9 +754,6 @@
                 </button>
                 <button class="settings-nav-item" data-settings-target="zotero" type="button">
                   <span class="settings-nav-title">Zotero</span>
-                </button>
-                <button class="settings-nav-item" data-settings-target="info" type="button">
-                  <span class="settings-nav-title">Info</span>
                 </button>
               </div>
               <div class="settings-pages is-hidden" id="settings-pages" aria-hidden="true">
@@ -794,19 +785,15 @@
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="settings-appearance-theme">
+                          <option value="system">System</option>
                           <option value="dark">Dark</option>
                           <option value="light">Light</option>
                         </select>
                       </div>
                     </div>
                   </div>
-                </div>
-                <div class="settings-page is-hidden" data-settings-page="editor" aria-hidden="true">
-                  <div class="settings-page-header">
-                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
-                    <div class="settings-page-title">Editor</div>
-                  </div>
                   <div class="settings-group">
+                    <div class="settings-group-title">Editor</div>
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Wrap Lines</span>
@@ -1008,6 +995,35 @@
                     <div class="settings-page-title">Build</div>
                   </div>
                   <div class="settings-group">
+                    <div class="env-block">
+                      <div class="settings-item env-row">
+                        <div class="settings-label">
+                          <span class="settings-title">TeX</span>
+                        </div>
+                        <div class="settings-control">
+                          <div class="env-hero is-checking" id="env-hero">
+                            <span class="env-hero-icon" aria-hidden="true"></span>
+                            <span class="env-hero-title" id="settings-runtime-setup-status">Checking TeX…</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="env-detail is-hidden" id="env-detail" aria-hidden="true"></div>
+                      <div class="env-choice is-hidden" id="env-choice" aria-hidden="true">
+                        <button class="env-choice-card is-primary" id="env-choice-light" type="button">
+                          <span class="env-choice-title">Quick setup</span>
+                        </button>
+                      </div>
+                      <div class="env-progress is-hidden" id="env-progress" aria-hidden="true">
+                        <div class="env-progress-track">
+                          <div class="env-progress-fill" id="env-progress-fill"></div>
+                        </div>
+                        <div class="env-progress-label" id="env-progress-label"></div>
+                      </div>
+                      <button class="panel-button env-setup-btn is-hidden" id="settings-env-setup" type="button">
+                        Set up
+                      </button>
+                      <div class="settings-help-text env-install-note is-hidden" id="settings-runtime-install-status" aria-hidden="true"></div>
+                    </div>
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Engine</span>
@@ -1134,36 +1150,6 @@
                     </div>
                   </div>
                 </div>
-                <div class="settings-page is-hidden" data-settings-page="env" aria-hidden="true">
-                  <div class="settings-page-header">
-                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
-                    <div class="settings-page-title">Environment</div>
-                  </div>
-                  <div class="settings-group env-group">
-                    <div class="env-hero is-checking" id="env-hero">
-                      <span class="env-hero-icon" aria-hidden="true"></span>
-                      <div class="env-hero-text">
-                        <div class="env-hero-title" id="settings-runtime-setup-status">Checking TeX…</div>
-                      </div>
-                    </div>
-                    <div class="env-detail is-hidden" id="env-detail" aria-hidden="true"></div>
-                    <div class="env-choice is-hidden" id="env-choice" aria-hidden="true">
-                      <button class="env-choice-card is-primary" id="env-choice-light" type="button">
-                        <span class="env-choice-title">Quick setup</span>
-                      </button>
-                    </div>
-                    <div class="env-progress is-hidden" id="env-progress" aria-hidden="true">
-                      <div class="env-progress-track">
-                        <div class="env-progress-fill" id="env-progress-fill"></div>
-                      </div>
-                      <div class="env-progress-label" id="env-progress-label"></div>
-                    </div>
-                    <button class="panel-button env-setup-btn is-hidden" id="settings-env-setup" type="button">
-                      Set up
-                    </button>
-                    <div class="settings-help-text env-install-note is-hidden" id="settings-runtime-install-status" aria-hidden="true"></div>
-                  </div>
-                </div>
                 <div class="settings-page is-hidden" data-settings-page="account" aria-hidden="true">
                   <div class="settings-page-header">
                     <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
@@ -1240,6 +1226,15 @@
                       </button>
                     </div>
                   </div>
+                  <nav class="settings-links" aria-label="Info">
+                    <button class="settings-link" id="settings-link-support" type="button">Help</button>
+                    <button class="settings-link" id="settings-link-contact" type="button">Inquiry</button>
+                    <button class="settings-link" id="settings-link-releases" type="button">Release Notes</button>
+                    <button class="settings-link" id="settings-link-terms" type="button">Terms of Service</button>
+                    <button class="settings-link" id="settings-link-privacy" type="button">Privacy</button>
+                    <button class="settings-link" id="settings-link-commercial" type="button">Special Commercial Law</button>
+                    <button class="settings-link" id="settings-link-refund" type="button">Refund Policy</button>
+                  </nav>
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="feedback" aria-hidden="true">
                   <div class="settings-page-header">
@@ -1302,29 +1297,6 @@
                     <p class="env-explainer">
                       <button class="env-link" id="settings-zotero-open-keys" type="button"></button>
                     </p>
-                  </div>
-                </div>
-                <div class="settings-page is-hidden" data-settings-page="info" aria-hidden="true">
-                  <div class="settings-page-header">
-                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
-                    <div class="settings-page-title">Info</div>
-                  </div>
-                  <div class="settings-group">
-                    <div class="settings-group-title">Legal Affairs</div>
-                    <div class="settings-actions">
-                      <button class="panel-button ghost" id="settings-link-terms" type="button">Terms of Service</button>
-                      <button class="panel-button ghost" id="settings-link-privacy" type="button">Privacy</button>
-                      <button class="panel-button ghost" id="settings-link-commercial" type="button">Special Commercial Law</button>
-                      <button class="panel-button ghost" id="settings-link-refund" type="button">Refund Policy</button>
-                    </div>
-                  </div>
-                  <div class="settings-group">
-                    <div class="settings-group-title">Support</div>
-                    <div class="settings-actions">
-                      <button class="panel-button ghost" id="settings-link-support" type="button">Help</button>
-                      <button class="panel-button ghost" id="settings-link-contact" type="button">Inquiry</button>
-                      <button class="panel-button ghost" id="settings-link-releases" type="button">Release Notes</button>
-                    </div>
                   </div>
                 </div>
               </div>

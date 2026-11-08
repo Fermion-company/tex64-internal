@@ -28,15 +28,15 @@ const rules: ResolutionRule[] = [
   {
     test: (issue, message) =>
       issue.action === "open-runtime" || message.includes("TeX environment"),
-    resolution: () => uiText("Open Settings > Environment and click \"Install\" for the missing tool.", "Open Settings > Environment and click \"Install\" for missing tools."),
+    resolution: () => uiText("Open Settings > Build and click \"Install\" for the missing tool.", "Open Settings > Build and click \"Install\" for missing tools."),
   },
   {
     test: (_issue, message) => message.includes("latexmk"),
-    resolution: () => uiText("Check the status of latexmk in Settings > Environment and click \"Install\".", "設定 > 環境 で latexmk の状態を確認し、「インストール」をクリックしてください。"),
+    resolution: () => uiText("Check the status of latexmk in Settings > Build and click \"Install\".", "設定 > ビルド で latexmk の状態を確認し、「インストール」をクリックしてください。"),
   },
   {
     test: (_issue, message) => message.includes("latexindent"),
-    resolution: () => uiText("Check the status of latexindent in Settings > Environment. You can turn formatting off in settings if needed.", "Check the status of latexindent in Settings > Environment. You can disable formatting in settings if not needed."),
+    resolution: () => uiText("Check the status of latexindent in Settings > Build. You can turn formatting off in settings if needed.", "Check the status of latexindent in Settings > Build. You can disable formatting in settings if not needed."),
   },
   {
     test: (_issue, message) => message.includes("Format"),
@@ -44,7 +44,7 @@ const rules: ResolutionRule[] = [
   },
   {
     test: (_issue, message) => message.includes("Failed to start build"),
-    resolution: () => uiText("Check that TeX Distribution and latexmk are detected in Settings > Environment. Click \"Install\" if they are missing.", "Check that TeX Distribution and latexmk are detected in Settings > Environment. Click \"Install\" if not detected."),
+    resolution: () => uiText("Check that TeX Distribution and latexmk are detected in Settings > Build. Click \"Install\" if they are missing.", "Check that TeX Distribution and latexmk are detected in Settings > Build. Click \"Install\" if not detected."),
   },
   {
     test: (_issue, message) => message.includes("build failed"),

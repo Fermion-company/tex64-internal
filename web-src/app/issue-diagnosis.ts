@@ -54,8 +54,8 @@ const rules: Rule[] = [
     fix: (m) =>
       isStyleFile(m[1])
         ? uiText(
-            "That file comes from a package. Open Settings > Environment and update the TeX distribution, then build again.",
-            "これはパッケージに含まれるファイルです。設定 > 環境 で TeX 環境を更新してから、もう一度ビルドしてください。"
+            "That file comes from a package. Open Settings > Build and update the TeX distribution, then build again.",
+            "これはパッケージに含まれるファイルです。設定 > ビルド で TeX 環境を更新してから、もう一度ビルドしてください。"
           )
         : uiText(
             "Check the spelling of the name and that the file sits where the document expects it.",

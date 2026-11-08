@@ -1,5 +1,5 @@
 import type { LspBridge } from "./lsp/lsp-client.js";
-import type { AppearanceTheme } from "./appearance.js";
+import type { AppearanceThemePreference } from "./appearance.js";
 
 export type SpellBridge = {
   check: (words: string[], locale?: "en" | "de") => Promise<string[]>;
@@ -248,7 +248,7 @@ export type PlatformUpdateStatusSnapshot = {
 };
 export type AppSettingsSnapshot = {
   compileEngine: string;
-  appearanceTheme: AppearanceTheme;
+  appearanceTheme: AppearanceThemePreference;
   wordWrapEnabled: boolean;
   autoSynctexOnBuild: boolean;
   reverseSynctexEnabled: boolean;

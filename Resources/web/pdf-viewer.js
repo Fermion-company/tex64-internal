@@ -421,14 +421,24 @@ const initPdfViewer = () => {
       // ignore unavailable parent document
     }
   } else {
-    try {
-      applyViewerTheme(localStorage.getItem(appearanceKey));
-    } catch {
-      applyViewerTheme("dark");
-    }
+    // The saved choice is "dark", "light" or "system"; with "system" (or none
+    // saved) the window follows prefers-color-scheme, which tracks the OS.
+    const darkScheme = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+    const readChoice = () => {
+      try {
+        return localStorage.getItem(appearanceKey);
+      } catch {
+        return null;
+      }
+    };
+    const applyChoice = (choice) => {
+      applyViewerTheme(choice === "light" || choice === "dark" ? choice : darkScheme && !darkScheme.matches ? "light" : "dark");
+    };
+    applyChoice(readChoice());
     window.addEventListener("storage", (event) => {
-      if (event.key === appearanceKey) applyViewerTheme(event.newValue);
+      if (event.key === appearanceKey) applyChoice(event.newValue);
     });
+    darkScheme?.addEventListener?.("change", () => applyChoice(readChoice()));
   }
 
   const updateZoomLabel = (value = state.scale) => {

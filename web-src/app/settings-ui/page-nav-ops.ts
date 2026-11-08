@@ -23,10 +23,18 @@ export const createSettingsPageNavOps = (
     settingsPageItems[0]?.dataset.settingsPage ??
     null;
 
+  // Pages that were merged into others: callers and remembered values that
+  // still name them land on the page that holds their rows now.
+  const MOVED_PAGES: Record<string, string> = { editor: "general", env: "build", info: "account" };
+  const resolvePageId = (pageId: string | null) => {
+    const id = pageId ? MOVED_PAGES[pageId] ?? pageId : null;
+    return id && settingsPageItems.some((page) => page.dataset.settingsPage === id) ? id : defaultPageId;
+  };
+
   const setSettingsPage = (pageId: string | null) => {
     // Full-screen side-by-side layout: the category nav stays visible and a
     // page is always shown in the content pane (no drill-in / back button).
-    const resolved = pageId ?? defaultPageId;
+    const resolved = resolvePageId(pageId);
     runtime.state.activeSettingsPage = resolved;
     if (settingsNav instanceof HTMLElement) {
       settingsNav.classList.remove("is-hidden");
@@ -57,11 +65,12 @@ export const createSettingsPageNavOps = (
       settingsPanel.scrollTop = 0;
     }
     attentionOps.syncUpdateAttentionUi();
-    if (resolved === "env") {
+    // The TeX status is the first row of Build.
+    if (resolved === "build") {
       deps.updateRuntimeOnboardingUi();
       deps.checkEnvironmentStatus();
     }
-    if (resolved === "env" || resolved === "account") {
+    if (resolved === "build" || resolved === "account") {
       deps.maybeRequestPlatformUpdateCheck(false);
     }
   };

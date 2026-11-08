@@ -2530,34 +2530,33 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   background: none;
   color: var(--text);
 }
-/* 情報: the seven pages are a list of links, one row each, no frames. */
-.panel[data-panel="settings"] [data-settings-page="info"] .settings-actions {
-  flex-direction: column;
-  align-items: stretch;
-  flex-wrap: nowrap;
-  gap: 0;
-  /* 8px + half of the 32px row above the first label, the same below the last. */
-  padding: var(--space-3) 0 0;
-  margin-bottom: calc(-1 * var(--space-3));
+/* The Info links at the foot of Account: one quiet wrapping line, no frames. */
+.panel[data-panel="settings"] .settings-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  margin: var(--space-7) 0 0;
+  padding: 0 var(--space-7);
 }
-.panel[data-panel="settings"] [data-settings-page="info"] .panel-button {
-  justify-content: flex-start;
-  width: 100%;
-  height: 32px;
+.panel[data-panel="settings"] .settings-link {
   padding: 0;
   border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 400;
-  text-align: left;
+  border-radius: 2px;
+  background: none;
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
 }
-.panel[data-panel="settings"] [data-settings-page="info"] .panel-button:hover {
-  background: transparent;
+.panel[data-panel="settings"] .settings-link:hover {
   color: var(--text);
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+.panel[data-panel="settings"] .settings-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 .panel[data-panel="settings"] .settings-description,
 .panel[data-panel="settings"] .settings-nav-desc,
@@ -3423,17 +3422,19 @@ html[lang="ja"] .settings-page .panel-button {
 }
 
 /* =============================================================================
-   Environment screen — status-first, one-click setup
+   TeX status — the first row of Settings › Build, one-click setup
    ============================================================================= */
 
-/* The environment page is one quiet status row (mark + text) on the page
-   itself: no card around it, no tinted box in any state. The mark's colour
-   carries the state. */
-.panel[data-panel="settings"] .settings-group.env-group {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: none;
+/* Build's first row is the TeX status: the row, then (only when something is
+   wrong or running) the lines and actions below it, all above one rule. */
+.panel[data-panel="settings"] .env-block {
+  border-bottom: 1px solid var(--panel-border);
+}
+.panel[data-panel="settings"] .env-block > .settings-item {
+  border-bottom: 0;
+}
+.panel[data-panel="settings"] .env-block > :not(.settings-item) {
+  margin: 0 0 var(--space-5);
 }
 
 .env-hero {
@@ -3456,23 +3457,18 @@ html[lang="ja"] .settings-page .panel-button {
   background: none;
 }
 
-.env-hero-text {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
 .env-hero-title {
   font-size: 14px;
   font-weight: 400;
   line-height: 1.35;
   color: var(--text);
 }
-
-.env-hero-sub {
-  font-size: 12px;
-  line-height: 1.5;
+/* Ready is the normal state: the distribution's name as plain secondary text,
+   like a version number, with no mark. */
+.env-hero.is-ready .env-hero-icon {
+  display: none;
+}
+.env-hero.is-ready .env-hero-title {
   color: var(--text-soft);
 }
 
@@ -3486,14 +3482,6 @@ html[lang="ja"] .settings-page .panel-button {
   border-top-color: transparent;
   animation: envBadgeSpin 0.8s linear infinite;
 }
-.env-hero.is-ready .env-hero-icon::before {
-  content: "";
-  width: 18px;
-  height: 18px;
-  background: var(--success-text);
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
-}
 .env-hero.is-missing .env-hero-icon::before {
   content: "";
   width: 18px;
@@ -3503,39 +3491,10 @@ html[lang="ja"] .settings-page .panel-button {
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 8v5'/%3E%3Cpath d='M12 16h.01'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
-.panel[data-panel="settings"] .env-setup-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 14px;
-  height: 40px;
-  padding: 0 22px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #fff;
-  background: var(--accent);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
-  transition: background 0.16s ease, border-color 0.16s ease;
-}
-.panel[data-panel="settings"] .env-setup-btn:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  transform: none;
-}
-.panel[data-panel="settings"] .env-setup-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-  transform: none;
-}
-
-/* Detection line: which TeX we found, and where. Kept quiet — it is reassurance,
-   not an instruction. */
+/* What is wrong with the TeX that was found (a thin package set, a missing
+   tool); the row above already names it when it works. */
 .env-detail {
-  margin-top: var(--space-1);
-  /* No box: the text starts where the status title does (mark 20 + gap 8). */
   padding: 0;
-  padding-inline-start: calc(20px + var(--space-3));
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-soft);
@@ -3547,7 +3506,6 @@ html[lang="ja"] .settings-page .panel-button {
   display: grid;
   grid-template-columns: minmax(220px, 1fr);
   gap: 12px;
-  margin-top: 14px;
 }
 
 .env-choice-card {
@@ -3619,10 +3577,6 @@ html[lang="ja"] .settings-page .panel-button {
   opacity: 0.85;
 }
 
-.env-install-note {
-  margin-top: 12px;
-}
-
 .env-explainer {
   margin: 16px 0 0;
   font-size: 12px;
@@ -3650,9 +3604,6 @@ html[lang="ja"] .settings-page .panel-button {
   margin-left: 0;
 }
 
-.env-progress {
-  margin-top: 14px;
-}
 .env-progress-track {
   width: 100%;
   height: 8px;

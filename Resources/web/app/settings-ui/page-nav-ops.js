@@ -3,10 +3,18 @@ export const createSettingsPageNavOps = (runtime, attentionOps, deps) => {
     const { settingsPanel, settingsNav, settingsNavItems, settingsPages, settingsPageItems, settingsBackButtons } = runtime.context.dom;
     // First nav category is the default page shown when the overlay opens.
     const defaultPageId = (_d = (_b = (_a = settingsNavItems[0]) === null || _a === void 0 ? void 0 : _a.dataset.settingsTarget) !== null && _b !== void 0 ? _b : (_c = settingsPageItems[0]) === null || _c === void 0 ? void 0 : _c.dataset.settingsPage) !== null && _d !== void 0 ? _d : null;
+    // Pages that were merged into others: callers and remembered values that
+    // still name them land on the page that holds their rows now.
+    const MOVED_PAGES = { editor: "general", env: "build", info: "account" };
+    const resolvePageId = (pageId) => {
+        var _a;
+        const id = pageId ? (_a = MOVED_PAGES[pageId]) !== null && _a !== void 0 ? _a : pageId : null;
+        return id && settingsPageItems.some((page) => page.dataset.settingsPage === id) ? id : defaultPageId;
+    };
     const setSettingsPage = (pageId) => {
         // Full-screen side-by-side layout: the category nav stays visible and a
         // page is always shown in the content pane (no drill-in / back button).
-        const resolved = pageId !== null && pageId !== void 0 ? pageId : defaultPageId;
+        const resolved = resolvePageId(pageId);
         runtime.state.activeSettingsPage = resolved;
         if (settingsNav instanceof HTMLElement) {
             settingsNav.classList.remove("is-hidden");
@@ -35,11 +43,12 @@ export const createSettingsPageNavOps = (runtime, attentionOps, deps) => {
             settingsPanel.scrollTop = 0;
         }
         attentionOps.syncUpdateAttentionUi();
-        if (resolved === "env") {
+        // The TeX status is the first row of Build.
+        if (resolved === "build") {
             deps.updateRuntimeOnboardingUi();
             deps.checkEnvironmentStatus();
         }
-        if (resolved === "env" || resolved === "account") {
+        if (resolved === "build" || resolved === "account") {
             deps.maybeRequestPlatformUpdateCheck(false);
         }
     };

@@ -143,7 +143,7 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     sendIssues(missing.length, summary, "error", [
       ...missing.map((entry) => ({
         severity: "error",
-        message: `${entry.label} is not detected. Please check Settings > Execution environment.`,
+        message: `${entry.label} is not detected. Please check Settings > Build.`,
         action: "open-runtime",
       })),
     ]);
