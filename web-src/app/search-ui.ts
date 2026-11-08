@@ -172,7 +172,7 @@ export const initSearchUi = (context: AppContext, deps: SearchUiDeps): SearchUiA
 
         const line = document.createElement("div");
         line.className = "search-match-line";
-        line.textContent = uiText(`Line ${result.line}`, `行 ${result.line}`);
+        line.textContent = uiText(`Line ${result.line}`, `行${result.line}`);
 
         const preview = document.createElement("div");
         preview.className = "search-match-preview";
@@ -313,7 +313,7 @@ export const initSearchUi = (context: AppContext, deps: SearchUiDeps): SearchUiA
   const handleRenameResult = (payload: SearchRenameResultPayload) => {
     setRenameBusy(false);
     if (!payload.ok) {
-      setRenameStatus(payload.error ?? uiText("Rename failed.", "リネームに失敗しました。"), "error");
+      setRenameStatus(payload.error ?? uiText("Rename failed.", "名前を変更できませんでした。"), "error");
       return;
     }
     const fileCount = payload.fileCount ?? 0;

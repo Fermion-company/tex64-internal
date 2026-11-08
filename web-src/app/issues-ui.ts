@@ -129,7 +129,7 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
             ? `${detail.path}:${detail.line}`
             : detail.path
             ? detail.path
-            : uiText(`Line ${detail.line}`, `${detail.line} 行目`);
+            : uiText(`Line ${detail.line}`, `${detail.line}行目`);
         head.append(where);
       } else if (isRuntimeAction) {
         // No location to show, but there is still somewhere to go.

@@ -336,12 +336,15 @@ export const initFileTreeUi = (context, deps) => {
         setText(deleteModalTitle, kind === "dir" ? uiText("Delete Folder", "delete folder") : uiText("Delete File", "delete file"));
         // The workspace-relative path, so same-named files in other folders differ.
         setText(deleteModalTarget, path);
-        // What deleting means waits behind the title's ▾.
+        // A deleted item goes to the app's trash and Undo brings it back, so a
+        // file needs no warning; a folder's ▾ says that its files go with it.
         if (deleteModalTitle instanceof HTMLElement && deleteModalHelp instanceof HTMLElement) {
-            const [, panel] = explainedHeading(deleteModalTitle, kind === "dir"
-                ? uiText("Files inside it are deleted too. This cannot be undone.", "中のファイルも削除されます。この操作は取り消せません。")
-                : uiText("This action cannot be undone.", "この操作は取り消せません。"));
-            deleteModalHelp.replaceChildren(panel);
+            deleteModalTitle.classList.remove("has-explain");
+            deleteModalHelp.replaceChildren();
+            if (kind === "dir") {
+                const [, panel] = explainedHeading(deleteModalTitle, uiText("Files inside it are deleted too.", "中のファイルも削除されます。"));
+                deleteModalHelp.replaceChildren(panel);
+            }
             deleteModalHelp.classList.remove("is-error");
         }
         setDeleteModalOpen(true);

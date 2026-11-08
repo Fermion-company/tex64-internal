@@ -29,12 +29,12 @@ const STRINGS: Record<string, Entry> = {
   // ── Login / overlay ──
   login: { en: "Login", ja: "ログイン", zh: "登录", ko: "로그인", fr: "Connexion", de: "Anmelden", es: "Entrar" },
   login_with_google: { en: "Log in with Google", ja: "Googleでログイン", zh: "使用 Google 登录", ko: "Google로 로그인", fr: "Se connecter avec Google", de: "Mit Google anmelden", es: "Iniciar sesión con Google" },
-  login_failed: { en: "Login failed.", ja: "ログインに失敗しました。", zh: "登录失败。", ko: "로그인에 실패했습니다.", fr: "Échec de la connexion.", de: "Anmeldung fehlgeschlagen.", es: "Error al iniciar sesión." },
+  login_failed: { en: "Login failed.", ja: "ログインできませんでした。", zh: "登录失败。", ko: "로그인에 실패했습니다.", fr: "Échec de la connexion.", de: "Anmeldung fehlgeschlagen.", es: "Error al iniciar sesión." },
   login_err_open: { en: "The login page could not be opened.", ja: "ログインページを開けませんでした。", zh: "无法打开登录页面。", ko: "로그인 페이지를 열 수 없습니다.", fr: "Impossible d'ouvrir la page de connexion.", de: "Die Anmeldeseite konnte nicht geöffnet werden.", es: "No se pudo abrir la página de inicio de sesión." },
   login_err_browser: { en: "Failed to start the browser.", ja: "ブラウザを起動できませんでした。", zh: "无法启动浏览器。", ko: "브라우저를 시작하지 못했습니다.", fr: "Échec du démarrage du navigateur.", de: "Browser konnte nicht gestartet werden.", es: "No se pudo iniciar el navegador." },
   login_err_timeout: { en: "Login timed out.", ja: "ログインがタイムアウトしました。", zh: "登录超时。", ko: "로그인 시간이 초과되었습니다.", fr: "Délai de connexion dépassé.", de: "Zeitüberschreitung bei der Anmeldung.", es: "Tiempo de inicio de sesión agotado." },
   login_err_confirm: { en: "Could not confirm login status.", ja: "ログイン状態を確認できませんでした。", zh: "无法确认登录状态。", ko: "로그인 상태를 확인할 수 없습니다.", fr: "Impossible de confirmer l'état de connexion.", de: "Anmeldestatus konnte nicht bestätigt werden.", es: "No se pudo confirmar el estado de inicio de sesión." },
-  login_err_validate: { en: "Login validation failed.", ja: "ログインの検証に失敗しました。", zh: "登录验证失败。", ko: "로그인 검증에 실패했습니다.", fr: "Échec de la validation de la connexion.", de: "Login-Überprüfung fehlgeschlagen.", es: "Falló la validación del inicio de sesión." },
+  login_err_validate: { en: "Login validation failed.", ja: "ログインを確認できませんでした。", zh: "登录验证失败。", ko: "로그인 검증에 실패했습니다.", fr: "Échec de la validation de la connexion.", de: "Login-Überprüfung fehlgeschlagen.", es: "Falló la validación del inicio de sesión." },
 
   // ── Agent activity (thinking bubble / status line) ──
   status_thinking: { en: "Thinking…", ja: "考え中…", zh: "思考中…", ko: "생각 중…", fr: "Réflexion…", de: "Denkt nach…", es: "Pensando…" },

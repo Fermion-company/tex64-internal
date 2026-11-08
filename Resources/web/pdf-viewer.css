@@ -299,7 +299,7 @@ body.is-embedded .pdf-fit-control span {
   color: var(--text-soft);
   padding: 4px 8px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -315,12 +315,12 @@ body.is-embedded .pdf-fit-control span {
   border-radius: 6px;
   color: var(--text);
   padding: 4px 6px;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .pdf-page-count,
 .pdf-zoom-label {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-soft);
 }
 
@@ -328,7 +328,7 @@ body.is-embedded .pdf-fit-control span {
 .pdf-page-input,
 .pdf-zoom-label,
 .pdf-btn {
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .pdf-status {

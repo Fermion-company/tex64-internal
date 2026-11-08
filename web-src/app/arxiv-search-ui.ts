@@ -52,7 +52,7 @@ const describe = (reason: unknown, activeFilePath: string | null = null): string
   // chooser (or a % !TEX root line) settles which one.
   if (code === "BUILD_TARGET_CHOICE") {
     return activeFilePath
-      ? uiText(`${activeFilePath} belongs to more than one document.`, `${activeFilePath} は複数の文書から読み込まれています。`)
+      ? uiText(`${activeFilePath} belongs to more than one document.`, `${activeFilePath}は複数の文書から読み込まれています。`)
       : uiText("This folder has several documents and no main file is set.", "このフォルダには文書が複数あり、メインTeXが決まっていません。");
   }
   if (code === "NETWORK") return uiText("Cannot reach arXiv.", "arXivに接続できません。");
@@ -69,8 +69,8 @@ const bibHint = (result: CiteResult): string => {
     : uiText("Add %s before \\end{document}.", "\\end{document}の前に%sを加えてください。");
   const lines = result.suggestion.lines.join(uiText(" and ", " と "));
   const head = result.created
-    ? uiText(`Created ${result.bibPath}.`, `${result.bibPath} を作成しました。`)
-    : uiText(`Appended to ${result.bibPath}.`, `${result.bibPath} に追記しました。`);
+    ? uiText(`Created ${result.bibPath}.`, `${result.bibPath}を作成しました。`)
+    : uiText(`Appended to ${result.bibPath}.`, `${result.bibPath}に追記しました。`);
   return `${head} ${where.replace("%s", lines)}`;
 };
 
@@ -78,7 +78,7 @@ export const isArxivTexModel = (editor: any) => /\.tex$/i.test(editor?.getModel?
 
 const authorsLabel = (authors: string[]) => {
   const shown = authors.slice(0, 3).join(", ");
-  return authors.length > 3 ? uiText(`${shown} et al.`, `${shown} ほか`) : shown;
+  return authors.length > 3 ? uiText(`${shown} et al.`, `${shown}ほか`) : shown;
 };
 
 // Latin letters to search with: arXiv indexes English.
@@ -181,7 +181,7 @@ export const createArxivSection = (
     const showCited = (result: CiteResult, inserted: string) => {
       side.replaceChildren(el("code", "arxiv-cited", inserted));
       if (result.duplicate) {
-        side.append(el("p", "arxiv-row-meta", uiText(`Already in ${result.bibPath}.`, `${result.bibPath} に既にあります。`)));
+        side.append(el("p", "arxiv-row-meta", uiText(`Already in ${result.bibPath}.`, `${result.bibPath}に既にあります。`)));
       }
     };
     const done = cited.get(paper.arxivId);

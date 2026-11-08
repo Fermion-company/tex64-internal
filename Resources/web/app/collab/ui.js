@@ -63,7 +63,7 @@ export const initCollabUi = () => {
             dots.append(more);
         }
         const incoming = state.role === "guest" && state.incoming && state.incoming.files > 0
-            ? uiText(` · receiving ${state.incoming.files} file(s)`, `・ファイルを受け取り中（残り ${state.incoming.files} 件）`)
+            ? uiText(` · receiving ${state.incoming.files} file(s)`, `・ファイルを受け取り中（残り${state.incoming.files}件）`)
             : "";
         dots.title = state.connected === false
             ? uiText("Reconnecting…", "再接続中…")
@@ -75,7 +75,7 @@ export const initCollabUi = () => {
         const incoming = state.role === "guest" ? state.incoming : null;
         if (!incoming || incoming.files <= 0)
             return "";
-        return uiText(`Receiving files: ${incoming.files} left (${megabytes(incoming.bytes)})`, `ファイルを受け取り中（残り ${incoming.files} 件・${megabytes(incoming.bytes)}）`);
+        return uiText(`Receiving files: ${incoming.files} left (${megabytes(incoming.bytes)})`, `ファイルを受け取り中（残り${incoming.files}件・${megabytes(incoming.bytes)}）`);
     };
     // Every file over the size limit stays listed here: a smaller copy is
     // shared, or nothing is.
@@ -83,7 +83,7 @@ export const initCollabUi = () => {
         const limited = state.limitedFiles;
         const list = (items, label) => {
             const shown = items.slice(0, 3).map(label).join(uiText(", ", "、"));
-            return items.length > 3 ? shown + uiText(` and ${items.length - 3} more`, ` ほか ${items.length - 3} 件`) : shown;
+            return items.length > 3 ? shown + uiText(` and ${items.length - 3} more`, `ほか${items.length - 3}件`) : shown;
         };
         const lines = [];
         if (limited === null || limited === void 0 ? void 0 : limited.reduced.length) {
@@ -102,7 +102,7 @@ export const initCollabUi = () => {
             return "";
         const names = (state.preservedFiles || []).slice(0, 3);
         const rest = preserved - names.length;
-        const list = names.join(", ") + (rest > 0 ? uiText(` and ${rest} more`, ` ほか ${rest} 件`) : "");
+        const list = names.join(", ") + (rest > 0 ? uiText(` and ${rest} more`, `ほか${rest}件`) : "");
         return uiText(`Later edits kept as: ${list}`, `退出後の編集を退避しました: ${list}`);
     };
     const field = (className, label) => {
@@ -144,6 +144,10 @@ export const initCollabUi = () => {
         dialog.setAttribute("aria-labelledby", title.id);
         const content = el("div", "collab-dialog-body");
         let firstFocus = null;
+        // The start view's one action (Start, or Join once a link is pasted)
+        // goes at the end of the action row, after Cancel.
+        let primary = null;
+        let primaryAlt = null;
         const error = el("p", "tool-dialog-error", errorText);
         error.setAttribute("role", "status");
         if (state.phase === "starting" || state.phase === "opening" || (busy && !state.active)) {
@@ -169,8 +173,6 @@ export const initCollabUi = () => {
             // dialog's; beside Start it read as a split button with a menu.
             title.classList.add("has-explain");
             title.append(startExplain.button);
-            const startRow = el("div", "collab-start-row");
-            startRow.append(start);
             const joinSection = el("div", "collab-section collab-join");
             // Joining waits behind ▾ so that Start is the one obvious action.
             const joinToggle = el("button", "collab-disclosure", uiText("Join with link", "リンクで参加"));
@@ -185,23 +187,29 @@ export const initCollabUi = () => {
             linkField.value = pendingLink;
             linkField.dataset.noI18n = "true";
             linkField.dataset.focusKey = "join-link";
-            const join = button(uiText("Join", "参加"), () => void run(() => collabSession.join(linkField.value.trim(), nameField.value.trim())));
+            const join = button(uiText("Join", "参加"), () => void run(() => collabSession.join(linkField.value.trim(), nameField.value.trim())), true);
             join.dataset.focusKey = "join";
             const row = el("div", "collab-link-row");
-            row.append(linkField, join);
+            row.append(linkField);
             joinBody.append(row);
             joinSection.append(joinToggle, joinBody);
-            const startSection = el("div", "collab-section collab-start");
-            startSection.append(startRow);
+            start.classList.add("is-primary");
             content.append(startExplain.panel);
-            // A pasted link makes Join the action and puts Start away; closing the ▾
+            // A pasted link makes Join the action in Start's place; closing the ▾
             // brings Start back.
             const syncPrimary = () => {
                 const hasLink = joinOpen && linkField.value.trim().length > 0;
-                join.classList.toggle("is-primary", hasLink);
-                start.classList.toggle("is-primary", !hasLink);
-                startSection.hidden = hasLink;
+                start.hidden = hasLink;
+                join.hidden = !hasLink;
             };
+            linkField.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" && !event.isComposing && linkField.value.trim())
+                    join.click();
+            });
+            nameField.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" && !event.isComposing)
+                    (start.hidden ? join : start).click();
+            });
             const syncJoin = () => {
                 joinToggle.setAttribute("aria-expanded", String(joinOpen));
                 joinBody.hidden = !joinOpen;
@@ -217,8 +225,10 @@ export const initCollabUi = () => {
                 joinOpen = true;
             linkField.addEventListener("input", () => { pendingLink = linkField.value; syncPrimary(); });
             syncJoin();
-            content.append(nameRow, startSection, joinSection);
+            content.append(nameRow, joinSection);
             firstFocus = pendingLink ? linkField : nameField;
+            primary = start;
+            primaryAlt = join;
         }
         else {
             if (state.inviteLink) {
@@ -339,10 +349,16 @@ export const initCollabUi = () => {
             leave.dataset.focusKey = "leave";
             actions.append(leave, el("span", "tool-dialog-spacer"));
         }
-        const close = button(uiText("Close", "閉じる"), () => dialog === null || dialog === void 0 ? void 0 : dialog.close());
+        // Leaving the start view starts nothing: Cancel. Elsewhere the dialog
+        // only shows the session: Close.
+        const close = button(primary ? uiText("Cancel", "キャンセル") : uiText("Close", "閉じる"), () => dialog === null || dialog === void 0 ? void 0 : dialog.close());
         close.dataset.role = "close";
         close.dataset.focusKey = "close";
         actions.append(close);
+        if (primary)
+            actions.append(primary);
+        if (primaryAlt)
+            actions.append(primaryAlt);
         // A rebuild (a participant joining, a transfer's progress) gives focus
         // back to the control the user was on. When that control is gone, or
         // focus starts over, it goes to the field to fill in, else Close.

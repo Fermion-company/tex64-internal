@@ -133,7 +133,7 @@ export const initHistoryUi = (editor, diff) => {
         content.append(el("p", "", `${uiText("Changes since the previous version", "前の版からの変更")}：${changeCounts(version.summary)}`));
         if (excludedFiles.length) {
             const excluded = el("details");
-            excluded.append(el("summary", "", uiText(`${excludedFiles.length} excluded`, `対象外 ${excludedFiles.length}件`)));
+            excluded.append(el("summary", "", uiText(`${excludedFiles.length} excluded`, `対象外${excludedFiles.length}件`)));
             for (const file of excludedFiles)
                 excluded.append(el("div", "history-excluded", `${file.path} · ${file.reason}`));
             content.append(excluded);
@@ -426,7 +426,7 @@ export const initHistoryUi = (editor, diff) => {
             const counts = { added: 0, changed: 0, deleted: 0 };
             for (const file of data.plan.operations)
                 counts[file.kind]++;
-            modal.append(el("p", "", uiText(`Replace ${counts.changed} · Recreate ${counts.added} · Delete ${counts.deleted}`, `書き換え ${counts.changed}件・再作成 ${counts.added}件・削除 ${counts.deleted}件`)));
+            modal.append(el("p", "", uiText(`Replace ${counts.changed} · Recreate ${counts.added} · Delete ${counts.deleted}`, `書き換え${counts.changed}件・再作成${counts.added}件・削除${counts.deleted}件`)));
             const changed = el("div", "history-restore-files");
             for (const file of data.plan.operations)
                 changed.append(el("div", "", `${file.kind === "added" ? uiText("Recreate", "再作成") : file.kind === "deleted" ? uiText("Delete", "削除") : uiText("Replace", "書き換え")} · ${file.path}`));
@@ -434,7 +434,7 @@ export const initHistoryUi = (editor, diff) => {
             if (data.plan.rootFile !== data.plan.targetRootFile)
                 modal.append(el("p", "", `${uiText("Build target", "ビルド対象")}：${data.plan.rootFile || "—"} → ${data.plan.targetRootFile || "—"}`));
             const excluded = el("details");
-            excluded.append(el("summary", "", uiText(`${data.plan.excluded.length} excluded`, `対象外 ${data.plan.excluded.length}件`)));
+            excluded.append(el("summary", "", uiText(`${data.plan.excluded.length} excluded`, `対象外${data.plan.excluded.length}件`)));
             for (const file of data.plan.excluded)
                 excluded.append(el("div", "history-excluded", `${file.path} · ${file.reason}`));
             modal.append(excluded);

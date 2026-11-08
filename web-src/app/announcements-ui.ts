@@ -294,11 +294,8 @@ export const initAnnouncementsUi = (
     // pipeline in feedback-ops will retry on failure. Dismiss immediately
     // so the modal never reappears for this announcement.
     if (activeId) persistDismiss(activeId);
-    setStatus(uiText("Sent.", "送信しました。"), "success");
-    window.setTimeout(() => {
-      hide();
-      showNextOrReturn();
-    }, 900);
+    hide();
+    showNextOrReturn();
   };
 
   if (closeBtn instanceof HTMLButtonElement) {

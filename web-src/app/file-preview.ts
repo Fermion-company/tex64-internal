@@ -101,7 +101,7 @@ export const createFilePreviewBroker = (
     pending.delete(payload.requestId);
     window.clearTimeout(entry.timeoutId);
     if (!payload.ok) {
-      entry.resolve({ ok: false, error: payload.error ?? uiText("Preview failed.", "プレビューに失敗しました。") });
+      entry.resolve({ ok: false, error: payload.error ?? uiText("Preview failed.", "プレビューできませんでした。") });
       return;
     }
     const data = typeof payload.data === "string" ? payload.data : "";

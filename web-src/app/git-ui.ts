@@ -21,7 +21,7 @@ const gitErrors: Record<string, string> = {
   GIT_AUTHOR_REQUIRED: "コミットに使う名前とメールアドレスを設定してください。",
   GIT_NOTHING_STAGED: "コミットするファイルを選んでください。",
   GIT_UNMERGED: "すべての競合を解決してください。",
-  GIT_OPERATION_IN_PROGRESS: "現在の統合を完了するか中止してください。",
+  GIT_OPERATION_IN_PROGRESS: "現在の統合を完了するかキャンセルしてください。",
   GIT_REF_INVALID: "有効なブランチ名・タグ名を指定してください。",
   GIT_REF_EXISTS: "同じ名前が既にあります。別の名前にしてください。",
   GIT_REF_NOT_FOUND: "選択したブランチがありません。再読み込みしてください。",
@@ -377,7 +377,7 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
       const actions = el("div", "git-conflict-actions");
       const finish = button(uiText("Finish merge", "統合を完了"), () => void perform("merge-finish", {message: message.value || uiText("Merge changes", "変更を統合")}, true));
       finish.disabled = busy || Boolean(state.status?.hasUnmerged);
-      actions.append(finish, button(uiText("Abort merge…", "統合を中止…"), () => void perform("merge-abort", {}, true))); list.append(actions);
+      actions.append(finish, button(uiText("Abort merge…", "統合をキャンセル…"), () => void perform("merge-abort", {}, true))); list.append(actions);
     }
     if (!entries.length) list.append(el("p", "git-secondary git-empty", uiText("No changes", "変更なし")));
     for (const entry of entries) {

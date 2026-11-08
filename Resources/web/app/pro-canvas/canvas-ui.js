@@ -448,7 +448,7 @@ export const initProCanvasUi = (deps) => {
                 main.className = "pro-canvas-plot-card-main";
                 const chip = document.createElement("label");
                 chip.className = "pro-canvas-color-chip";
-                chip.title = uiText(`Series ${index + 1} color`, `系列 ${index + 1} の色`);
+                chip.title = uiText(`Series ${index + 1} color`, `系列${index + 1}の色`);
                 chip.setAttribute("aria-label", chip.title);
                 chip.style.background = series.color;
                 chip.tabIndex = 0;
@@ -468,7 +468,7 @@ export const initProCanvasUi = (deps) => {
                     const mf = document.createElement("math-field");
                     mf.className = "pro-canvas-plot-expr";
                     mf.dataset.noI18n = "";
-                    mf.title = uiText(`Series ${index + 1} ${labelText}`, `系列 ${index + 1} ${labelText}`);
+                    mf.title = uiText(`Series ${index + 1} ${labelText}`, `系列${index + 1} ${labelText}`);
                     mf.setAttribute("math-virtual-keyboard-policy", "manual");
                     mf.setAttribute("placeholder", placeholder);
                     try {
@@ -512,7 +512,7 @@ export const initProCanvasUi = (deps) => {
                     input.className = "pro-canvas-plot-expr";
                     input.placeholder = placeholder;
                     input.dataset.noI18n = "";
-                    input.title = uiText(`Series ${index + 1} ${labelText}`, `系列 ${index + 1} ${labelText}`);
+                    input.title = uiText(`Series ${index + 1} ${labelText}`, `系列${index + 1} ${labelText}`);
                     input.value = value;
                     liveField(input, () => { series[key] = input.value; const nextLatex = exprToLatex(input.value, varName); toggle.disabled = !hasMathLive || nextLatex === null; toggle.title = !hasMathLive ? uiText("Formula input is unavailable", "数式入力を利用できません") : nextLatex === null ? uiText("This expression cannot be shown as a formula", "この式は数式入力に変換できません") : uiText("Edit as a formula", "数式で編集"); toggle.setAttribute("aria-label", toggle.title); refreshError(); });
                     editor = input;
@@ -523,7 +523,7 @@ export const initProCanvasUi = (deps) => {
                     area.rows = 3;
                     area.placeholder = "0,0\n1,1";
                     area.dataset.noI18n = "";
-                    area.title = uiText(`Series ${index + 1} points`, `系列 ${index + 1} の点列`);
+                    area.title = uiText(`Series ${index + 1} points`, `系列${index + 1}の点列`);
                     area.value = series.points || "";
                     liveField(area, () => { series.points = area.value; refreshError(); });
                     expressions.append(area);
@@ -938,7 +938,7 @@ export const initProCanvasUi = (deps) => {
             }
             if (!object && !targets.length && selection.ids.size) {
                 emptyNote.hidden = false;
-                emptyNote.textContent = uiText(`${selection.ids.size} selected`, `${selection.ids.size} 個を選択中`);
+                emptyNote.textContent = uiText(`${selection.ids.size} selected`, `${selection.ids.size}個を選択中`);
             }
             else if (targets.length) {
                 const effective = resolveStyle(scene, targets[0].style), apply = (key, value, only = targets) => { snapshot(false); only.forEach(target => target.style.props = { ...(target.style.props || {}), [key]: value }); render(); scheduleCompile(); }, seg = (value, items, set) => { const group = document.createElement("span"); group.className = "pro-canvas-segments"; items.forEach(([key, text, icon]) => { const b = document.createElement("button"); b.type = "button"; b.title = text; b.dataset.noI18n = ""; b.classList.toggle("is-active", key === value); if (icon)
@@ -948,7 +948,7 @@ export const initProCanvasUi = (deps) => {
                 if (targets.length > 1) {
                     const badge = document.createElement("span");
                     badge.className = "pro-canvas-style-badge";
-                    badge.textContent = uiText(`Applies to ${targets.length}`, `${targets.length} 個に適用`);
+                    badge.textContent = uiText(`Applies to ${targets.length}`, `${targets.length}個に適用`);
                     host.append(badge);
                 }
                 const line = document.createElement("div");
@@ -1495,7 +1495,7 @@ export const initProCanvasUi = (deps) => {
             snap.dataset.noI18n = "";
             snap.classList.toggle("is-active", snapEnabled);
             const canvasButton = overlay.querySelector("[data-action=canvas-settings]");
-            canvasButton.title = uiText(`Canvas ${scene.width} × ${scene.height} ${scene.unit} · grid ${scene.grid.size} ${scene.unit}`, `キャンバス ${scene.width} × ${scene.height} ${scene.unit}・グリッド ${scene.grid.size} ${scene.unit}`);
+            canvasButton.title = uiText(`Canvas ${scene.width} × ${scene.height} ${scene.unit} · grid ${scene.grid.size} ${scene.unit}`, `キャンバス${scene.width} × ${scene.height} ${scene.unit}・グリッド${scene.grid.size} ${scene.unit}`);
             canvasButton.setAttribute("aria-expanded", String(Boolean(canvasPop)));
             overlay.querySelector("[data-action=zoom-reset]").textContent = `${Math.round(zoom * 100)}%`;
             overlay.querySelector("[data-action=zoom-reset]").title = uiText("Click: 100% · Shift+click: fit selection", "クリック: 100% / Shift+クリック: 選択にフィット");

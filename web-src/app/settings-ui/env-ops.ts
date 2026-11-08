@@ -270,7 +270,7 @@ export const createSettingsEnvOps = (
         setSetupButton({
           visible: true,
           disabled: false,
-          label: uiText(`Renew to TeX Live ${renew.to}`, `TeX Live ${renew.to} に更新`),
+          label: uiText(`Renew to TeX Live ${renew.to}`, `TeX Live ${renew.to}に更新`),
         });
         return;
       }

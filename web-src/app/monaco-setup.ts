@@ -191,7 +191,7 @@ export const initMonacoSetup = (
     ["vs/editor/editor.main"],
     () => {
       if (!monacoWindow.monaco || !monacoWindow.monaco.editor) {
-        deps.updateFallback(uiText("Monaco initialization failed.", "Monacoの初期化に失敗しました。"));
+        deps.updateFallback(uiText("Monaco initialization failed.", "Monacoを初期化できませんでした。"));
         return;
       }
 
@@ -680,7 +680,7 @@ export const initMonacoSetup = (
       document.body.classList.add("has-editor");
     },
     () => {
-      deps.updateFallback(uiText("Failed to load Monaco.", "Monacoの読み込みに失敗しました。"));
+      deps.updateFallback(uiText("Failed to load Monaco.", "Monacoを読み込めませんでした。"));
     }
   );
 

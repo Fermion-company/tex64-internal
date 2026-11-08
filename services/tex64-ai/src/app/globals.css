@@ -83,6 +83,22 @@
   box-sizing: border-box;
 }
 
+/* The Japanese/Latin gap comes from the font engine, not typed spaces;
+   code and what the user types keep their own spacing. */
+body {
+  text-autospace: normal;
+}
+
+code,
+pre,
+kbd,
+samp,
+input,
+textarea,
+[contenteditable="true"] {
+  text-autospace: no-autospace;
+}
+
 html,
 body {
   width: 100%;
@@ -287,7 +303,7 @@ select:focus-visible,
 
 .document-switcher-titles small {
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 
@@ -518,7 +534,7 @@ select:focus-visible,
   align-items: center;
   gap: 4px;
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -690,7 +706,7 @@ select:focus-visible,
   background: var(--surface-raised);
   padding: 12px 14px;
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -707,7 +723,7 @@ select:focus-visible,
 
 .queued-message-state {
   color: var(--ink-faint);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
 }
@@ -734,13 +750,13 @@ select:focus-visible,
 }
 
 .assistant-name strong {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .assistant-message p {
   margin: 8px 0 0;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
@@ -785,7 +801,7 @@ select:focus-visible,
   background: var(--panel);
   color: var(--ink);
   font: inherit;
-  font-size: 12.8px;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -802,7 +818,7 @@ select:focus-visible,
 .question-field {
   display: grid;
   gap: 3px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ink-soft);
 }
 
@@ -882,7 +898,7 @@ select:focus-visible,
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.5;
   text-align: left;
   cursor: pointer;
@@ -941,13 +957,13 @@ select:focus-visible,
   border-radius: 50%;
   border: 1px solid var(--line-strong);
   color: var(--ink-faint);
-  font-size: 9.5px;
+  font-size: 11px;
   line-height: 1;
 }
 
 .proposal-index {
   color: var(--ink-faint);
-  font-size: 11.5px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -980,7 +996,7 @@ select:focus-visible,
   flex-direction: column;
   gap: 6px;
   color: var(--ink-faint);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 /* ---- Run progress timeline (Base44-style task checklist) ---- */
@@ -1001,7 +1017,7 @@ select:focus-visible,
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .run-timeline li.is-done {
@@ -1069,7 +1085,7 @@ select:focus-visible,
   border-radius: 999px;
   background: var(--hover);
   color: var(--ink);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -1149,7 +1165,7 @@ select:focus-visible,
   border-radius: 8px;
   background: var(--panel);
   color: var(--ink);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1;
 }
 
@@ -1175,7 +1191,7 @@ select:focus-visible,
 
 .attachment-chip-size {
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .attachment-chip button {
@@ -1196,7 +1212,7 @@ select:focus-visible,
 .composer-notice {
   margin: 6px 2px 0;
   color: var(--ink-soft);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -1219,7 +1235,7 @@ select:focus-visible,
   border-radius: 6px;
   background: color-mix(in srgb, var(--ink) 7%, transparent);
   color: var(--ink-soft);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.3;
   white-space: nowrap;
 }
@@ -1246,8 +1262,8 @@ select:focus-visible,
   min-height: 64px;
   background: transparent;
   color: var(--ink);
-  font-size: 12.5px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 20px;
 }
 
 /* Empty, the chat box rests at two lines (2 × 20px) and grows as you type. */
@@ -1326,7 +1342,7 @@ select:focus-visible,
   border-radius: 7px;
   padding: 7px 9px;
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 11px;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1340,7 +1356,7 @@ select:focus-visible,
 .starter-prompts [role="alert"] {
   padding: 7px 9px;
   color: var(--danger);
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -1399,7 +1415,7 @@ select:focus-visible,
 
 .heading-number {
   color: var(--ink-soft);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -1442,7 +1458,7 @@ select:focus-visible,
   background: transparent;
   color: var(--ink-soft);
   font-family: var(--font-ui);
-  font-size: 12.5px;
+  font-size: 13px;
   font-style: italic;
   line-height: 1.8;
 }
@@ -1482,7 +1498,7 @@ select:focus-visible,
 .block-list-fields textarea {
   min-height: 27px;
   overflow: hidden;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.8;
 }
 
@@ -1515,7 +1531,7 @@ select:focus-visible,
   padding: 4px 6px;
   color: var(--ink-faint);
   font-family: var(--font-ui);
-  font-size: 9.5px;
+  font-size: 11px;
 }
 
 .add-list-item:hover {
@@ -1577,7 +1593,7 @@ select:focus-visible,
   background: var(--panel-muted);
   padding: 8px 10px;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px;
+  font-size: 12px;
   text-align: center;
 }
 
@@ -1587,7 +1603,7 @@ select:focus-visible,
 
 .equation-caption input {
   color: var(--paper-caption);
-  font-size: 10px;
+  font-size: 11px;
   font-style: italic;
   text-align: center;
 }
@@ -1882,7 +1898,7 @@ select:focus-visible,
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   color: var(--ink);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -1958,7 +1974,7 @@ select:focus-visible,
 
 .element-card-head strong {
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -2095,7 +2111,7 @@ select:focus-visible,
 .paragraph-editor-error {
   margin: 8px 0 0;
   color: var(--danger);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 /* ネイティブの新規文書: 題名ひとつでフォルダも main.tex も用意される。 */
@@ -2118,7 +2134,7 @@ select:focus-visible,
 .native-new-document p {
   margin: 0;
   color: var(--ink-soft);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.8;
 }
 
@@ -2130,7 +2146,7 @@ select:focus-visible,
   background: var(--panel-muted);
   color: var(--ink);
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
 }
 
 .native-new-document input:focus-visible {
@@ -2237,7 +2253,7 @@ select:focus-visible,
   padding: 11px 14px 9px;
   border-bottom: 1px solid var(--line);
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -2276,7 +2292,7 @@ select:focus-visible,
 
 .history-item-main small {
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .history-item > button {
@@ -2296,7 +2312,7 @@ select:focus-visible,
 .history-current {
   flex: 0 0 auto;
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 /* ---- Block canvas: selection + live-growth states ---- */
@@ -2329,7 +2345,7 @@ select:focus-visible,
   }
 }
 
-.draft-status { color: var(--ink-soft); margin-left: 8px; font-size: 10px; font-weight: 400; }
+.draft-status { color: var(--ink-soft); margin-left: 8px; font-size: 11px; font-weight: 400; }
 .element-card.is-display-math { min-width: 0; width: 100%; }
 .is-display-math .paragraph-edit-area { min-height: 0; padding: 8px; background: transparent; border: 0; overflow: visible; }
 .is-display-math .paragraph-math { display: flex; width: 100%; margin: 0; }

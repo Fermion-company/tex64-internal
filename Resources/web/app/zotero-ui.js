@@ -52,10 +52,10 @@ const describeError = (error, activeFilePath = null) => {
         // chooser (or a % !TEX root line) settles which one.
         case "BUILD_TARGET_CHOICE":
             return activeFilePath
-                ? uiText(`${activeFilePath} belongs to more than one document.`, `${activeFilePath} は複数の文書から読み込まれています。`)
+                ? uiText(`${activeFilePath} belongs to more than one document.`, `${activeFilePath}は複数の文書から読み込まれています。`)
                 : uiText("This folder has several documents and no main file is set.", "このフォルダには文書が複数あり、メインTeXが決まっていません。");
         default:
-            return error instanceof Error && error.message ? error.message : uiText("Zotero request failed.", "Zoteroへの要求に失敗しました。");
+            return error instanceof Error && error.message ? error.message : uiText("Zotero request failed.", "Zoteroとやり取りできませんでした。");
     }
 };
 const transportLabel = (status) => {
@@ -87,7 +87,7 @@ const bibHint = (result) => {
     const file = result.bibPath;
     const stem = file.replace(/\.bib$/i, "");
     const command = result.style === "biblatex" ? `\\addbibresource{${file}}` : `\\bibliography{${stem}}`;
-    return uiText(`add ${command} to the document`, `文書に ${command} を追加してください`);
+    return uiText(`add ${command} to the document`, `文書に${command}を追加してください`);
 };
 // ---- Citation dialog ---------------------------------------------------------
 let dialogOpen = false;
@@ -190,7 +190,7 @@ export const openCiteDialog = (editor, getActiveFilePath) => {
             row.setAttribute("role", "option");
             row.setAttribute("aria-selected", String(index === highlighted));
             row.dataset.noI18n = "true";
-            const creator = item.creator ? ((item.creatorCount || 1) > 1 ? uiText(`${item.creator} et al.`, `${item.creator} ほか`) : item.creator) : "";
+            const creator = item.creator ? ((item.creatorCount || 1) > 1 ? uiText(`${item.creator} et al.`, `${item.creator}ほか`) : item.creator) : "";
             const meta = [creator, item.year, mixed ? item.libraryName : ""].filter(Boolean).join(" · ");
             row.append(node("span", "zotero-result-title", item.title || item.citekey || item.key));
             if (meta)
@@ -294,7 +294,6 @@ export const openCiteDialog = (editor, getActiveFilePath) => {
     // The editor must still show the model the dialog opened on, writable.
     const sameDocument = () => { var _a, _b, _c, _d; return Boolean(model) && ((_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) === model && !((_b = model === null || model === void 0 ? void 0 : model.isDisposed) === null || _b === void 0 ? void 0 : _b.call(model)) && !((_d = (_c = editor.getRawOptions) === null || _c === void 0 ? void 0 : _c.call(editor)) === null || _d === void 0 ? void 0 : _d.readOnly); };
     const insert = async (index) => {
-        var _a, _b;
         const item = items[index];
         if (!item || busy)
             return;
@@ -308,32 +307,34 @@ export const openCiteDialog = (editor, getActiveFilePath) => {
         try {
             const result = await call("cite", { item, activeFilePath, documentMainFile: citationDocumentFor(activeFilePath) });
             const bibNote = result.created
-                ? uiText(`created ${result.bibPath}`, `${result.bibPath} を作成`)
+                ? uiText(`created ${result.bibPath}`, `${result.bibPath}を作成`)
                 : result.appended
-                    ? uiText(`added to ${result.bibPath}`, `${result.bibPath} に追加`)
-                    : uiText(`already in ${result.bibPath}`, `${result.bibPath} に既存`);
+                    ? uiText(`added to ${result.bibPath}`, `${result.bibPath}に追加`)
+                    : uiText(`already in ${result.bibPath}`, `${result.bibPath}に既存`);
             // Zotero answered after the editor moved on: the .bib has the entry,
             // the \cite is not placed in another document.
             if (!sameDocument()) {
                 setStatus([documentChanged(), bibNote].join(" · "), true);
                 return;
             }
-            const line = (_b = (_a = editor.getPosition) === null || _a === void 0 ? void 0 : _a.call(editor)) === null || _b === void 0 ? void 0 : _b.lineNumber;
             const outcome = insertCitation(editor, result.key);
             // The dialog stays open for the next citation, so keep the keyboard here.
             search.focus();
             renderTarget();
-            const where = line ? `L${line}` : "";
-            const citeNote = outcome === "unavailable"
-                ? uiText("not inserted", "挿入できません")
-                : outcome === "present"
-                    ? uiText(`\\cite already has ${result.key}`, `\\cite に ${result.key} は既にあります`)
-                    : uiText(`inserted ${result.key} at ${where}`, `${where} に ${result.key} を挿入`);
-            // The "add \bibliography{…}" reminder is said once per dialog.
+            if (outcome === "unavailable") {
+                setStatus(uiText("Could not insert the citation.", "引用を挿入できませんでした。"), true);
+                return;
+            }
+            // Inserted is silent: the \cite is in the editor. What is left to say is
+            // a key already cited there, or (once per dialog) the missing
+            // \bibliography{…}.
             const hint = !result.named && !hinted ? bibHint(result) : "";
             if (hint)
                 hinted = true;
-            setStatus(`✓ ${[citeNote, bibNote, hint].filter(Boolean).join(" · ")}`);
+            const present = outcome === "present"
+                ? uiText(`\\cite already has ${result.key}`, `\\citeに${result.key}は既にあります`)
+                : "";
+            setStatus([present, hint].filter(Boolean).join(" · "));
         }
         catch (error) {
             setStatus(describeError(error, activeFilePath), true);
@@ -359,11 +360,11 @@ export const openCiteDialog = (editor, getActiveFilePath) => {
                 return;
             }
             const parts = [
-                uiText(`${result.updated} updated`, `更新 ${result.updated}`),
-                uiText(`${result.unchanged} unchanged`, `変更なし ${result.unchanged}`),
+                uiText(`${result.updated} updated`, `更新${result.updated}`),
+                uiText(`${result.unchanged} unchanged`, `変更なし${result.unchanged}`),
             ];
             if (result.notFound)
-                parts.push(uiText(`${result.notFound} not found`, `見つからず ${result.notFound}`));
+                parts.push(uiText(`${result.notFound} not found`, `見つからず${result.notFound}`));
             setStatus(`${result.bibPath}: ${parts.join(" · ")}`);
         })
             .catch((error) => setStatus(describeError(error, activeFilePath), true))

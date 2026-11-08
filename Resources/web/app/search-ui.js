@@ -95,7 +95,7 @@ export const initSearchUi = (context, deps) => {
                 item.className = "search-match-item";
                 const line = document.createElement("div");
                 line.className = "search-match-line";
-                line.textContent = uiText(`Line ${result.line}`, `行 ${result.line}`);
+                line.textContent = uiText(`Line ${result.line}`, `行${result.line}`);
                 const preview = document.createElement("div");
                 preview.className = "search-match-preview";
                 renderPreviewWithHighlight(preview, result, lastSearchQuery);
@@ -218,7 +218,7 @@ export const initSearchUi = (context, deps) => {
         var _a, _b, _c, _d;
         setRenameBusy(false);
         if (!payload.ok) {
-            setRenameStatus((_a = payload.error) !== null && _a !== void 0 ? _a : uiText("Rename failed.", "リネームに失敗しました。"), "error");
+            setRenameStatus((_a = payload.error) !== null && _a !== void 0 ? _a : uiText("Rename failed.", "名前を変更できませんでした。"), "error");
             return;
         }
         const fileCount = (_b = payload.fileCount) !== null && _b !== void 0 ? _b : 0;

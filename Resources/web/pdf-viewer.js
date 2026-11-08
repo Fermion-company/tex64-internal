@@ -87,7 +87,7 @@ const UI_STRINGS = {
   liveUnavailable: { en: "Preview unavailable", ja: "プレビュー応答なし", zh: "预览无响应", ko: "미리보기 응답 없음", fr: "Aperçu indisponible", de: "Vorschau nicht erreichbar", es: "Vista previa no disponible" },
   loadFailed: {
     en: "Failed to load the PDF.",
-    ja: "読み込みに失敗しました。",
+    ja: "読み込めませんでした。",
     zh: "加载失败。",
     ko: "불러오지 못했습니다.",
     fr: "Échec du chargement.",

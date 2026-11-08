@@ -90,7 +90,7 @@ export const openSnippets = (editor = activeEditor) => {
     }
     if (!list.childElementCount) list.append(node("p", uiText("No snippets", "スニペットはありません")));
     const dirty = draft() !== baseline;
-    saveState.textContent = dirty ? uiText("Unsaved", "未保存") : selected ? uiText("Saved", "保存済み") : "";
+    saveState.textContent = dirty ? uiText("Unsaved", "未保存") : "";
     remove.disabled = !selected || busy; save.disabled = busy || !dirty; save.hidden = !dirty;
     for (const input of [name, prefix, body]) input.disabled = busy;
     insert.textContent = dirty ? uiText("Save & insert", "保存して挿入") : uiText("Insert", "挿入");

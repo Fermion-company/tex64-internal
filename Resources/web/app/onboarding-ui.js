@@ -87,20 +87,20 @@ export const formatRemaining = (remainingMs) => {
     }
     if (seconds < 60) {
         const rounded = Math.max(10, Math.round(seconds / 10) * 10);
-        return uiText(`about ${rounded} seconds left`, `残り 約 ${rounded} 秒`);
+        return uiText(`about ${rounded} seconds left`, `残り 約${rounded}秒`);
     }
     const minutes = Math.round(seconds / 60);
     if (minutes <= 1) {
         return uiText("about a minute left", "残り 約1分");
     }
     if (minutes < 60) {
-        return uiText(`about ${minutes} minutes left`, `残り 約 ${minutes} 分`);
+        return uiText(`about ${minutes} minutes left`, `残り 約${minutes}分`);
     }
     const hours = Math.floor(minutes / 60);
     const rest = minutes % 60;
     return rest === 0
-        ? uiText(`about ${hours} h left`, `残り 約 ${hours} 時間`)
-        : uiText(`about ${hours} h ${rest} min left`, `残り 約 ${hours} 時間 ${rest} 分`);
+        ? uiText(`about ${hours} h left`, `残り 約${hours}時間`)
+        : uiText(`about ${hours} h ${rest} min left`, `残り 約${hours}時間${rest}分`);
 };
 export const installPhaseLabel = (phase) => {
     switch (phase) {

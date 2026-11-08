@@ -70,7 +70,7 @@ export class LocalLatexCompiler implements DocumentCompiler {
             "文書を整形できませんでした。内容を見直して再試行します。",
             diagnostics.length > 0
               ? diagnostics
-              : [{ severity: "error", code: "compile_failed", message: "文書の整形に失敗しました。" }],
+              : [{ severity: "error", code: "compile_failed", message: "文書を整形できませんでした。" }],
           );
         }
       }

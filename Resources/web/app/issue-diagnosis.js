@@ -14,7 +14,7 @@ const rules = [
         id: "file-not-found",
         pattern: /File\s+[`'"]([^`'"]+)['"]?\s+not found/i,
         kind: () => uiText("Missing file", "ファイルが見つかりません"),
-        summary: (m) => uiText(`LaTeX could not find ${m[1]}.`, `${m[1]} を読み込めませんでした。`),
+        summary: (m) => uiText(`LaTeX could not find ${m[1]}.`, `${m[1]}を読み込めませんでした。`),
         fix: (m) => isStyleFile(m[1])
             ? uiText("That file comes from a package. Open Settings > Build and update the TeX distribution, then build again.", "これはパッケージに含まれるファイルです。設定 > ビルド でTeX環境を更新してから、もう一度ビルドしてください。")
             : uiText("Check the spelling of the name and that the file sits where the document expects it.", "ファイル名のつづりと、文書から見た置き場所（相対パス）を確認してください。"),
@@ -43,7 +43,7 @@ const rules = [
             var _a;
             const name = (_a = m.input) === null || _a === void 0 ? void 0 : _a.match(/\\([A-Za-z@]{2,})\s*$/);
             return name
-                ? uiText(`LaTeX does not know the command \\${name[1]}.`, `\\${name[1]} というコマンドを LaTeX が知りません。`)
+                ? uiText(`LaTeX does not know the command \\${name[1]}.`, `\\${name[1]}というコマンドをLaTeXが知りません。`)
                 : uiText("LaTeX ran into a command it does not know.", "LaTeXが知らないコマンドが使われています。");
         },
         fix: () => uiText("Check the spelling, and add the \\usepackage that provides the command to your preamble.", "つづりを確認し、そのコマンドを提供する\\usepackageをプリアンブルに追加してください。"),
@@ -73,28 +73,28 @@ const rules = [
         id: "environment-mismatch",
         pattern: /\\begin\{([^}]+)\}(?:[^\n]*?)ended by \\end\{([^}]+)\}/i,
         kind: () => uiText("Environment does not close", "環境の開始と終了が食い違っています"),
-        summary: (m) => uiText(`\\begin{${m[1]}} is being closed by \\end{${m[2]}}.`, `\\begin{${m[1]}} が \\end{${m[2]}} で閉じられています。`),
+        summary: (m) => uiText(`\\begin{${m[1]}} is being closed by \\end{${m[2]}}.`, `\\begin{${m[1]}}が\\end{${m[2]}}で閉じられています。`),
         fix: () => uiText("Make the \\begin and \\end names match, or fix the nesting order.", "\\beginと\\endの名前を揃えるか、入れ子の順序を直してください。"),
     },
     {
         id: "environment-undefined",
         pattern: /Environment\s+([^\s]+)\s+undefined/i,
         kind: () => uiText("Unknown environment", "知らない環境です"),
-        summary: (m) => uiText(`LaTeX does not know the ${m[1]} environment.`, `${m[1]} 環境を LaTeX が知りません。`),
+        summary: (m) => uiText(`LaTeX does not know the ${m[1]} environment.`, `${m[1]}環境をLaTeXが知りません。`),
         fix: () => uiText("Check the spelling, and load the package that provides the environment with \\usepackage.", "つづりを確認し、その環境を提供するパッケージを\\usepackageで読み込んでください。"),
     },
     {
         id: "option-clash",
         pattern: /Option clash for package\s+([^\s.]+)/i,
         kind: () => uiText("Conflicting package options", "パッケージのオプションが衝突しています"),
-        summary: (m) => uiText(`${m[1]} is loaded twice with different options.`, `${m[1]} を違うオプションで2回読み込んでいます。`),
+        summary: (m) => uiText(`${m[1]} is loaded twice with different options.`, `${m[1]}を違うオプションで2回読み込んでいます。`),
         fix: () => uiText("Load the package once, in one place, with a single set of options.", "\\usepackageを1か所にまとめ、オプションを1つに統一してください。"),
     },
     {
         id: "command-already-defined",
         pattern: /Command\s+\\([A-Za-z@]+)\s+already defined/i,
         kind: () => uiText("Name already taken", "コマンド名が衝突しています"),
-        summary: (m) => uiText(`\\${m[1]} is already defined.`, `\\${m[1]} は既に定義されています。`),
+        summary: (m) => uiText(`\\${m[1]} is already defined.`, `\\${m[1]}は既に定義されています。`),
         fix: () => uiText("Use \\renewcommand instead of \\newcommand, or pick another name.", "\\newcommandを\\renewcommandに変えるか、別の名前にしてください。"),
     },
     {
@@ -122,21 +122,21 @@ const rules = [
         id: "citation-undefined",
         pattern: /Citation\s+[`'"]?([^`'"\s]+)['"]?\s+[^\n]*undefined/i,
         kind: () => uiText("Citation not resolved", "引用が未解決です"),
-        summary: (m) => uiText(`No bibliography entry was found for ${m[1]}.`, `${m[1]} の文献情報が見つかりません。`),
+        summary: (m) => uiText(`No bibliography entry was found for ${m[1]}.`, `${m[1]}の文献情報が見つかりません。`),
         fix: () => uiText("Check that the key exists in your .bib file, then build again — citations resolve on the second pass.", ".bibに同じキーがあるか確認し、もう一度ビルドしてください（引用は2回目のビルドで解決します）。"),
     },
     {
         id: "reference-undefined",
         pattern: /Reference\s+[`'"]?([^`'"\s]+)['"]?\s+[^\n]*undefined/i,
         kind: () => uiText("Cross-reference not resolved", "相互参照が未解決です"),
-        summary: (m) => uiText(`No \\label named ${m[1]} was found.`, `${m[1]} というラベルが見つかりません。`),
+        summary: (m) => uiText(`No \\label named ${m[1]} was found.`, `${m[1]}というラベルが見つかりません。`),
         fix: () => uiText("Check the \\label spelling, then build again — references resolve on the second pass.", "\\labelのつづりを確認し、もう一度ビルドしてください（参照は2回目のビルドで解決します）。"),
     },
     {
         id: "label-multiply-defined",
         pattern: /Label\s+[`'"]?([^`'"\s]+)['"]?\s+[^\n]*multiply defined/i,
         kind: () => uiText("Duplicate label", "ラベルが重複しています"),
-        summary: (m) => uiText(`\\label{${m[1]}} is used more than once.`, `\\label{${m[1]}} が2か所以上で使われています。`),
+        summary: (m) => uiText(`\\label{${m[1]}} is used more than once.`, `\\label{${m[1]}}が2か所以上で使われています。`),
         fix: () => uiText("Rename one of them so every label is unique.", "どちらかを別の名前にして、ラベルを一意にしてください。"),
     },
     {
@@ -164,8 +164,8 @@ const rules = [
         id: "package-error",
         pattern: /^(?:!\s*)?Package\s+([A-Za-z0-9@._-]+)\s+(Error|Warning):\s*([\s\S]+)$/i,
         kind: (m) => /warning/i.test(m[2])
-            ? uiText(`Warning from the ${m[1]} package`, `${m[1]} パッケージからの警告`)
-            : uiText(`Error from the ${m[1]} package`, `${m[1]} パッケージからのエラー`),
+            ? uiText(`Warning from the ${m[1]} package`, `${m[1]}パッケージからの警告`)
+            : uiText(`Error from the ${m[1]} package`, `${m[1]}パッケージからのエラー`),
         summary: (m) => m[3].trim(),
         fix: () => "",
     },
@@ -173,8 +173,8 @@ const rules = [
         id: "class-error",
         pattern: /^(?:!\s*)?(?:Document )?Class\s+([A-Za-z0-9@._-]+)\s+(Error|Warning):\s*([\s\S]+)$/i,
         kind: (m) => /warning/i.test(m[2])
-            ? uiText(`Warning from the ${m[1]} class`, `${m[1]} クラスからの警告`)
-            : uiText(`Error from the ${m[1]} class`, `${m[1]} クラスからのエラー`),
+            ? uiText(`Warning from the ${m[1]} class`, `${m[1]}クラスからの警告`)
+            : uiText(`Error from the ${m[1]} class`, `${m[1]}クラスからのエラー`),
         summary: (m) => m[3].trim(),
         fix: () => "",
     },

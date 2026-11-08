@@ -484,10 +484,10 @@ export const initEnvRegistry = (
     }
     if (disabledEnvNames.has(base)) {
       disabledEnvNames.delete(base);
-      setEnvRegistryHint(uiText(`${base} enabled.`, `${base} を有効にしました。`));
+      setEnvRegistryHint("");
     } else {
       disabledEnvNames.add(base);
-      setEnvRegistryHint(uiText(`${base} disabled.`, `${base} を無効にしました。`));
+      setEnvRegistryHint("");
     }
     saveDisabledEnvRegistry();
     rebuildEnvRegistry();
@@ -515,14 +515,14 @@ export const initEnvRegistry = (
         saveDisabledEnvRegistry();
       }
       setCustomEnvRegistry(customEnvRegistry);
-      setEnvRegistryHint(uiText(`${base} added.`, `${base} をadditionしました。`));
+      setEnvRegistryHint("");
       return;
     }
     if (disabledEnvNames.has(base)) {
       disabledEnvNames.delete(base);
       rebuildEnvRegistry();
       handleEnvRegistryUpdate(false);
-      setEnvRegistryHint(uiText(`${base} enabled.`, `${base} を有効にしました。`));
+      setEnvRegistryHint("");
       return;
     }
     setEnvRegistryHint(uiText("Already registered.", "既に登録されています。"));
@@ -545,7 +545,7 @@ export const initEnvRegistry = (
     }
     customEnvRegistry = next;
     setCustomEnvRegistry(customEnvRegistry);
-    setEnvRegistryHint(uiText(`${base} removed.`, `${base} をDeleteしました。`));
+    setEnvRegistryHint("");
   };
 
   const handleEnvRegistryListClick = (event: Event) => {

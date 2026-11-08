@@ -1360,7 +1360,7 @@ export const initMain = () => {
                         });
                         return;
                     }
-                    const errorMessage = (_a = payload === null || payload === void 0 ? void 0 : payload.error) !== null && _a !== void 0 ? _a : uiText("SyncTeX failed.", "SyncTeX に失敗しました。");
+                    const errorMessage = (_a = payload === null || payload === void 0 ? void 0 : payload.error) !== null && _a !== void 0 ? _a : uiText("SyncTeX failed.", "SyncTeXで位置を特定できませんでした。");
                     const lower = errorMessage.toLowerCase();
                     const hasMissing = errorMessage.includes("not found") || lower.includes("not found");
                     const issue = { severity: "error", message: errorMessage };

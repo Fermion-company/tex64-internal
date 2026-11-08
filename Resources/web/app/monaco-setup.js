@@ -77,7 +77,7 @@ export const initMonacoSetup = (context, deps) => {
     monacoWindow.require(["vs/editor/editor.main"], () => {
         var _a, _b, _c, _d, _e;
         if (!monacoWindow.monaco || !monacoWindow.monaco.editor) {
-            deps.updateFallback(uiText("Monaco initialization failed.", "Monacoの初期化に失敗しました。"));
+            deps.updateFallback(uiText("Monaco initialization failed.", "Monacoを初期化できませんでした。"));
             return;
         }
         deps.setMonacoApi(monacoWindow.monaco);
@@ -488,7 +488,7 @@ export const initMonacoSetup = (context, deps) => {
         });
         document.body.classList.add("has-editor");
     }, () => {
-        deps.updateFallback(uiText("Failed to load Monaco.", "Monacoの読み込みに失敗しました。"));
+        deps.updateFallback(uiText("Failed to load Monaco.", "Monacoを読み込めませんでした。"));
     });
     return api;
 };

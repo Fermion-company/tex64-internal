@@ -419,7 +419,7 @@ export const initBuildOpsUi = (
         summary.dataset.noI18n = "";
         summary.textContent =
           markedCount > 0
-            ? uiText(`Detailed log (${markedCount} marked)`, `詳細ログ（該当 ${markedCount} 件）`)
+            ? uiText(`Detailed log (${markedCount} marked)`, `詳細ログ（該当${markedCount}件）`)
             : uiText("Detailed log", "詳細ログ");
       }
       // Open on arrival: if there is something to say, the transcript is worth
@@ -695,7 +695,7 @@ export const initBuildOpsUi = (
     const dialog = el("dialog", "history-confirm build-target-dialog");
     const title = el("h2", "", uiText("Build target", "ビルド対象"));
     const note = el("p", "build-target-note", requested
-      ? uiText(`${requested} belongs to more than one document.`, `${requested} は複数の文書から読み込まれています。`)
+      ? uiText(`${requested} belongs to more than one document.`, `${requested}は複数の文書から読み込まれています。`)
       : uiText("No main file is set.", "メインTeXが決まっていません。"));
     const list = el("div", "build-target-list");
     list.setAttribute("role", "listbox");
@@ -752,7 +752,7 @@ export const initBuildOpsUi = (
     awaitingFiles = () => unsubscribe();
     showEditorNotice(buildButton instanceof HTMLElement ? buildButton : null, uiText(
       `Waiting for ${incoming.files} file(s) from the host (${megabytes}); the build starts when they arrive.`,
-      `ホストからのファイルを待っています（残り ${incoming.files} 件・${megabytes}）。届きしだいビルドします。`,
+      `ホストからのファイルを待っています（残り${incoming.files}件・${megabytes}）。届きしだいビルドします。`,
     ), {
       owner: "build-files",
       durationMs: 10000,
@@ -939,7 +939,7 @@ export const initBuildOpsUi = (
     if (!payload.ok) {
       if (!formatWarningShown) {
         formatWarningShown = true;
-        const message = payload.error ?? uiText("Formatting failed.", "整形に失敗しました。");
+        const message = payload.error ?? uiText("Formatting failed.", "整形できませんでした。");
         deps.updateIssues(1, message, "info", [
           { severity: "warning", message },
         ]);
@@ -1141,7 +1141,7 @@ export const initBuildOpsUi = (
       }
       return;
     }
-    const errorMessage = payload.error ?? uiText("SyncTeX failed.", "SyncTeXに失敗しました。");
+    const errorMessage = payload.error ?? uiText("SyncTeX failed.", "SyncTeXで位置を特定できませんでした。");
     if (isEnvMissingMessage(errorMessage)) {
       // Missing TeX tools: the Issues entry carries the fix-it action.
       const issue: IssueItem = { severity: "error", message: errorMessage, action: "open-runtime" };

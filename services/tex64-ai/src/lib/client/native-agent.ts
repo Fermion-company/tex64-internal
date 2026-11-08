@@ -324,7 +324,7 @@ export function runNativeTurn(input: NativeTurnInput): Promise<NativeTurnResult>
         case "agent:tool": {
           if (typeof body.name !== "string") break;
           const summary = typeof body.summary === "string" ? body.summary : "";
-          const failed = /(?:error|failed|失敗)/i.test(summary);
+          const failed = /(?:error|failed|失敗|できませんでした)/i.test(summary);
           input.onFrame({
             type: "tool",
             name: body.name,

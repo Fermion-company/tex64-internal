@@ -89,7 +89,7 @@ export const initIssuesUi = (context, deps) => {
                         ? `${detail.path}:${detail.line}`
                         : detail.path
                             ? detail.path
-                            : uiText(`Line ${detail.line}`, `${detail.line} 行目`);
+                            : uiText(`Line ${detail.line}`, `${detail.line}行目`);
                 head.append(where);
             }
             else if (isRuntimeAction) {
