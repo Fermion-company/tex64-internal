@@ -4833,6 +4833,27 @@ input.settings-select {
   white-space: nowrap;
 }
 
+/* Tabs whose file names collide add the folder that tells them apart, quietly
+   after the name (VS Code's convention). Such a tab may widen to fit it; past
+   the cap the folder, not the name, ends in an ellipsis. */
+.editor-tab.has-detail {
+  flex: 0 0 auto;
+  min-width: 144px;
+  max-width: 240px;
+}
+
+.editor-tab-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-soft);
+}
+
+.editor-tab-detail::before {
+  content: "\00b7\00a0";
+}
+
 .editor-tab.is-dirty .editor-tab-label::after {
   content: "●";
   font-size: 9px;
