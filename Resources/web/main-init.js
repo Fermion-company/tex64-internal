@@ -46,6 +46,7 @@ import { initTabController } from "./app/tab-controller.js";
 import { initUiEvents } from "./app/ui-events.js";
 import { initSearchUi } from "./app/search-ui.js";
 import { initSidebarVisibility } from "./app/sidebar-ui.js";
+import { initSidebarSections } from "./app/sidebar-sections-ui.js";
 import { initBottomPanelUi } from "./app/bottom-panel-ui.js";
 import { initTerminalUi } from "./app/terminal-ui.js";
 import { initBillingUi } from "./app/billing-ui.js";
@@ -255,7 +256,23 @@ export const initMain = () => {
             onFilesTabActive: () => onFilesTabActive(),
             onSettingsTabActive: () => onSettingsTabActive(),
         });
+        const sidebarSections = initSidebarSections();
+        // Outline and History are sections of the file panel now, and Project is
+        // the first group of Settings > Build: anything that asks for those panels
+        // lands there.
         const setActiveTab = (tabKey) => {
+            if (tabKey === "outline" || tabKey === "history") {
+                if (!bottomPanelUi.isSidebarVisible())
+                    bottomPanelUi.toggleSidebar();
+                tabController.setActiveTab("files");
+                sidebarSections.open(tabKey);
+                return;
+            }
+            if (tabKey === "project") {
+                tabController.setActiveTab("settings");
+                settingsUi.openSettingsPage("build");
+                return;
+            }
             tabController.setActiveTab(tabKey);
         };
         // The full-screen settings overlay covers the sidebar rail, so closing it
@@ -1072,7 +1089,9 @@ export const initMain = () => {
                 return undefined;
             }
         })();
-        const initialTab = tabController.normalizeTabKey(storedActiveTab !== null && storedActiveTab !== void 0 ? storedActiveTab : (_j = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _j === void 0 ? void 0 : _j.dataset.tab);
+        const storedTab = tabController.normalizeTabKey(storedActiveTab !== null && storedActiveTab !== void 0 ? storedActiveTab : (_j = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _j === void 0 ? void 0 : _j.dataset.tab);
+        // Project now lives in Settings, which should not open by itself at startup.
+        const initialTab = storedTab === "project" ? "files" : storedTab;
         setActiveTab(initialTab);
         sidebarUi.loadVisibility();
         sidebarUi.applyVisibility();

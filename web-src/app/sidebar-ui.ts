@@ -25,15 +25,14 @@ export const initSidebarVisibility = (
 ): SidebarVisibilityApi => {
   const { tabs, sidebarPanels, sidebar } = context.dom;
 
+  // Outline and History are sections of the file panel, Problems opens from
+  // the count beside Build, and Project is the first group of Settings > Build.
   const primarySidebarTabs: TabKey[] = [
     "files",
     "search",
-    "outline",
     "blocks",
-    "ai",
-    "history",
     "git",
-    "project",
+    "ai",
   ];
   let sidebarVisibleTabs = new Set<TabKey>(primarySidebarTabs);
   let primaryTabOrder = primarySidebarTabs.slice();

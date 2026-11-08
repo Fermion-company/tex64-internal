@@ -1,15 +1,14 @@
 import { getTabConfig } from "./config.js";
 export const initSidebarVisibility = (context, deps) => {
     const { tabs, sidebarPanels, sidebar } = context.dom;
+    // Outline and History are sections of the file panel, Problems opens from
+    // the count beside Build, and Project is the first group of Settings > Build.
     const primarySidebarTabs = [
         "files",
         "search",
-        "outline",
         "blocks",
-        "ai",
-        "history",
         "git",
-        "project",
+        "ai",
     ];
     let sidebarVisibleTabs = new Set(primarySidebarTabs);
     let primaryTabOrder = primarySidebarTabs.slice();

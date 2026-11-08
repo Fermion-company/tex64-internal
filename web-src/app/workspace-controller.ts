@@ -323,6 +323,8 @@ export const initWorkspaceController = (
     deps.setWorkspaceRootKey(workspaceRootKey);
     setWorkspaceLabel(payload.rootName);
     setText(settingsWorkspace, payload.rootPath);
+    // Settings shows the path on one line; the tooltip carries all of it.
+    if (settingsWorkspace instanceof HTMLElement) setLocalizedAttribute(settingsWorkspace, "title", payload.rootPath ?? "");
 
     deps.settingsUi.refreshCompileEngine();
 

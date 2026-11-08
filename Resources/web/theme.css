@@ -1451,15 +1451,116 @@ html[lang="ja"] .launcher-action {
   overflow: hidden;
 }
 
-.panel-body.outline-panel {
+/* The file panel: the tree, then the Outline and History sections, as in
+   VS Code's Explorer. A closed section is one header row at the bottom; open
+   ones share the height with the tree and scroll on their own. */
+.panel-body.files-panel-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.files-panel-body > .file-tree {
+  flex: 1 1 0;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-height: 0;
+  margin: 0 -6px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.sidebar-section.is-open {
+  flex: 1 1 0;
+}
+
+.sidebar-section:last-child {
+  margin-bottom: -6px;
+}
+
+.sidebar-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.sidebar-section-header:hover {
+  color: var(--text);
+}
+
+.sidebar-section-header:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.sidebar-section-chevron {
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform var(--duration-fast) ease;
+}
+
+.sidebar-section.is-open .sidebar-section-chevron {
+  transform: rotate(90deg);
+}
+
+.sidebar-section-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar-section-body[hidden] {
+  display: none;
+}
+
+.sidebar-section-body.outline-panel {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 4px 12px 12px;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
   scroll-behavior: smooth;
   scrollbar-gutter: stable;
+}
+
+.sidebar-section-body.outline-panel[hidden] {
+  display: none;
+}
+
+/* History keeps its own scrolling frame inside the section; the section
+   header already names it. */
+.sidebar-section-body > #history-panel {
+  height: 100%;
+  padding-top: 4px;
+}
+
+.sidebar-section .history-heading {
+  justify-content: flex-end;
+}
+
+.sidebar-section .history-heading h2 {
+  display: none;
 }
 
 .panel-body.blocks-panel {
@@ -3040,37 +3141,43 @@ html[lang="ja"] .settings-page .panel-button {
   justify-content: flex-end;
 }
 
-/* Project panel: keep controls readable in narrow side panes */
-.panel[data-panel="project"] .settings-item {
-  grid-template-columns: 1fr;
-  gap: 12px;
-  align-items: start;
-}
-
-.panel[data-panel="project"] .settings-control {
-  justify-content: flex-start;
-  width: 100%;
-  flex-wrap: wrap;
-}
-
-.panel[data-panel="project"] #settings-root-select {
-  flex: 1 1 220px;
+/* Settings > Build > Project: the workspace path is plain text, not a box
+   inside the card. */
+.panel[data-panel="settings"] #settings-workspace {
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.panel[data-panel="project"] #settings-workspace {
-  width: 100%;
+.panel[data-panel="settings"] #settings-workspace:hover {
+  background: none;
 }
 
-@container (max-width: 520px) {
-  .panel[data-panel="project"] #settings-root-select {
-    flex-basis: 100%;
-  }
+.panel[data-panel="settings"] [data-settings-page="build"] .settings-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
 
-  .panel[data-panel="project"] #settings-root-auto {
-    width: 100%;
-  }
+/* Main TeX and its 「再検出」 stay on one line. */
+.panel[data-panel="settings"] #settings-root-select {
+  min-width: 0;
+  width: 200px;
+}
+
+.panel[data-panel="settings"] #settings-root-select + #settings-root-auto {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.panel[data-panel="settings"] .settings-control:has(#settings-root-select) {
+  flex-wrap: nowrap;
 }
 
 /* Settings Select */

@@ -275,22 +275,6 @@
               class="tab"
               type="button"
               role="tab"
-              data-tab="outline"
-              aria-selected="false"
-              aria-label="Outline"
-              title="Outline"
-            >
-              <span class="tab-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M8 6h11M8 12h11M8 18h11"></path>
-                  <path d="M5 6h.01M5 12h.01M5 18h.01"></path>
-                </svg>
-              </span>
-            </button>
-            <button
-              class="tab"
-              type="button"
-              role="tab"
               data-tab="blocks"
               aria-selected="false"
               aria-label="Math"
@@ -304,6 +288,7 @@
                 </svg>
               </span>
             </button>
+            <button class="tab" type="button" role="tab" data-tab="git" aria-selected="false" aria-label="Git" title="Git"><span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="7" cy="5" r="2"/><circle cx="17" cy="5" r="2"/><circle cx="7" cy="19" r="2"/><path d="M7 7v10M17 7v2a5 5 0 0 1-5 5H7"/></svg></span></button>
             <button
               class="tab"
               type="button"
@@ -318,27 +303,6 @@
                   <path d="M12 4L20 12L12 20L4 12Z" fill="none"/>
                   <ellipse cx="12" cy="12" rx="6" ry="2.5" transform="rotate(-30 12 12)" fill="none" stroke-width="1" opacity="0.4"/>
                   <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
-                </svg>
-              </span>
-            </button>
-            <button class="tab" type="button" role="tab" data-tab="git" aria-selected="false" aria-label="Git" title="Git"><span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="7" cy="5" r="2"/><circle cx="17" cy="5" r="2"/><circle cx="7" cy="19" r="2"/><path d="M7 7v10M17 7v2a5 5 0 0 1-5 5H7"/></svg></span></button>
-            <button class="tab" type="button" role="tab" data-tab="history" aria-selected="false" aria-label="History" title="History">
-              <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 11a9 9 0 1 1 2.6 7M3 5v6h6M12 7v5l3 2"/></svg></span>
-            </button>
-            <button
-              class="tab"
-              type="button"
-              role="tab"
-              data-tab="project"
-              aria-selected="false"
-              aria-label="Project"
-              title="Project"
-            >
-              <span class="tab-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M4 7h16M4 17h16"></path>
-                  <circle cx="9" cy="7" r="2"></circle>
-                  <circle cx="15" cy="17" r="2"></circle>
                 </svg>
               </span>
             </button>
@@ -383,41 +347,51 @@
             <div class="panel-header">
               <span class="panel-title">explorer</span>
             </div>
-            <div class="panel-body">
+            <div class="panel-body files-panel-body">
               <div class="workspace-label" id="workspace-label">No workspace selected</div>
               <div class="file-tree" id="file-tree" tabindex="0"></div>
-            </div>
-          </div>
-          <div class="panel no-header" data-panel="outline">
-            <div class="panel-header">
-              <span class="panel-title">Outline</span>
-              <div class="panel-header-actions">
-                <button class="panel-button ghost" id="outline-mode-current" type="button" aria-pressed="true">
-                  Current
+              <section class="sidebar-section" data-section="outline">
+                <button class="sidebar-section-header" type="button" aria-expanded="false" aria-controls="sidebar-section-outline">
+                  <svg class="sidebar-section-chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4"></path></svg>
+                  <span>Outline</span>
                 </button>
-                <button class="panel-button ghost" id="outline-mode-project" type="button" aria-pressed="false">
-                  Project
+                <div class="sidebar-section-body outline-panel" id="sidebar-section-outline" hidden>
+                  <div class="outline-modes" hidden>
+                    <button class="panel-button ghost" id="outline-mode-current" type="button" aria-pressed="true">
+                      Current
+                    </button>
+                    <button class="panel-button ghost" id="outline-mode-project" type="button" aria-pressed="false">
+                      Project
+                    </button>
+                  </div>
+                  <div class="outline-empty" id="outline-empty">Creating index.</div>
+                  <details class="outline-section" data-outline="sections" open>
+                    <summary class="outline-section-title">chapter and verse</summary>
+                    <div class="outline-list" id="outline-sections"></div>
+                  </details>
+                  <details class="outline-section" data-outline="labels" open>
+                    <summary class="outline-section-title">label</summary>
+                    <div class="outline-list" id="outline-labels"></div>
+                  </details>
+                  <details class="outline-section" data-outline="citations" open>
+                    <summary class="outline-section-title">References</summary>
+                    <div class="outline-list" id="outline-citations"></div>
+                  </details>
+                  <details class="outline-section" data-outline="todos" open>
+                    <summary class="outline-section-title">TODO</summary>
+                    <div class="outline-list" id="outline-todos"></div>
+                  </details>
+                </div>
+              </section>
+              <section class="sidebar-section" data-section="history">
+                <button class="sidebar-section-header" type="button" aria-expanded="false" aria-controls="sidebar-section-history">
+                  <svg class="sidebar-section-chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4"></path></svg>
+                  <span>History</span>
                 </button>
-              </div>
-            </div>
-            <div class="panel-body outline-panel">
-              <div class="outline-empty" id="outline-empty">Creating index.</div>
-              <details class="outline-section" data-outline="sections" open>
-                <summary class="outline-section-title">chapter and verse</summary>
-                <div class="outline-list" id="outline-sections"></div>
-              </details>
-              <details class="outline-section" data-outline="labels" open>
-                <summary class="outline-section-title">label</summary>
-                <div class="outline-list" id="outline-labels"></div>
-              </details>
-              <details class="outline-section" data-outline="citations" open>
-                <summary class="outline-section-title">References</summary>
-                <div class="outline-list" id="outline-citations"></div>
-              </details>
-              <details class="outline-section" data-outline="todos" open>
-                <summary class="outline-section-title">TODO</summary>
-                <div class="outline-list" id="outline-todos"></div>
-              </details>
+                <div class="sidebar-section-body" id="sidebar-section-history" hidden>
+                  <div id="history-panel"></div>
+                </div>
+              </section>
             </div>
           </div>
           <div class="panel no-header" data-panel="blocks">
@@ -596,34 +570,6 @@
             </div>
           </div>
           <div class="panel no-header" data-panel="git"><div id="git-panel"></div></div>
-          <div class="panel no-header" data-panel="history"><div id="history-panel"></div></div>
-          <div class="panel no-header" data-panel="project">
-            <div class="panel-header">
-              <span class="panel-title">Project</span>
-            </div>
-            <div class="panel-body settings-panel">
-              <div class="settings-group">
-                <div class="settings-group-title">Project</div>
-                <div class="settings-item">
-                  <div class="settings-label">
-                    <span class="settings-title">Main TeX</span>
-                  </div>
-                  <div class="settings-control">
-                    <select class="settings-select" id="settings-root-select"></select>
-                    <button class="panel-button ghost" id="settings-root-auto" type="button">
-                      automatic detection
-                    </button>
-                  </div>
-                </div>
-                <div class="settings-item">
-                  <div class="settings-label">
-                    <span class="settings-title">Workspace</span>
-                  </div>
-                  <div class="settings-path" id="settings-workspace">Not selected</div>
-                </div>
-              </div>
-            </div>
-          </div>
           <div class="panel no-header" data-panel="search">
             <div class="panel-header">
               <span class="panel-title">Search</span>
@@ -973,6 +919,26 @@
                   <div class="settings-page-header">
                     <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
                     <div class="settings-page-title">Build</div>
+                  </div>
+                  <div class="settings-group">
+                    <div class="settings-group-title">Project</div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Main TeX</span>
+                      </div>
+                      <div class="settings-control">
+                        <select class="settings-select" id="settings-root-select"></select>
+                        <button class="panel-button ghost" id="settings-root-auto" type="button">
+                          automatic detection
+                        </button>
+                      </div>
+                    </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Workspace</span>
+                      </div>
+                      <div class="settings-path" id="settings-workspace">Not selected</div>
+                    </div>
                   </div>
                   <div class="settings-group">
                     <div class="settings-item">
