@@ -137,17 +137,28 @@ const createUpdateHandlers = ({
     sendToRenderer("platform:update", { source, update });
     return update;
   };
+  // The feed's artifact URL can be a redirect endpoint (…/redirect), so a name only
+  // counts when it ends like an installer; the response then supplies the real one.
+  const INSTALLER_NAME = /\.(dmg|zip|pkg|exe|msi|msix|appx|appimage)$/i;
+  const installerNameFromUrl = (value) => {
+    try {
+      const name = path.basename(new URL(value).pathname);
+      return INSTALLER_NAME.test(name) ? name : null;
+    } catch {
+      return null;
+    }
+  };
+  const installerNameFromResponse = (response) => {
+    const disposition = response.headers?.get?.("content-disposition") || "";
+    const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(disposition);
+    const fromHeader = match ? path.basename(decodeURIComponent(match[1] || match[2] || "")) : "";
+    if (INSTALLER_NAME.test(fromHeader)) return fromHeader;
+    return installerNameFromUrl(response.url);
+  };
   const resolveUpdateFileName = (artifactUrl, latestVersion) => {
     if (typeof artifactUrl === "string" && artifactUrl.trim()) {
-      try {
-        const parsed = new URL(artifactUrl);
-        const name = path.basename(parsed.pathname);
-        if (name && name !== "/" && name !== ".") {
-          return name;
-        }
-      } catch {
-        // ignore malformed URL
-      }
+      const name = installerNameFromUrl(artifactUrl);
+      if (name) return name;
     }
     const version =
       typeof latestVersion === "string" && latestVersion.trim()
@@ -335,7 +346,7 @@ const createUpdateHandlers = ({
   const downloadUpdateArtifact = async (artifactUrl, latestVersion, expectedDigest) => {
     const fileName = resolveUpdateFileName(artifactUrl, latestVersion);
     await fsp.mkdir(updateDownloadDir, { recursive: true });
-    const finalPath = path.join(updateDownloadDir, fileName);
+    let finalPath = path.join(updateDownloadDir, fileName);
     const tempPath = `${finalPath}.part`;
     if (!expectedDigest || expectedDigest.algorithm !== "sha256") {
       throw {
@@ -352,6 +363,8 @@ const createUpdateHandlers = ({
           message: `Failed to fetch update file: HTTP ${response.status}.`,
         };
       }
+      const servedName = installerNameFromResponse(response);
+      if (servedName) finalPath = path.join(updateDownloadDir, servedName);
       const responseStream = Readable.fromWeb(response.body);
       const totalBytesRaw = Number.parseInt(response.headers.get("content-length") || "", 10);
       const totalBytes = Number.isFinite(totalBytesRaw) && totalBytesRaw > 0 ? totalBytesRaw : null;

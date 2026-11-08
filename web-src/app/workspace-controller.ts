@@ -322,8 +322,8 @@ export const initWorkspaceController = (
     workspaceRootKey = payload.rootPath;
     deps.setWorkspaceRootKey(workspaceRootKey);
     setWorkspaceLabel(payload.rootName);
-    setText(settingsWorkspace, payload.rootPath);
-    // Settings shows the path on one line; the tooltip carries all of it.
+    setText(settingsWorkspace, payload.rootName ?? payload.rootPath);
+    // Settings names the folder; the full path is in the tooltip, like other paths.
     if (settingsWorkspace instanceof HTMLElement) setLocalizedAttribute(settingsWorkspace, "title", payload.rootPath ?? "");
 
     deps.settingsUi.refreshCompileEngine();

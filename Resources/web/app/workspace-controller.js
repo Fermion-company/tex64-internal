@@ -185,23 +185,23 @@ export const initWorkspaceController = (context, deps) => {
         mergeIssues();
     };
     const handleWorkspaceUpdate = (payload) => {
-        var _a, _b, _c;
+        var _a, _b, _c, _d;
         const previousRoot = workspaceRootKey;
         workspaceFiles = payload.files;
         workspaceFolders = Array.isArray(payload.folders) ? payload.folders : [];
         workspaceRootKey = payload.rootPath;
         deps.setWorkspaceRootKey(workspaceRootKey);
         setWorkspaceLabel(payload.rootName);
-        setText(settingsWorkspace, payload.rootPath);
-        // Settings shows the path on one line; the tooltip carries all of it.
+        setText(settingsWorkspace, (_a = payload.rootName) !== null && _a !== void 0 ? _a : payload.rootPath);
+        // Settings names the folder; the full path is in the tooltip, like other paths.
         if (settingsWorkspace instanceof HTMLElement)
-            setLocalizedAttribute(settingsWorkspace, "title", (_a = payload.rootPath) !== null && _a !== void 0 ? _a : "");
+            setLocalizedAttribute(settingsWorkspace, "title", (_b = payload.rootPath) !== null && _b !== void 0 ? _b : "");
         deps.settingsUi.refreshCompileEngine();
         if (payload.rootPath) {
             deps.launcherUi.setVisible(false);
             deps.launcherUi.setStatus({ isBusy: false, message: null });
         }
-        rootFilePath = ((_b = payload.rootFile) === null || _b === void 0 ? void 0 : _b.trim()) ? payload.rootFile : null;
+        rootFilePath = ((_c = payload.rootFile) === null || _c === void 0 ? void 0 : _c.trim()) ? payload.rootFile : null;
         rootSource =
             payload.rootSource === "manual" || payload.rootSource === "auto"
                 ? payload.rootSource
@@ -225,7 +225,7 @@ export const initWorkspaceController = (context, deps) => {
         // context until its completion handler closes the modal.
         if (rootChanged)
             deps.diffModal.closeDiffModal();
-        else if (((_c = deps.diffModal.getDiffContext()) === null || _c === void 0 ? void 0 : _c.type) !== "customApply") {
+        else if (((_d = deps.diffModal.getDiffContext()) === null || _d === void 0 ? void 0 : _d.type) !== "customApply") {
             deps.diffModal.setDiffContext(null);
         }
         deps.settingsUi.loadWorkspaceSettings();

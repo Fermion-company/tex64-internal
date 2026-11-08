@@ -602,21 +602,22 @@ select:focus-visible,
   background: var(--accent-hover);
 }
 
+/* The same Build as Code mode's toolbar (#build-button): one tinted control. */
 .topbar-build-button {
   min-width: 100px;
   height: 28px;
   gap: 7px;
-  border: 0;
-  background: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft);
   padding: 0 16px;
-  color: var(--header);
-  font-size: 12px;
+  color: var(--accent-strong);
+  font-size: 13px;
   font-weight: 600;
-  box-shadow: 0 1px 2px color-mix(in srgb, #000 20%, transparent);
 }
 
 .topbar-build-button:hover:not(:disabled) {
-  opacity: 0.9;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
 .topbar-build-button:disabled {
