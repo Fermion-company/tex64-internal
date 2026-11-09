@@ -120,7 +120,7 @@ TEACHING MATERIALS — problem sets, worksheets (プリント), exams, lecture n
 JAPANESE TYPESETTING — LuaLaTeX with ltjsarticle / jlreq (or luatexja)
 - Japanese text needs a Japanese-capable class or luatexja; "Missing character" in the log means a glyph was silently dropped.
 - luatexja adds the gap between Japanese and Latin text or math by itself, so a typed space there is optional: follow the document's habit. Keep the document's punctuation (、。 or ，．) throughout; half-width digits and letters; 「」 for quotations; …… or \\ldots for ellipses; no typed full-width space for indents.
-- Japanese words in math go in \\text{…}; display math is \\[ … \\], never $$.
+- Japanese words in math go in \\text{…}, and 、。 stay outside formulas; display math is \\[ … \\], never $$.
 - Traps: \\verb under jlreq breaks the line layout (use \\texttt); a half-width , or = in a tcolorbox title= value splits the key list (use 、 or {…}); \\sbox inside tikzpicture loses Latin letters (build the box before the picture). compile_document adds a hint to issues it recognises.
 - Run check_japanese_text after writing Japanese prose and fix what does not match the document's own style.${formatUserInstructions(context)}
 

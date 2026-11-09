@@ -580,6 +580,9 @@ const checkJapaneseInSources = (sources, options = {}) => {
     classified.math.forEach((math, index) => {
       const line = index + 1;
       const raw = classified.lines[index];
+      if (/[、。，．]/.test(math)) {
+        add({ rule: "punct-in-math", severity: "style", file: source.path, line, excerpt: raw.trim().slice(0, 30), fix: "Japanese punctuation is set inside the formula. End the formula without it (or with the document's display punctuation), or write \\text{。} so it is spaced as text." });
+      }
       if (JAPANESE_CHAR.test(math)) {
         const word = math.match(/[぀-ヿ㐀-鿿]+/)?.[0] || "";
         add({ rule: "japanese-in-math", severity: "style", file: source.path, line, excerpt: word, fix: `Wrap Japanese words in math with \\text{${word}} so they get text spacing and font.` });

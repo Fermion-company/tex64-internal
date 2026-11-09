@@ -223,3 +223,10 @@ test("the DOCUMENT MAP carries the profile line from disk", async () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("Japanese punctuation inside a formula is reported, outside it is fine", () => {
+  const inside = checkJapaneseInSources([{ path: "main.tex", content: doc("\\begin{align*}\ny &= 2(x+2)^2-3。\n\\end{align*}\nよって頂点は $(-2,-3)$ である。") }]);
+  assert.ok(rules(inside).includes("punct-in-math"));
+  const outside = checkJapaneseInSources([{ path: "main.tex", content: doc("\\[ y = 2(x+2)^2-3 \\]\nよって $x=-2$ のとき最小である。") }]);
+  assert.ok(!rules(outside).includes("punct-in-math"));
+});
