@@ -415,6 +415,7 @@ export function AgentPanel({
             value={prompt}
             disabled={!canSubmit}
             onPaste={onPaste}
+            placeholder="メッセージ"
             aria-label="メッセージ"
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={(event) => {
