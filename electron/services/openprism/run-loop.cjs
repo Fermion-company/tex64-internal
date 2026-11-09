@@ -1146,14 +1146,14 @@ const runAgentConversation = async (
       ) {
         platformBudgetAtStart = platformBudget.remainingTokens;
       }
+      // The per-turn cap is counted in raw provider tokens. The account's
+      // allowance is in the server's normalized units (cached input costs a
+      // fraction), so it is checked against its own remaining figure below,
+      // never against raw tokens: subtracting raw tokens from the allowance
+      // stopped turns with most of the allowance still unused.
       const localRemaining = Math.max(
         0,
-        Math.min(
-          turnTokenBudget,
-          platformBudgetAtStart ?? turnTokenBudget,
-        ) -
-          totalPromptTokens -
-          totalCompletionTokens,
+        turnTokenBudget - totalPromptTokens - totalCompletionTokens,
       );
       // Provider token counts are not cost-equivalent across input/output or
       // Axiom tiers. The server quota is already normalized from actual
