@@ -14,7 +14,7 @@ import {
   normalizeLiveToolbarSnapshot,
   stepLiveToolbarPage,
 } from "./pdf-live-toolbar-state.mjs";
-import { resolvePdfLiveStatus } from "./app/pdf-live-status.js";
+import { resolvePdfLiveStatus, stepPdfLiveStatusMark } from "./app/pdf-live-status.js";
 
 // This page runs in its own iframe and never goes through the app's initI18n(),
 // so it reads the stored UI locale itself. English is the source language and
@@ -78,6 +78,9 @@ const UI_STRINGS = {
   rebuildNeeded: { en: "Rebuild needed", ja: "再ビルドが必要", zh: "需要重新编译", ko: "다시 빌드 필요", fr: "Recompilation nécessaire", de: "Neu kompilieren", es: "Es necesario recompilar" },
   live: { en: "Live", ja: "ライブ", zh: "实时", ko: "라이브", fr: "Direct", de: "Live", es: "En vivo" },
   liveUpdating: { en: "Updating…", ja: "更新中...", zh: "正在更新…", ko: "업데이트 중…", fr: "Mise à jour…", de: "Aktualisierung…", es: "Actualizando…" },
+  liveMarkGreen: { en: "Up to date", ja: "最新", zh: "已更新", ko: "최신", fr: "À jour", de: "Aktuell", es: "Al día" },
+  liveMarkOrange: { en: "Updating", ja: "更新中", zh: "更新中", ko: "업데이트 중", fr: "Mise à jour", de: "Aktualisierung", es: "Actualizando" },
+  liveMarkRed: { en: "Falling behind", ja: "追いついていません", zh: "更新滞后", ko: "업데이트 지연", fr: "En retard", de: "Im Rückstand", es: "Con retraso" },
   // The failure itself is the count beside Build; here only what is on screen.
   buildFailedLastGood: { en: "Showing the previous PDF", ja: "前のPDFを表示中", zh: "正在显示上一版 PDF", ko: "이전 PDF 표시 중", fr: "PDF précédent affiché", de: "Vorherige PDF wird angezeigt", es: "Mostrando el PDF anterior" },
   liveExactRendering: { en: "Rendering exact changes…", ja: "差分を描画中…", zh: "正在精确渲染差异…", ko: "변경 사항을 정밀 렌더링 중…", fr: "Rendu exact des modifications…", de: "Exakte Änderungen werden gerendert…", es: "Renderizando cambios exactos…" },
@@ -163,6 +166,7 @@ const localizeChrome = () => {
   setTitle("pdf-download", "download");
   setTitle("pdf-print", "print");
   setTitle("pdf-reload", "reload");
+  setTitle("pdf-live-mark", "liveMarkOrange");
   document.getElementById("pdf-page-input")?.setAttribute("aria-label", uiString("pageWord"));
   const searchOpen = document.getElementById("pdf-search-open");
   if (searchOpen) searchOpen.textContent = uiString("search");
@@ -255,6 +259,7 @@ const initPdfViewer = () => {
   }
   const titleEl = document.getElementById("pdf-title");
   const statusEl = document.getElementById("pdf-status");
+  const liveMarkEl = document.getElementById("pdf-live-mark");
   const sidebarToggleBtn = document.getElementById("pdf-sidebar-toggle");
   const sidebarCloseBtn = document.getElementById("pdf-sidebar-close");
   const sidebarEl = document.getElementById("pdf-sidebar");
@@ -2065,7 +2070,29 @@ const initPdfViewer = () => {
     postLive("goto-sync", payload);
     return true;
   };
+  let liveStatusMark = null;
+  const renderLiveMark = (data) => {
+    // The frame posts periodic snapshots even while idle; no UI timer or
+    // animation is needed for the overload threshold.
+    liveStatusMark = stepPdfLiveStatusMark(data?.status, {
+      previous: liveStatusMark,
+      now: performance.now(),
+      presentationPending: isLivePending() || data?.presentationPending,
+      appliedSrcRev: data?.srcRev,
+    });
+    if (!liveMarkEl) return;
+    const color = liveStatusMark.color;
+    const label = uiString({ green: "liveMarkGreen", orange: "liveMarkOrange", red: "liveMarkRed" }[color]);
+    liveMarkEl.dataset.color = color;
+    liveMarkEl.setAttribute("aria-label", label);
+    liveMarkEl.title = label;
+  };
+  const resetLiveMark = () => {
+    liveStatusMark = null;
+    renderLiveMark(null);
+  };
   const renderLiveStatus = (data) => {
+    renderLiveMark(data);
     const search = data?.search;
     if (isFindOpen() && findQuery && search?.query === findQuery) {
       renderFindCount(Number(search.current) || 0, Number(search.total) || 0);
@@ -2104,6 +2131,7 @@ const initPdfViewer = () => {
     liveActivationSequence += 1;
     cancelLiveReveal();
     liveActivation = null;
+    resetLiveMark();
     liveSurfaceOwned = false;
     document.body.classList.remove("is-live", "is-live-pending", "is-live-held");
     hideContextMenu();
@@ -2231,6 +2259,7 @@ const initPdfViewer = () => {
     liveSurfaceOwned = true;
     document.body.classList.remove("is-live-held");
     document.body.classList.add("is-live-pending");
+    resetLiveMark();
     liveFrame.setAttribute("aria-hidden", "true");
     liveFrame.dataset.livePhase = "activation-pending";
     setStatus("", "idle");
@@ -2323,6 +2352,7 @@ const initPdfViewer = () => {
         documentEpoch !== liveActivation.pendingDocumentEpoch) return false;
     if (Number.isInteger(liveActivation.documentEpoch) &&
         documentEpoch < liveActivation.documentEpoch) return false;
+    renderLiveStatus(data);
     // Move the still-covered frame before judging its paper: the pages it
     // must present are the ones at the handed-off viewport.
     if (!liveViewportPositioned(data)) return true;
@@ -2397,6 +2427,7 @@ const initPdfViewer = () => {
 
     cancelLiveReveal();
     liveActivation.pendingDocumentEpoch = documentEpoch;
+    resetLiveMark();
     liveToolbar = normalizeLiveToolbarSnapshot();
     document.body.classList.remove("is-live");
     document.body.classList.add("is-live-pending");
@@ -2454,6 +2485,7 @@ const initPdfViewer = () => {
     liveViewportHandoff = sync && !pendingLiveSync ? viewportHandoff(sync) : null;
     document.body.classList.remove("is-live", "is-live-pending", "is-live-held");
     document.body.classList.add(hold ? "is-live-held" : "is-live-pending");
+    resetLiveMark();
     liveFrame.setAttribute("aria-hidden", "true");
     liveFrame.dataset.livePhase = hold ? "build-held" : "activation-pending";
     hideContextMenu();
