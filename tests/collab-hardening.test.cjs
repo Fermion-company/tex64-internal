@@ -12,6 +12,7 @@ const transport = require("../electron/services/collab/transport-ws.cjs");
 const invite = require("../electron/services/collab/invite.cjs");
 const { safeRelativePath } = require("../electron/services/collab/manifest.cjs");
 const { mergeThreeWay, DiskSync } = require("../electron/services/collab/disk-sync.cjs");
+const { acquireMirror, LOCK_NAME } = require("../electron/services/collab/mirror-lock.cjs");
 const { createCollabHandlers } = require("../electron/handlers/collab.cjs");
 
 const waitFor = async (predicate, timeoutMs = 8000, label = "condition") => {
@@ -66,7 +67,8 @@ test("disk edits next to unsaved edits merge; an append at the end merges", () =
   assert.deepEqual(merge("a\nb\nc", "A\nb\nc", "a\nB\nc"), { text: "A\nB\nc", dropped: 0 });
   assert.deepEqual(merge("a\nb\nc", "A\nb\nc", "a\nb\nc\nd"), { text: "A\nb\nc\nd", dropped: 0 });
   assert.deepEqual(merge("a\nb\n", "A\nb\n", "a\nb\nc\n"), { text: "A\nb\nc\n", dropped: 0 });
-  assert.deepEqual(merge("a\nb\nc", "a\nB\nc", "a\nnew\nb\nc"), { text: "a\nnew\nB\nc", dropped: 0 });
+  // An insertion touching a replacement now conflicts at character level.
+  assert.deepEqual(merge("a\nb\nc", "a\nB\nc", "a\nnew\nb\nc"), { text: "a\nB\nc", dropped: 1 });
   // Real conflicts still keep the shared side.
   assert.deepEqual(merge("a\nb\nc", "A\nb\nc", "X\nb\nc"), { text: "A\nb\nc", dropped: 1 });
   assert.deepEqual(merge("a\nb", "a\nmine\nb", "a\ntheirs\nb"), { text: "a\nmine\nb", dropped: 1 });
@@ -86,6 +88,53 @@ test("a welcome whose session id would leave the collab folder is refused", asyn
   await assert.rejects(guest.join({ link, name: "Guest" }), (error) => error.code === "COLLAB_REFUSED");
   assert.deepEqual(fs.readdirSync(base).filter((name) => name !== "collab"), []);
   assert.equal(guest.session, null);
+});
+
+test("guest joins claim separate mirrors and release them on leave, teardown or join failure", async (t) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-collab-lock-"));
+  const collabRoot = path.join(base, "collab");
+  // Supply the welcome and initial document without sockets: exercise the
+  // real join/leave filesystem lifecycle independently of relay networking.
+  t.mock.method(transport.GuestTransport.prototype, "connect", function () {
+    queueMicrotask(() => this.emit("message", null, { kind: transport.FRAME_CONTROL, message: {
+      type: "welcome", sessionId: "a".repeat(32), name: "paper", epoch: 1, peers: [],
+    } }));
+  });
+  t.mock.method(CollabHub.prototype, "waitForInitialSync", async function (session) {
+    this.createDoc(session, "main.tex", "Hello\n");
+    this.attachDoc(session, "main.tex", null);
+    session.sessionDoc.transact(() => session.sessionDoc.getMap("files").set("main.tex", { kind: "text" }), "local");
+  });
+  const first = makeHub({ path: null }, { collabRoot, name: "First" });
+  const second = makeHub({ path: null }, { collabRoot, name: "Second" });
+  const failed = makeHub({ path: null }, { collabRoot, name: "Failed" });
+  t.after(async () => {
+    await Promise.allSettled([first.leave(), second.leave(), failed.leave()]);
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+  const link = invite.buildInviteLink({ hosts: ["127.0.0.1"], port: 12345, token: invite.createToken(), name: "paper" });
+  await Promise.all([first.join({ link }), second.join({ link })]);
+  const roots = [first.session.rootPath, second.session.rootPath];
+  assert.notEqual(roots[0], roots[1]);
+  for (const hub of [first, second]) {
+    assert.equal(fs.readFileSync(path.join(hub.session.rootPath, "main.tex"), "utf8"), "Hello\n");
+    assert.deepEqual([...hub.session.manifest.entries.keys()], ["main.tex"]);
+    assert.equal([...hub.session.sessionDoc.getMap("files").keys()].some((key) => key.includes(LOCK_NAME)), false);
+  }
+  await first.leave();
+  assert.equal(fs.existsSync(path.join(roots[0], ".tex64", LOCK_NAME)), false);
+  // Quit uses teardown directly, without the asynchronous leave path.
+  second.teardown(second.session);
+  assert.equal(fs.existsSync(path.join(roots[1], ".tex64", LOCK_NAME)), false);
+  const manifest = JSON.parse(fs.readFileSync(path.join(roots[0], ".tex64", "collab-mirror.json"), "utf8"));
+  assert.deepEqual(Object.keys(manifest.files), ["main.tex"]);
+  const reclaimed = acquireMirror(roots[0]);
+  assert.equal(reclaimed.rootPath, roots[0]);
+  reclaimed.release();
+  t.mock.method(failed.deps, "openWorkspacePath", async () => { throw new Error("opening failed"); });
+  await assert.rejects(failed.join({ link }), /opening failed/);
+  assert.equal(failed.session, null);
+  assert.equal(fs.existsSync(path.join(roots[0], ".tex64", LOCK_NAME)), false);
 });
 
 test("a guest gets only the binaries the session shares, never .GIT or unshared files", async (t) => {

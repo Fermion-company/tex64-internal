@@ -23,14 +23,16 @@ const { contentDigest, resolveInsideRoot } = require("./manifest.cjs");
 const DISK_ORIGIN = "disk";
 const WRITE_DEBOUNCE_MS = 500;
 const BLOCKED_RETRY_MS = 500;
+const CHAR_DIFF_MAX_RANGE_LENGTH = 4096;
+const CHAR_DIFF_MAX_EDIT_LENGTH = 256;
+const CHAR_DIFF_TIMEOUT_MS = 20;
+const CHAR_DIFF_TOTAL_BUDGET_MS = 100;
 
-const splitLines = (text) => text.split("\n");
-
-// Hunks of `from` → `to` as replacements of line ranges in `from`.
-const lineHunks = (from, to) => {
-  const parts = Diff.diffArrays(splitLines(from), splitLines(to));
+// Both line and character diffs use baseline UTF-16 coordinates, as Y.Text
+// does. diffChars keeps Unicode characters intact; offsets use value.length.
+const partsToHunks = (parts, start = 0) => {
   const hunks = [];
-  let fromLine = 0;
+  let offset = start;
   let pending = null;
   const flush = () => {
     if (pending) hunks.push(pending);
@@ -39,55 +41,66 @@ const lineHunks = (from, to) => {
   for (const part of parts) {
     if (!part.added && !part.removed) {
       flush();
-      fromLine += part.count;
+      offset += part.value.length;
       continue;
     }
-    if (!pending) pending = { start: fromLine, end: fromLine, lines: [] };
+    if (!pending) pending = { start: offset, end: offset, text: "" };
     if (part.removed) {
-      pending.end += part.count;
-      fromLine += part.count;
+      pending.end += part.value.length;
+      offset += part.value.length;
     } else {
-      pending.lines.push(...part.value);
+      pending.text += part.value;
     }
   }
   flush();
   return hunks;
 };
 
-const lineOffsets = (text) => {
-  const offsets = [0];
-  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) offsets.push(i + 1);
-  return offsets;
+// Diff lines first so unchanged lines never enter character refinement.
+// Large or expensive ranges stay coarse and use the same conflict/relocation
+// rules as fine hunks. The shared budget also bounds many separate ranges.
+const textHunks = (from, to) => {
+  const ranges = partsToHunks(Diff.diffLines(from, to));
+  const deadline = performance.now() + CHAR_DIFF_TOTAL_BUDGET_MS;
+  const hunks = [];
+  for (const range of ranges) {
+    const remaining = deadline - performance.now();
+    if (range.end - range.start > CHAR_DIFF_MAX_RANGE_LENGTH || range.text.length > CHAR_DIFF_MAX_RANGE_LENGTH || remaining <= 0) {
+      hunks.push(range);
+      continue;
+    }
+    // diff 9 returns undefined when either budget is exhausted.
+    const parts = Diff.diffChars(from.slice(range.start, range.end), range.text, {
+      maxEditLength: CHAR_DIFF_MAX_EDIT_LENGTH,
+      timeout: Math.min(CHAR_DIFF_TIMEOUT_MS, remaining),
+    });
+    if (parts) hunks.push(...partsToHunks(parts, range.start));
+    else hunks.push(range);
+  }
+  return hunks;
 };
 
-// Replace the whole value with a minimal prefix/suffix edit.
-const applyTextDelta = (ytext, from, to, origin) => {
-  if (from === to) return;
-  let prefix = 0;
-  const max = Math.min(from.length, to.length);
-  while (prefix < max && from.charCodeAt(prefix) === to.charCodeAt(prefix)) prefix++;
-  let suffix = 0;
-  while (suffix < max - prefix && from.charCodeAt(from.length - 1 - suffix) === to.charCodeAt(to.length - 1 - suffix)) suffix++;
+// Apply from the end so an earlier edit cannot move a later one's position.
+const applyHunks = (ytext, hunks, origin) => {
+  if (!hunks.length) return;
   ytext.doc.transact(() => {
-    const deleteLength = from.length - prefix - suffix;
-    if (deleteLength > 0) ytext.delete(prefix, deleteLength);
-    const insert = to.slice(prefix, to.length - suffix);
-    if (insert) ytext.insert(prefix, insert);
+    for (let i = hunks.length - 1; i >= 0; i--) {
+      const { start, end, text } = hunks[i];
+      if (end > start) ytext.delete(start, end - start);
+      if (text) ytext.insert(start, text);
+    }
   }, origin);
 };
 
-// Two hunks (half-open line ranges of the baseline; start === end is an
-// insertion) conflict when they touch the same lines. Adjacent ranges do
-// not; an insertion conflicts with a replacement only strictly inside it,
-// and with another insertion only at the same place (the order is unknown).
-const hunksConflict = (a, b) => {
-  const aInsert = a.start === a.end;
-  const bInsert = b.start === b.end;
-  if (aInsert && bInsert) return a.start === b.start;
-  if (aInsert) return b.start < a.start && a.start < b.end;
-  if (bInsert) return a.start < b.start && b.start < a.end;
-  return a.start < b.end && b.start < a.end;
+// Keep unchanged characters (and their CRDT identities) within the diff budget.
+const applyTextDelta = (ytext, from, to, origin) => {
+  if (from === to) return;
+  applyHunks(ytext, textHunks(from, to), origin);
 };
+
+// Touching edits conflict too: an insertion at either edge of a replacement,
+// or at another insertion's position, has no unambiguous external ordering.
+const hunksConflict = (a, b) => a.start <= b.end && b.start <= a.end;
 
 // Relocates baseline→disk hunks onto the current text. Returns the number of
 // hunks dropped because they overlapped unsaved edits.
@@ -96,10 +109,8 @@ const mergeThreeWay = (ytext, baseline, current, disk, origin) => {
     applyTextDelta(ytext, baseline, disk, origin);
     return 0;
   }
-  const ours = lineHunks(baseline, current);
-  const theirs = lineHunks(baseline, disk);
-  const offsets = lineOffsets(current);
-  const currentLineCount = offsets.length;
+  const ours = textHunks(baseline, current);
+  const theirs = textHunks(baseline, disk);
   const edits = [];
   let dropped = 0;
   for (const hunk of theirs) {
@@ -110,45 +121,11 @@ const mergeThreeWay = (ytext, baseline, current, disk, origin) => {
     }
     let shift = 0;
     for (const mine of ours) {
-      if (mine.end <= hunk.start) shift += mine.lines.length - (mine.end - mine.start);
+      if (mine.end < hunk.start) shift += mine.text.length - (mine.end - mine.start);
     }
-    const startLine = hunk.start + shift;
-    const endLine = hunk.end + shift;
-    if (startLine < 0 || endLine > currentLineCount || startLine > endLine) {
-      dropped += 1;
-      continue;
-    }
-    // Character range covering lines [startLine, endLine) including the
-    // newline that separates them from what follows; a replacement supplies
-    // its own separators.
-    const startOffset = offsets[startLine] ?? current.length;
-    let endOffset;
-    let text;
-    if (endLine < currentLineCount) {
-      endOffset = offsets[endLine];
-      text = hunk.lines.length ? `${hunk.lines.join("\n")}\n` : "";
-    } else {
-      endOffset = current.length;
-      // Replacing through the last line: there is no trailing separator to
-      // consume, and the preceding separator stays unless the file became empty.
-      text = hunk.lines.join("\n");
-      if (startLine > 0 && startLine === currentLineCount) {
-        // Pure insertion after the final line (startOffset is already the end).
-        text = `\n${text}`;
-        endOffset = current.length;
-      }
-    }
-    edits.push({ startOffset, endOffset, text });
+    edits.push({ start: hunk.start + shift, end: hunk.end + shift, text: hunk.text });
   }
-  edits.sort((a, b) => b.startOffset - a.startOffset);
-  if (edits.length) {
-    ytext.doc.transact(() => {
-      for (const edit of edits) {
-        if (edit.endOffset > edit.startOffset) ytext.delete(edit.startOffset, edit.endOffset - edit.startOffset);
-        if (edit.text) ytext.insert(edit.startOffset, edit.text);
-      }
-    }, origin);
-  }
+  applyHunks(ytext, edits, origin);
   return dropped;
 };
 
@@ -445,4 +422,4 @@ class DiskSync {
   }
 }
 
-module.exports = { DiskSync, mergeThreeWay, applyTextDelta, lineHunks, DISK_ORIGIN };
+module.exports = { DiskSync, mergeThreeWay, applyTextDelta, DISK_ORIGIN };
