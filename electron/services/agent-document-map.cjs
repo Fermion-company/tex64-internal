@@ -263,6 +263,7 @@ const scanDocument = async (service, mainFile) => {
   const main = normalizeRelative(mainFile);
   if (!main) return null;
   const texFiles = [];
+  const texSources = [];
   const seen = new Set();
   const queue = [main];
   while (queue.length > 0 && texFiles.length < MAX_FILES) {
@@ -273,6 +274,7 @@ const scanDocument = async (service, mainFile) => {
     if (content === null) continue;
     const scanned = scanTexFile(relativePath, content);
     texFiles.push(scanned);
+    texSources.push({ path: relativePath, content });
     for (const include of scanned.includes) {
       for (const candidate of resolveIncludeTarget(include.target, relativePath)) {
         if (!seen.has(candidate) && (await fileExists(service, candidate))) {
@@ -312,10 +314,19 @@ const scanDocument = async (service, mainFile) => {
     bibFiles.push(scanBibFile(candidate, content));
   }
 
+  // What kind of document this is (Japanese text, teaching material), in one line.
+  let profile = "";
+  try {
+    profile = require("./agent-teaching-checks.cjs").describeProfile(texSources);
+  } catch {
+    profile = "";
+  }
+
   return {
     mainFile: main,
     files: texFiles,
     bibFiles,
+    profile,
     scannedAt: Date.now(),
   };
 };
@@ -359,6 +370,7 @@ const formatDocumentMapForPrompt = (map, maxChars = MAX_PROMPT_CHARS) => {
   if (!map || !Array.isArray(map.files) || map.files.length === 0) return "";
   const out = [];
   out.push(`DOCUMENT MAP (from disk; main file ${map.mainFile}). Line numbers are current.`);
+  if (map.profile) out.push(map.profile);
   for (const file of map.files) {
     out.push(`${file.path} (${file.lines} lines)`);
     const numbers = sectionNumberLabel(file);
@@ -678,6 +690,7 @@ const buildMentionIndex = (map) => {
 
 module.exports = {
   BIB_RESOURCE_PATTERN,
+  readWorkspaceText,
   resolveMainTexFile,
   scanDocument,
   sectionAtLine,

@@ -364,7 +364,7 @@ DOCUMENT CONVERSATION (the paper-centred AI mode):
   word count, a reader level, a title, data) is a question first: call
   ask_user for that value before touching the document.
 - Japanese text needs a Japanese-capable setup: with LuaLaTeX use
-  \\documentclass{ltjsarticle} (or article plus \\usepackage{luatexja}). Plain
+  \\documentclass{ltjsarticle} (or jlreq, or article plus \\usepackage{luatexja}). Plain
   article with Japanese prints nothing, and "Missing character" in the log
   means exactly that: fix the class or package, do not ignore it.
 - Files the user attaches arrive as an "[添付ファイル]" block (images also
@@ -402,6 +402,11 @@ const RESUME_STEP_COPY = {
 const RESET_REQUEST_PATTERN =
   /真っ白|白紙|まっさら|(?:空|から)に(?:して|戻|し)|全部消し|中身を消し|全て消し|すべて消し|初期化|リセット|\b(?:blank|empty|clear|wipe|reset)\b[^.]{0,40}\b(?:document|paper|page|file|everything)\b|\b(?:document|paper|page|file)\b[^.]{0,40}\b(?:blank|empty|clear|wipe|reset)/i;
 
+/** Extra room a mid-turn correction (steering) gives the turn it joins. */
+const STEER_EXTENSIONS_PER_TURN = 2;
+const STEER_TOKEN_ALLOWANCE = 150_000;
+const STEER_EXTRA_ITERATIONS = 12;
+
 /** Tools the opening read may use: reading and recording next steps only. */
 const SURVEY_TOOL_NAMES = new Set([
   "read_file",
@@ -410,6 +415,8 @@ const SURVEY_TOOL_NAMES = new Set([
   "read_section",
   "find_math_region",
   "get_compile_log",
+  "check_exercises",
+  "check_japanese_text",
   "propose_next_steps",
 ]);
 
@@ -895,11 +902,11 @@ const runAgentConversation = async (
     // Writing turns in both the AI mode and the Code chat rewrite whole
     // sections and read the paper back; both get the larger per-turn room.
     // The platform quota still bounds every turn.
-    const maxIterations = agentsApi ? MAX_CHECKPOINTS : Math.max(
+    let maxIterations = agentsApi ? MAX_CHECKPOINTS : Math.max(
       resolveMaxAgentIterations(options.maxIterations),
       DOCUMENT_MAX_AGENT_ITERATIONS,
     );
-    const turnTokenBudget = agentsApi ? MAX_OBSERVED_TOKENS : Math.max(DOCUMENT_TURN_TOKEN_BUDGET, MAX_AGENT_TOKENS_PER_RUN);
+    let turnTokenBudget = agentsApi ? MAX_OBSERVED_TOKENS : Math.max(DOCUMENT_TURN_TOKEN_BUDGET, MAX_AGENT_TOKENS_PER_RUN);
     let iterations = 0;
     let platformBudgetAtStart = null;
     let usageWasMeasurable = true;
@@ -909,7 +916,7 @@ const runAgentConversation = async (
     // write or a compile could have changed the workspace; a repeat gets a
     // short pointer back to it, and a long run of reads without an edit gets
     // one nudge to act.
-    const READ_TOOL_NAMES = new Set(["read_file", "read_section", "list_sections", "list_files", "find_math_region", "check_references", "check_bibliography"]);
+    const READ_TOOL_NAMES = new Set(["read_file", "read_section", "list_sections", "list_files", "find_math_region", "check_references", "check_bibliography", "check_exercises", "check_japanese_text"]);
     const READS_BEFORE_NUDGE = 8;
     const readResultsThisRun = new Map();
     let readsSinceLastWrite = 0;
@@ -1098,9 +1105,19 @@ const runAgentConversation = async (
     activeRun.steering = [];
     activeRun.acceptingSteering = true;
     const hasSteering = () => activeRun.steering.length > 0;
+    // A correction sent while Axiom works is new instructions from the user:
+    // the work it redoes gets its own room instead of eating the original
+    // request's, up to STEER_EXTENSIONS_PER_TURN times. The platform quota
+    // still bounds every call.
+    let steerExtensions = 0;
     const drainSteering = () => {
       if (!hasSteering()) return false;
       const corrections = activeRun.steering.splice(0);
+      if (!agentsApi && steerExtensions < STEER_EXTENSIONS_PER_TURN) {
+        steerExtensions += 1;
+        turnTokenBudget += STEER_TOKEN_ALLOWANCE;
+        maxIterations += STEER_EXTRA_ITERATIONS;
+      }
       service.nextStepsByConversation?.delete(targetConversationId);
       service.pendingQuestionByConversation?.delete(targetConversationId);
       beginTaskTurn(service, targetConversationId, corrections.join("\n\n"), true);
@@ -1173,6 +1190,7 @@ const runAgentConversation = async (
             maxCompletionTokens: 0,
           };
       if (!requestPlan.allowed) {
+        traceRunLoop({ conversationId: targetConversationId, refusedPlan: requestPlan.reason, inputTokenUpperBound: requestPlan.inputTokenUpperBound, localRemaining, normalizedTurnRemaining, platformRemaining: platformBudget.remainingTokens, turnTokenBudget, totalPromptTokens, totalCompletionTokens, iterations });
         const exhaustedPlatformQuota =
           platformBudget.remainingTokens !== null &&
           platformBudget.remainingTokens <= localRemaining;
@@ -1634,6 +1652,8 @@ const runAgentConversation = async (
             "check_environment",
             "check_references",
             "check_bibliography",
+            "check_exercises",
+            "check_japanese_text",
           ]);
           toolResult = abortableReadTools.has(fnName)
             ? await awaitAbortable(executor(args), run.controller.signal)
