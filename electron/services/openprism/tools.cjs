@@ -1170,7 +1170,9 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     "Ask the user ONE question that only they can answer (subject, audience, " +
       "goal, results, data, a real choice) and end this turn. Use fields to " +
       "collect several short facts at once, options for a choice. Never ask " +
-      "what the document already says. Input: { question, fields?, options? }.",
+      "what the document already says, a choice you can make with a sensible default " +
+      "(difficulty, layout, order, wording, where solutions go), or to confirm a plan. " +
+      "Input: { question, fields?, options? }.",
     QUESTION_SCHEMA,
     async (args) => {
       const question = normalizeQuestion(args);
