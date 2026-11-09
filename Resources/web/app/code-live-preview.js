@@ -11,6 +11,11 @@
 // stops the engine.
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
 import { getEditorModelPath } from "./editor-session/model-path.js";
+// Real-app typing → paper (25 tokens, 320ms apart, solo 2-page document):
+// 80/120ms gave p50 103ms / p90 144ms; 16/32ms gave p50 45ms / p90 52ms.
+const TYPING_PUSH_DELAY_MS = 16;
+const TYPING_PUSH_MAX_WAIT_MS = 32;
+const COMPOSITION_RETRY_MS = 80;
 // Trailing debounce with an upper bound: a burst of keystrokes closer than
 // delayMs would otherwise keep pushing the task back and the paper would not
 // move until the hands stop. With maxWaitMs the task also fires once that much
@@ -107,7 +112,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     const focusCurrent = () => {
         if (!active || !engineStarted || !(bridge === null || bridge === void 0 ? void 0 : bridge.focus))
             return;
-        // A character insertion moves the Monaco caret too. Let its 80ms source
+        // A character insertion moves the Monaco caret too. Let its source
         // push finish first; otherwise a speculative warm against the old source
         // can grab the resident chain just before the real edit arrives.
         if (pushing || pendingPush || latestInputAtEpochMs) {
@@ -248,7 +253,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             }
             const sessionKey = `${workspaceRoot}\0${rootFile}`;
             const exactInputs = [...pendingExactInputs.values()].filter((input) => input.sessionKey === sessionKey);
-            // A save can make the active buffer clean before the 80ms task runs.
+            // A save can make the active buffer clean before the deferred task runs.
             // Keep the exact bytes observed by the editor notification until the
             // engine accepts them; a later clean snapshot removes the overlay.
             for (const exactInput of exactInputs)
@@ -297,7 +302,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         const visibleSessionIsObsolete = liveSessionKey !== null && liveSessionKey !== nextSessionKey;
         if (!queuedSessionIsObsolete && !visibleSessionIsObsolete)
             return;
-        // Invalidate an in-flight result immediately, before the 80ms push
+        // Invalidate an in-flight result immediately, before the push
         // debounce. Otherwise a completed /open for the previous project can
         // briefly reactivate its iframe after the editor has already switched.
         latestPushVersion += 1;
@@ -391,6 +396,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         }
     };
     const pushCurrent = () => {
+        compositionRetry.cancel();
         if (!active || !(bridge === null || bridge === void 0 ? void 0 : bridge.push))
             return;
         const current = currentProjectSource();
@@ -403,9 +409,10 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             snapshot.sessionKey !== (builtSnapshot === null || builtSnapshot === void 0 ? void 0 : builtSnapshot.sessionKey) || sourceEditVersion !== (builtSnapshot === null || builtSnapshot === void 0 ? void 0 : builtSnapshot.editVersion));
         retireObsoleteSession(snapshot.sessionKey);
         // Never push mid-IME-composition: the buffer is transient and a typeset
-        // per composition keystroke is wasted work. Try again after the debounce.
+        // per composition keystroke is wasted work. Retry on a separate, slower
+        // cadence so a long composition cannot turn into a 16ms retry loop.
         if (current === null || current === void 0 ? void 0 : current.group.isComposing) {
-            debouncedPush();
+            compositionRetry();
             return;
         }
         if (!sourceRefreshPending &&
@@ -427,16 +434,14 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         };
         void drainPushes();
     };
-    // 80ms, matching the engine's own client: the engine typesets a keystroke
-    // in 20-60ms, so the debounce dominates end-to-end latency — 300ms (the
-    // Pro live preview's value) made a ~50ms pipeline feel like half a second.
-    // While the hands keep moving the paper still follows every 120ms; the
-    // single-flight queue below keeps the engine at one request in flight.
-    const debouncedPush = createDebouncedTask(pushCurrent, 80, 120);
+    // Coalesce same-task paste, multi-cursor and programmatic companion edits.
+    // The single-flight latest-wins queue above is the only engine back-pressure.
+    const debouncedPush = createDebouncedTask(pushCurrent, TYPING_PUSH_DELAY_MS, TYPING_PUSH_MAX_WAIT_MS);
     // The first keystroke after a pause (a jump to another place, say) goes
     // out within a frame: 16ms still takes in the companion edit the editor
     // makes in the same task (the \end{…} after a \begin{…}, a closing \]).
-    const firstPush = createDebouncedTask(pushCurrent, 16);
+    const firstPush = createDebouncedTask(pushCurrent, TYPING_PUSH_DELAY_MS);
+    const compositionRetry = createDebouncedTask(pushCurrent, COMPOSITION_RETRY_MS);
     const bindActiveEditor = () => {
         var _a, _b, _c, _d;
         if (!active)
@@ -471,7 +476,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 // URI-less model is still installed.
                 const exactPath = modelPath !== null && modelPath !== void 0 ? modelPath : (currentModel === eventModel ? eventPath : null);
                 captureExactInput(exactPath, eventEditor, editedAtEpochMs);
-                // a burst is still coalesced by the 80ms debounce
+                // Both paths coalesce companion edits in the same task.
                 if (sincePreviousEdit > 400 && !pushing && !pendingPush)
                     firstPush();
                 else
@@ -516,6 +521,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         latestPushVersion += 1;
         debouncedPush.cancel();
         firstPush.cancel();
+        compositionRetry.cancel();
         debouncedFocus.cancel();
         disposable === null || disposable === void 0 ? void 0 : disposable.dispose();
         cursorDisposable === null || cursorDisposable === void 0 ? void 0 : cursorDisposable.dispose();
