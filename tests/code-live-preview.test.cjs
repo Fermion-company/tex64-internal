@@ -42,12 +42,12 @@ const createClock = () => {
   };
 };
 
-const setup = async ({ ready = true } = {}) => {
+const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) => {
   const clock = createClock();
   const pushes = [], focuses = [], polls = new Map(), listeners = new Map();
   let text = "initial", enabled = true, changeSettings, contentChanged, cursorChanged;
   let holdNextPush = false, acceptPush;
-  const model = { path: "/project/main.tex" };
+  const model = { path: initialPath };
   const editor = {
     getValue: () => text,
     getModel: () => model,
@@ -121,6 +121,30 @@ const setup = async ({ ready = true } = {}) => {
 };
 
 const pushedText = push => push.payload.buffers[0].text;
+
+test("an empty project sends no preview source and starts previewing its first document without a reload", async () => {
+  const h = await setup({ ready: false, initialPath: null });
+  await h.clock.advance(500);
+  h.poll();
+  await h.clock.advance(500);
+  assert.deepEqual(h.pushes, []);
+  assert.deepEqual(h.focuses, []);
+
+  const document = "\\documentclass{article}\n\\begin{document}Hello\\end{document}";
+  h.switchFile("/project/main.tex", document);
+  h.poll();
+  await h.clock.advance(16);
+  assert.equal(h.pushes.length, 1);
+  assert.equal(h.pushes[0].payload.workspaceRoot, "/project");
+  assert.equal(h.pushes[0].payload.rootFile, "/project/main.tex");
+  assert.equal(h.pushes[0].payload.fresh, true);
+  assert.equal(pushedText(h.pushes[0]), document);
+
+  h.edit(document.replace("Hello", "Edited"));
+  await h.clock.advance(32);
+  assert.deepEqual(h.pushes.map(pushedText), [document, document.replace("Hello", "Edited")]);
+  assert.equal(h.pushes[1].payload.fresh, false);
+});
 
 test("initial binding and startup coalesce into one push at 16ms", async () => {
   const h = await setup({ ready: false });
