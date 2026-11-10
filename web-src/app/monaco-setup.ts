@@ -1,6 +1,6 @@
 import { attachSnippetEditor } from "./snippets-ui.js";
-import { attachZoteroEditor } from "./zotero-ui.js";
-import { attachArxivSearch } from "./arxiv-search-ui.js";
+import { attachCitationEditor } from "./zotero-ui.js";
+import { installEditorContextMenu } from "./editor-context-menu.js";
 import type { AppContext } from "./context.js";
 import { uiText } from "./i18n.js";
 import { aiText } from "./ai-i18n.js";
@@ -191,7 +191,7 @@ export const initMonacoSetup = (
     ["vs/editor/editor.main"],
     () => {
       if (!monacoWindow.monaco || !monacoWindow.monaco.editor) {
-        deps.updateFallback(uiText("Monaco initialization failed.", "Monacoの初期化に失敗しました。"));
+        deps.updateFallback(uiText("Monaco initialization failed.", "Monacoを初期化できませんでした。"));
         return;
       }
 
@@ -476,8 +476,7 @@ export const initMonacoSetup = (
         );
 
         attachSnippetEditor(editor, monacoWindow.monaco);
-        attachZoteroEditor(editor, () => group.currentFilePath);
-        attachArxivSearch(editor, group);
+        attachCitationEditor(editor, () => group.currentFilePath);
 
         // Selection → Axiom: the context-menu entry (⌘K) and a small button
         // that floats at the end of a selection in a .tex file. Both open the
@@ -573,7 +572,7 @@ export const initMonacoSetup = (
 
         (editor as any).addAction?.({
           id: "tex64.pro-canvas-edit",
-          label: uiText("Edit figure in canvas", "図をキャンバスで編集"),
+          label: uiText("Edit in canvas", "キャンバスで編集"),
           contextMenuGroupId: "9_ai",
           contextMenuOrder: 2,
           run: () => {
@@ -581,7 +580,7 @@ export const initMonacoSetup = (
             const position = editor.getPosition?.();
             const lines = model?.getValue?.().split(/\r?\n/);
             const decoded = lines && position ? decodeFigureBlockAt(lines, position.lineNumber - 1) : null;
-            if (decoded?.detached && !window.confirm(uiText("This figure's code has been edited by hand. Updating it from the canvas will discard those edits. Continue?", "この図のコードは手編集されています。キャンバスで更新すると手編集分は失われます。続けますか？"))) return;
+            if (decoded?.detached && !window.confirm(uiText("Discard manual edits and update from the canvas?", "手編集を破棄してキャンバスで更新しますか？"))) return;
             window.dispatchEvent(new CustomEvent("tex64:pro-canvas-open", {
               detail: decoded ? {
                 scene: decoded.scene,
@@ -623,7 +622,7 @@ export const initMonacoSetup = (
         if (spellChecker) {
           (editor as any).addAction?.({
             id: "tex64.spell.addWordToDictionary",
-            label: uiText("Add word to dictionary", "単語を辞書に追加"),
+            label: uiText("Add to dictionary", "辞書に追加"),
             contextMenuGroupId: "9_spell",
             contextMenuOrder: 1,
             run: () => {
@@ -631,6 +630,29 @@ export const initMonacoSetup = (
             },
           });
         }
+
+        // The right-click menu: grouped, translated, and with the items that
+        // apply only somewhere shown only there. Draw (toolbar) still opens a
+        // new canvas anywhere; the command palette still adds any word.
+        installEditorContextMenu(editor, {
+          applies: {
+            "tex64.spell.addWordToDictionary": () => {
+              const model = (editor as any).getModel?.();
+              const position = editor.getPosition?.();
+              if (!model || !position) return false;
+              const markers = (monacoWindow.monaco as any)?.editor?.getModelMarkers?.({ owner: "spell", resource: model.uri }) ?? [];
+              return markers.some((marker: any) =>
+                marker.startLineNumber === position.lineNumber &&
+                marker.startColumn <= position.column &&
+                position.column <= marker.endColumn);
+            },
+            "tex64.pro-canvas-edit": () => {
+              const position = editor.getPosition?.();
+              const lines = (editor as any).getModel?.()?.getValue?.().split(/\r?\n/);
+              return Boolean(lines && position && decodeFigureBlockAt(lines, position.lineNumber - 1));
+            },
+          },
+        });
       };
 
       if (editorHost instanceof HTMLElement) {
@@ -658,7 +680,7 @@ export const initMonacoSetup = (
       document.body.classList.add("has-editor");
     },
     () => {
-      deps.updateFallback(uiText("Failed to load Monaco.", "Monacoの読み込みに失敗しました。"));
+      deps.updateFallback(uiText("Failed to load Monaco.", "Monacoを読み込めませんでした。"));
     }
   );
 

@@ -27,7 +27,7 @@ export const createFilePreviewBroker = (postToNative) => {
     const requestPreview = (path) => {
         const trimmed = typeof path === "string" ? path.trim() : "";
         if (!trimmed) {
-            return Promise.resolve({ ok: false, error: uiText("path is empty.", "path が空です。") });
+            return Promise.resolve({ ok: false, error: uiText("path is empty.", "pathが空です。") });
         }
         const cacheKey = `${workspaceScopeKey}\0${trimmed}`;
         const cached = cache.get(cacheKey);
@@ -62,7 +62,7 @@ export const createFilePreviewBroker = (postToNative) => {
         pending.delete(payload.requestId);
         window.clearTimeout(entry.timeoutId);
         if (!payload.ok) {
-            entry.resolve({ ok: false, error: (_a = payload.error) !== null && _a !== void 0 ? _a : uiText("Preview failed.", "プレビューに失敗しました。") });
+            entry.resolve({ ok: false, error: (_a = payload.error) !== null && _a !== void 0 ? _a : uiText("Preview failed.", "プレビューできませんでした。") });
             return;
         }
         const data = typeof payload.data === "string" ? payload.data : "";

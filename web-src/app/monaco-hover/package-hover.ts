@@ -136,28 +136,18 @@ const KNOWN_PACKAGE_HINTS: Record<string, string> = {
   jlreq: "Japanese class following JLReq",
 };
 
-export const buildPackageHoverMarkdown = (
-  pkgName: string,
-  commandName: "usepackage" | "RequirePackage" | "documentclass"
-) => {
+export const buildPackageHoverMarkdown = (pkgName: string) => {
   const normalized = pkgName.trim();
   if (!normalized) {
     return null;
   }
   const hint = KNOWN_PACKAGE_HINTS[normalized.toLowerCase()];
   const encoded = encodeURIComponent(normalized);
-  const lines = [
+  return [
     `\`${normalized}\``,
     hint ? `${hint}` : null,
     `[CTAN](https://ctan.org/pkg/${encoded})`,
     `\`texdoc ${normalized}\``,
-  ].filter(Boolean);
-  const syntax =
-    commandName === "documentclass"
-      ? "\\documentclass[options]{class}"
-      : commandName === "RequirePackage"
-        ? "\\RequirePackage[options]{package}"
-        : "\\usepackage[options]{package}";
-  return [`\`\`\`tex\n${syntax}\n\`\`\``, ...lines].join("\n");
+  ].filter(Boolean).join("\n");
 };
 

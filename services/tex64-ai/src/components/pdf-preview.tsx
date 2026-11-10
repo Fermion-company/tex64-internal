@@ -117,6 +117,8 @@ export interface PdfPreviewProps {
   pointSelectionActive?: boolean;
   emptyHint?: string;
   buildFailed?: boolean;
+  /** One line in flow under the toolbar (the build failure); never covers the page. */
+  notice?: ReactNode;
   /** Card anchored just below the selected region (編集カード). */
   selectionCard?: ReactNode;
   /** Extra control at the toolbar's right end (e.g. the build button). */
@@ -181,6 +183,7 @@ export function PdfPreview({
   pointSelectionActive,
   emptyHint = "まだ紙面がありません",
   buildFailed = false,
+  notice = null,
   selectionCard = null,
   toolbarAction = null,
   onExport,
@@ -788,6 +791,7 @@ export function PdfPreview({
         <button aria-label="次の検索結果" disabled={!searchHits.length} onClick={() => moveHit(1)}><ChevronRight size={16} /></button>
         <button aria-label="検索を閉じる" onClick={() => { setSearchOpen(false); setQuery(""); }}><X size={16} /></button>
       </div> : null}
+      {notice}
       {printError ? <div role="alert" className={styles.errorBanner}>{printError}</div> : null}
       <div className={styles.stage}>
         {failed && !buildFailed && !refreshing ? (

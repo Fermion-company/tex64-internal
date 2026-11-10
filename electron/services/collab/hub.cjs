@@ -23,6 +23,7 @@ const relay = require("./relay-transport.cjs");
 const invite = require("./invite.cjs");
 const { WorkspaceManifest, safeRelativePath, resolveInsideRoot, looksTextByName, hashBuffer, extensionOf, MAX_TEXT_BYTES, MAX_BINARY_BYTES } = require("./manifest.cjs");
 const { DiskSync, DISK_ORIGIN } = require("./disk-sync.cjs");
+const { acquireMirror } = require("./mirror-lock.cjs");
 
 const SESSION_DOC = "$session";
 const RENDERER = "renderer";
@@ -342,12 +343,17 @@ class CollabHub extends EventEmitter {
       session.access = hello.access === "view" ? "view" : "edit";
       session.diskSync.readOnly = session.access === "view";
       const collabRoot = path.resolve(this.deps.collabRoot());
-      session.rootPath = path.join(collabRoot, `${safeSessionFolderName(session.name)}-${session.id.slice(0, 8)}`);
-      if (path.dirname(session.rootPath) !== collabRoot || [".", ".."].includes(path.basename(session.rootPath))) {
+      const preferredRoot = path.join(collabRoot, `${safeSessionFolderName(session.name)}-${session.id.slice(0, 8)}`);
+      if (path.dirname(preferredRoot) !== collabRoot || [".", ".."].includes(path.basename(preferredRoot))) {
         throw Object.assign(new Error(text(this.deps.locale(), "The host refused this link.", "ホストがこのリンクを受け付けませんでした。")), { code: "COLLAB_REFUSED" });
       }
-      await fsp.mkdir(collabRoot, { recursive: true });
-      if ((await fsp.lstat(session.rootPath).catch(() => null))?.isSymbolicLink()) {
+      try {
+        // Claim before yielding: incoming doc frames must never read or
+        // preserve files from a mirror another process is still writing.
+        session.mirrorLock = acquireMirror(preferredRoot);
+        session.rootPath = session.mirrorLock.rootPath;
+      } catch (error) {
+        if (error.code !== "COLLAB_REFUSED") throw error;
         throw Object.assign(new Error(text(this.deps.locale(), "The host refused this link.", "ホストがこのリンクを受け付けませんでした。")), { code: "COLLAB_REFUSED" });
       }
       const rejoining = await fsp.readdir(session.rootPath).then((names) => names.some((name) => name !== ".tex64")).catch(() => false);
@@ -575,6 +581,8 @@ class CollabHub extends EventEmitter {
     session.rendererDocs.clear();
     session.peers.clear();
     if (session.resolveWelcome) session.resolveWelcome = null;
+    // Also reached by the app's quit coordinator and by a failed join.
+    session.mirrorLock?.release();
   }
 
   async flush() {
@@ -952,7 +960,7 @@ class CollabHub extends EventEmitter {
       const parts = [];
       if (reduced) parts.push(text(this.deps.locale(), `${reduced} shared as a smaller copy`, `画質を落として共有されているファイルが ${reduced} 件`));
       if (skipped) parts.push(text(this.deps.locale(), `${skipped} too large to share`, `大きすぎて共有されていないファイルが ${skipped} 件`));
-      this.notice(text(this.deps.locale(), `Large files: ${parts.join(", ")}. The Collaborate dialog lists them.`, `${parts.join("、")}あります。共同編集のダイアログに一覧があります。`));
+      this.notice(text(this.deps.locale(), `Large files: ${parts.join(", ")}.`, `${parts.join("、")}あります。`));
     }
   }
 
@@ -992,7 +1000,7 @@ class CollabHub extends EventEmitter {
       this.notice(text(
         this.deps.locale(),
         `${relative} is larger than ${limit}, so a smaller copy (${formatBytes(entry.size)} → ${formatBytes(reduced.size)}) is shared; your file is unchanged.`,
-        `${relative} は ${limit} を超えるため、画質を落とした写し（${formatBytes(entry.size)} → ${formatBytes(reduced.size)}）を共有しています。手元のファイルはそのままです。`,
+        `${relative} は ${limit} を超えるため、縮小版（${formatBytes(entry.size)} → ${formatBytes(reduced.size)}）を共有しています。手元のファイルはそのままです。`,
       ));
     }
     return { kind: "binary", hash: reduced.hash, size: reduced.size, from: entry.hash, original: entry.size, by };

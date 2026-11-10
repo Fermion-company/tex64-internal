@@ -129,8 +129,7 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
 
   const renderDiffHeader = () => {
     if (diffTitle instanceof HTMLElement) {
-      diffTitle.textContent =
-        diffContext?.type === "block" ? "Confirm changes (format after finalization)" : "Confirm changes";
+      diffTitle.textContent = "Changes";
     }
     if (diffFileName instanceof HTMLElement) {
       const activePath = deps.getActiveFilePath();
@@ -437,7 +436,7 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
     resetDiffEditor();
 
     if (diffTitle instanceof HTMLElement) {
-      diffTitle.textContent = options?.title ?? "Confirm changes";
+      diffTitle.textContent = options?.title ?? "Changes";
     }
     if (diffFileName instanceof HTMLElement) {
       diffFileName.textContent = files.length === 1 ? files[0].fileName : `${files.length} files`;
@@ -590,7 +589,7 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
       diffFileName.textContent = "";
     }
     if (diffTitle instanceof HTMLElement) {
-      diffTitle.textContent = "Confirm changes";
+      diffTitle.textContent = "Changes";
     }
     if (diffModalSubmit instanceof HTMLButtonElement) {
       diffModalSubmit.textContent = defaultDiffSubmitLabel;

@@ -63,7 +63,7 @@ export const createMathWysiwygPanelOps = (state: MathWysiwygPanelState): MathWys
       return;
     }
     const margin = 8;
-    const offset = 20;
+    const offset = 8;
     const maxWidth = Math.max(160, hostRect.width - margin * 2);
 
     state.panel.style.position = "absolute";
@@ -151,12 +151,13 @@ export const createMathWysiwygPanelOps = (state: MathWysiwygPanelState): MathWys
       symbol.textContent = candidate.label;
     }
 
-    const label = document.createElement("span");
-    label.className = "math-wysiwyg-label";
-    label.textContent = candidate.hint;
-
     button.appendChild(symbol);
-    button.appendChild(label);
+    if (candidate.hint) {
+      const label = document.createElement("span");
+      label.className = "math-wysiwyg-label";
+      label.textContent = candidate.hint;
+      button.appendChild(label);
+    }
 
     button.addEventListener("pointerdown", (event) => {
       event.preventDefault();

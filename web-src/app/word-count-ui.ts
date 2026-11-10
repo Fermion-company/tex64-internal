@@ -1,8 +1,10 @@
-// File › Word Count…: one dialog with the counts of the document the active
-// file belongs to (main file and every file it reads), of the active file
-// when that is only part of it, and of the selection. Counting happens in
-// the main process (electron/services/word-count.cjs) on the saved files,
-// with the unsaved editor buffers sent along.
+// File › Word Count…: a small popover with the counts of the document the
+// active file belongs to (main file and every file it reads), of the active
+// file when that is only part of it, and of the selection. It hangs from what
+// opened it, or from the top-right of the editor for a menu or command; no
+// backdrop, and Esc or a click outside closes it. Counting happens in the main
+// process (electron/services/word-count.cjs) on the saved files, with the
+// unsaved editor buffers sent along.
 
 import { getUiLocale, uiText } from "./i18n.js";
 import { explainedHeading } from "./explain.js";
@@ -24,8 +26,10 @@ export const initWordCountUi = (deps: {
   editorSession: () => EditorSessionApi;
   documentFor: (path: string) => string | undefined;
 }) => {
-  let dialog: HTMLDialogElement | null = null;
-  // Changing the scope rebuilds the dialog; the title's ▾ stays as the user left it.
+  let dialog: HTMLElement | null = null;
+  let anchor: HTMLElement | null = null;
+  let returnFocus: HTMLElement | null = null;
+  // Changing the scope rebuilds the popover; the title's ▾ stays as the user left it.
   const explainOpen = new Set<string>();
 
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = "") => {
@@ -49,18 +53,17 @@ export const initWordCountUi = (deps: {
 
   const render = (result: CountResult | null, activePath: string | null) => {
     if (!dialog) return;
-    const eyebrow = el("p", "tool-dialog-eyebrow", "Word count");
     let titleExplain = "";
     const title = el("h2", "tool-dialog-title", uiText("Word Count", "文字数"));
     title.id = "word-count-title";
     dialog.setAttribute("aria-labelledby", title.id);
     const body = el("div", "word-count-body");
     if (!result) {
-      body.append(el("p", "tool-dialog-note", uiText("Counting…", "数えています…")));
+      body.append(el("p", "tool-dialog-note", uiText("Counting…", "集計中…")));
     } else if (!result.ok) {
       body.append(el("p", "tool-dialog-error", result.error || uiText("Could not count.", "数えられませんでした。")));
     } else if (!result.document && !result.selection) {
-      body.append(el("p", "tool-dialog-note", uiText("Open a .tex file first.", ".tex ファイルを開いてください。")));
+      body.append(el("p", "tool-dialog-note", uiText("Open a .tex file first.", ".texファイルを開いてください。")));
     } else {
       const documentCounts = result.document && result.document.files.length ? result.document : null;
       // "This file" only for a part of the document, not for its main file.
@@ -72,14 +75,6 @@ export const initWordCountUi = (deps: {
       if (active) scopes.push({ id: "file", label: uiText("This file", "このファイル"), counts: active });
       if (result.selection) scopes.push({ id: "selection", label: uiText("Selection", "選択範囲"), counts: result.selection });
       if (!scopes.some((entry) => entry.id === scope)) scope = scopes[0].id;
-      if (documentCounts) {
-        const others = documentCounts.files.length - 1;
-        const detail = el("span", "tool-dialog-eyebrow-detail", others > 0
-          ? `· ${documentCounts.mainFile} + ${others}`
-          : `· ${documentCounts.mainFile}`);
-        detail.dataset.noI18n = "true";
-        eyebrow.append(detail);
-      }
       if (scopes.length > 1) {
         const switcher = el("div", "tool-segmented word-count-scopes");
         switcher.setAttribute("role", "group");
@@ -97,7 +92,7 @@ export const initWordCountUi = (deps: {
         body.append(switcher);
       }
       const counts = scopes.find((entry) => entry.id === scope)!.counts;
-      const characters = stat(number(counts.characters), uiText("Characters (no spaces)", "文字（空白を除く）"), true);
+      const characters = stat(number(counts.characters), uiText("Characters", "文字"), true);
       const words = stat(number(counts.words), uiText("Words", "単語"), true);
       const grid = el("div", "word-count-stats");
       // The measure Japanese manuscripts use comes first in Japanese.
@@ -107,31 +102,76 @@ export const initWordCountUi = (deps: {
         stat(`${number(counts.inlineMath)} / ${number(counts.displayMath)}`, uiText("Math (inline / display)", "数式（行内 / 別行）")),
       );
       body.append(grid);
-      const scopeNote = scope === "document" && documentCounts && documentCounts.files.length > 1
-        ? uiText(`${documentCounts.mainFile} and the ${documentCounts.files.length - 1} file${documentCounts.files.length === 2 ? "" : "s"} it reads. `, `${documentCounts.mainFile} と読み込み先 ${documentCounts.files.length - 1} ファイル。`)
-        : "";
       // Which files were counted is state; what is left out waits behind the title's ▾.
-      if (scopeNote) {
-        const note = el("p", "tool-dialog-note", scopeNote.trim());
+      if (scope === "document" && documentCounts) {
+        const { mainFile } = documentCounts;
+        const others = documentCounts.files.length - 1;
+        const note = el("p", "tool-dialog-note", others > 0
+          ? uiText(`${mainFile} + ${others} file${others === 1 ? "" : "s"}`, `${mainFile} + ${others}ファイル`)
+          : mainFile);
         note.dataset.noI18n = "true";
         body.append(note);
       }
-      titleExplain = uiText("Comments, math and commands are not counted.", "コメント・数式・コマンドは数えません。");
+      titleExplain = uiText("Spaces, comments, math and commands are not counted.", "空白・コメント・数式・コマンドは数えません。");
     }
-    const actions = el("div", "tool-dialog-actions");
-    const close = el("button", "tool-button", uiText("Close", "閉じる"));
-    close.type = "button";
-    close.addEventListener("click", () => dialog?.close());
-    close.dataset.focusKey = "close";
-    actions.append(close);
-    // Changing the scope rebuilds the dialog: focus stays on the control the
-    // user was on; Close takes it on opening.
+    // Changing the scope rebuilds the popover: focus stays on the control the
+    // user was on. On opening the popover itself holds focus (Esc closes it),
+    // so no ring is drawn before the user has done anything.
     const focusMark = markFocus(dialog);
-    dialog.replaceChildren(eyebrow, ...(titleExplain ? explainedHeading(title, titleExplain, { memory: explainOpen, key: "title" }) : [title]), body, actions);
-    if (!restoreFocus(dialog, focusMark)) close.focus();
+    dialog.replaceChildren(...(titleExplain ? explainedHeading(title, titleExplain, { memory: explainOpen, key: "title" }) : [title]), body);
+    if (!restoreFocus(dialog, focusMark)) {
+      dialog.tabIndex = -1;
+      dialog.focus({ preventScroll: true });
+    }
+    place();
   };
 
-  const open = async () => {
+  // Below the control that opened it, right edges aligned; else the top-right
+  // corner of the editor. Always inside the window.
+  const place = () => {
+    if (!dialog) return;
+    const margin = 8;
+    const width = dialog.offsetWidth;
+    const height = dialog.offsetHeight;
+    const editor = document.querySelector<HTMLElement>(".editor-group.is-active .editor-surface")
+      ?? document.getElementById("editor-groups");
+    const from = anchor?.isConnected ? anchor.getBoundingClientRect() : null;
+    const area = editor?.getBoundingClientRect();
+    let right = from ? from.right : area && area.width ? area.right - margin : window.innerWidth - margin;
+    let top = from ? from.bottom + 6 : area && area.height ? area.top + margin : margin;
+    right = Math.min(Math.max(right, width + margin), window.innerWidth - margin);
+    top = Math.min(Math.max(top, margin), Math.max(margin, window.innerHeight - height - margin));
+    dialog.style.left = `${Math.round(right - width)}px`;
+    dialog.style.top = `${Math.round(top)}px`;
+  };
+
+  // Esc hands focus back to where it was; a click outside leaves it where it lands.
+  const close = (restore = false) => {
+    if (!dialog) return;
+    dialog.remove();
+    dialog = null;
+    anchor = null;
+    explainOpen.clear();
+    document.removeEventListener("pointerdown", onPointerDown, true);
+    document.removeEventListener("keydown", onKeyDown, true);
+    window.removeEventListener("resize", place);
+    const target = returnFocus;
+    returnFocus = null;
+    if (restore && target?.isConnected) target.focus({ preventScroll: true });
+  };
+  const onPointerDown = (event: PointerEvent) => {
+    const target = event.target as Node | null;
+    if (dialog && target && !dialog.contains(target) && !anchor?.contains(target)) close();
+  };
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "Escape" || !dialog) return;
+    event.preventDefault();
+    event.stopPropagation();
+    close(true);
+  };
+
+  // `from`: the control that opened the popover, when there is one.
+  const open = async (from: HTMLElement | null = null) => {
     if (!bridge) return;
     const editorSession = deps.editorSession();
     const activePath = editorSession.getActiveFilePath();
@@ -140,15 +180,15 @@ export const initWordCountUi = (deps: {
     for (const snapshot of editorSession.getOpenFileSnapshots({ onlyDirty: true, maxFiles: 0, maxChars: 8 * 1024 * 1024 }).snapshots) {
       if (!snapshot.truncated) buffers[snapshot.path] = snapshot.content;
     }
+    anchor = from;
     if (!dialog) {
-      dialog = el("dialog", "tool-dialog word-count-dialog");
-      dialog.addEventListener("close", () => {
-        dialog?.remove();
-        dialog = null;
-        explainOpen.clear();
-      });
+      returnFocus = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+      dialog = el("div", "tool-dialog word-count-dialog word-count-popover");
+      dialog.setAttribute("role", "dialog");
       document.body.append(dialog);
-      dialog.showModal();
+      document.addEventListener("pointerdown", onPointerDown, true);
+      document.addEventListener("keydown", onKeyDown, true);
+      window.addEventListener("resize", place);
     }
     scope = "document";
     render(null, activePath);

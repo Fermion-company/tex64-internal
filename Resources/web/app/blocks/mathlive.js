@@ -1,4 +1,4 @@
-import { onUiLocaleChange } from "../i18n.js";
+import { onUiLocaleChange, setLocalizedAttribute } from "../i18n.js";
 import { closeMathfieldInternalMenu } from "../../math/mathfield-private-adapter.js";
 export const initMathLive = (context, deps) => {
     const { blockMathInputContainer } = context.dom;
@@ -169,7 +169,7 @@ export const initMathLive = (context, deps) => {
                 const debugInfo = `MathLive: ${hasMathLive ? "OK" : "NG"}, MathfieldElement: ${hasMathfieldElement ? "OK" : "NG"}, LoadError: ${loadError || "none"}`;
                 scheduleSetupRetry();
                 if (!existingFallback) {
-                    createMathInputFallback("MathLive loading...", preservedValue);
+                    createMathInputFallback("MathLive loading…", preservedValue);
                 }
                 try {
                     await Promise.race([
@@ -198,7 +198,7 @@ export const initMathLive = (context, deps) => {
             const mathfield = document.createElement("math-field");
             mathfield.id = "block-math-input";
             mathfield.className = "block-math-field";
-            mathfield.setAttribute("placeholder", "Enter formula");
+            setLocalizedAttribute(mathfield, "placeholder", "Enter formula");
             const scrollHost = document.createElement("div");
             scrollHost.className = "block-math-scroll";
             scrollHost.appendChild(mathfield);

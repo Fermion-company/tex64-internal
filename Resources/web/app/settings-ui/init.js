@@ -3,7 +3,6 @@ import { tex64Url } from "../platform-links.js";
 import { getUiLocale } from "../i18n.js";
 import { createSettingsUiRuntime } from "./runtime.js";
 import { initSettingsUiLocale } from "./ui-locale.js";
-import { createSettingsAttentionOps } from "./attention.js";
 import { createSettingsEngineOps } from "./engine-ops.js";
 import { createSettingsFormatOps } from "./format-ops.js";
 import { createSettingsEditorPreferenceOps } from "./editor-preferences-ops.js";
@@ -18,14 +17,13 @@ import { openExternalUrl } from "./utils.js";
 export const initSettingsUi = (context, deps) => {
     const runtime = createSettingsUiRuntime(context, deps);
     initSettingsUiLocale(runtime);
-    const attentionOps = createSettingsAttentionOps(runtime);
     const engineOps = createSettingsEngineOps(runtime);
     const formatOps = createSettingsFormatOps(runtime);
     const editorPrefOps = createSettingsEditorPreferenceOps(runtime);
-    const envOps = createSettingsEnvOps(runtime, attentionOps);
+    const envOps = createSettingsEnvOps(runtime);
     const platformAuthOps = createSettingsPlatformAuthOps(runtime);
     const accountUsageOps = createSettingsAccountUsageOps(runtime);
-    const platformUpdateOps = createSettingsPlatformUpdateOps(runtime, attentionOps);
+    const platformUpdateOps = createSettingsPlatformUpdateOps(runtime);
     const feedbackOps = createSettingsFeedbackOps(runtime);
     const appearanceOps = createSettingsAppearanceOps(runtime);
     const buildProfilesUi = initBuildProfilesUi(context, {
@@ -35,7 +33,7 @@ export const initSettingsUi = (context, deps) => {
         postToNative: deps.postToNative,
         onActiveEngineChange: (engine) => engineOps.setProfileEngine(engine),
     });
-    const pageNavOps = createSettingsPageNavOps(runtime, attentionOps, {
+    const pageNavOps = createSettingsPageNavOps(runtime, {
         checkEnvironmentStatus: envOps.checkEnvironmentStatus,
         updateRuntimeOnboardingUi: envOps.updateRuntimeOnboardingUi,
         maybeRequestPlatformUpdateCheck: platformUpdateOps.maybeRequestPlatformUpdateCheck,
@@ -88,7 +86,7 @@ export const initSettingsUi = (context, deps) => {
         if (typeof patch.compileEngine === "string") {
             engineOps.setCompileEngine(patch.compileEngine);
         }
-        if (patch.appearanceTheme === "dark" || patch.appearanceTheme === "light") {
+        if (patch.appearanceTheme === "dark" || patch.appearanceTheme === "light" || patch.appearanceTheme === "system") {
             appearanceOps.setAppearanceThemeState(patch.appearanceTheme);
         }
         if (typeof patch.wordWrapEnabled === "boolean") {

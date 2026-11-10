@@ -112,7 +112,7 @@ export const createMathCaptureHandler = (params) => {
         catch (error) {
             const msg = error instanceof Error
                 ? uiText(`Recognition failed - ${error.message}`, `Recognition failed — ${error.message}`)
-                : uiText("Recognition failed", "認識に失敗しました");
+                : uiText("Recognition failed", "認識できませんでした");
             return { ok: false, error: msg };
         }
         finally {

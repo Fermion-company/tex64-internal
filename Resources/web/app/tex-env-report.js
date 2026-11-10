@@ -1,41 +1,37 @@
 import { uiText } from "./i18n.js";
 import { createExplain } from "./explain.js";
-// One line naming what was found and where, so a user with an existing MacTeX
-// can see we are using *their* install rather than wondering what we did.
+// The distribution's name. Whose install it is and where it lives go to the
+// line's tooltip (describeDetectionSource), so a user with an existing MacTeX
+// can still check we are using *their* install.
 export const describeDetection = (report) => {
     if (!report) {
         return "";
     }
     if (!report.hasEngine) {
-        return uiText("No TeX distribution was found on this computer.", "この環境に TeX は見つかりませんでした。");
+        return uiText("No TeX distribution was found on this computer.", "この環境にTeXは見つかりませんでした。");
     }
-    const name = report.distribution.name;
-    const where = report.source === "managed"
-        ? uiText("installed by TeX64", "TeX64 が導入した環境")
-        : uiText("already on this computer", "この環境に既にあるもの");
-    const detail = `${name} — ${where}`;
-    if (report.distribution.root) {
-        return `${detail}\n${report.distribution.root}`;
-    }
-    return detail;
+    return report.distribution.name;
 };
-// What the coverage probe means in words. "on-demand" can still describe an
-// externally installed MiKTeX tree or TeX64's lightweight managed tree.
+export const describeDetectionSource = (report) => {
+    if (!(report === null || report === void 0 ? void 0 : report.hasEngine)) {
+        return "";
+    }
+    const where = report.source === "managed"
+        ? uiText("installed by TeX64", "TeX64が導入した環境")
+        : uiText("already on this computer", "この環境に既にあるもの");
+    return [where, report.distribution.root].filter(Boolean).join("\n");
+};
+// The coverage probe in words, only for the levels that stop documents from
+// building; every other level returns "".
 export const describeCoverage = (report) => {
     if (!report || !report.hasEngine) {
         return "";
     }
     switch (report.coverage.level) {
-        case "full":
-            return uiText("Full package set — everything from CTAN is available.", "フルパッケージ — CTAN の全パッケージが使えます。");
-        case "on-demand":
-            return uiText("Missing packages are downloaded automatically the first time a document needs them.", "足りないパッケージは、初めて必要になったときに自動で取得されます。");
-        case "recommended":
-            return uiText("Common packages are available; a few specialist ones are not installed.", "よく使うパッケージは揃っています（一部の専門パッケージは未導入）。");
         case "minimal":
             return uiText("This is a minimal package set — common packages are missing.", "パッケージが最小構成です。よく使うパッケージが不足しています。");
         case "broken":
-            return uiText("Core LaTeX packages are missing, so most documents will not build.", "LaTeX の基本パッケージが欠けています。多くの文書はビルドできません。");
+            return uiText("Core LaTeX packages are missing, so most documents will not build.", "LaTeXの基本パッケージが欠けています。多くの文書はビルドできません。");
         default:
             return "";
     }
@@ -45,17 +41,17 @@ export const INSTALL_VARIANT_LABELS = {
         return {
             badge: uiText("Recommended", "おすすめ"),
             title: uiText("Quick setup", "すぐにセットアップ"),
-            detail: uiText("Official TinyTeX-1, managed privately by TeX64. Missing packages are added automatically.", "TeX64 専用の公式 TinyTeX-1 です。足りないパッケージは自動で追加します。"),
-            size: uiText("about 70 MB download · about 300 MB installed · usually 1–3 min", "ダウンロード約 70 MB・使用容量約 300 MB・通常 1〜3 分"),
+            detail: uiText("Official TinyTeX-1, managed privately by TeX64. Missing packages are added automatically.", "TeX64専用の公式TinyTeX-1です。足りないパッケージは自動で追加します。"),
+            size: uiText("about 70 MB download · about 300 MB installed · usually 1–3 min", "ダウンロード約70 MB・使用容量約300 MB・通常1〜3分"),
         };
     },
     get full() {
         return {
             badge: "",
-            title: uiText("Install TeX Live", "TeX Live を導入"),
-            detail: uiText("Every CTAN package, managed privately by TeX64.", "CTAN の全パッケージを TeX64 専用の場所に導入します。"),
+            title: uiText("Install TeX Live", "TeX Liveを導入"),
+            detail: uiText("Every CTAN package, managed privately by TeX64.", "CTANの全パッケージをTeX64専用の場所に導入します。"),
             // measured 2026-09-30: install-tl, scheme-full, 72 min at about 40 Mbps
-            size: uiText("about 5 GB · 30 min–2 h", "約 5 GB・30 分〜2 時間"),
+            size: uiText("about 5 GB · 30 min–2 h", "約5 GB・30分〜2時間"),
         };
     },
 };

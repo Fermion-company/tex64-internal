@@ -1,8 +1,10 @@
 import { uiText } from "./i18n.js";
+const NOT_SHOWN = () => "";
 const rules = [
     {
         test: (_issue, message) => message.includes("work space"),
         resolution: () => uiText("Select a working folder from \"Open Folder\".", "Select the working folder from \"Open Folder\"."),
+        shown: NOT_SHOWN,
     },
     {
         test: (_issue, message) => message.includes("Native integration"),
@@ -10,15 +12,15 @@ const rules = [
     },
     {
         test: (issue, message) => issue.action === "open-runtime" || message.includes("TeX environment"),
-        resolution: () => uiText("Open Settings > Environment and click \"Install\" for the missing tool.", "Open Settings > Environment and click \"Install\" for missing tools."),
+        resolution: () => uiText("Open Settings > Build and click \"Install\" for the missing tool.", "Open Settings > Build and click \"Install\" for missing tools."),
     },
     {
         test: (_issue, message) => message.includes("latexmk"),
-        resolution: () => uiText("Check the status of latexmk in Settings > Environment and click \"Install\".", "設定 > 環境 で latexmk の状態を確認し、「インストール」をクリックしてください。"),
+        resolution: () => uiText("Check the status of latexmk in Settings > Build and click \"Install\".", "設定 > ビルド でlatexmkの状態を確認し、「インストール」をクリックしてください。"),
     },
     {
         test: (_issue, message) => message.includes("latexindent"),
-        resolution: () => uiText("Check the status of latexindent in Settings > Environment. You can turn formatting off in settings if needed.", "Check the status of latexindent in Settings > Environment. You can disable formatting in settings if not needed."),
+        resolution: () => uiText("Check the status of latexindent in Settings > Build. You can turn formatting off in settings if needed.", "Check the status of latexindent in Settings > Build. You can disable formatting in settings if not needed."),
     },
     {
         test: (_issue, message) => message.includes("Format"),
@@ -26,11 +28,12 @@ const rules = [
     },
     {
         test: (_issue, message) => message.includes("Failed to start build"),
-        resolution: () => uiText("Check that TeX Distribution and latexmk are detected in Settings > Environment. Click \"Install\" if they are missing.", "Check that TeX Distribution and latexmk are detected in Settings > Environment. Click \"Install\" if not detected."),
+        resolution: () => uiText("Check that TeX Distribution and latexmk are detected in Settings > Build. Click \"Install\" if they are missing.", "Check that TeX Distribution and latexmk are detected in Settings > Build. Click \"Install\" if not detected."),
     },
     {
         test: (_issue, message) => message.includes("build failed"),
         resolution: () => uiText("Check the build log, fix the relevant file, and rebuild.", "Please check the build log, correct any errors in the relevant file, and rebuild."),
+        shown: NOT_SHOWN,
     },
     {
         test: (_issue, message) => /class\s+revtex4-2\s+warning:\s+no type size specified/i.test(message),
@@ -47,6 +50,7 @@ const rules = [
     {
         test: (_issue, message) => message.includes("PDF not found"),
         resolution: () => uiText("Run a build to generate the PDF.", "Run the build and generate the PDF."),
+        shown: NOT_SHOWN,
     },
     {
         test: (_issue, message) => message.includes("can't open file") || message.includes("not found"),
@@ -58,21 +62,24 @@ const rules = [
     },
     {
         test: (_issue, message) => message.includes("This file format cannot be edited"),
-        resolution: () => uiText("Open a text file such as .tex and edit it.", ".tex などのテキストファイルを開いて編集してください。"),
+        resolution: () => uiText("Open a text file such as .tex and edit it.", ".texなどのテキストファイルを開いて編集してください。"),
+        shown: NOT_SHOWN,
     },
     {
         test: (_issue, message) => message.includes("The block is .tex") || message.includes("Paste is .tex"),
         resolution: () => uiText("Open a .tex file and try again.", "Please open the .tex file and try again."),
+        shown: NOT_SHOWN,
     },
     {
         test: (_issue, message) => message.includes("screen capture"),
-        resolution: () => uiText("Allow TeX64 in System Settings > Privacy & Security > Screen Recording, then restart the app.", "システム設定 > プライバシーとセキュリティ > 画面収録 で TeX64 を許可し、アプリを再起動してください。"),
+        resolution: () => uiText("Allow TeX64 in System Settings > Privacy & Security > Screen Recording, then restart the app.", "システム設定 > プライバシーとセキュリティ > 画面収録 でTeX64を許可し、アプリを再起動してください。"),
     },
     {
         test: (_issue, message) => message.includes("Screen recording") ||
             message.includes("Window list") ||
             message.includes("Captureable window"),
         resolution: () => uiText("Allow TeX64 in System Settings > Privacy & Security > Screen Recording, then restart the app. Click Formula import again to open the settings guide.", "Allow TeX64 in System Settings > Privacy & Security > Screen Recording, then restart the app. Click \"Formula import\" again to open the settings guide."),
+        shown: () => uiText("Allow TeX64 in System Settings > Privacy & Security > Screen Recording, then restart the app.", "システム設定 > プライバシーとセキュリティ > 画面収録 でTeX64を許可し、アプリを再起動してください。"),
     },
     {
         test: (_issue, message) => message.includes("failed to cut"),
@@ -99,36 +106,54 @@ const rules = [
     {
         test: (_issue, message) => message.includes("enter name"),
         resolution: () => uiText("Enter a non-empty name.", "Please enter your name so that it is not blank."),
+        shown: NOT_SHOWN,
     },
     {
         test: (_issue, message) => message.includes("Absolute path cannot be used") ||
             message.includes("Names that include parent directories cannot be used") ||
             message.includes("Trailing / cannot be used") ||
             message.includes("/ cannot be used in name"),
-        resolution: () => uiText("Enter a relative path within the workspace, without / or ..", "Please enter the path relative to your workspace without including / or ..."),
+        resolution: () => uiText("Enter a relative path within the workspace, without / or ..", "ワークスペース内の相対パスで、/ や .. を含めずに入力してください。"),
     },
     {
         test: (_issue, message) => message.includes("Invalid destination"),
         resolution: () => uiText("Check the destination folder and move it somewhere else.", "Please check the destination folder and move to another location."),
+        shown: NOT_SHOWN,
     },
     {
         test: (_issue, message) => message.includes("There are unsaved changes"),
         resolution: () => uiText("Save the relevant file before moving or renaming it.", "Please save the relevant file before moving/renaming."),
     },
 ];
+const warningFallback = {
+    test: () => true,
+    resolution: () => uiText("Warnings may not automatically identify the destination. Check the surrounding lines in the build log and fix it.", "Warnings may not be able to automatically identify the destination. Please check the preceding and following lines in the build log and correct it."),
+};
+const errorFallback = {
+    test: () => true,
+    resolution: () => uiText("Check the log and the relevant line, then fix it.", "Please check the log and the relevant line and correct it."),
+    shown: NOT_SHOWN,
+};
+const ruleFor = (issue, message) => {
+    var _a;
+    return (_a = rules.find((rule) => rule.test(issue, message))) !== null && _a !== void 0 ? _a : (issue.severity === "warning" ? warningFallback : errorFallback);
+};
+// For the AI: the advice that goes with each recent problem.
 export const getIssueResolution = (issue) => {
     var _a, _b;
     const message = (_b = (_a = issue.message) === null || _a === void 0 ? void 0 : _a.trim()) !== null && _b !== void 0 ? _b : "";
     if (!message) {
         return null;
     }
-    for (const rule of rules) {
-        if (rule.test(issue, message)) {
-            return rule.resolution();
-        }
+    return ruleFor(issue, message).resolution();
+};
+// For the problem card: what its ▾ opens, "" for no ▾.
+export const getShownIssueResolution = (issue) => {
+    var _a, _b, _c;
+    const message = (_b = (_a = issue.message) === null || _a === void 0 ? void 0 : _a.trim()) !== null && _b !== void 0 ? _b : "";
+    if (!message) {
+        return "";
     }
-    if (issue.severity === "warning") {
-        return uiText("Warnings may not automatically identify the destination. Check the surrounding lines in the build log and fix it.", "Warnings may not be able to automatically identify the destination. Please check the preceding and following lines in the build log and correct it.");
-    }
-    return uiText("Check the log and the relevant line, then fix it.", "Please check the log and the relevant line and correct it.");
+    const rule = ruleFor(issue, message);
+    return ((_c = rule.shown) !== null && _c !== void 0 ? _c : rule.resolution)();
 };

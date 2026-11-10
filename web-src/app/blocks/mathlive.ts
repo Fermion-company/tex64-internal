@@ -1,5 +1,5 @@
 import type { AppContext } from "../context.js";
-import { getUiLocale, onUiLocaleChange } from "../i18n.js";
+import { getUiLocale, onUiLocaleChange, setLocalizedAttribute } from "../i18n.js";
 import { closeMathfieldInternalMenu } from "../../math/mathfield-private-adapter.js";
 
 type MathLiveDeps = {
@@ -244,7 +244,7 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
         }, LoadError: ${loadError || "none"}`;
         scheduleSetupRetry();
         if (!existingFallback) {
-          createMathInputFallback("MathLive loading...", preservedValue);
+          createMathInputFallback("MathLive loading…", preservedValue);
         }
         try {
           await Promise.race([
@@ -272,7 +272,7 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
       const mathfield = document.createElement("math-field") as any;
       mathfield.id = "block-math-input";
       mathfield.className = "block-math-field";
-      mathfield.setAttribute("placeholder", "Enter formula");
+      setLocalizedAttribute(mathfield, "placeholder", "Enter formula");
 
 
       const scrollHost = document.createElement("div");

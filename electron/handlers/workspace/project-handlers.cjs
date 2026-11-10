@@ -1,61 +1,47 @@
-// Per-locale strings for native dialogs (file picker title/message/buttons).
+// Per-locale strings for native dialogs (file picker title/buttons).
 // These show in OS-level chrome that bypasses the renderer's i18n DOM observer,
 // so they must be localized here in the main process.
 const DIALOG_STRINGS = {
   ja: {
-    selectTitle: "プロジェクトを選択",
-    selectMessage: "LaTeX プロジェクト用のフォルダを選択してください。",
+    selectTitle: "プロジェクト",
     selectButton: "選択",
     newTitle: "新規プロジェクト",
-    newMessage: "プロジェクト用のフォルダを作成または選択してください。",
     newButton: "作成",
   },
   en: {
-    selectTitle: "Select project",
-    selectMessage: "Select a folder for your LaTeX project.",
+    selectTitle: "Project",
     selectButton: "Select",
     newTitle: "New project",
-    newMessage: "Create or select a folder for your project.",
     newButton: "Create",
   },
   zh: {
-    selectTitle: "选择项目",
-    selectMessage: "请选择 LaTeX 项目所在的文件夹。",
+    selectTitle: "项目",
     selectButton: "选择",
     newTitle: "新建项目",
-    newMessage: "请创建或选择项目文件夹。",
     newButton: "创建",
   },
   ko: {
-    selectTitle: "프로젝트 선택",
-    selectMessage: "LaTeX 프로젝트 폴더를 선택하세요.",
+    selectTitle: "프로젝트",
     selectButton: "선택",
     newTitle: "새 프로젝트",
-    newMessage: "프로젝트 폴더를 생성하거나 선택하세요.",
     newButton: "생성",
   },
   de: {
-    selectTitle: "Projekt auswählen",
-    selectMessage: "Wählen Sie einen Ordner für Ihr LaTeX-Projekt.",
+    selectTitle: "Projekt",
     selectButton: "Auswählen",
     newTitle: "Neues Projekt",
-    newMessage: "Erstellen oder wählen Sie einen Ordner für Ihr Projekt.",
     newButton: "Erstellen",
   },
   fr: {
-    selectTitle: "Sélectionner un projet",
-    selectMessage: "Sélectionnez un dossier pour votre projet LaTeX.",
+    selectTitle: "Projet",
     selectButton: "Sélectionner",
     newTitle: "Nouveau projet",
-    newMessage: "Créez ou sélectionnez un dossier pour votre projet.",
     newButton: "Créer",
   },
   es: {
-    selectTitle: "Seleccionar proyecto",
-    selectMessage: "Selecciona una carpeta para tu proyecto LaTeX.",
+    selectTitle: "Proyecto",
     selectButton: "Seleccionar",
     newTitle: "Nuevo proyecto",
-    newMessage: "Crea o selecciona una carpeta para tu proyecto.",
     newButton: "Crear",
   },
 };
@@ -205,7 +191,6 @@ const createWorkspaceProjectHandlers = (ctx) => {
       consumeE2eDialogResult("openWorkspace") ??
       (await dialog.showOpenDialog(state.mainWindow, {
         title: strings.selectTitle,
-        message: strings.selectMessage,
         properties: ["openDirectory"],
         buttonLabel: strings.selectButton,
       }));
@@ -317,7 +302,6 @@ const createWorkspaceProjectHandlers = (ctx) => {
       consumeE2eDialogResult("createProject") ??
       (await dialog.showOpenDialog(state.mainWindow, {
         title: strings.newTitle,
-        message: strings.newMessage,
         properties: ["openDirectory", "createDirectory"],
         buttonLabel: strings.newButton,
       }));

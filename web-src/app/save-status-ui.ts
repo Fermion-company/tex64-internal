@@ -1,8 +1,9 @@
-// The Save button shows whether edits are on disk: "Saved" (time in the
-// tooltip), "Save" with a dot while autosave is pending, "Saving…" when a save
-// takes long enough to see, or "Not saved" in red with the reason. A failure
-// also says so under the button, with Retry, since the Issues panel that used
-// to carry it is often closed.
+// The Save button shows whether edits are on disk. Success is silent: while
+// everything is saved the button is not shown at all (theme.css). It appears
+// as "Save" with a dot while autosave is pending, "Saving…" when a save takes
+// long enough to see, or "Not saved" in red with the reason, and stays
+// clickable in each. A failure also says so under the button, with Retry,
+// since the Issues panel that used to carry it is often closed.
 
 import { showEditorNotice } from "./editor-notice.js";
 import { getUiLocale, onUiLocaleChange, setLocalizedAttribute, uiText } from "./i18n.js";
@@ -22,28 +23,24 @@ const SAVE_SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform) ? "Cmd+S" : "Ct
 
 export const describeSaveFailure = (message: string) => {
   if (/EACCES|EPERM|permission denied|read-only|operation not permitted/i.test(message)) {
-    return uiText("The file cannot be written (permission denied).", "ファイルに書き込めません（書き込みが許可されていません）。");
+    return uiText("Write permission denied.", "書き込みが許可されていません。");
   }
   if (/ENOSPC|no space left/i.test(message)) {
     return uiText("The disk is full.", "ディスクの空き容量が足りません。");
   }
   if (/changed on disk/i.test(message)) {
-    return uiText(
-      "The file was changed by another app. Your text is kept in the editor.",
-      "ほかのアプリがファイルを書き換えました。編集中の内容はエディタに残っています。",
+    return uiText("Another app changed the file. Your text is kept.", "ほかのアプリが書き換えました。編集中の内容は残っています。",
     );
   }
   if (/edit conflict/i.test(message)) {
     return uiText("Resolve the edit conflict first.", "先に編集の競合を解決してください。");
   }
   if (/project operation is protecting|save has expired/i.test(message)) {
-    return uiText(
-      "A project operation is in progress. Saving will resume when it finishes.",
-      "プロジェクトの操作中です。終わると保存を再開します。",
+    return uiText("A project operation is in progress. Saving will resume when it finishes.", "プロジェクトの操作中です。終わると保存を再開します。",
     );
   }
   if (/timed out/i.test(message)) {
-    return uiText("The save did not finish in time.", "保存が時間内に終わりませんでした。");
+    return uiText("The save timed out.", "保存がタイムアウトしました。");
   }
   return message;
 };
@@ -72,9 +69,10 @@ export const setupSaveStatusUi = (deps: SaveStatusUiDeps) => {
   let lastEdited: boolean | null = null;
   let dismissFailureNotice: (() => void) | null = null;
 
-  // One width for Saved / Save• / Saving… in the current language, so the
-  // toolbar does not shift while typing. ("Not saved" may be wider; it is
-  // rare and should stand out.)
+  // One width for Save• / Saving… in the current language, so the button
+  // does not change size while a save runs. ("Not saved" may be wider; it is
+  // rare and should stand out.) The button is hidden while everything is
+  // saved, so the width is reserved on the label, which needs no layout.
   const fitLabelWidth = () => {
     if (!label) return;
     const style = getComputedStyle(label);
@@ -84,21 +82,8 @@ export const setupSaveStatusUi = (deps: SaveStatusUiDeps) => {
     const spacing = Number.parseFloat(style.letterSpacing) || 0;
     const width = (text: string) => context.measureText(text).width + spacing * text.length;
     const dotWidth = 11; // the pending dot and its margin (theme.css)
-    const widest = Math.max(
-      width(labelFor("saved")),
-      width(labelFor("dirty")) + dotWidth,
-      width(labelFor("saving")),
-    );
-    // Reserve the width on the button (not the label) so the icon and the
-    // current label stay centred as a group while the button never jitters.
-    const button = label.parentElement;
-    label.style.minWidth = "";
-    if (button instanceof HTMLElement) {
-      const chrome = button.getBoundingClientRect().width - label.getBoundingClientRect().width;
-      button.style.minWidth = `${Math.ceil(widest + chrome)}px`;
-    } else {
-      label.style.minWidth = `${Math.ceil(widest)}px`;
-    }
+    const widest = Math.max(width(labelFor("dirty")) + dotWidth, width(labelFor("saving")));
+    label.style.minWidth = `${Math.ceil(widest)}px`;
   };
 
   const formatTime = (ms: number) => {

@@ -7,12 +7,15 @@ export const initLauncherUi = (context, deps) => {
     const launcherActions = [launcherOpenButton, launcherCreateButton];
     let recentProjects = [];
     let recentExpanded = false;
-    const updateActionSelection = () => {
+    // Focus follows the arrow keys only; on opening, Enter still runs the selected
+    // action without a focus ring drawn before the user has done anything.
+    const updateActionSelection = (moveFocus = false) => {
         launcherActions.forEach((btn, index) => {
             if (btn instanceof HTMLElement) {
                 if (index === selectedActionIndex) {
                     btn.classList.add("is-selected");
-                    requestAnimationFrame(() => btn.focus());
+                    if (moveFocus)
+                        requestAnimationFrame(() => btn.focus());
                 }
                 else {
                     btn.classList.remove("is-selected");
@@ -65,14 +68,12 @@ export const initLauncherUi = (context, deps) => {
             item.className = "launcher-recent-item";
             item.type = "button";
             item.dataset.path = project.path;
+            // The full path waits in the tooltip; the name is enough to pick from.
+            item.title = project.path;
             const nameSpan = document.createElement("span");
             nameSpan.className = "launcher-recent-item-name";
             nameSpan.textContent = project.name;
-            const pathSpan = document.createElement("span");
-            pathSpan.className = "launcher-recent-item-path";
-            pathSpan.textContent = project.path;
             item.appendChild(nameSpan);
-            item.appendChild(pathSpan);
             item.addEventListener("click", () => {
                 if (launcherBusy)
                     return;
@@ -136,20 +137,28 @@ export const initLauncherUi = (context, deps) => {
         }
         if (event.key === "ArrowDown") {
             selectedActionIndex = (selectedActionIndex + 1) % launcherActions.length;
-            updateActionSelection();
+            updateActionSelection(true);
             event.preventDefault();
             return;
         }
         if (event.key === "ArrowUp") {
             selectedActionIndex =
                 (selectedActionIndex - 1 + launcherActions.length) % launcherActions.length;
-            updateActionSelection();
+            updateActionSelection(true);
             event.preventDefault();
             return;
         }
         if (event.key === "Enter") {
-            event.preventDefault();
             const currentBtn = launcherActions[selectedActionIndex];
+            // Any other focused control (a recent project, its ×, Show all, the
+            // language menu, the other action) keeps its own Enter.
+            const focused = document.activeElement;
+            if (focused instanceof HTMLElement &&
+                focused !== currentBtn &&
+                focused.closest("button, a[href], input, select, textarea, [role='menuitem'], [contenteditable='true']")) {
+                return;
+            }
+            event.preventDefault();
             if (currentBtn instanceof HTMLButtonElement && !currentBtn.disabled) {
                 currentBtn.click();
             }

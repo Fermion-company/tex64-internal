@@ -1,3 +1,4 @@
+import { editorTabLabels } from "./editor-tab-labels.js";
 export const initEditorTabsUi = (context, deps) => {
     const tabDragDataType = "application/x-tex64-tab";
     let tabDragPayload = null;
@@ -26,11 +27,24 @@ export const initEditorTabsUi = (context, deps) => {
             return null;
         }
     };
+    // One open file needs no tab: the editor's strip appears with the second
+    // file. The PDF pane never shows its lone PDF tab; the × at the end of the
+    // PDF toolbar closes it instead. A split editor on the right keeps its tab
+    // (and ×) even alone, since that is the only way to close it.
+    const syncStripVisibility = (group) => {
+        var _a;
+        const tabs = group.openTabs;
+        const hidden = group.key === "primary"
+            ? tabs.length <= 1
+            : tabs.length === 1 && /\.pdf$/i.test(tabs[0]);
+        (_a = group.root) === null || _a === void 0 ? void 0 : _a.classList.toggle("has-single-tab", hidden);
+    };
     const render = (group) => {
         const tabsList = group.tabsList;
         if (!(tabsList instanceof HTMLElement)) {
             return;
         }
+        syncStripVisibility(group);
         tabsList.innerHTML = "";
         if (group.openTabs.length === 0) {
             deps.setEditorEmptyState(group, true);
@@ -40,8 +54,8 @@ export const initEditorTabsUi = (context, deps) => {
         deps.setEditorEmptyState(group, false);
         tabsList.classList.remove("is-empty");
         const dirtyPaths = deps.getDirtyPaths();
-        group.openTabs.forEach((path) => {
-            var _a;
+        const labels = editorTabLabels(group.openTabs);
+        group.openTabs.forEach((path, index) => {
             const tab = document.createElement("button");
             tab.type = "button";
             tab.className = "editor-tab";
@@ -50,7 +64,16 @@ export const initEditorTabsUi = (context, deps) => {
             tab.dataset.group = group.key;
             const label = document.createElement("span");
             label.className = "editor-tab-label";
-            label.textContent = (_a = path.split("/").pop()) !== null && _a !== void 0 ? _a : path;
+            const { name, detail } = labels[index];
+            label.textContent = name;
+            if (detail) {
+                // Same name as another open tab: add the folder that tells them apart.
+                const detailEl = document.createElement("span");
+                detailEl.className = "editor-tab-detail";
+                detailEl.textContent = detail;
+                label.appendChild(detailEl);
+                tab.classList.add("has-detail");
+            }
             tab.title = path;
             if (dirtyPaths.has(path)) {
                 tab.classList.add("is-dirty");

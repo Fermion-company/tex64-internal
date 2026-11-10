@@ -1,9 +1,7 @@
 import type { BlockInputRuntime } from "./runtime.js";
-import type { BlockSettingsPage } from "./types.js";
 
 export type BlockSettingsModalOps = {
   setBlockSettingsOpen: (open: boolean) => void;
-  setBlockSettingsPage: (page: BlockSettingsPage) => void;
 };
 
 export const createBlockSettingsModalOps = (runtime: BlockInputRuntime): BlockSettingsModalOps => {
@@ -12,20 +10,7 @@ export const createBlockSettingsModalOps = (runtime: BlockInputRuntime): BlockSe
     blockCaptureButton,
     blockSettingsModal,
     blockSettingsClose,
-    blockSettingsBackButtons,
-    blockSettingsPages,
-    blockSettingsMenuItems,
   } = runtime.context.dom;
-
-  const setBlockSettingsPage = (page: BlockSettingsPage) => {
-    runtime.state.activeBlockSettingsPage = page;
-    if (Array.isArray(blockSettingsPages)) {
-      blockSettingsPages.forEach((view) => {
-        const isActive = view.dataset.blockSettingsPage === page;
-        view.classList.toggle("is-active", isActive);
-      });
-    }
-  };
 
   const setBlockSettingsOpen = (open: boolean) => {
     runtime.state.blockSettingsOpen = open;
@@ -35,9 +20,6 @@ export const createBlockSettingsModalOps = (runtime: BlockInputRuntime): BlockSe
     }
     if (blockSettingsButton instanceof HTMLElement) {
       blockSettingsButton.setAttribute("aria-expanded", open ? "true" : "false");
-    }
-    if (open) {
-      setBlockSettingsPage("menu");
     }
   };
 
@@ -67,25 +49,5 @@ export const createBlockSettingsModalOps = (runtime: BlockInputRuntime): BlockSe
     });
   }
 
-  if (Array.isArray(blockSettingsMenuItems)) {
-    blockSettingsMenuItems.forEach((item) => {
-      item.addEventListener("click", () => {
-        const target = item.dataset.blockSettingsTarget;
-        if (target === "insert-format") {
-          setBlockSettingsPage("insert-format");
-        }
-      });
-    });
-  }
-
-  if (Array.isArray(blockSettingsBackButtons)) {
-    blockSettingsBackButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        setBlockSettingsPage("menu");
-      });
-    });
-  }
-
-  return { setBlockSettingsOpen, setBlockSettingsPage };
+  return { setBlockSettingsOpen };
 };
-

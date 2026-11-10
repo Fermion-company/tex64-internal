@@ -222,6 +222,7 @@ type BridgeHandlersDeps = {
     handleBranchResult?: (payload: { ok?: boolean; conversationId?: string; error?: string }) => void;
     handleProposalScope?: (payload: { conversationId?: string; proposalId?: string; page?: number }) => void;
     handleTranscribeResult?: (payload: { requestId?: string; ok?: boolean; text?: string; error?: string }) => void;
+    handleSteerResult?: (payload: { requestId?: string; conversationId?: string; accepted?: boolean }) => void;
     handleDocumentMap: (payload: {
       requestId?: string;
       mainFile?: string | null;
@@ -806,6 +807,11 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
       case "agent:transcribeResult":
         deps.agent?.handleTranscribeResult?.(message.payload as { requestId?: string; ok?: boolean; text?: string; error?: string });
         break;
+      case "agent:steerResult":
+        // The AI workspace reads its own answers through its webview.
+        if (isAiModeAgentPayload(message.payload)) break;
+        deps.agent?.handleSteerResult?.(message.payload as { requestId?: string; conversationId?: string; accepted?: boolean });
+        break;
       case "agent:documentMap":
         deps.agent?.handleDocumentMap?.(message.payload as Parameters<NonNullable<typeof deps.agent>["handleDocumentMap"]>[0]);
         break;
@@ -881,7 +887,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         if (isAiModeAgentPayload(message.payload)) break;
         deps.agent?.handleError(
           (message.payload as { message?: string; conversationId?: string }).message ??
-            uiText("Axiom error", "Axiom エラー"),
+            uiText("Axiom error", "Axiomエラー"),
           (message.payload as { message?: string; conversationId?: string }).conversationId
         );
         break;

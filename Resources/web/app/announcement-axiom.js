@@ -18,7 +18,7 @@ const TEXT = {
 const EXAMPLES = [
     {
         id: "steps",
-        tab: { en: "Add steps", ja: "途中式を加える", zh: "补充中间步骤", ko: "중간 과정 추가", fr: "Ajouter les étapes", de: "Zwischenschritte", es: "Añadir pasos" },
+        tab: { en: "Add steps", ja: "途中式", zh: "中间步骤", ko: "중간 과정", fr: "Ajouter les étapes", de: "Zwischenschritte", es: "Añadir pasos" },
         ask: {
             en: "Add the intermediate steps to this formula",
             ja: "この式に途中式を加えて",
@@ -46,10 +46,10 @@ const EXAMPLES = [
     },
     {
         id: "fix",
-        tab: { en: "Fix an error", ja: "組版エラーを直す", zh: "修复排版错误", ko: "조판 오류 수정", fr: "Corriger une erreur", de: "Satzfehler beheben", es: "Corregir un error" },
+        tab: { en: "Fix an error", ja: "エラー修正", zh: "修复错误", ko: "오류 수정", fr: "Corriger une erreur", de: "Satzfehler beheben", es: "Corregir un error" },
         ask: {
             en: "Fix this typesetting error",
-            ja: "この組版エラーを直して",
+            ja: "このビルドエラーを直して",
             zh: "修复这个排版错误",
             ko: "이 조판 오류를 고쳐 줘",
             fr: "Corrige cette erreur de composition",

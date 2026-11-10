@@ -1,7 +1,7 @@
 import type { TabKey } from "./config.js";
 import type { AppContext } from "./context.js";
 import type { DiffContext } from "./diff-modal.js";
-import { getUiLocale } from "./i18n.js";
+import { getUiLocale, setLocalizedAttribute, uiText } from "./i18n.js";
 import type {
   IndexEntry,
   IssueItem,
@@ -111,7 +111,7 @@ export const initWorkspaceController = (
   deps: WorkspaceControllerDeps
 ): WorkspaceControllerApi => {
   const {
-    issuesTab,
+    buildIssueCount,
     workspaceLabel,
     settingsWorkspace,
   } = context.dom;
@@ -148,10 +148,27 @@ export const initWorkspaceController = (
     syncWorkspaceLabel();
   };
 
-  const setIssuesStatus = (status: IssuesStatus) => {
-    if (issuesTab instanceof HTMLElement) {
-      issuesTab.dataset.status = status;
+  // Beside Build: the number of errors in the danger colour, or of warnings
+  // in the warning colour when there are only warnings; nothing when clean.
+  // It counts what the Problems panel lists, since it is the way there.
+  const renderIssueCount = (issues: IssueItem[]) => {
+    if (!(buildIssueCount instanceof HTMLButtonElement)) {
+      return;
     }
+    const errors = issues.filter((issue) => issue.severity === "error").length;
+    const warnings = issues.length - errors;
+    const severity = errors > 0 ? "error" : warnings > 0 ? "warning" : null;
+    buildIssueCount.hidden = severity === null;
+    if (!severity) {
+      return;
+    }
+    const count = severity === "error" ? errors : warnings;
+    buildIssueCount.dataset.severity = severity;
+    const value = buildIssueCount.querySelector<HTMLElement>(".build-issue-value");
+    if (value) value.textContent = String(count);
+    const label = `${severity === "error" ? uiText("Errors", "エラー") : uiText("Warnings", "警告")} ${count}`;
+    setLocalizedAttribute(buildIssueCount, "aria-label", label);
+    setLocalizedAttribute(buildIssueCount, "title", label);
   };
 
   const getIssueLocationRank = (issue: IssueItem) => {
@@ -276,13 +293,10 @@ export const initWorkspaceController = (
     const status: IssuesStatus = hasError ? "error" : sorted.length > 0 ? "info" : "success";
 
     currentIssues = sorted;
-    setIssuesStatus(status);
+    renderIssueCount(sorted);
     deps.issuesUi.render(sorted);
     deps.editorSession.syncIssueMarkers(sorted);
 
-    if (issuesTab instanceof HTMLElement) {
-      issuesTab.classList.toggle("is-alert", hasError);
-    }
     if (sorted.length === 0) {
       deps.editorSession.clearIssueHighlight();
     }
@@ -308,7 +322,9 @@ export const initWorkspaceController = (
     workspaceRootKey = payload.rootPath;
     deps.setWorkspaceRootKey(workspaceRootKey);
     setWorkspaceLabel(payload.rootName);
-    setText(settingsWorkspace, payload.rootPath);
+    setText(settingsWorkspace, payload.rootName ?? payload.rootPath);
+    // Settings names the folder; the full path is in the tooltip, like other paths.
+    if (settingsWorkspace instanceof HTMLElement) setLocalizedAttribute(settingsWorkspace, "title", payload.rootPath ?? "");
 
     deps.settingsUi.refreshCompileEngine();
 

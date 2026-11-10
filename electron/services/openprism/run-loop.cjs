@@ -171,7 +171,7 @@ const writeToolResultApplied = (value) => {
 
 const COMPILE_FAILURE_SUFFIXES = Object.freeze({
   en: " Changes made so far were saved, but a compilation error remains.",
-  ja: "ここまでの変更は保存しましたが、組版エラーが残っています。",
+  ja: "ここまでの変更は保存しましたが、ビルドエラーが残っています。",
   zh: " 已保存目前的更改，但仍有编译错误。",
   ko: " 지금까지의 변경 사항은 저장했지만 컴파일 오류가 남아 있습니다.",
   fr: " Les modifications ont été enregistrées, mais une erreur de compilation subsiste.",
@@ -362,9 +362,11 @@ DOCUMENT CONVERSATION (the paper-centred AI mode):
 - Never fill a subject, audience, or result with a placeholder or a guess.
 - A request that leans on a value you do not have (a deadline, a page or
   word count, a reader level, a title, data) is a question first: call
-  ask_user for that value before touching the document.
+  ask_user for that value before touching the document. Teaching material
+  is the exception: a topic, a level and a number of problems are enough;
+  name the sheet after its topic and write it.
 - Japanese text needs a Japanese-capable setup: with LuaLaTeX use
-  \\documentclass{ltjsarticle} (or article plus \\usepackage{luatexja}). Plain
+  \\documentclass{ltjsarticle} (or jlreq, or article plus \\usepackage{luatexja}). Plain
   article with Japanese prints nothing, and "Missing character" in the log
   means exactly that: fix the class or package, do not ignore it.
 - Files the user attaches arrive as an "[添付ファイル]" block (images also
@@ -402,6 +404,11 @@ const RESUME_STEP_COPY = {
 const RESET_REQUEST_PATTERN =
   /真っ白|白紙|まっさら|(?:空|から)に(?:して|戻|し)|全部消し|中身を消し|全て消し|すべて消し|初期化|リセット|\b(?:blank|empty|clear|wipe|reset)\b[^.]{0,40}\b(?:document|paper|page|file|everything)\b|\b(?:document|paper|page|file)\b[^.]{0,40}\b(?:blank|empty|clear|wipe|reset)/i;
 
+/** Extra room a mid-turn correction (steering) gives the turn it joins. */
+const STEER_EXTENSIONS_PER_TURN = 2;
+const STEER_TOKEN_ALLOWANCE = 150_000;
+const STEER_EXTRA_ITERATIONS = 12;
+
 /** Tools the opening read may use: reading and recording next steps only. */
 const SURVEY_TOOL_NAMES = new Set([
   "read_file",
@@ -410,6 +417,8 @@ const SURVEY_TOOL_NAMES = new Set([
   "read_section",
   "find_math_region",
   "get_compile_log",
+  "check_exercises",
+  "check_japanese_text",
   "propose_next_steps",
 ]);
 
@@ -576,7 +585,7 @@ const runAgentConversation = async (
   try {
     // ---- Resolve settings & policy ----
     if (!prestartedRun) {
-      service.sendStatus("running", "Preparing...", targetConversationId);
+      service.sendStatus("running", "Preparing…", targetConversationId);
     }
     throwIfRunAborted();
     const persistedSettings = await awaitAbortable(
@@ -725,7 +734,7 @@ const runAgentConversation = async (
       ...chatHistory,
       { role: "user", content: userContent },
     ];
-    service.sendStatus("running", "Thinking...", targetConversationId);
+    service.sendStatus("running", "Thinking…", targetConversationId);
   } catch (error) {
     await agentsApi?.close().catch(() => {});
     if (isCurrentRun()) {
@@ -895,11 +904,11 @@ const runAgentConversation = async (
     // Writing turns in both the AI mode and the Code chat rewrite whole
     // sections and read the paper back; both get the larger per-turn room.
     // The platform quota still bounds every turn.
-    const maxIterations = agentsApi ? MAX_CHECKPOINTS : Math.max(
+    let maxIterations = agentsApi ? MAX_CHECKPOINTS : Math.max(
       resolveMaxAgentIterations(options.maxIterations),
       DOCUMENT_MAX_AGENT_ITERATIONS,
     );
-    const turnTokenBudget = agentsApi ? MAX_OBSERVED_TOKENS : Math.max(DOCUMENT_TURN_TOKEN_BUDGET, MAX_AGENT_TOKENS_PER_RUN);
+    let turnTokenBudget = agentsApi ? MAX_OBSERVED_TOKENS : Math.max(DOCUMENT_TURN_TOKEN_BUDGET, MAX_AGENT_TOKENS_PER_RUN);
     let iterations = 0;
     let platformBudgetAtStart = null;
     let usageWasMeasurable = true;
@@ -909,7 +918,7 @@ const runAgentConversation = async (
     // write or a compile could have changed the workspace; a repeat gets a
     // short pointer back to it, and a long run of reads without an edit gets
     // one nudge to act.
-    const READ_TOOL_NAMES = new Set(["read_file", "read_section", "list_sections", "list_files", "find_math_region", "check_references", "check_bibliography"]);
+    const READ_TOOL_NAMES = new Set(["read_file", "read_section", "list_sections", "list_files", "find_math_region", "check_references", "check_bibliography", "check_exercises", "check_japanese_text"]);
     const READS_BEFORE_NUDGE = 8;
     const readResultsThisRun = new Map();
     let readsSinceLastWrite = 0;
@@ -1008,7 +1017,7 @@ const runAgentConversation = async (
           quota: "利用可能なトークン上限に達したため、次のAI呼び出し前に停止しました。",
           access: "Axiomを利用できない状態になったため、次のAI呼び出し前に停止しました。",
           turn_budget: "このターンの処理上限に達したため、次のAI呼び出し前に停止しました。",
-          compiled: "ここまでの変更は保存し、組版結果まで反映しました。",
+          compiled: "ここまでの変更は保存し、ビルド結果まで反映しました。",
         },
         zh: {
           iterations: `已达到处理上限（${iterations} 次），Axiom 已在此停止。`,
@@ -1098,9 +1107,19 @@ const runAgentConversation = async (
     activeRun.steering = [];
     activeRun.acceptingSteering = true;
     const hasSteering = () => activeRun.steering.length > 0;
+    // A correction sent while Axiom works is new instructions from the user:
+    // the work it redoes gets its own room instead of eating the original
+    // request's, up to STEER_EXTENSIONS_PER_TURN times. The platform quota
+    // still bounds every call.
+    let steerExtensions = 0;
     const drainSteering = () => {
       if (!hasSteering()) return false;
       const corrections = activeRun.steering.splice(0);
+      if (!agentsApi && steerExtensions < STEER_EXTENSIONS_PER_TURN) {
+        steerExtensions += 1;
+        turnTokenBudget += STEER_TOKEN_ALLOWANCE;
+        maxIterations += STEER_EXTRA_ITERATIONS;
+      }
       service.nextStepsByConversation?.delete(targetConversationId);
       service.pendingQuestionByConversation?.delete(targetConversationId);
       beginTaskTurn(service, targetConversationId, corrections.join("\n\n"), true);
@@ -1129,14 +1148,14 @@ const runAgentConversation = async (
       ) {
         platformBudgetAtStart = platformBudget.remainingTokens;
       }
+      // The per-turn cap is counted in raw provider tokens. The account's
+      // allowance is in the server's normalized units (cached input costs a
+      // fraction), so it is checked against its own remaining figure below,
+      // never against raw tokens: subtracting raw tokens from the allowance
+      // stopped turns with most of the allowance still unused.
       const localRemaining = Math.max(
         0,
-        Math.min(
-          turnTokenBudget,
-          platformBudgetAtStart ?? turnTokenBudget,
-        ) -
-          totalPromptTokens -
-          totalCompletionTokens,
+        turnTokenBudget - totalPromptTokens - totalCompletionTokens,
       );
       // Provider token counts are not cost-equivalent across input/output or
       // Axiom tiers. The server quota is already normalized from actual
@@ -1173,6 +1192,7 @@ const runAgentConversation = async (
             maxCompletionTokens: 0,
           };
       if (!requestPlan.allowed) {
+        traceRunLoop({ conversationId: targetConversationId, refusedPlan: requestPlan.reason, inputTokenUpperBound: requestPlan.inputTokenUpperBound, localRemaining, normalizedTurnRemaining, platformRemaining: platformBudget.remainingTokens, turnTokenBudget, totalPromptTokens, totalCompletionTokens, iterations });
         const exhaustedPlatformQuota =
           platformBudget.remainingTokens !== null &&
           platformBudget.remainingTokens <= localRemaining;
@@ -1634,6 +1654,8 @@ const runAgentConversation = async (
             "check_environment",
             "check_references",
             "check_bibliography",
+            "check_exercises",
+            "check_japanese_text",
           ]);
           toolResult = abortableReadTools.has(fnName)
             ? await awaitAbortable(executor(args), run.controller.signal)

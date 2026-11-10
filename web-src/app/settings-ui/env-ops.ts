@@ -1,10 +1,10 @@
 import { createEnvStatusManager, type EnvStatusSummary } from "../settings-env.js";
 import type { SettingsUiRuntime } from "./runtime.js";
-import type { SettingsAttentionOps } from "./attention.js";
 import { uiText } from "../i18n.js";
 import {
   describeCoverage,
   describeDetection,
+  describeDetectionSource,
   INSTALL_VARIANT_LABELS,
   renderInstallExplain,
   type TexEnvReport,
@@ -35,8 +35,7 @@ type HeroState = "checking" | "missing" | "installing" | "ready";
 // lightweight profile; an already-ready lightweight tree can be expanded to the
 // complete package set from the same screen.
 export const createSettingsEnvOps = (
-  runtime: SettingsUiRuntime,
-  attentionOps: SettingsAttentionOps
+  runtime: SettingsUiRuntime
 ): SettingsEnvOps => {
   const {
     settingsRuntimeSetupStatus,
@@ -66,9 +65,11 @@ export const createSettingsEnvOps = (
     heroEl.classList.add(`is-${state}`);
   };
 
-  const setHeroText = (title: string) => {
+  // `where` is the distribution's folder: a tooltip, not a line of prose.
+  const setHeroText = (title: string, where = "") => {
     if (settingsRuntimeSetupStatus instanceof HTMLElement) {
       settingsRuntimeSetupStatus.textContent = title;
+      settingsRuntimeSetupStatus.title = where;
     }
   };
 
@@ -102,11 +103,11 @@ export const createSettingsEnvOps = (
   const phaseLabel = (phase: string): string => {
     switch (phase) {
       case "download":
-        return uiText("Downloading installer…", "インストーラをダウンロード中…");
+        return uiText("Downloading…", "ダウンロード中…");
       case "extract":
-        return uiText("Preparing installer…", "インストーラを準備中…");
+        return uiText("Preparing…", "準備中…");
       case "texlive":
-        return uiText("Installing TeX Live…", "TeX Live をインストール中…");
+        return uiText("Installing TeX Live…", "TeX Liveをインストール中…");
       case "packages":
         return uiText("Installing packages…", "パッケージをインストール中…");
       case "finalize":
@@ -135,12 +136,13 @@ export const createSettingsEnvOps = (
     }
   };
 
-  const setDetail = (text: string) => {
+  const setDetail = (text: string, where = "") => {
     if (!(detailEl instanceof HTMLElement)) {
       return;
     }
     const value = typeof text === "string" ? text.trim() : "";
     detailEl.textContent = value;
+    detailEl.title = value ? where : "";
     detailEl.classList.toggle("is-hidden", !value);
     detailEl.setAttribute("aria-hidden", value ? "false" : "true");
   };
@@ -214,12 +216,12 @@ export const createSettingsEnvOps = (
   const showInstalling = () => {
     installing = true;
     setHeroState("installing");
-    setHeroText("Setting up your TeX environment…");
+    setHeroText("Setting up TeX…");
     setSetupButton({ visible: false });
     setChoiceVisible(false);
     setInstallNote("");
     showProgress(true);
-    setProgress(2, uiText("Starting…", "開始しています…"));
+    setProgress(2, uiText("Starting…", "起動中…"));
   };
 
   const updateRuntimeSetupUi = () => {
@@ -232,7 +234,7 @@ export const createSettingsEnvOps = (
     const summary = runtime.state.runtimeStatusSummary;
     if (!summary || !summary.hasAnyResult) {
       setHeroState("checking");
-      setHeroText("Checking your TeX environment…");
+      setHeroText("Checking TeX…");
       setSetupButton({ visible: false });
       setChoiceVisible(false);
       setDetail("");
@@ -243,14 +245,21 @@ export const createSettingsEnvOps = (
       detection?.coverage.level === "minimal" || detection?.coverage.level === "broken"
         ? describeCoverage(detection)
         : "";
-    const detectionLine = [describeDetection(detection), coverage]
+    // Build's first row: when TeX is ready it names the distribution and
+    // nothing more; the lines below it appear only when something is wrong.
+    // "Not found" is what the row already says when TeX is missing.
+    const detectionLine = [
+      !summary.runtimeReady && detection?.hasEngine ? describeDetection(detection) : "",
+      coverage,
+    ]
       .filter(Boolean)
       .join("\n");
-    setDetail(detectionLine);
+    setDetail(detectionLine, describeDetectionSource(detection));
 
     if (summary.runtimeReady) {
       setHeroState("ready");
-      setHeroText("Your TeX environment is ready.");
+      if (detection?.hasEngine) setHeroText(describeDetection(detection), describeDetectionSource(detection));
+      else setHeroText("TeX is ready.");
       setSetupButton({ visible: false });
       setInstallNote("");
       setChoiceVisible(false);
@@ -261,7 +270,7 @@ export const createSettingsEnvOps = (
         setSetupButton({
           visible: true,
           disabled: false,
-          label: uiText(`Renew to TeX Live ${renew.to}`, `TeX Live ${renew.to} に入れ直す`),
+          label: uiText(`Renew to TeX Live ${renew.to}`, `TeX Live ${renew.to}に更新`),
         });
         return;
       }
@@ -275,7 +284,7 @@ export const createSettingsEnvOps = (
         setSetupButton({
           visible: true,
           disabled: false,
-          label: uiText("Install the full package set", "フルパッケージを追加導入"),
+          label: uiText("Install the full package set", "フルパッケージを導入"),
         });
         return;
       }
@@ -291,7 +300,7 @@ export const createSettingsEnvOps = (
       return;
     }
     setHeroState("missing");
-    setHeroText("TeX environment is not set up yet.");
+    setHeroText("TeX is not installed.");
     // The choice replaces the old single button; the button stays as the fallback
     // for a renderer whose markup predates the choice block.
     if (choiceEl instanceof HTMLElement) {
@@ -299,7 +308,7 @@ export const createSettingsEnvOps = (
       setChoiceVisible(true);
       setSetupButton({ visible: false });
     } else {
-      setSetupButton({ visible: true, disabled: false, label: "Set up TeX environment" });
+      setSetupButton({ visible: true, disabled: false, label: "Set up" });
     }
   };
 
@@ -317,7 +326,6 @@ export const createSettingsEnvOps = (
     onStatusSummaryChange: (summary) => {
       runtime.state.runtimeStatusSummary = summary;
       updateRuntimeSetupUi();
-      attentionOps.syncUpdateAttentionUi();
       maybePromptRuntimeSetup(summary);
     },
   });

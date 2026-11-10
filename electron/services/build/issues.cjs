@@ -22,12 +22,13 @@ module.exports = (BuildService) => {
     };
     for (let index = 0; index < lines.length; index += 1) {
       let line = lines[index] ?? "";
-      // TeX wraps file:line diagnostics at max_print_line (normally 79),
-      // including in the middle of "Undefined control sequence".
+      // A log written with the default max_print_line (79) wraps file:line
+      // diagnostics, even in the middle of "Undefined control sequence".
+      // Builds now widen it, so only a line cut at exactly 79 continues.
       if (this.extractIssueLocation(line, rootPath)) {
         let physicalLine = line;
         let offset = 1;
-        while (physicalLine.length >= 79 && offset <= 8) {
+        while (physicalLine.length === 79 && offset <= 8) {
           const continuation = lines[index + offset] ?? "";
           if (!continuation || /^\s*l\.\d+\b/.test(continuation)) break;
           line += continuation;

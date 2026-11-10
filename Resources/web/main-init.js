@@ -46,6 +46,7 @@ import { initTabController } from "./app/tab-controller.js";
 import { initUiEvents } from "./app/ui-events.js";
 import { initSearchUi } from "./app/search-ui.js";
 import { initSidebarVisibility } from "./app/sidebar-ui.js";
+import { initSidebarSections } from "./app/sidebar-sections-ui.js";
 import { initBottomPanelUi } from "./app/bottom-panel-ui.js";
 import { initTerminalUi } from "./app/terminal-ui.js";
 import { initBillingUi } from "./app/billing-ui.js";
@@ -67,14 +68,14 @@ import { prepareRendererForQuit } from "./app/quit-preparation.js";
 import { setupSaveStatusUi } from "./app/save-status-ui.js";
 export const initMain = () => {
     window.addEventListener("DOMContentLoaded", () => {
-        var _a, _b, _c, _d, _e, _f, _g, _h;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
         initAppearanceTheme();
         initI18n();
         requestAnimationFrame(() => {
             document.body.classList.add("is-ready");
         });
         const dom = getDomRefs();
-        const { tabs, settingsTab, editorHost, editorViewer, editorViewerImage, editorViewerPdf, editorHostSecondary, editorViewerSecondary, editorViewerImageSecondary, editorViewerPdfSecondary, editorFallbackSecondary, } = dom;
+        const { tabs, editorHost, editorViewer, editorViewerImage, editorViewerPdf, editorHostSecondary, editorViewerSecondary, editorViewerImageSecondary, editorViewerPdfSecondary, editorFallbackSecondary, } = dom;
         let postToNative = () => false;
         let requestLiveSource = (_payload) => { };
         // A place marked in the live preview names its source file the engine's
@@ -121,6 +122,14 @@ export const initMain = () => {
         let aiChatUi = null;
         let billingUi = null;
         let mathCapture = null;
+        // The PDF pane has no tab strip: the × at the end of its toolbar closes the
+        // PDF as the tab's × did (an emptied right-hand group gives its space back).
+        const closePdfIn = (groupKey) => {
+            const group = editorSession === null || editorSession === void 0 ? void 0 : editorSession.getEditorGroup(groupKey);
+            const path = group === null || group === void 0 ? void 0 : group.currentFilePath;
+            if (group && path && /\.pdf$/i.test(path))
+                editorSession.closeTab(group, path);
+        };
         const primaryViewer = createViewer({
             editorViewer,
             editorViewerImage,
@@ -146,6 +155,7 @@ export const initMain = () => {
                 setActiveTab("ai");
                 aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.askFromPdf(withResolvedPdfSource(payload));
             },
+            onPdfClose: () => closePdfIn("primary"),
         });
         const secondaryViewer = createViewer({
             editorViewer: editorViewerSecondary,
@@ -172,6 +182,7 @@ export const initMain = () => {
                 setActiveTab("ai");
                 aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.askFromPdf(withResolvedPdfSource(payload));
             },
+            onPdfClose: () => closePdfIn("secondary"),
         });
         const bridgeWindow = window;
         bridgeWindow.__tex64TestRecognizeMath = (imageDataUrl) => recognizeMath(imageDataUrl);
@@ -239,21 +250,30 @@ export const initMain = () => {
         let setPendingBuildIssuesFocus = (_value) => { };
         let onFilesTabActive = () => { };
         let onSettingsTabActive = () => { };
-        let setSettingsTabAlert = (_hasAlert) => { };
         let updateEditorWordWrap = (_enabled) => { };
         let pendingEditorWordWrapEnabled = null;
         const tabController = initTabController(appContext, {
             onFilesTabActive: () => onFilesTabActive(),
             onSettingsTabActive: () => onSettingsTabActive(),
         });
+        const sidebarSections = initSidebarSections();
+        // Outline and History are sections of the file panel now, and Project is
+        // the first group of Settings > Build: anything that asks for those panels
+        // lands there.
         const setActiveTab = (tabKey) => {
-            tabController.setActiveTab(tabKey);
-        };
-        setSettingsTabAlert = (hasAlert) => {
-            if (!(settingsTab instanceof HTMLElement)) {
+            if (tabKey === "outline" || tabKey === "history") {
+                if (!bottomPanelUi.isSidebarVisible())
+                    bottomPanelUi.toggleSidebar();
+                tabController.setActiveTab("files");
+                sidebarSections.open(tabKey);
                 return;
             }
-            settingsTab.classList.toggle("is-alert", hasAlert);
+            if (tabKey === "project") {
+                tabController.setActiveTab("settings");
+                settingsUi.openSettingsPage("build");
+                return;
+            }
+            tabController.setActiveTab(tabKey);
         };
         // The full-screen settings overlay covers the sidebar rail, so closing it
         // needs its own affordances: the top-right close button and Escape.
@@ -290,15 +310,13 @@ export const initMain = () => {
             onPdfViewerModeChange: (mode) => {
                 void mode;
             },
-            onUpdateAttentionChange: (hasAttention) => {
-                setSettingsTabAlert(hasAttention);
-            },
+            saveDirtyFiles: () => editorSession.saveDirtyFiles(),
             onRuntimeSetupNeeded: () => {
                 if (onboardingUi.isVisible()) {
                     return;
                 }
                 setActiveTab("settings");
-                settingsUi.openSettingsPage("env");
+                settingsUi.openSettingsPage("build");
             },
             onRuntimeDetection: (report, summary) => {
                 // Trust the per-command sweep when it has finished, and the detection
@@ -1025,7 +1043,7 @@ export const initMain = () => {
             },
             onOpenRuntimeSettings: () => {
                 setActiveTab("settings");
-                settingsUi.openSettingsPage("env");
+                settingsUi.openSettingsPage("build");
             },
         });
         workspaceController = initWorkspaceController(appContext, {
@@ -1056,6 +1074,12 @@ export const initMain = () => {
         });
         updateIssues = workspaceController.updateIssues;
         setPendingBuildIssuesFocus = workspaceController.setPendingBuildIssuesFocus;
+        // The count beside Build is the way to the Problems panel (no rail icon).
+        (_h = appContext.dom.buildIssueCount) === null || _h === void 0 ? void 0 : _h.addEventListener("click", () => {
+            if (!bottomPanelUi.isSidebarVisible())
+                bottomPanelUi.toggleSidebar();
+            setActiveTab("issues");
+        });
         const storedActiveTab = (() => {
             var _a;
             try {
@@ -1065,7 +1089,9 @@ export const initMain = () => {
                 return undefined;
             }
         })();
-        const initialTab = tabController.normalizeTabKey(storedActiveTab !== null && storedActiveTab !== void 0 ? storedActiveTab : (_h = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _h === void 0 ? void 0 : _h.dataset.tab);
+        const storedTab = tabController.normalizeTabKey(storedActiveTab !== null && storedActiveTab !== void 0 ? storedActiveTab : (_j = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _j === void 0 ? void 0 : _j.dataset.tab);
+        // Project now lives in Settings, which should not open by itself at startup.
+        const initialTab = storedTab === "project" ? "files" : storedTab;
         setActiveTab(initialTab);
         sidebarUi.loadVisibility();
         sidebarUi.applyVisibility();
@@ -1334,7 +1360,7 @@ export const initMain = () => {
                         });
                         return;
                     }
-                    const errorMessage = (_a = payload === null || payload === void 0 ? void 0 : payload.error) !== null && _a !== void 0 ? _a : uiText("SyncTeX failed.", "SyncTeX に失敗しました。");
+                    const errorMessage = (_a = payload === null || payload === void 0 ? void 0 : payload.error) !== null && _a !== void 0 ? _a : uiText("SyncTeX failed.", "SyncTeXで位置を特定できませんでした。");
                     const lower = errorMessage.toLowerCase();
                     const hasMissing = errorMessage.includes("not found") || lower.includes("not found");
                     const issue = { severity: "error", message: errorMessage };
@@ -1378,6 +1404,7 @@ export const initMain = () => {
                     else
                         aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTranscribeResult(payload);
                 },
+                handleSteerResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleSteerResult(payload),
                 handleDocumentMap: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleDocumentMap(payload),
                 handleMessageDelta: (text, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleMessageDelta(text, conversationId),
                 handleTool: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTool(payload),

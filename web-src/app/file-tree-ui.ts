@@ -1,6 +1,7 @@
 import type { AppContext } from "./context.js";
 import type { ContextMenuApi, ContextMenuItem } from "./context-menu.js";
 import { uiText } from "./i18n.js";
+import { explainedHeading } from "./explain.js";
 import type { CreateKind, DragPayload, IssueItem, IssuesStatus } from "./types.js";
 import { createFileTreeRenderer } from "./file-tree-render.js";
 import {
@@ -57,7 +58,6 @@ export const initFileTreeUi = (
     fileTree,
     createModal,
     createModalTitle,
-    createModalSubtitle,
     createModalParent,
     createModalLabel,
     createModalInput,
@@ -227,14 +227,11 @@ export const initFileTreeUi = (
     createModalKind = kind;
     const basePath = resolveCreateBasePath();
     createBasePath = basePath;
-    setText(createModalTitle, kind === "file" ? uiText("Create New File", "create new file") : uiText("Create New Folder", "Create new folder"));
-    setText(createModalSubtitle, "");
+    setText(createModalTitle, kind === "file" ? uiText("New File", "新規ファイル") : uiText("New Folder", "新規フォルダ"));
     setText(createModalParent, basePath ? basePath : uiText("Workspace root", "Directly below the workspace"));
-    setText(createModalLabel, kind === "file" ? uiText("File name (with extension)", "ファイル名（拡張子付き）") : uiText("Folder name", "folder name"));
+    setText(createModalLabel, kind === "file" ? uiText("File name", "ファイル名") : uiText("Folder name", "folder name"));
     if (createModalInput instanceof HTMLInputElement) {
       createModalInput.value = "";
-      createModalInput.placeholder =
-        kind === "file" ? uiText("Example: sections/intro.tex", "例: sections/intro.tex") : uiText("Example: sections", "例: sections");
       requestAnimationFrame(() => {
         createModalInput.focus();
       });
@@ -348,7 +345,6 @@ export const initFileTreeUi = (
     setText(renameModalTarget, path);
     if (renameModalInput instanceof HTMLInputElement) {
       renameModalInput.value = currentName;
-      renameModalInput.placeholder = uiText("New name", "new name");
       requestAnimationFrame(() => {
         renameModalInput.focus();
         renameModalInput.select();
@@ -377,9 +373,7 @@ export const initFileTreeUi = (
       return renameTargetType === "dir" ? path.startsWith(`${renameTargetPath}/`) : false;
     });
     if (hasDirtyAffected) {
-      const message = uiText(
-        "There are unsaved changes. Please save before renaming.",
-        "There are unsaved changes. Please save and rename."
+      const message = uiText("There are unsaved changes. Please save before renaming.", "There are unsaved changes. Please save and rename."
       );
       setRenameModalHelp(message, true);
       deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
@@ -412,25 +406,44 @@ export const initFileTreeUi = (
     } else deps.postToNative({ type: "openInTerminal", path });
   };
 
+  let deleteModalReturnFocus: HTMLElement | null = null;
   const setDeleteModalOpen = (open: boolean) => {
     if (!deleteModal) {
       return;
     }
     deleteModal.classList.toggle("is-open", open);
     deleteModal.setAttribute("aria-hidden", open ? "false" : "true");
+    // Focus starts on Cancel, so Esc (handled on the modal) and Enter both reach it.
+    if (open) {
+      deleteModalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      requestAnimationFrame(() => {
+        if (deleteModal.classList.contains("is-open") && deleteModalCancel instanceof HTMLButtonElement) deleteModalCancel.focus();
+      });
+    } else {
+      if (deleteModalReturnFocus?.isConnected && deleteModalReturnFocus !== document.body) deleteModalReturnFocus.focus();
+      else if (document.activeElement instanceof HTMLElement && deleteModal.contains(document.activeElement)) document.activeElement.blur();
+      deleteModalReturnFocus = null;
+    }
   };
 
   const openDeleteModal = (path: string, kind: "file" | "dir") => {
     deleteTargetPath = path;
     deleteTargetType = kind;
-    const name = path.split("/").filter(Boolean).pop() ?? path;
     setText(deleteModalTitle, kind === "dir" ? uiText("Delete Folder", "delete folder") : uiText("Delete File", "delete file"));
-    setText(deleteModalTarget, name);
-    if (deleteModalHelp instanceof HTMLElement) {
-      deleteModalHelp.textContent =
-        kind === "dir"
-          ? uiText("The folder and all files inside it will be deleted. This cannot be undone.", "The folder and all files within it will be deleted. This operation cannot be undone.")
-          : uiText("This action cannot be undone.", "This operation cannot be undone.");
+    // The workspace-relative path, so same-named files in other folders differ.
+    setText(deleteModalTarget, path);
+    // A deleted item goes to the app's trash and Undo brings it back, so a
+    // file needs no warning; a folder's ▾ says that its files go with it.
+    if (deleteModalTitle instanceof HTMLElement && deleteModalHelp instanceof HTMLElement) {
+      deleteModalTitle.classList.remove("has-explain");
+      deleteModalHelp.replaceChildren();
+      if (kind === "dir") {
+        const [, panel] = explainedHeading(
+          deleteModalTitle,
+          uiText("Files inside it are deleted too.", "中のファイルも削除されます。")
+        );
+        deleteModalHelp.replaceChildren(panel);
+      }
       deleteModalHelp.classList.remove("is-error");
     }
     setDeleteModalOpen(true);
@@ -459,9 +472,7 @@ export const initFileTreeUi = (
       return kind === "dir" ? entryPath.startsWith(`${path}/`) : false;
     });
     if (hasDirtyAffected) {
-      const message = uiText(
-        "There are unsaved changes. Please save before deleting.",
-        "There are unsaved changes. Please save before deleting."
+      const message = uiText("There are unsaved changes. Please save before deleting.", "There are unsaved changes. Please save before deleting."
       );
       deps.updateIssues(1, message, "error", [
         { severity: "error", message },
@@ -510,9 +521,7 @@ export const initFileTreeUi = (
       return payload.kind === "dir" ? path.startsWith(`${payload.path}/`) : false;
     });
     if (hasDirtyAffected) {
-      const message = uiText(
-        "There are unsaved changes. Please save before moving.",
-        "There are unsaved changes. Please save before moving."
+      const message = uiText("There are unsaved changes. Please save before moving.", "There are unsaved changes. Please save before moving."
       );
       deps.updateIssues(1, message, "error", [
         { severity: "error", message },
@@ -552,7 +561,7 @@ export const initFileTreeUi = (
     },
     {
       type: "action",
-      label: uiText("New file...", "新しいファイル..."),
+      label: uiText("New file…", "新しいファイル…"),
       action: () => {
         selectedTreePath = path;
         selectedTreeType = "file";
@@ -561,7 +570,7 @@ export const initFileTreeUi = (
     },
     {
       type: "action",
-      label: uiText("New folder...", "新しいフォルダー..."),
+      label: uiText("New folder…", "新しいフォルダ…"),
       action: () => {
         selectedTreePath = path;
         selectedTreeType = "file";
@@ -599,7 +608,7 @@ export const initFileTreeUi = (
     { type: "separator" },
     {
       type: "action",
-      label: uiText("Rename...", "名前の変更..."),
+      label: uiText("Rename…", "名前の変更…"),
       action: () => openRenameModal(path, "file"),
     },
     {
@@ -613,7 +622,7 @@ export const initFileTreeUi = (
   const buildFolderContextMenu = (path: string): ContextMenuItem[] => [
     {
       type: "action",
-      label: uiText("New file...", "新しいファイル..."),
+      label: uiText("New file…", "新しいファイル…"),
       action: () => {
         selectedTreePath = path;
         selectedTreeType = "dir";
@@ -622,7 +631,7 @@ export const initFileTreeUi = (
     },
     {
       type: "action",
-      label: uiText("New folder...", "新しいフォルダー..."),
+      label: uiText("New folder…", "新しいフォルダ…"),
       action: () => {
         selectedTreePath = path;
         selectedTreeType = "dir";
@@ -660,7 +669,7 @@ export const initFileTreeUi = (
     { type: "separator" },
     {
       type: "action",
-      label: uiText("Rename...", "名前の変更..."),
+      label: uiText("Rename…", "名前の変更…"),
       action: () => openRenameModal(path, "dir"),
     },
     {

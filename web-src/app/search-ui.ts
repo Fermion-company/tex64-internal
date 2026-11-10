@@ -172,7 +172,7 @@ export const initSearchUi = (context: AppContext, deps: SearchUiDeps): SearchUiA
 
         const line = document.createElement("div");
         line.className = "search-match-line";
-        line.textContent = uiText(`Line ${result.line}`, `行 ${result.line}`);
+        line.textContent = uiText(`Line ${result.line}`, `行${result.line}`);
 
         const preview = document.createElement("div");
         preview.className = "search-match-preview";
@@ -298,7 +298,7 @@ export const initSearchUi = (context: AppContext, deps: SearchUiDeps): SearchUiA
       kinds: string[];
     };
     setRenameBusy(true);
-    setRenameStatus(uiText("Creating a proposal...", "提案を作成中..."), "busy");
+    setRenameStatus(uiText("Creating a proposal…", "提案を作成中…"), "busy");
     const context = deps.buildRenameContext ? deps.buildRenameContext() : undefined;
     deps.postToNative({
       type: "search:renameSymbol",
@@ -313,7 +313,7 @@ export const initSearchUi = (context: AppContext, deps: SearchUiDeps): SearchUiA
   const handleRenameResult = (payload: SearchRenameResultPayload) => {
     setRenameBusy(false);
     if (!payload.ok) {
-      setRenameStatus(payload.error ?? uiText("Rename failed.", "リネームに失敗しました。"), "error");
+      setRenameStatus(payload.error ?? uiText("Rename failed.", "名前を変更できませんでした。"), "error");
       return;
     }
     const fileCount = payload.fileCount ?? 0;
@@ -326,7 +326,6 @@ export const initSearchUi = (context: AppContext, deps: SearchUiDeps): SearchUiA
     if (skippedCount > 0) {
       message += uiText(`. Excluded: ${skippedCount}`, `。除外: ${skippedCount}件`);
     }
-    message += uiText(". Check the AI panel.", ". You can check it on the AI ​​panel.");
     setRenameStatus(message, "ok");
   };
 
@@ -348,7 +347,7 @@ export const initSearchUi = (context: AppContext, deps: SearchUiDeps): SearchUiA
       return;
     }
     searchResultsData = [];
-    searchMessage = uiText("Searching...", "検索中...");
+    searchMessage = uiText("Searching…", "検索中…");
     renderSearchResults();
     deps.postToNative({
       type: "search",

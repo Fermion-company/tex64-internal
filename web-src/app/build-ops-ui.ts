@@ -227,24 +227,24 @@ export const initBuildOpsUi = (
   const synctexErrorNotice = (error: string): { message: string; build?: boolean } => {
     if (/PDF not found|PDF has not been generated/i.test(error)) {
       return {
-        message: uiText("There is no PDF yet. Build once, then Jump can find the cursor.", "PDF がまだありません。一度ビルドすると、カーソルの位置へジャンプできます。"),
+        message: uiText("No PDF yet. Build first.", "PDFがまだありません。先にビルドしてください。"),
         build: true,
       };
     }
     if (/SyncTeX data was not found/i.test(error)) {
       return {
-        message: uiText("This PDF has no position data (SyncTeX). Build it again.", "この PDF には位置情報（SyncTeX）がありません。ビルドし直してください。"),
+        message: uiText("This PDF has no position data (SyncTeX). Build it again.", "このPDFには位置情報（SyncTeX）がありません。ビルドし直してください。"),
         build: true,
       };
     }
     if (/not part of this PDF/i.test(error)) {
-      return { message: uiText("This file is not part of the PDF.", "このファイルは PDF に含まれていません。") };
+      return { message: uiText("This file is not part of the PDF.", "このファイルはPDFに含まれていません。") };
     }
     if (/does not appear in the PDF|position was not found/i.test(error)) {
-      return { message: uiText("This line does not appear in the PDF.", "この行は PDF に出力されていません。") };
+      return { message: uiText("This line does not appear in the PDF.", "この行はPDFに出力されていません。") };
     }
     if (/only (supports|available for) .*TeX files|No TeX file selected/i.test(error)) {
-      return { message: uiText("Jump works from a .tex file.", "ジャンプは .tex ファイルから使えます。") };
+      return { message: uiText("Jump works from a .tex file.", "ジャンプは .texファイルから使えます。") };
     }
     return { message: `${uiText("Could not jump:", "ジャンプできませんでした：")} ${error}` };
   };
@@ -275,7 +275,7 @@ export const initBuildOpsUi = (
     if (!(buildButton instanceof HTMLButtonElement) || currentBuildState !== "building") return;
     const progress = buildProgressText();
     buildButton.dataset.progressPhase = buildProgressPhase;
-    buildButton.title = `${progress} ${uiText("Click to cancel.", "クリックでキャンセルします。")}`;
+    buildButton.title = progress;
     const label = buildButton.querySelector<HTMLElement>(".build-button-label");
     if (label) label.textContent = progress;
   };
@@ -359,10 +359,6 @@ export const initBuildOpsUi = (
     const enabled = Boolean(targetPath) && !preparingBuild && currentBuildState !== "building";
     synctexButton.disabled = !enabled;
     synctexButton.style.display = "inline-flex";
-    const label = synctexButton.querySelector<HTMLElement>(".synctex-button-label");
-    if (label) {
-      label.textContent = uiText("Jump", "ジャンプ");
-    }
   };
 
   // The <details> outlives every build, so the toggle handler is bound once and
@@ -423,7 +419,7 @@ export const initBuildOpsUi = (
         summary.dataset.noI18n = "";
         summary.textContent =
           markedCount > 0
-            ? uiText(`Detailed log (${markedCount} marked)`, `詳細ログ（該当 ${markedCount} 件）`)
+            ? uiText(`Detailed log (${markedCount} marked)`, `詳細ログ（該当${markedCount}件）`)
             : uiText("Detailed log", "詳細ログ");
       }
       // Open on arrival: if there is something to say, the transcript is worth
@@ -471,7 +467,7 @@ export const initBuildOpsUi = (
     );
     if (!targetPath) {
       if ((options.source ?? "manual") === "manual") {
-        showSynctexNotice(uiText("Jump works from a .tex file.", "ジャンプは .tex ファイルから使えます。"), "info");
+        showSynctexNotice(uiText("Jump works from a .tex file.", "ジャンプは .texファイルから使えます。"), "info");
       }
       return;
     }
@@ -595,7 +591,7 @@ export const initBuildOpsUi = (
       buildButton.setAttribute(
         "aria-label",
         isBusy
-          ? uiText("Build in progress; click to cancel", "ビルド実行中。クリックでキャンセル")
+          ? uiText("Cancel build", "ビルドをキャンセル")
           : uiText("Build", "ビルド")
       );
       const label = buildButton.querySelector<HTMLElement>(".build-button-label");
@@ -652,7 +648,7 @@ export const initBuildOpsUi = (
         buildCancelRequested = true;
         buildProgressPhase = "cancelling";
         renderBuildButtonProgress();
-        deps.updateIssues(0, uiText("Canceling build...", "ビルドをキャンセルしています..."), "info", []);
+        deps.updateIssues(0, uiText("Canceling build…", "ビルドをキャンセル中…"), "info", []);
       }
     }
   };
@@ -697,10 +693,10 @@ export const initBuildOpsUi = (
       return node;
     };
     const dialog = el("dialog", "history-confirm build-target-dialog");
-    const title = el("h2", "", uiText("Which document should be built?", "どの文書をビルドしますか？"));
+    const title = el("h2", "", uiText("Build target", "ビルド対象"));
     const note = el("p", "build-target-note", requested
-      ? uiText(`${requested} belongs to more than one document.`, `${requested} は複数の文書から読み込まれています。`)
-      : uiText("This folder has several documents and no main file is set.", "このフォルダには文書が複数あり、メイン TeX が決まっていません。"));
+      ? uiText(`${requested} belongs to more than one document.`, `${requested}は複数の文書から読み込まれています。`)
+      : uiText("No main file is set.", "メインTeXが決まっていません。"));
     const list = el("div", "build-target-list");
     list.setAttribute("role", "listbox");
     const pick = (path: string) => {
@@ -718,8 +714,8 @@ export const initBuildOpsUi = (
       list.append(row);
     });
     const titleRow = explainedHeading(title, requested
-      ? uiText("Remembered for this file until the app closes. A % !TEX root line in the file settles it for good.", "この起動中はこのファイルについて記憶します。ファイル先頭の % !TEX root 行で固定できます。")
-      : uiText("Settings › Main TeX fixes the choice for this folder.", "設定の「メイン TeX」でこのフォルダの既定にできます。"));
+      ? uiText("Remembered for this file until the app closes. A % !TEX root line in the file settles it for good.", "この起動中はこのファイルについて記憶します。ファイル先頭の% !TEX root行で固定できます。")
+      : uiText("Settings › Main TeX fixes the choice for this folder.", "設定の「メインTeX」でこのフォルダの既定にできます。"));
     const actions = el("div", "history-confirm-actions");
     const cancel = el("button", "history-button", uiText("Cancel", "キャンセル"));
     cancel.type = "button";
@@ -756,7 +752,7 @@ export const initBuildOpsUi = (
     awaitingFiles = () => unsubscribe();
     showEditorNotice(buildButton instanceof HTMLElement ? buildButton : null, uiText(
       `Waiting for ${incoming.files} file(s) from the host (${megabytes}); the build starts when they arrive.`,
-      `ホストからのファイルを待っています（残り ${incoming.files} 件・${megabytes}）。届きしだいビルドします。`,
+      `ホストからのファイルを待っています（残り${incoming.files}件・${megabytes}）。届きしだいビルドします。`,
     ), {
       owner: "build-files",
       durationMs: 10000,
@@ -798,17 +794,15 @@ export const initBuildOpsUi = (
           ? runtimeSummary.missingRequired.map((item) => ({
               severity: "error" as const,
               message: uiText(
-                `${resolveRuntimeMissingLabel(item)} is not detected. Check Settings > Runtime Environment.`,
-                `${resolveRuntimeMissingLabel(item)} is not detected. Please check Settings > Execution environment.`
+                `${resolveRuntimeMissingLabel(item)} is not detected. Check Settings > Build.`,
+                `${resolveRuntimeMissingLabel(item)} is not detected. Please check Settings > Build.`
               ),
               action: "open-runtime" as const,
             }))
           : [
               {
                 severity: "error" as const,
-                message: uiText(
-                  "Runtime environment is missing. Check Settings > Runtime Environment.",
-                  "Execution environment is insufficient. Please check Settings > Execution environment."
+                message: uiText("Runtime environment is missing. Check Settings > Build.", "Execution environment is insufficient. Please check Settings > Build."
                 ),
                 action: "open-runtime" as const,
               },
@@ -945,7 +939,7 @@ export const initBuildOpsUi = (
     if (!payload.ok) {
       if (!formatWarningShown) {
         formatWarningShown = true;
-        const message = payload.error ?? uiText("Formatting failed.", "整形に失敗しました。");
+        const message = payload.error ?? uiText("Formatting failed.", "整形できませんでした。");
         deps.updateIssues(1, message, "info", [
           { severity: "warning", message },
         ]);
@@ -1101,7 +1095,7 @@ export const initBuildOpsUi = (
       }
       if (payload.notTypeset === true && payloadMeta?.source !== "auto-build") {
         showSynctexNotice(
-          uiText("This line does not appear in the PDF, so the first page is shown.", "この行は PDF に出力されないため、先頭ページを表示しました。"),
+          uiText("This line does not appear in the PDF, so the first page is shown.", "この行はPDFに出力されないため、先頭ページを表示しました。"),
           "info",
         );
       }
@@ -1147,7 +1141,7 @@ export const initBuildOpsUi = (
       }
       return;
     }
-    const errorMessage = payload.error ?? uiText("SyncTeX failed.", "SyncTeX に失敗しました。");
+    const errorMessage = payload.error ?? uiText("SyncTeX failed.", "SyncTeXで位置を特定できませんでした。");
     if (isEnvMissingMessage(errorMessage)) {
       // Missing TeX tools: the Issues entry carries the fix-it action.
       const issue: IssueItem = { severity: "error", message: errorMessage, action: "open-runtime" };

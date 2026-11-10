@@ -108,20 +108,20 @@ export const formatRemaining = (remainingMs: number | null): string => {
   }
   if (seconds < 60) {
     const rounded = Math.max(10, Math.round(seconds / 10) * 10);
-    return uiText(`about ${rounded} seconds left`, `残り 約 ${rounded} 秒`);
+    return uiText(`about ${rounded} seconds left`, `残り 約${rounded}秒`);
   }
   const minutes = Math.round(seconds / 60);
   if (minutes <= 1) {
-    return uiText("about a minute left", "残り 約 1 分");
+    return uiText("about a minute left", "残り 約1分");
   }
   if (minutes < 60) {
-    return uiText(`about ${minutes} minutes left`, `残り 約 ${minutes} 分`);
+    return uiText(`about ${minutes} minutes left`, `残り 約${minutes}分`);
   }
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return rest === 0
-    ? uiText(`about ${hours} h left`, `残り 約 ${hours} 時間`)
-    : uiText(`about ${hours} h ${rest} min left`, `残り 約 ${hours} 時間 ${rest} 分`);
+    ? uiText(`about ${hours} h left`, `残り 約${hours}時間`)
+    : uiText(`about ${hours} h ${rest} min left`, `残り 約${hours}時間${rest}分`);
 };
 
 export const installPhaseLabel = (phase: string): string => {
@@ -131,7 +131,7 @@ export const installPhaseLabel = (phase: string): string => {
     case "extract":
       return uiText("Preparing the installer…", "インストーラを準備中…");
     case "texlive":
-      return uiText("Installing TeX Live…", "TeX Live を導入中…");
+      return uiText("Installing TeX Live…", "TeX Liveを導入中…");
     case "packages":
       return uiText("Installing packages…", "パッケージを導入中…");
     case "finalize":
@@ -253,9 +253,7 @@ export const initOnboardingUi = (deps: {
       phaseEl.textContent = `${installPhaseLabel(input.phase)}${counts}`;
     }
     if (progressTitle instanceof HTMLElement) {
-      progressTitle.textContent = uiText(
-        "Setting up TeX…",
-        "TeX をセットアップ中…"
+      progressTitle.textContent = uiText("Setting up TeX…", "TeXをセットアップ中…"
       );
     }
   };
@@ -266,9 +264,7 @@ export const initOnboardingUi = (deps: {
     if (noteEl instanceof HTMLElement) {
       noteEl.textContent =
         message ||
-        uiText(
-          "Setup did not finish. You can try again.",
-          "セットアップが完了しませんでした。もう一度お試しください。"
+        uiText("Setup did not finish. You can try again.", "セットアップが完了しませんでした。もう一度お試しください。"
         );
       noteEl.classList.remove("is-hidden");
     }

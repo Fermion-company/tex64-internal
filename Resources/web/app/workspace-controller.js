@@ -1,6 +1,6 @@
-import { getUiLocale } from "./i18n.js";
+import { getUiLocale, setLocalizedAttribute, uiText } from "./i18n.js";
 export const initWorkspaceController = (context, deps) => {
-    const { issuesTab, workspaceLabel, settingsWorkspace, } = context.dom;
+    const { buildIssueCount, workspaceLabel, settingsWorkspace, } = context.dom;
     let currentIssues = [];
     let baseIssues = [];
     let duplicateLabelIssues = [];
@@ -29,10 +29,28 @@ export const initWorkspaceController = (context, deps) => {
         workspaceName = label;
         syncWorkspaceLabel();
     };
-    const setIssuesStatus = (status) => {
-        if (issuesTab instanceof HTMLElement) {
-            issuesTab.dataset.status = status;
+    // Beside Build: the number of errors in the danger colour, or of warnings
+    // in the warning colour when there are only warnings; nothing when clean.
+    // It counts what the Problems panel lists, since it is the way there.
+    const renderIssueCount = (issues) => {
+        if (!(buildIssueCount instanceof HTMLButtonElement)) {
+            return;
         }
+        const errors = issues.filter((issue) => issue.severity === "error").length;
+        const warnings = issues.length - errors;
+        const severity = errors > 0 ? "error" : warnings > 0 ? "warning" : null;
+        buildIssueCount.hidden = severity === null;
+        if (!severity) {
+            return;
+        }
+        const count = severity === "error" ? errors : warnings;
+        buildIssueCount.dataset.severity = severity;
+        const value = buildIssueCount.querySelector(".build-issue-value");
+        if (value)
+            value.textContent = String(count);
+        const label = `${severity === "error" ? uiText("Errors", "エラー") : uiText("Warnings", "警告")} ${count}`;
+        setLocalizedAttribute(buildIssueCount, "aria-label", label);
+        setLocalizedAttribute(buildIssueCount, "title", label);
     };
     const getIssueLocationRank = (issue) => {
         const hasPath = typeof issue.path === "string" && issue.path.trim().length > 0;
@@ -152,12 +170,9 @@ export const initWorkspaceController = (context, deps) => {
         const hasError = sorted.some((issue) => issue.severity === "error");
         const status = hasError ? "error" : sorted.length > 0 ? "info" : "success";
         currentIssues = sorted;
-        setIssuesStatus(status);
+        renderIssueCount(sorted);
         deps.issuesUi.render(sorted);
         deps.editorSession.syncIssueMarkers(sorted);
-        if (issuesTab instanceof HTMLElement) {
-            issuesTab.classList.toggle("is-alert", hasError);
-        }
         if (sorted.length === 0) {
             deps.editorSession.clearIssueHighlight();
         }
@@ -170,20 +185,23 @@ export const initWorkspaceController = (context, deps) => {
         mergeIssues();
     };
     const handleWorkspaceUpdate = (payload) => {
-        var _a, _b;
+        var _a, _b, _c, _d;
         const previousRoot = workspaceRootKey;
         workspaceFiles = payload.files;
         workspaceFolders = Array.isArray(payload.folders) ? payload.folders : [];
         workspaceRootKey = payload.rootPath;
         deps.setWorkspaceRootKey(workspaceRootKey);
         setWorkspaceLabel(payload.rootName);
-        setText(settingsWorkspace, payload.rootPath);
+        setText(settingsWorkspace, (_a = payload.rootName) !== null && _a !== void 0 ? _a : payload.rootPath);
+        // Settings names the folder; the full path is in the tooltip, like other paths.
+        if (settingsWorkspace instanceof HTMLElement)
+            setLocalizedAttribute(settingsWorkspace, "title", (_b = payload.rootPath) !== null && _b !== void 0 ? _b : "");
         deps.settingsUi.refreshCompileEngine();
         if (payload.rootPath) {
             deps.launcherUi.setVisible(false);
             deps.launcherUi.setStatus({ isBusy: false, message: null });
         }
-        rootFilePath = ((_a = payload.rootFile) === null || _a === void 0 ? void 0 : _a.trim()) ? payload.rootFile : null;
+        rootFilePath = ((_c = payload.rootFile) === null || _c === void 0 ? void 0 : _c.trim()) ? payload.rootFile : null;
         rootSource =
             payload.rootSource === "manual" || payload.rootSource === "auto"
                 ? payload.rootSource
@@ -207,7 +225,7 @@ export const initWorkspaceController = (context, deps) => {
         // context until its completion handler closes the modal.
         if (rootChanged)
             deps.diffModal.closeDiffModal();
-        else if (((_b = deps.diffModal.getDiffContext()) === null || _b === void 0 ? void 0 : _b.type) !== "customApply") {
+        else if (((_d = deps.diffModal.getDiffContext()) === null || _d === void 0 ? void 0 : _d.type) !== "customApply") {
             deps.diffModal.setDiffContext(null);
         }
         deps.settingsUi.loadWorkspaceSettings();

@@ -2,7 +2,7 @@ import type { AppContext } from "../../context.js";
 import type { BlockType } from "../../types.js";
 import type { MathWysiwygApi } from "../../../math/wysiwyg/math-wysiwyg.js";
 import type { MathDisplayWrap, MathInlineWrap, MathInsertMode } from "../input-ui-settings.js";
-import type { BlockInputDeps, BlockSettingsPage } from "./types.js";
+import type { BlockInputDeps } from "./types.js";
 
 export type MathWysiwygSettingsState = {
   autoSuggest: boolean;
@@ -23,7 +23,6 @@ export type BlockInputRuntime = {
     mathInlineWrap: MathInlineWrap;
     mathDisplayWrap: MathDisplayWrap;
     blockSettingsOpen: boolean;
-    activeBlockSettingsPage: BlockSettingsPage;
     formatMenuOpen: boolean;
     mathWysiwygSettings: MathWysiwygSettingsState;
   };
@@ -52,7 +51,6 @@ export const createBlockInputRuntime = (
       mathInlineWrap: "inline-dollar",
       mathDisplayWrap: "display-bracket",
       blockSettingsOpen: false,
-      activeBlockSettingsPage: "menu",
       formatMenuOpen: false,
       mathWysiwygSettings: initial.mathWysiwygSettings,
     },

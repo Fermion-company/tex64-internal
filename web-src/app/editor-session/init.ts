@@ -299,9 +299,7 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
       if (payload.path !== path) continue;
       pendingLiveEdits.delete(sessionId);
       if (!applyLoadedLiveEdit(payload)) {
-        const message = uiText(
-          "The source changed. Click the text again to edit it.",
-          "ソースが更新されています。文字をもう一度クリックしてください。"
+        const message = uiText("The source changed. Click the text again to edit it.", "ソースが更新されています。文字をもう一度クリックしてください。"
         );
         deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
       }

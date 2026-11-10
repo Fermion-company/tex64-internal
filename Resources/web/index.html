@@ -96,7 +96,7 @@
         <div class="launcher-right">
           <div class="launcher-recent" id="launcher-recent">
             <div class="launcher-recent-header">
-              <span class="launcher-recent-title">Recent Projects</span>
+              <span class="launcher-recent-title">Recent</span>
               <button class="launcher-recent-toggle" id="launcher-recent-toggle" type="button" aria-expanded="false">
                 <span class="launcher-recent-toggle-text">Show All</span>
                 <svg class="launcher-recent-toggle-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
@@ -106,7 +106,7 @@
             </div>
             <div class="launcher-recent-list" id="launcher-recent-list"></div>
             <div class="launcher-recent-empty" id="launcher-recent-empty">
-              No project opened yet
+              No recent projects
             </div>
           </div>
         </div>
@@ -144,52 +144,16 @@
               <span>AI</span>
             </button>
           </nav>
+          <button id="update-button" class="update-chip" type="button" hidden>
+            <span class="update-chip-label" data-no-i18n>Update</span>
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h14"></path>
+              <path d="m13 6 6 6-6 6"></path>
+            </svg>
+          </button>
         </div>
         <div class="topbar-drag"></div>
         <div class="top-actions">
-          <div class="canvas-controls" role="toolbar" aria-label="Figure tools">
-            <div class="canvas-tools" role="group">
-              <button id="pro-canvas-open" type="button" aria-label="Draw a figure" title="Draw a figure and insert it as TikZ">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M12 20h9"></path>
-                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
-                </svg>
-                <span>Draw</span>
-              </button>
-            </div>
-          </div>
-          <button
-            id="update-button"
-            type="button"
-            class="is-hidden"
-            aria-hidden="true"
-            aria-label="Update available"
-            title="Update available"
-          >
-            <span class="update-button-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 3v12"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <path d="M5 20h14"></path>
-              </svg>
-            </span>
-            <span class="update-button-spinner" aria-hidden="true"></span>
-            Update
-          </button>
-          <button
-            id="toggle-bottom-panel-button"
-            type="button"
-            class="topbar-layout-toggle"
-            aria-label="Blocks and Terminal panel"
-            title="Show or hide Blocks and Terminal"
-            aria-pressed="false"
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="5" width="18" height="14" rx="2"></rect>
-              <path d="M3 15h18"></path>
-              <rect class="topbar-layout-fill" x="3" y="15" width="18" height="4" rx="2" fill="currentColor" opacity="0.35"></rect>
-            </svg>
-          </button>
           <button id="save-button" type="button" aria-label="Save" title="Save (Cmd+S)">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
@@ -198,21 +162,21 @@
             </svg>
             <span>Save</span>
           </button>
-          <button id="format-button" type="button" aria-label="Format" title="Format">
+          <button id="pro-canvas-open" class="topbar-tool" type="button" aria-label="Draw a figure" title="Draw a figure">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 20h9"></path>
+              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+            </svg>
+          </button>
+          <button id="format-button" class="topbar-tool" type="button" aria-label="Format" title="Format">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M4 6h16"></path>
               <path d="M8 10h12"></path>
               <path d="M4 14h16"></path>
               <path d="M8 18h12"></path>
             </svg>
-            <span>Format</span>
           </button>
-          <button
-            id="synctex-button"
-            type="button"
-            aria-label="SyncTeX"
-            title="SyncTeX (Forward)"
-          >
+          <button id="synctex-button" class="topbar-tool" type="button" aria-label="Jump" title="Jump">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <circle cx="12" cy="12" r="7"></circle>
               <path d="M12 2v4"></path>
@@ -220,7 +184,20 @@
               <path d="M2 12h4"></path>
               <path d="M18 12h4"></path>
             </svg>
-            <span class="synctex-button-label">SyncTeX</span>
+          </button>
+          <button
+            id="toggle-bottom-panel-button"
+            type="button"
+            class="topbar-layout-toggle"
+            aria-label="Terminal"
+            title="Terminal"
+            aria-pressed="false"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+              <path d="M3 15h18"></path>
+              <rect class="topbar-layout-fill" x="3" y="15" width="18" height="4" rx="2" fill="currentColor" opacity="0.35"></rect>
+            </svg>
           </button>
           <button
             id="collab-participants"
@@ -230,6 +207,19 @@
             title="Collaboration session"
             hidden
           ></button>
+          <button id="build-issue-count" class="build-issue-count" type="button" hidden>
+            <svg class="build-issue-icon is-error" viewBox="0 0 20 20" width="14" height="14" aria-hidden="true">
+              <circle cx="10" cy="10" r="9"></circle>
+              <path class="build-issue-glyph" d="M10 5.2v5.5"></path>
+              <circle class="build-issue-dot" cx="10" cy="14.2" r="1.15"></circle>
+            </svg>
+            <svg class="build-issue-icon is-warning" viewBox="0 0 20 20" width="14" height="14" aria-hidden="true">
+              <path d="M10 1.8 19.3 17.9a.9.9 0 0 1-.8 1.3H1.5a.9.9 0 0 1-.8-1.3z"></path>
+              <path class="build-issue-glyph" d="M10 7.4v4.3"></path>
+              <circle class="build-issue-dot" cx="10" cy="15.1" r="1.1"></circle>
+            </svg>
+            <span class="build-issue-value" data-no-i18n></span>
+          </button>
           <button
             id="build-button"
             type="button"
@@ -285,26 +275,10 @@
               class="tab"
               type="button"
               role="tab"
-              data-tab="outline"
-              aria-selected="false"
-              aria-label="Outline"
-              title="Outline"
-            >
-              <span class="tab-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M8 6h11M8 12h11M8 18h11"></path>
-                  <path d="M5 6h.01M5 12h.01M5 18h.01"></path>
-                </svg>
-              </span>
-            </button>
-            <button
-              class="tab"
-              type="button"
-              role="tab"
               data-tab="blocks"
               aria-selected="false"
-              aria-label="Blocks"
-              title="Blocks"
+              aria-label="Math"
+              title="Math"
             >
               <span class="tab-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
@@ -314,6 +288,7 @@
                 </svg>
               </span>
             </button>
+            <button class="tab" type="button" role="tab" data-tab="git" aria-selected="false" aria-label="Git" title="Git"><span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="7" cy="5" r="2"/><circle cx="17" cy="5" r="2"/><circle cx="7" cy="19" r="2"/><path d="M7 7v10M17 7v2a5 5 0 0 1-5 5H7"/></svg></span></button>
             <button
               class="tab"
               type="button"
@@ -328,45 +303,6 @@
                   <path d="M12 4L20 12L12 20L4 12Z" fill="none"/>
                   <ellipse cx="12" cy="12" rx="6" ry="2.5" transform="rotate(-30 12 12)" fill="none" stroke-width="1" opacity="0.4"/>
                   <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
-                </svg>
-              </span>
-            </button>
-            <button
-              class="tab"
-              id="issues-tab"
-              type="button"
-              role="tab"
-              data-tab="issues"
-              aria-selected="false"
-              aria-label="Issues"
-              title="Issues"
-            >
-              <span class="tab-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 3l9 16H3z"></path>
-                  <path d="M12 9v4"></path>
-                  <path d="M12 17h.01"></path>
-                </svg>
-              </span>
-            </button>
-            <button class="tab" type="button" role="tab" data-tab="git" aria-selected="false" aria-label="Git" title="Git"><span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="7" cy="5" r="2"/><circle cx="17" cy="5" r="2"/><circle cx="7" cy="19" r="2"/><path d="M7 7v10M17 7v2a5 5 0 0 1-5 5H7"/></svg></span></button>
-            <button class="tab" type="button" role="tab" data-tab="history" aria-selected="false" aria-label="History" title="History">
-              <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 11a9 9 0 1 1 2.6 7M3 5v6h6M12 7v5l3 2"/></svg></span>
-            </button>
-            <button
-              class="tab"
-              type="button"
-              role="tab"
-              data-tab="project"
-              aria-selected="false"
-              aria-label="Project"
-              title="Project"
-            >
-              <span class="tab-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M4 7h16M4 17h16"></path>
-                  <circle cx="9" cy="7" r="2"></circle>
-                  <circle cx="15" cy="17" r="2"></circle>
                 </svg>
               </span>
             </button>
@@ -411,46 +347,56 @@
             <div class="panel-header">
               <span class="panel-title">explorer</span>
             </div>
-            <div class="panel-body">
+            <div class="panel-body files-panel-body">
               <div class="workspace-label" id="workspace-label">No workspace selected</div>
               <div class="file-tree" id="file-tree" tabindex="0"></div>
-            </div>
-          </div>
-          <div class="panel no-header" data-panel="outline">
-            <div class="panel-header">
-              <span class="panel-title">Outline</span>
-              <div class="panel-header-actions">
-                <button class="panel-button ghost" id="outline-mode-current" type="button" aria-pressed="true">
-                  Current
+              <section class="sidebar-section" data-section="outline">
+                <button class="sidebar-section-header" type="button" aria-expanded="false" aria-controls="sidebar-section-outline">
+                  <svg class="sidebar-section-chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4"></path></svg>
+                  <span>Outline</span>
                 </button>
-                <button class="panel-button ghost" id="outline-mode-project" type="button" aria-pressed="false">
-                  Project
+                <div class="sidebar-section-body outline-panel" id="sidebar-section-outline" hidden>
+                  <div class="outline-modes" hidden>
+                    <button class="panel-button ghost" id="outline-mode-current" type="button" aria-pressed="true">
+                      Current
+                    </button>
+                    <button class="panel-button ghost" id="outline-mode-project" type="button" aria-pressed="false">
+                      Project
+                    </button>
+                  </div>
+                  <div class="outline-empty" id="outline-empty">Creating index.</div>
+                  <details class="outline-section" data-outline="sections" open>
+                    <summary class="outline-section-title">chapter and verse</summary>
+                    <div class="outline-list" id="outline-sections"></div>
+                  </details>
+                  <details class="outline-section" data-outline="labels" open>
+                    <summary class="outline-section-title">label</summary>
+                    <div class="outline-list" id="outline-labels"></div>
+                  </details>
+                  <details class="outline-section" data-outline="citations" open>
+                    <summary class="outline-section-title">References</summary>
+                    <div class="outline-list" id="outline-citations"></div>
+                  </details>
+                  <details class="outline-section" data-outline="todos" open>
+                    <summary class="outline-section-title">TODO</summary>
+                    <div class="outline-list" id="outline-todos"></div>
+                  </details>
+                </div>
+              </section>
+              <section class="sidebar-section" data-section="history">
+                <button class="sidebar-section-header" type="button" aria-expanded="false" aria-controls="sidebar-section-history">
+                  <svg class="sidebar-section-chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4"></path></svg>
+                  <span>History</span>
                 </button>
-              </div>
-            </div>
-            <div class="panel-body outline-panel">
-              <div class="outline-empty" id="outline-empty">Creating index.</div>
-              <details class="outline-section" data-outline="sections" open>
-                <summary class="outline-section-title">chapter and verse</summary>
-                <div class="outline-list" id="outline-sections"></div>
-              </details>
-              <details class="outline-section" data-outline="labels" open>
-                <summary class="outline-section-title">label</summary>
-                <div class="outline-list" id="outline-labels"></div>
-              </details>
-              <details class="outline-section" data-outline="citations" open>
-                <summary class="outline-section-title">References</summary>
-                <div class="outline-list" id="outline-citations"></div>
-              </details>
-              <details class="outline-section" data-outline="todos" open>
-                <summary class="outline-section-title">TODO</summary>
-                <div class="outline-list" id="outline-todos"></div>
-              </details>
+                <div class="sidebar-section-body" id="sidebar-section-history" hidden>
+                  <div id="history-panel"></div>
+                </div>
+              </section>
             </div>
           </div>
           <div class="panel no-header" data-panel="blocks">
             <div class="panel-header">
-              <span class="panel-title">Blocks</span>
+              <span class="panel-title">Math</span>
             </div>
             <div class="panel-body blocks-panel">
               <div class="block-compose">
@@ -462,7 +408,7 @@
                       type="button"
                       aria-haspopup="dialog"
                       aria-expanded="false"
-                      aria-label="Formula block settings"
+                      aria-label="Math settings"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path
@@ -490,7 +436,7 @@
                           type="button"
                           aria-haspopup="listbox"
                           aria-expanded="false"
-                        >INL</button>
+                        >Inline</button>
                         <div
                           class="block-format-menu"
                           id="block-format-menu"
@@ -546,7 +492,7 @@
               <div class="ai-chat-delete-modal" id="ai-chat-delete-modal">
                 <div class="ai-chat-delete-modal-card">
                   <div class="ai-chat-delete-modal-title">Delete chat</div>
-                  <div class="ai-chat-delete-modal-text">Delete "<span id="ai-chat-delete-target"></span>"?</div>
+                  <div class="ai-chat-delete-modal-text"><span id="ai-chat-delete-target"></span></div>
                   <div class="ai-chat-delete-modal-actions">
                     <button class="panel-button ghost" id="ai-chat-delete-cancel" type="button">cancel</button>
                     <button class="panel-button danger" id="ai-chat-delete-confirm" type="button">Delete</button>
@@ -561,7 +507,7 @@
               <div class="ai-input-area">
                 <div class="ai-chat-input" id="ai-composer">
                   <div class="ai-attachments is-empty" id="ai-attachments"></div>
-                  <textarea class="ai-chat-textarea" id="ai-input" rows="2" placeholder="Ask anything about this document. @ adds a file"></textarea>
+                  <textarea class="ai-chat-textarea" id="ai-input" rows="2" placeholder="@ adds a file"></textarea>
                   <div class="ai-composer-row">
                     <div class="ai-composer-left">
                       <input
@@ -588,9 +534,9 @@
                     </div>
                     <div class="ai-composer-right">
                       <div class="ai-mode-toggle" id="ai-mode-toggle" role="radiogroup" aria-label="Axiom mode">
-                        <button class="ai-mode-option is-active" type="button" role="radio" aria-checked="true" data-ai-mode="agent" title="Edits and typesets the document"><span data-no-i18n>Agent</span></button>
-                        <button class="ai-mode-option" type="button" role="radio" aria-checked="false" data-ai-mode="ask" title="Answers without changing anything"><span data-no-i18n>Ask</span></button>
-                        <button class="ai-mode-option" type="button" role="radio" aria-checked="false" data-ai-mode="plan" title="Plans first, then writes on your go"><span data-no-i18n>Plan</span></button>
+                        <button class="ai-mode-option is-active" type="button" role="radio" aria-checked="true" data-ai-mode="agent" title="Edits and typesets the document"><span>Agent</span></button>
+                        <button class="ai-mode-option" type="button" role="radio" aria-checked="false" data-ai-mode="ask" title="Answers without changing anything"><span>Ask</span></button>
+                        <button class="ai-mode-option" type="button" role="radio" aria-checked="false" data-ai-mode="plan" title="Plans first, then writes on your go"><span>Plan</span></button>
                       </div>
                       <div class="ai-model-picker" id="ai-model-picker">
                         <button class="ai-model-trigger" id="ai-model-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Select Axiom model">
@@ -605,8 +551,7 @@
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
                               </button>
                               <div class="ai-model-upsell-heading" id="ai-model-upsell-heading" data-no-i18n>Axiom 1.0 Pro</div>
-                              <div class="ai-model-upsell-title">Available on the Pro plan</div>
-                              <button class="ai-model-upsell-btn" type="button">See Pro plans</button>
+                              <button class="ai-model-upsell-btn" type="button">Plans</button>
                             </div>
                           </div>
                         </div>
@@ -625,34 +570,6 @@
             </div>
           </div>
           <div class="panel no-header" data-panel="git"><div id="git-panel"></div></div>
-          <div class="panel no-header" data-panel="history"><div id="history-panel"></div></div>
-          <div class="panel no-header" data-panel="project">
-            <div class="panel-header">
-              <span class="panel-title">Project</span>
-            </div>
-            <div class="panel-body settings-panel">
-              <div class="settings-group">
-                <div class="settings-group-title">Project</div>
-                <div class="settings-item">
-                  <div class="settings-label">
-                    <span class="settings-title">Main TeX</span>
-                  </div>
-                  <div class="settings-control">
-                    <select class="settings-select" id="settings-root-select"></select>
-                    <button class="panel-button ghost" id="settings-root-auto" type="button">
-                      automatic detection
-                    </button>
-                  </div>
-                </div>
-                <div class="settings-item">
-                  <div class="settings-label">
-                    <span class="settings-title">Workspace</span>
-                  </div>
-                  <div class="settings-path" id="settings-workspace">Not selected</div>
-                </div>
-              </div>
-            </div>
-          </div>
           <div class="panel no-header" data-panel="search">
             <div class="panel-header">
               <span class="panel-title">Search</span>
@@ -727,20 +644,17 @@
             <div class="panel-header">
               <span class="panel-title">Settings</span>
             </div>
-            <button class="settings-overlay-close" id="settings-close" type="button" aria-label="Back to app" title="Back to app">
+            <button class="settings-overlay-close" id="settings-close" type="button" aria-label="Back" title="Back">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M19 12H5"></path>
                 <path d="m12 19-7-7 7-7"></path>
               </svg>
-              <span class="settings-overlay-close-label">Back to app</span>
+              <span class="settings-overlay-close-label">Back</span>
             </button>
             <div class="panel-body settings-panel" id="settings-panel">
               <div class="settings-nav" id="settings-nav">
                 <button class="settings-nav-item" data-settings-target="general" type="button">
                   <span class="settings-nav-title">General</span>
-                </button>
-                <button class="settings-nav-item" data-settings-target="editor" type="button">
-                  <span class="settings-nav-title">Editor</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="build" type="button">
                   <span class="settings-nav-title">Build</span>
@@ -748,22 +662,11 @@
                 <button class="settings-nav-item" data-settings-target="format" type="button">
                   <span class="settings-nav-title">Format</span>
                 </button>
-                <button class="settings-nav-item" data-settings-target="env" type="button">
-                  <span class="settings-nav-title">Environment</span>
-                </button>
                 <button class="settings-nav-item" data-settings-target="account" type="button">
-                  <span class="settings-nav-title-row">
-                    <span class="settings-nav-title">Account</span>
-                    <span class="settings-nav-badge is-hidden" id="settings-account-attention" aria-hidden="true">
-                      Update Available
-                    </span>
-                  </span>
+                  <span class="settings-nav-title">Account</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="zotero" type="button">
                   <span class="settings-nav-title">Zotero</span>
-                </button>
-                <button class="settings-nav-item" data-settings-target="info" type="button">
-                  <span class="settings-nav-title">Info</span>
                 </button>
               </div>
               <div class="settings-pages is-hidden" id="settings-pages" aria-hidden="true">
@@ -780,12 +683,12 @@
                       <div class="settings-control">
                         <select class="settings-select" id="settings-ui-language">
                           <option value="en">English</option>
-                          <option value="ja">日本語 (Japanese)</option>
-                          <option value="zh">简体中文 (Chinese)</option>
-                          <option value="ko">한국어 (Korean)</option>
-                          <option value="fr">Français (French)</option>
-                          <option value="de">Deutsch (German)</option>
-                          <option value="es">Español (Spanish)</option>
+                          <option value="ja">日本語</option>
+                          <option value="zh">简体中文</option>
+                          <option value="ko">한국어</option>
+                          <option value="fr">Français</option>
+                          <option value="de">Deutsch</option>
+                          <option value="es">Español</option>
                         </select>
                       </div>
                     </div>
@@ -795,31 +698,15 @@
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="settings-appearance-theme">
+                          <option value="system">System</option>
                           <option value="dark">Dark</option>
                           <option value="light">Light</option>
                         </select>
                       </div>
                     </div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">Build in Separate Window</span>
-                      </div>
-                      <div class="settings-control">
-                        <label class="settings-switch" for="editor-pdf-window">
-                          <input class="settings-switch-input" id="editor-pdf-window" type="checkbox">
-                          <span class="settings-switch-track" aria-hidden="true"></span>
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div class="settings-page is-hidden" data-settings-page="editor" aria-hidden="true">
-                  <div class="settings-page-header">
-                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
-                    <div class="settings-page-title">Editor</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Display</div>
+                    <div class="settings-group-title">Editor</div>
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Wrap Lines</span>
@@ -848,8 +735,8 @@
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="editor-font-family">
-                          <option value="">Default (Latin Modern Mono)</option>
-                          <option value="&quot;Latin Modern Mono&quot;, monospace">Latin Modern Mono (TeX's typewriter face)</option>
+                          <option value="">Default</option>
+                          <option value="&quot;Latin Modern Mono&quot;, monospace">Latin Modern Mono</option>
                           <option value="&quot;SF Mono&quot;, Menlo, Monaco, monospace">SF Mono</option>
                           <option value="&quot;Courier New&quot;, monospace">Courier New</option>
                           <option value="&quot;PT Mono&quot;, monospace">PT Mono</option>
@@ -878,10 +765,9 @@
                     <div class="settings-page-title">Format</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Format</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Auto-Format on Save</span>
+                        <span class="settings-title">Format on Save</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-format-enabled">
@@ -948,7 +834,7 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Handling of Blank Lines</span>
+                        <span class="settings-title">Blank Lines</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="editor-format-blank-lines">
@@ -977,7 +863,6 @@
                         class="settings-input"
                         id="editor-format-verbatim-input"
                         type="text"
-                        placeholder="minted / myenv etc."
                       >
                       <button class="panel-button" id="editor-format-verbatim-add" type="button">
                         Add
@@ -994,7 +879,6 @@
                           class="env-registry-input"
                           id="env-registry-input"
                           type="text"
-                          placeholder="align / myenv etc."
                         >
                         <select class="env-registry-select" id="env-registry-kind">
                           <option value="math">Mathematical Formula</option>
@@ -1024,10 +908,60 @@
                     <div class="settings-page-title">Build</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Compile</div>
+                    <div class="env-block">
+                      <div class="settings-item env-row">
+                        <div class="settings-label">
+                          <span class="settings-title">TeX</span>
+                        </div>
+                        <div class="settings-control">
+                          <div class="env-hero is-checking" id="env-hero">
+                            <span class="env-hero-icon" aria-hidden="true"></span>
+                            <span class="env-hero-title" id="settings-runtime-setup-status">Checking TeX…</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="env-detail is-hidden" id="env-detail" aria-hidden="true"></div>
+                      <div class="env-choice is-hidden" id="env-choice" aria-hidden="true">
+                        <button class="env-choice-card is-primary" id="env-choice-light" type="button">
+                          <span class="env-choice-title">Quick setup</span>
+                        </button>
+                      </div>
+                      <div class="env-progress is-hidden" id="env-progress" aria-hidden="true">
+                        <div class="env-progress-track">
+                          <div class="env-progress-fill" id="env-progress-fill"></div>
+                        </div>
+                        <div class="env-progress-label" id="env-progress-label"></div>
+                      </div>
+                      <button class="panel-button env-setup-btn is-hidden" id="settings-env-setup" type="button">
+                        Set up
+                      </button>
+                      <div class="settings-help-text env-install-note is-hidden" id="settings-runtime-install-status" aria-hidden="true"></div>
+                    </div>
+                  </div>
+                  <div class="settings-group">
+                    <div class="settings-group-title">Project</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Compilation Engine</span>
+                        <span class="settings-title">Main TeX</span>
+                      </div>
+                      <div class="settings-control">
+                        <select class="settings-select" id="settings-root-select"></select>
+                        <button class="panel-button ghost" id="settings-root-auto" type="button">
+                          automatic detection
+                        </button>
+                      </div>
+                    </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Workspace</span>
+                      </div>
+                      <div class="settings-path" id="settings-workspace">Not selected</div>
+                    </div>
+                  </div>
+                  <div class="settings-group">
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Engine</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="settings-compile-engine">
@@ -1040,7 +974,6 @@
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Preview</div>
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Real-time Preview</span>
@@ -1052,12 +985,23 @@
                         </label>
                       </div>
                     </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Build in Separate Window</span>
+                      </div>
+                      <div class="settings-control">
+                        <label class="settings-switch" for="editor-pdf-window">
+                          <input class="settings-switch-input" id="editor-pdf-window" type="checkbox">
+                          <span class="settings-switch-track" aria-hidden="true"></span>
+                        </label>
+                      </div>
+                    </div>
                   </div>
                   <div class="settings-group">
                     <div class="settings-group-title">SyncTeX</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">SyncTeX at Build Time</span>
+                        <span class="settings-title">Go to PDF after build</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-auto-synctex-build">
@@ -1068,7 +1012,7 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Reverse SyncTeX (PDF → source)</span>
+                        <span class="settings-title">PDF → source</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-reverse-synctex">
@@ -1079,29 +1023,31 @@
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Build Profile</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Build Profile</span>
+                        <span class="settings-title">Profile</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="settings-build-profile"></select>
+                        <button class="panel-button" id="settings-build-profile-add" type="button">
+                          Add
+                        </button>
                       </div>
                     </div>
                     <div class="settings-item is-stacked">
                       <div class="settings-label">
-                        <span class="settings-title">Profile Name</span>
+                        <span class="settings-title">Name</span>
                       </div>
                       <div class="settings-control">
-                        <input class="settings-input" id="settings-build-profile-name" type="text" placeholder="My profile">
+                        <input class="settings-input" id="settings-build-profile-name" type="text">
                       </div>
                     </div>
                     <div class="settings-item is-stacked">
                       <div class="settings-label">
-                        <span class="settings-title">outDir</span>
+                        <span class="settings-title">Output folder</span>
                       </div>
                       <div class="settings-control">
-                        <input class="settings-input" id="settings-build-outdir" type="text" placeholder="build">
+                        <input class="settings-input" id="settings-build-outdir" type="text">
                       </div>
                     </div>
                     <div class="settings-item is-stacked">
@@ -1120,57 +1066,23 @@
                     </div>
                     <div class="settings-item is-stacked">
                       <div class="settings-label">
-                        <span class="settings-title">latexmk Additional Options</span>
+                        <span class="settings-title">latexmk Options</span>
                       </div>
                       <div class="settings-control">
-                        <input class="settings-input" id="settings-build-extra-args" type="text" placeholder="-use-biber -shell-escape">
+                        <input class="settings-input" id="settings-build-extra-args" type="text">
                       </div>
                     </div>
                     <div class="settings-inline">
-                      <button class="panel-button" id="settings-build-profile-add" type="button">
-                        Add
-                      </button>
-                      <button class="panel-button ghost" id="settings-build-profile-delete" type="button">
+                      <button class="panel-button danger" id="settings-build-profile-delete" type="button">
                         Delete
                       </button>
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Clean</div>
                     <div class="settings-actions">
-                      <button class="panel-button ghost" id="settings-build-clean" type="button">Clean</button>
-                      <button class="panel-button ghost" id="settings-build-clean-all" type="button">Clean -C</button>
+                      <button class="panel-button ghost" id="settings-build-clean" type="button">Delete auxiliary files…</button>
+                      <button class="panel-button danger" id="settings-build-clean-all" type="button">Delete PDF and auxiliary files…</button>
                     </div>
-                  </div>
-                </div>
-                <div class="settings-page is-hidden" data-settings-page="env" aria-hidden="true">
-                  <div class="settings-page-header">
-                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
-                    <div class="settings-page-title">Environment</div>
-                  </div>
-                  <div class="settings-group env-group">
-                    <div class="env-hero is-checking" id="env-hero">
-                      <span class="env-hero-icon" aria-hidden="true"></span>
-                      <div class="env-hero-text">
-                        <div class="env-hero-title" id="settings-runtime-setup-status">Checking your TeX environment…</div>
-                      </div>
-                    </div>
-                    <div class="env-detail is-hidden" id="env-detail" aria-hidden="true"></div>
-                    <div class="env-choice is-hidden" id="env-choice" aria-hidden="true">
-                      <button class="env-choice-card is-primary" id="env-choice-light" type="button">
-                        <span class="env-choice-title">Quick setup</span>
-                      </button>
-                    </div>
-                    <div class="env-progress is-hidden" id="env-progress" aria-hidden="true">
-                      <div class="env-progress-track">
-                        <div class="env-progress-fill" id="env-progress-fill"></div>
-                      </div>
-                      <div class="env-progress-label" id="env-progress-label"></div>
-                    </div>
-                    <button class="panel-button env-setup-btn is-hidden" id="settings-env-setup" type="button">
-                      Set Up TeX Environment
-                    </button>
-                    <div class="settings-help-text env-install-note is-hidden" id="settings-runtime-install-status" aria-hidden="true"></div>
                   </div>
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="account" aria-hidden="true">
@@ -1179,10 +1091,9 @@
                     <div class="settings-page-title">Account</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Account</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Google Login</span>
+                        <span class="settings-title">Google</span>
                         <span class="settings-desc" id="settings-auth-status">Signed out</span>
                       </div>
                       <div class="settings-control settings-inline settings-inline-wrap">
@@ -1212,46 +1123,33 @@
                     </div>
                     <div class="settings-inline settings-inline-wrap">
                       <button class="panel-button" id="settings-plan-open" type="button">
-                        Open Plans
+                        Pricing
                       </button>
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Update</div>
+                    <div class="settings-group-title">Updates</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Current Version</span>
+                        <span class="settings-title settings-update-version" id="settings-update-version" data-no-i18n>-</span>
+                        <span class="settings-desc settings-update-status is-hidden" id="settings-update-status" role="status"></span>
                       </div>
                       <div class="settings-control">
-                        <span class="settings-version-badge" id="settings-update-current">-</span>
+                        <button class="panel-button ghost" id="settings-update-action" type="button">
+                          Check for updates
+                        </button>
                       </div>
-                    </div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">Latest Version</span>
-                      </div>
-                      <div class="settings-control">
-                        <span class="settings-version-badge" id="settings-update-latest">-</span>
-                      </div>
-                    </div>
-                    <div class="settings-help-text" id="settings-update-status">
-                      
-                    </div>
-                    <div class="settings-update-progress is-hidden" id="settings-update-progress" aria-hidden="true">
-                      <div class="settings-update-progress-fill" id="settings-update-progress-fill"></div>
-                    </div>
-                    <div class="settings-inline settings-inline-wrap">
-                      <button class="panel-button ghost" id="settings-update-check" type="button">
-                        Check for Updates
-                      </button>
-                      <button class="panel-button is-hidden" id="settings-update-apply" type="button">
-                        Apply Updates
-                      </button>
-                      <button class="panel-button ghost" id="settings-update-open" type="button">
-                        Manual Download
-                      </button>
                     </div>
                   </div>
+                  <nav class="settings-links" aria-label="Info">
+                    <button class="settings-link" id="settings-link-support" type="button">Help</button>
+                    <button class="settings-link" id="settings-link-contact" type="button">Inquiry</button>
+                    <button class="settings-link" id="settings-link-releases" type="button">Release Notes</button>
+                    <button class="settings-link" id="settings-link-terms" type="button">Terms of Service</button>
+                    <button class="settings-link" id="settings-link-privacy" type="button">Privacy</button>
+                    <button class="settings-link" id="settings-link-commercial" type="button">Special Commercial Law</button>
+                    <button class="settings-link" id="settings-link-refund" type="button">Refund Policy</button>
+                  </nav>
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="feedback" aria-hidden="true">
                   <div class="settings-page-header">
@@ -1277,7 +1175,6 @@
                           class="settings-input"
                           id="settings-feedback-message"
                           rows="6"
-                          placeholder="Type your feedback here."
                         ></textarea>
                       </div>
                     </div>
@@ -1315,29 +1212,6 @@
                     <p class="env-explainer">
                       <button class="env-link" id="settings-zotero-open-keys" type="button"></button>
                     </p>
-                  </div>
-                </div>
-                <div class="settings-page is-hidden" data-settings-page="info" aria-hidden="true">
-                  <div class="settings-page-header">
-                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
-                    <div class="settings-page-title">Info</div>
-                  </div>
-                  <div class="settings-group">
-                    <div class="settings-group-title">Legal Affairs</div>
-                    <div class="settings-actions">
-                      <button class="panel-button ghost" id="settings-link-terms" type="button">Terms of Service</button>
-                      <button class="panel-button ghost" id="settings-link-privacy" type="button">Privacy</button>
-                      <button class="panel-button ghost" id="settings-link-commercial" type="button">Special Commercial Law</button>
-                      <button class="panel-button ghost" id="settings-link-refund" type="button">Refund Policy</button>
-                    </div>
-                  </div>
-                  <div class="settings-group">
-                    <div class="settings-group-title">Support</div>
-                    <div class="settings-actions">
-                      <button class="panel-button ghost" id="settings-link-support" type="button">Help</button>
-                      <button class="panel-button ghost" id="settings-link-contact" type="button">Inquiry</button>
-                      <button class="panel-button ghost" id="settings-link-releases" type="button">Release Notes</button>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -1439,22 +1313,21 @@
           <div class="bottom-panel" id="bottom-panel" aria-hidden="true">
             <div class="bottom-panel-header">
               <div class="bottom-panel-tabs">
-                <button class="bottom-panel-tab is-active" type="button" data-bottom-tab="blocks">Blocks</button>
-                <button class="bottom-panel-tab" type="button" data-bottom-tab="terminal">Terminal</button>
+                <button class="bottom-panel-tab is-active" type="button" data-bottom-tab="terminal">Terminal</button>
               </div>
-              <button class="bottom-panel-close is-hidden" id="bottom-panel-terminal-window" data-terminal-action type="button" aria-label="Open terminal window" title="Open terminal window"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7M21 3l-9 9M10 5H4v15h15v-6"/></svg></button>
-              <button class="bottom-panel-close is-hidden" id="bottom-panel-terminal-new" data-terminal-action type="button" aria-label="New terminal" title="New terminal (Ctrl/Cmd+T)">
+              <button class="bottom-panel-close" id="bottom-panel-terminal-window" data-terminal-action type="button" aria-label="Open terminal window" title="Open terminal window"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7M21 3l-9 9M10 5H4v15h15v-6"/></svg></button>
+              <button class="bottom-panel-close" id="bottom-panel-terminal-new" data-terminal-action type="button" aria-label="New terminal" title="New terminal (Ctrl/Cmd+T)">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
               </button>
-              <button class="bottom-panel-close is-hidden" id="bottom-panel-terminal-split" data-terminal-action type="button" aria-label="Split terminal" title="Split terminal (Ctrl/Cmd+Shift+T)">
+              <button class="bottom-panel-close" id="bottom-panel-terminal-split" data-terminal-action type="button" aria-label="Split terminal" title="Split terminal (Ctrl/Cmd+Shift+T)">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
               </button>
               <button
-                class="bottom-panel-close is-hidden"
+                class="bottom-panel-close"
                 id="bottom-panel-terminal-restart"
                 type="button"
                 aria-label="Restart terminal"
-                title="Restart terminal (stops current shell)"
+                title="Restart terminal"
               >
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5"/>
@@ -1466,7 +1339,7 @@
                 </svg>
               </button>
             </div>
-            <div class="bottom-panel-body" id="bottom-panel-body" data-pane="blocks">
+            <div class="bottom-panel-body" id="bottom-panel-body">
               <div class="terminal-host" id="terminal-host"></div>
             </div>
           </div>
@@ -1498,8 +1371,6 @@
           aria-labelledby="create-modal-title"
         >
           <div class="modal-title" id="create-modal-title">Create New</div>
-          <div class="modal-subtitle" id="create-modal-subtitle">
-          </div>
           <div class="modal-body">
             <div class="modal-row">
               <span class="modal-label">Create destination</span>
@@ -1513,7 +1384,6 @@
                 class="modal-input"
                 id="create-modal-input"
                 type="text"
-                placeholder="new file name"
                 autocomplete="off"
               />
             </div>
@@ -1523,7 +1393,7 @@
             <button class="panel-button ghost" id="create-modal-cancel" type="button">
               cancel
             </button>
-            <button class="panel-button" id="create-modal-submit" type="button">Create</button>
+            <button class="tool-button is-primary" id="create-modal-submit" type="button">Create</button>
           </div>
         </div>
       </div>
@@ -1533,14 +1403,14 @@
           class="feedback-overlay-close"
           id="feedback-modal-cancel"
           type="button"
-          aria-label="Back to app"
-          title="Back to app"
+          aria-label="Back"
+          title="Back"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M19 12H5"></path>
             <path d="m12 19-7-7 7-7"></path>
           </svg>
-          <span class="feedback-overlay-close-label">Back to app</span>
+          <span class="feedback-overlay-close-label">Back</span>
         </button>
         <div
           class="feedback-overlay-inner"
@@ -1548,16 +1418,16 @@
           aria-modal="true"
           aria-labelledby="feedback-modal-title"
         >
-          <h1 class="feedback-overlay-title" id="feedback-modal-title">Help shape TeX64</h1>
+          <h1 class="feedback-overlay-title" id="feedback-modal-title">Feedback</h1>
           <textarea
             class="feedback-overlay-textarea"
             id="feedback-modal-message"
-            placeholder="What did you notice? Anything goes — big or small."
+            aria-labelledby="feedback-modal-title"
           ></textarea>
           <div class="feedback-overlay-status is-hidden" id="feedback-modal-status"></div>
           <div class="feedback-overlay-actions">
             <button class="feedback-overlay-send" id="feedback-modal-send" type="button">
-              Send feedback
+              Send
             </button>
           </div>
         </div>
@@ -1573,7 +1443,6 @@
           <button class="plans-close" id="plans-modal-close" type="button" aria-label="Close">×</button>
           <div class="plans-head">
             <h2 class="plans-heading" id="plans-heading">Pricing</h2>
-            <p class="plans-sub" id="plans-sub"></p>
           </div>
           <div class="plans-list" id="plans-list"></div>
           <div class="plans-status" id="plans-status" aria-live="polite"></div>
@@ -1589,15 +1458,12 @@
         >
           <div class="modal-title" id="rename-modal-title">rename</div>
           <div class="modal-body">
-            <div class="modal-row">
-              <span class="modal-label">subject</span>
-              <span class="modal-path" id="rename-modal-target">Not selected</span>
-            </div>
+            <div class="modal-path" id="rename-modal-target">Not selected</div>
             <input
               class="modal-input"
               id="rename-modal-input"
               type="text"
-              placeholder="new name"
+              aria-labelledby="rename-modal-title"
             />
             <div class="modal-help" id="rename-modal-help"></div>
           </div>
@@ -1605,7 +1471,7 @@
             <button class="panel-button ghost" id="rename-modal-cancel" type="button">
               cancel
             </button>
-            <button class="panel-button" id="rename-modal-submit" type="button">Rename</button>
+            <button class="tool-button is-primary" id="rename-modal-submit" type="button">Rename</button>
           </div>
         </div>
       </div>
@@ -1619,11 +1485,8 @@
         >
           <div class="modal-title" id="delete-modal-title">Confirm deletion</div>
           <div class="modal-body">
-            <div class="modal-row">
-              <span class="modal-label">subject</span>
-              <span class="modal-path" id="delete-modal-target">Not selected</span>
-            </div>
-            <div class="modal-help" id="delete-modal-help">This operation cannot be undone.</div>
+            <div class="modal-path" id="delete-modal-target">Not selected</div>
+            <div class="modal-help" id="delete-modal-help"></div>
           </div>
           <div class="modal-actions">
             <button class="panel-button ghost" id="delete-modal-cancel" type="button">
@@ -1643,7 +1506,7 @@
         >
           <div class="modal-header diff-modal-header">
             <div class="diff-header-left">
-              <div class="modal-title diff-title" id="diff-modal-title">Confirm changes</div>
+              <div class="modal-title diff-title" id="diff-modal-title">Changes</div>
               <div class="diff-meta-row">
                 <div class="diff-file" id="diff-file-name"></div>
                 <div class="diff-summary" id="diff-summary"></div>
@@ -1670,29 +1533,15 @@
           aria-labelledby="block-settings-title"
         >
           <div class="modal-header">
-            <div class="modal-title" id="block-settings-title">Formula block settings</div>
+            <div class="modal-title" id="block-settings-title">Math settings</div>
             <button class="panel-button ghost" id="block-settings-close" type="button">
               close
             </button>
           </div>
           <div class="block-settings-body">
-            <div class="block-settings-page is-active" data-block-settings-page="menu">
-              <button
-                class="block-settings-item"
-                type="button"
-                data-block-settings-target="insert-format"
-              >
-                <span class="block-settings-item-title">Insertion format</span>
-              </button>
-            </div>
-            <div class="block-settings-page" data-block-settings-page="insert-format">
-              <div class="block-settings-nav">
-                <button class="panel-button ghost block-settings-back" type="button">
-                  Back
-                </button>
-              </div>
+            <div class="block-settings-page is-active">
               <div class="block-settings-section">
-                <div class="block-settings-section-title">inline box</div>
+                <div class="block-settings-section-title">Inline</div>
                 <div class="block-settings-options">
                   <button
                     class="block-settings-option"
@@ -1707,7 +1556,7 @@
                 </div>
               </div>
               <div class="block-settings-section">
-                <div class="block-settings-section-title">separate line box</div>
+                <div class="block-settings-section-title">Separate line</div>
                 <div class="block-settings-options">
                   <button
                     class="block-settings-option"
@@ -1734,9 +1583,9 @@
           aria-labelledby="math-capture-window-title"
         >
           <div class="modal-header">
-            <div class="modal-title" id="math-capture-window-title">Select import target</div>
+            <div class="modal-title" id="math-capture-window-title">Import source</div>
             <button class="panel-button ghost" id="math-capture-window-cancel" type="button">
-              close
+              cancel
             </button>
           </div>
           <div class="capture-window-body">
@@ -1809,16 +1658,6 @@
           <div class="modal-header">
             <div class="modal-title" id="capture-permission-title">Screen recording permission required</div>
           </div>
-          <div class="capture-permission-body">
-            <p class="capture-permission-description">
-              The formula import feature requires macOS Screen Recording permission to capture windows on screen.
-            </p>
-            <ol class="capture-permission-steps">
-              <li>Click "Open Settings" below to open System Settings.</li>
-              <li>Find TeX64 in the app list and turn on the switch.</li>
-              <li>Restart TeX64 and try again.</li>
-            </ol>
-          </div>
           <div class="capture-permission-footer">
             <button class="panel-button primary" id="capture-permission-open" type="button">
               Open Settings
@@ -1846,7 +1685,6 @@
         aria-labelledby="announcement-modal-title"
       >
         <div class="announcement-heading">
-          <div class="announcement-eyebrow" id="announcement-modal-eyebrow"></div>
           <div class="modal-title announcement-title" id="announcement-modal-title"></div>
         </div>
         <div class="modal-body">
@@ -1856,7 +1694,7 @@
               class="modal-input"
               id="announcement-modal-input"
               rows="4"
-              placeholder="Share your thoughts."
+              aria-labelledby="announcement-modal-title"
             ></textarea>
             <div class="announcement-status" id="announcement-modal-status" aria-live="polite"></div>
           </div>

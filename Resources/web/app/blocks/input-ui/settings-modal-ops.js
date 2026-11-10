@@ -1,14 +1,5 @@
 export const createBlockSettingsModalOps = (runtime) => {
-    const { blockSettingsButton, blockCaptureButton, blockSettingsModal, blockSettingsClose, blockSettingsBackButtons, blockSettingsPages, blockSettingsMenuItems, } = runtime.context.dom;
-    const setBlockSettingsPage = (page) => {
-        runtime.state.activeBlockSettingsPage = page;
-        if (Array.isArray(blockSettingsPages)) {
-            blockSettingsPages.forEach((view) => {
-                const isActive = view.dataset.blockSettingsPage === page;
-                view.classList.toggle("is-active", isActive);
-            });
-        }
-    };
+    const { blockSettingsButton, blockCaptureButton, blockSettingsModal, blockSettingsClose, } = runtime.context.dom;
     const setBlockSettingsOpen = (open) => {
         runtime.state.blockSettingsOpen = open;
         if (blockSettingsModal instanceof HTMLElement) {
@@ -17,9 +8,6 @@ export const createBlockSettingsModalOps = (runtime) => {
         }
         if (blockSettingsButton instanceof HTMLElement) {
             blockSettingsButton.setAttribute("aria-expanded", open ? "true" : "false");
-        }
-        if (open) {
-            setBlockSettingsPage("menu");
         }
     };
     if (blockSettingsButton instanceof HTMLButtonElement) {
@@ -45,22 +33,5 @@ export const createBlockSettingsModalOps = (runtime) => {
             }
         });
     }
-    if (Array.isArray(blockSettingsMenuItems)) {
-        blockSettingsMenuItems.forEach((item) => {
-            item.addEventListener("click", () => {
-                const target = item.dataset.blockSettingsTarget;
-                if (target === "insert-format") {
-                    setBlockSettingsPage("insert-format");
-                }
-            });
-        });
-    }
-    if (Array.isArray(blockSettingsBackButtons)) {
-        blockSettingsBackButtons.forEach((button) => {
-            button.addEventListener("click", () => {
-                setBlockSettingsPage("menu");
-            });
-        });
-    }
-    return { setBlockSettingsOpen, setBlockSettingsPage };
+    return { setBlockSettingsOpen };
 };

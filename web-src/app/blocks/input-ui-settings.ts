@@ -17,11 +17,11 @@ const MATH_INSERT_MODES: Array<{
   label: string;
   shortLabel: string;
 }> = [
-  { value: "inline", label: "inline", shortLabel: "INL" },
-  { value: "display", label: "Separate line", shortLabel: "DSP" },
-  { value: "align", label: "align*", shortLabel: "ALN" },
-  { value: "gather", label: "gather*", shortLabel: "GTH" },
-  { value: "none", label: "Not enclosed", shortLabel: "RAW" },
+  { value: "inline", label: "inline", shortLabel: "Inline" },
+  { value: "display", label: "Separate line", shortLabel: "Display" },
+  { value: "align", label: "align*", shortLabel: "align*" },
+  { value: "gather", label: "gather*", shortLabel: "gather*" },
+  { value: "none", label: "Not enclosed", shortLabel: "None" },
 ];
 
 export const getFormatLabel = (value: MathInsertMode) =>

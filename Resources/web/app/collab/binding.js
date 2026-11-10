@@ -425,7 +425,7 @@ export const initCollabBinding = (deps) => {
         const viewer = collabSession.isViewer();
         viewGuard.setLocked("collab-view", viewer);
         // Typing in a locked editor says why, in the user's language.
-        const message = viewer ? { value: uiText("You joined to view, so you cannot edit.", "閲覧のみで参加しているため、編集できません。") } : undefined;
+        const message = viewer ? { value: uiText("View only: you cannot edit.", "閲覧のみのため、編集できません。") } : undefined;
         for (const group of deps.editorSession.getEditorGroups())
             (_b = (_a = group.editor) === null || _a === void 0 ? void 0 : _a.updateOptions) === null || _b === void 0 ? void 0 : _b.call(_a, { readOnlyMessage: message });
     };

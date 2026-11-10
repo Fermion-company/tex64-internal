@@ -23,6 +23,13 @@ const appendLatexmkTrace = ({ command, args, cwd, result }) => {
   }
 };
 
+// TeX wraps its log at 79 columns, which cuts long file paths in two and leaves the
+// problem list with half a path. A wide line keeps "path:line: message" whole.
+const unwrapTexLog = (env) => {
+  if (!env.max_print_line) env.max_print_line = "10000";
+  return env;
+};
+
 const prependKpathseaSearchPath = (env, name, directories) => {
   const entries = directories
     .filter(Boolean)
@@ -80,7 +87,7 @@ module.exports = (BuildService) => {
       ...(Array.isArray(options?.extraArgs) ? options.extraArgs : []),
       fileArgument(mainFileName)
     );
-    const env = { ...process.env };
+    const env = unwrapTexLog({ ...process.env });
     env.PATH = this.extendPath(env.PATH);
     if (options?.stagedOutput === true) {
       const sourceDir = path.dirname(path.resolve(rootPath, mainFileName));
@@ -111,7 +118,7 @@ module.exports = (BuildService) => {
       args.push(`-outdir=${outDir}`);
     }
     args.push(...(Array.isArray(options?.extraArgs) ? options.extraArgs : []), fileArgument(mainFileName));
-    const env = { ...process.env };
+    const env = unwrapTexLog({ ...process.env });
     env.PATH = this.extendPath(env.PATH);
     const result = await this.runProcess(latexmkPath, args, rootPath, env);
     return result;

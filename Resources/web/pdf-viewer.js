@@ -14,7 +14,7 @@ import {
   normalizeLiveToolbarSnapshot,
   stepLiveToolbarPage,
 } from "./pdf-live-toolbar-state.mjs";
-import { resolvePdfLiveStatus } from "./app/pdf-live-status.js";
+import { resolvePdfLiveStatus, stepPdfLiveStatusMark } from "./app/pdf-live-status.js";
 
 // This page runs in its own iframe and never goes through the app's initI18n(),
 // so it reads the stored UI locale itself. English is the source language and
@@ -23,7 +23,7 @@ const UI_LOCALE_STORAGE_KEY = "tex64.ui.locale.v1";
 const UI_STRINGS = {
   noPdf: {
     en: "No PDF is loaded.",
-    ja: "PDF が未読み込みです。",
+    ja: "PDFが未読み込みです。",
     zh: "尚未加载 PDF。",
     ko: "PDF가 로드되지 않았습니다.",
     fr: "Aucun PDF n’est chargé.",
@@ -41,7 +41,7 @@ const UI_STRINGS = {
   },
   askAxiom: {
     en: "Ask Axiom",
-    ja: "Axiom に聞く",
+    ja: "Axiomに聞く",
     zh: "问 Axiom",
     ko: "Axiom에게 묻기",
     fr: "Demander à Axiom",
@@ -78,7 +78,11 @@ const UI_STRINGS = {
   rebuildNeeded: { en: "Rebuild needed", ja: "再ビルドが必要", zh: "需要重新编译", ko: "다시 빌드 필요", fr: "Recompilation nécessaire", de: "Neu kompilieren", es: "Es necesario recompilar" },
   live: { en: "Live", ja: "ライブ", zh: "实时", ko: "라이브", fr: "Direct", de: "Live", es: "En vivo" },
   liveUpdating: { en: "Updating…", ja: "更新中...", zh: "正在更新…", ko: "업데이트 중…", fr: "Mise à jour…", de: "Aktualisierung…", es: "Actualizando…" },
-  buildFailedLastGood: { en: "Build failed · previous PDF retained", ja: "ビルド失敗・前のPDFを保持", zh: "编译失败 · 已保留先前的 PDF", ko: "빌드 실패 · 이전 PDF 유지", fr: "Échec de la compilation · PDF précédent conservé", de: "Build fehlgeschlagen · vorherige PDF bleibt", es: "Error de compilación · se conserva el PDF anterior" },
+  liveMarkGreen: { en: "Up to date", ja: "最新", zh: "已更新", ko: "최신", fr: "À jour", de: "Aktuell", es: "Al día" },
+  liveMarkOrange: { en: "Updating", ja: "更新中", zh: "更新中", ko: "업데이트 중", fr: "Mise à jour", de: "Aktualisierung", es: "Actualizando" },
+  liveMarkRed: { en: "Falling behind", ja: "追いついていません", zh: "更新滞后", ko: "업데이트 지연", fr: "En retard", de: "Im Rückstand", es: "Con retraso" },
+  // The failure itself is the count beside Build; here only what is on screen.
+  buildFailedLastGood: { en: "Showing the previous PDF", ja: "前のPDFを表示中", zh: "正在显示上一版 PDF", ko: "이전 PDF 표시 중", fr: "PDF précédent affiché", de: "Vorherige PDF wird angezeigt", es: "Mostrando el PDF anterior" },
   liveExactRendering: { en: "Rendering exact changes…", ja: "差分を描画中…", zh: "正在精确渲染差异…", ko: "변경 사항을 정밀 렌더링 중…", fr: "Rendu exact des modifications…", de: "Exakte Änderungen werden gerendert…", es: "Renderizando cambios exactos…" },
   liveCompiling: { en: "Compiling…", ja: "組版中…", zh: "正在编译…", ko: "컴파일 중…", fr: "Compilation…", de: "Satz läuft…", es: "Compilando…" },
   liveFullCompile: { en: "Live · full compile", ja: "ライブ・全体組版", zh: "实时 · 完整编译", ko: "라이브 · 전체 컴파일", fr: "Direct · compilation complète", de: "Live · vollständiger Satz", es: "En vivo · compilación completa" },
@@ -86,7 +90,7 @@ const UI_STRINGS = {
   liveUnavailable: { en: "Preview unavailable", ja: "プレビュー応答なし", zh: "预览无响应", ko: "미리보기 응답 없음", fr: "Aperçu indisponible", de: "Vorschau nicht erreichbar", es: "Vista previa no disponible" },
   loadFailed: {
     en: "Failed to load the PDF.",
-    ja: "読み込みに失敗しました。",
+    ja: "読み込めませんでした。",
     zh: "加载失败。",
     ko: "불러오지 못했습니다.",
     fr: "Échec du chargement.",
@@ -106,9 +110,10 @@ const UI_STRINGS = {
   rotateLeft: { en: "Rotate left", ja: "左に回転", zh: "向左旋转", ko: "왼쪽으로 회전", fr: "Pivoter à gauche", de: "Nach links drehen", es: "Girar a la izquierda" },
   rotateRight: { en: "Rotate right", ja: "右に回転", zh: "向右旋转", ko: "오른쪽으로 회전", fr: "Pivoter à droite", de: "Nach rechts drehen", es: "Girar a la derecha" },
   search: { en: "Search", ja: "検索", zh: "搜索", ko: "검색", fr: "Rechercher", de: "Suchen", es: "Buscar" },
-  findInPdf: { en: "Find in PDF", ja: "PDF 内を検索", zh: "在 PDF 中查找", ko: "PDF에서 찾기", fr: "Rechercher dans le PDF", de: "Im PDF suchen", es: "Buscar en el PDF" },
+  findInPdf: { en: "Find in PDF", ja: "PDF内を検索", zh: "在 PDF 中查找", ko: "PDF에서 찾기", fr: "Rechercher dans le PDF", de: "Im PDF suchen", es: "Buscar en el PDF" },
   findPrev: { en: "Previous match (Shift+Enter)", ja: "前の一致 (Shift+Enter)", zh: "上一个匹配 (Shift+Enter)", ko: "이전 결과 (Shift+Enter)", fr: "Résultat précédent (Maj+Entrée)", de: "Vorheriger Treffer (Umschalt+Eingabe)", es: "Resultado anterior (Mayús+Intro)" },
   findNext: { en: "Next match (Enter)", ja: "次の一致 (Enter)", zh: "下一个匹配 (Enter)", ko: "다음 결과 (Enter)", fr: "Résultat suivant (Entrée)", de: "Nächster Treffer (Eingabe)", es: "Resultado siguiente (Intro)" },
+  closePdf: { en: "Close PDF", ja: "PDFを閉じる", zh: "关闭 PDF", ko: "PDF 닫기", fr: "Fermer le PDF", de: "PDF schließen", es: "Cerrar el PDF" },
   findClose: { en: "Close (Esc)", ja: "閉じる (Esc)", zh: "关闭 (Esc)", ko: "닫기 (Esc)", fr: "Fermer (Échap)", de: "Schließen (Esc)", es: "Cerrar (Esc)" },
   findNoMatch: { en: "No results", ja: "見つかりません", zh: "无结果", ko: "결과 없음", fr: "Aucun résultat", de: "Keine Treffer", es: "Sin resultados" },
   download: { en: "Download", ja: "ダウンロード", zh: "下载", ko: "다운로드", fr: "Télécharger", de: "Herunterladen", es: "Descargar" },
@@ -157,9 +162,11 @@ const localizeChrome = () => {
   setTitle("pdf-findbar-prev", "findPrev");
   setTitle("pdf-findbar-next", "findNext");
   setTitle("pdf-findbar-close", "findClose");
+  setTitle("pdf-close", "closePdf");
   setTitle("pdf-download", "download");
   setTitle("pdf-print", "print");
   setTitle("pdf-reload", "reload");
+  setTitle("pdf-live-mark", "liveMarkOrange");
   document.getElementById("pdf-page-input")?.setAttribute("aria-label", uiString("pageWord"));
   const searchOpen = document.getElementById("pdf-search-open");
   if (searchOpen) searchOpen.textContent = uiString("search");
@@ -243,8 +250,16 @@ const initPdfViewer = () => {
   const embedded = isEmbeddedViewer();
   document.body.classList.toggle("is-embedded", embedded);
   localizeChrome();
+  // In the app the PDF pane has no tab strip; this × closes it as the tab's
+  // × did. A separate PDF window closes like any window.
+  const closeButton = document.getElementById("pdf-close");
+  if (closeButton && embedded) {
+    closeButton.hidden = false;
+    closeButton.addEventListener("click", () => bridge?.postMessage?.({ type: "close" }));
+  }
   const titleEl = document.getElementById("pdf-title");
   const statusEl = document.getElementById("pdf-status");
+  const liveMarkEl = document.getElementById("pdf-live-mark");
   const sidebarToggleBtn = document.getElementById("pdf-sidebar-toggle");
   const sidebarCloseBtn = document.getElementById("pdf-sidebar-close");
   const sidebarEl = document.getElementById("pdf-sidebar");
@@ -366,20 +381,20 @@ const initPdfViewer = () => {
     state,
   };
 
+  // Progress lives in the Build button only: a busy paper shows nothing here.
+  // Words appear for a stale paper, a search count and failures.
   const setStatusDirect = (text, tone = "idle") => {
     if (!statusEl) return;
     statusEl.textContent = text;
-    statusEl.classList.toggle("is-busy", tone === "busy");
     statusEl.classList.toggle("is-error", tone === "error");
   };
   const setStatus = (text, tone = "idle") => {
     if (buildPreviewState === "building") {
-      // A manual Build shows the spinner alone.
       setStatusDirect("", "busy");
       return;
     }
     if (buildPreviewState === "failed") {
-      setStatusDirect(uiString("buildFailedLastGood"), "error");
+      setStatusDirect(uiString("buildFailedLastGood"));
       return;
     }
     setStatusDirect(text, tone);
@@ -421,14 +436,24 @@ const initPdfViewer = () => {
       // ignore unavailable parent document
     }
   } else {
-    try {
-      applyViewerTheme(localStorage.getItem(appearanceKey));
-    } catch {
-      applyViewerTheme("dark");
-    }
+    // The saved choice is "dark", "light" or "system"; with "system" (or none
+    // saved) the window follows prefers-color-scheme, which tracks the OS.
+    const darkScheme = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+    const readChoice = () => {
+      try {
+        return localStorage.getItem(appearanceKey);
+      } catch {
+        return null;
+      }
+    };
+    const applyChoice = (choice) => {
+      applyViewerTheme(choice === "light" || choice === "dark" ? choice : darkScheme && !darkScheme.matches ? "light" : "dark");
+    };
+    applyChoice(readChoice());
     window.addEventListener("storage", (event) => {
-      if (event.key === appearanceKey) applyViewerTheme(event.newValue);
+      if (event.key === appearanceKey) applyChoice(event.newValue);
     });
+    darkScheme?.addEventListener?.("change", () => applyChoice(readChoice()));
   }
 
   const updateZoomLabel = (value = state.scale) => {
@@ -436,6 +461,9 @@ const initPdfViewer = () => {
     zoomLabel.textContent = `${Math.round(value * 100)}%`;
   };
 
+  // The last complete page count shown. While a rebuilt paper is still
+  // arriving its count is partial; the previous one stays instead of "—".
+  let lastPageCount = 0;
   const updatePageCount = () => {
     if (pageInput) {
       pageInput.max = String(state.pageCount || 1);
@@ -443,6 +471,7 @@ const initPdfViewer = () => {
     if (pageCountEl) {
       pageCountEl.textContent = `/ ${state.pageCount || 0}`;
     }
+    if (state.pageCount > 0) lastPageCount = state.pageCount;
   };
 
   const clampScale = (value) => clampZoomScale(value, MIN_SCALE, MAX_SCALE);
@@ -2001,9 +2030,13 @@ const initPdfViewer = () => {
   };
   const renderLiveToolbar = () => {
     if (pageCountEl) {
-      pageCountEl.textContent = liveToolbar.pageCountAuthoritative
-        ? `/ ${liveToolbar.pageCount}`
-        : "/ —";
+      if (liveToolbar.pageCountAuthoritative) {
+        pageCountEl.textContent = `/ ${liveToolbar.pageCount}`;
+        if (liveToolbar.pageCount > 0) lastPageCount = liveToolbar.pageCount;
+      } else {
+        const kept = Math.max(lastPageCount, liveToolbar.pageCount);
+        pageCountEl.textContent = kept > 0 ? `/ ${kept}` : "/ —";
+      }
     }
     if (pageInputForLive) {
       pageInputForLive.max = String(liveToolbar.pageCount || 1);
@@ -2037,7 +2070,29 @@ const initPdfViewer = () => {
     postLive("goto-sync", payload);
     return true;
   };
+  let liveStatusMark = null;
+  const renderLiveMark = (data) => {
+    // The frame posts periodic snapshots even while idle; no UI timer or
+    // animation is needed for the overload threshold.
+    liveStatusMark = stepPdfLiveStatusMark(data?.status, {
+      previous: liveStatusMark,
+      now: performance.now(),
+      presentationPending: isLivePending() || data?.presentationPending,
+      appliedSrcRev: data?.srcRev,
+    });
+    if (!liveMarkEl) return;
+    const color = liveStatusMark.color;
+    const label = uiString({ green: "liveMarkGreen", orange: "liveMarkOrange", red: "liveMarkRed" }[color]);
+    liveMarkEl.dataset.color = color;
+    liveMarkEl.setAttribute("aria-label", label);
+    liveMarkEl.title = label;
+  };
+  const resetLiveMark = () => {
+    liveStatusMark = null;
+    renderLiveMark(null);
+  };
   const renderLiveStatus = (data) => {
+    renderLiveMark(data);
     const search = data?.search;
     if (isFindOpen() && findQuery && search?.query === findQuery) {
       renderFindCount(Number(search.current) || 0, Number(search.total) || 0);
@@ -2049,11 +2104,10 @@ const initPdfViewer = () => {
     }
     const view = resolvePdfLiveStatus(data?.status, data?.presentationPending);
     if (!view) return;
-    // While typing the paper just follows the keys: no "updating" or "rendering"
-    // chatter. The spinner shows only for the canonical full compile (and a
-    // manual Build, handled in setStatus); errors keep their text.
-    if (view.key === "liveCompiling") setStatus("", "busy");
-    else if (view.tone === "error") setStatus(uiString(view.key), "error");
+    // While typing the paper just follows the keys: no "updating", "rendering"
+    // or compile chatter, and no spinner (progress belongs to the Build
+    // button); errors keep their text.
+    if (view.tone === "error") setStatus(uiString(view.key), "error");
     else setStatus("", "idle");
     if (statusEl) statusEl.title = view.detail;
   };
@@ -2077,6 +2131,7 @@ const initPdfViewer = () => {
     liveActivationSequence += 1;
     cancelLiveReveal();
     liveActivation = null;
+    resetLiveMark();
     liveSurfaceOwned = false;
     document.body.classList.remove("is-live", "is-live-pending", "is-live-held");
     hideContextMenu();
@@ -2204,6 +2259,7 @@ const initPdfViewer = () => {
     liveSurfaceOwned = true;
     document.body.classList.remove("is-live-held");
     document.body.classList.add("is-live-pending");
+    resetLiveMark();
     liveFrame.setAttribute("aria-hidden", "true");
     liveFrame.dataset.livePhase = "activation-pending";
     setStatus("", "idle");
@@ -2296,6 +2352,7 @@ const initPdfViewer = () => {
         documentEpoch !== liveActivation.pendingDocumentEpoch) return false;
     if (Number.isInteger(liveActivation.documentEpoch) &&
         documentEpoch < liveActivation.documentEpoch) return false;
+    renderLiveStatus(data);
     // Move the still-covered frame before judging its paper: the pages it
     // must present are the ones at the handed-off viewport.
     if (!liveViewportPositioned(data)) return true;
@@ -2370,6 +2427,7 @@ const initPdfViewer = () => {
 
     cancelLiveReveal();
     liveActivation.pendingDocumentEpoch = documentEpoch;
+    resetLiveMark();
     liveToolbar = normalizeLiveToolbarSnapshot();
     document.body.classList.remove("is-live");
     document.body.classList.add("is-live-pending");
@@ -2427,6 +2485,7 @@ const initPdfViewer = () => {
     liveViewportHandoff = sync && !pendingLiveSync ? viewportHandoff(sync) : null;
     document.body.classList.remove("is-live", "is-live-pending", "is-live-held");
     document.body.classList.add(hold ? "is-live-held" : "is-live-pending");
+    resetLiveMark();
     liveFrame.setAttribute("aria-hidden", "true");
     liveFrame.dataset.livePhase = hold ? "build-held" : "activation-pending";
     hideContextMenu();
@@ -2649,7 +2708,7 @@ const initPdfViewer = () => {
             : "";
         }
         if (buildPreviewState === "building") setStatusDirect("", "busy");
-        else if (buildPreviewState === "failed") setStatusDirect(uiString("buildFailedLastGood"), "error");
+        else if (buildPreviewState === "failed") setStatusDirect(uiString("buildFailedLastGood"));
         else if (isLive()) setStatus("", "idle");
         else if (isLivePending()) setStatus("", "idle");
         else refreshStaticStatus();

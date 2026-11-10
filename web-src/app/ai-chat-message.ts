@@ -725,6 +725,8 @@ export const createMessageElement = (message: ChatMessage, options: MessageRende
     wrapper.classList.add("is-user");
     const content = document.createElement("div");
     content.className = "ai-message-content";
+    // Written by a person or the model: the UI dictionary must not translate it.
+    content.dataset.noI18n = "";
     content.textContent = message.text;
     wrapper.appendChild(content);
     if (message.queued) {
@@ -782,6 +784,7 @@ export const createMessageElement = (message: ChatMessage, options: MessageRende
     body.className = "ai-message-body";
     const content = document.createElement("div");
     content.className = "ai-message-content";
+    content.dataset.noI18n = "";
     content.innerHTML = renderMarkdownHtml(message.text);
     attachCopyHandlers(content);
     body.appendChild(content);

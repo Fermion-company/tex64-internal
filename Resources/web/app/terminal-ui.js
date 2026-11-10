@@ -101,7 +101,8 @@ export const initTerminalUi = (context) => {
             const close = document.createElement("button");
             close.type = "button";
             close.className = "terminal-tab-close";
-            close.textContent = "×";
+            // Ending the shell is said in words: the panel's × only hides the panel.
+            close.textContent = uiText("End", "終了");
             close.title = group.panes.length > 1 ? uiText("Close both panes in this tab", "このタブの2ペインを終了") : uiText("Close this tab and its shell", "このタブとシェルを終了");
             close.setAttribute("aria-label", close.title);
             close.addEventListener("click", () => {
@@ -214,7 +215,8 @@ export const initTerminalUi = (context) => {
         label.textContent = "Shell";
         const close = document.createElement("button");
         close.type = "button";
-        close.textContent = "×";
+        close.className = "terminal-tab-close";
+        close.textContent = uiText("End", "終了");
         close.title = uiText("Close this pane and its shell", "このペインとシェルを終了");
         close.setAttribute("aria-label", close.title);
         const screen = document.createElement("div");
@@ -341,7 +343,7 @@ export const initTerminalUi = (context) => {
         }
         if (session.state === "starting")
             return;
-        if (confirm && !window.confirm(uiText(`Restart pane ${session.number} · ${session.title}? Running commands in this pane will stop.`, `端末 ${session.number}・${session.title} を再起動しますか？この端末で実行中のコマンドは終了します。`)))
+        if (confirm && !window.confirm(uiText(`Restart pane ${session.number} · ${session.title} and stop its running commands?`, `端末 ${session.number}・${session.title} を再起動し、実行中のコマンドを終了しますか？`)))
             return;
         if (session.id) {
             sessionsById.delete(session.id);

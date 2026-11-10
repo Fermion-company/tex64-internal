@@ -39,7 +39,7 @@ const loadImage = (dataUrl: string) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error(uiText("Failed to load image.", "画像の読み込みに失敗しました。")));
+    image.onerror = () => reject(new Error(uiText("Failed to load image.", "画像を読み込めませんでした。")));
     image.src = dataUrl;
   });
 
@@ -56,7 +56,7 @@ const copyCanvas = (source: HTMLCanvasElement) => {
   const clone = createCanvas(source.width, source.height);
   const ctx = clone.getContext("2d");
   if (!ctx) {
-    throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
+    throw new Error(uiText("Canvas initialization failed.", "キャンバスを初期化できませんでした。"));
   }
   ctx.drawImage(source, 0, 0);
   return clone;
@@ -71,7 +71,7 @@ const fitCanvasWithPadding = (
   const fitted = createCanvas(width, height);
   const ctx = fitted.getContext("2d");
   if (!ctx) {
-    throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
+    throw new Error(uiText("Canvas initialization failed.", "キャンバスを初期化できませんでした。"));
   }
   ctx.fillStyle = `rgb(${background},${background},${background})`;
   ctx.fillRect(0, 0, width, height);
@@ -93,7 +93,7 @@ const enhanceCanvas = (
 ) => {
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
+    throw new Error(uiText("Canvas initialization failed.", "キャンバスを初期化できませんでした。"));
   }
   const { width, height } = canvas;
   const imageData = ctx.getImageData(0, 0, width, height);
@@ -317,7 +317,7 @@ const trimBoundingBoxByProjection = (
 const binarizeCanvas = (canvas: HTMLCanvasElement, options: BinarizeOptions = {}) => {
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
+    throw new Error(uiText("Canvas initialization failed.", "キャンバスを初期化できませんでした。"));
   }
   const { width, height } = canvas;
   const imageData = ctx.getImageData(0, 0, width, height);
@@ -357,7 +357,7 @@ const getImageData = (image: HTMLImageElement) => {
   const canvas = createCanvas(image.naturalWidth || image.width, image.naturalHeight || image.height);
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
+    throw new Error(uiText("Canvas initialization failed.", "キャンバスを初期化できませんでした。"));
   }
   ctx.drawImage(image, 0, 0);
   return ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -500,7 +500,7 @@ const extractCropCanvas = (image: HTMLImageElement, box: BoundingBox) => {
   const cropCanvas = createCanvas(box.width, box.height);
   const cropCtx = cropCanvas.getContext("2d");
   if (!cropCtx) {
-    throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
+    throw new Error(uiText("Canvas initialization failed.", "キャンバスを初期化できませんでした。"));
   }
   cropCtx.drawImage(
     image,
@@ -522,7 +522,7 @@ const canvasToPayload = (
 ): MathOcrPayload => {
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
+    throw new Error(uiText("Canvas initialization failed.", "キャンバスを初期化できませんでした。"));
   }
   const finalData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
   const pixelCount = canvas.width * canvas.height;
@@ -707,7 +707,7 @@ const recognizeMathInternal = async (
         return true;
       }
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(uiText("OCR failed.", "OCRに失敗しました。"));
+      lastError = error instanceof Error ? error : new Error(uiText("OCR failed.", "OCRできませんでした。"));
     }
     return false;
   };

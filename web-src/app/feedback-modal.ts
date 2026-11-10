@@ -107,10 +107,13 @@ export const initFeedbackModal = (
     if (!isOpen) {
       return;
     }
-    setStatus(status.message, status.tone);
-    if (status.tone === "success" && feedbackModalMessage instanceof HTMLTextAreaElement) {
-      feedbackModalMessage.value = "";
+    // Sent is silent: the field empties and the line goes.
+    if (status.tone === "success") {
+      if (feedbackModalMessage instanceof HTMLTextAreaElement) feedbackModalMessage.value = "";
+      setStatus("");
+      return;
     }
+    setStatus(status.message, status.tone);
   });
 
   return { open, close };

@@ -44,9 +44,17 @@ const {
   checkReferences,
   formatOutlineForResult,
   outlineOf,
+  readWorkspaceText,
   resolveMainTexFile,
   scanDocument,
 } = require("../agent-document-map.cjs");
+const {
+  checkExercisesInSources,
+  checkJapaneseInSources,
+  loadedStyleNames,
+  readMapSources,
+  typesettingHint,
+} = require("../agent-teaching-checks.cjs");
 
 /** Tools that change the workspace; their results carry the file's new outline. */
 const WRITE_TOOL_NAMES = new Set([
@@ -349,7 +357,7 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
             : args;
         const result = await fn(safeArgs);
         assertWorkspaceBound();
-        if (WRITE_TOOL_NAMES.has(name) || ["compile_document", "inspect_pdf", "check_references", "check_bibliography"].includes(name)) {
+        if (WRITE_TOOL_NAMES.has(name) || ["compile_document", "inspect_pdf", "check_references", "check_bibliography", "check_exercises", "check_japanese_text"].includes(name)) {
           let parsed = result;
           if (typeof parsed === "string") { try { parsed = JSON.parse(parsed); } catch { /* text result */ } }
           recordReceipt(service, conversationId, name, safeArgs, parsed, WRITE_TOOL_NAMES.has(name));
@@ -818,6 +826,8 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
           ...(typeof issue?.path === "string" && issue.path ? { path: issue.path } : {}),
           ...(Number.isFinite(issue?.line) ? { line: issue.line } : {}),
         };
+        const hint = typesettingHint(issue?.message);
+        if (hint) entry.hint = hint;
         if (entry.path && entry.line && compactIssues.length < 6 && entry.severity !== "info") {
           try {
             if (!excerptCache.has(entry.path)) {
@@ -939,6 +949,54 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
       const map = await loadDocumentMap();
       if (!map) return { error: "No .tex document is available to check." };
       return checkBibliography(map);
+    },
+  );
+
+  // ---- check_exercises / check_japanese_text ----
+  // Teaching material and Japanese text: structure and conventions a build
+  // never reports, read from the files with comments and literal spans removed.
+  const checkExercisesTool = make(
+    "check_exercises",
+    "Check teaching material across the document (problem sets, worksheets, exams, lecture-note examples): " +
+      "every problem has its solution (right after it, or in a solutions part in the same order), problems and " +
+      "sub-questions (1)(2)… are numbered without gaps or repeats, no solution is empty, and points (配点) add up to " +
+      "the stated total (満点). Recognises problem/solution environments the document defines (\\newtheorem, " +
+      "tcolorbox), exam-class \\question, \\begin{proof}[解答], and 問1 / 第1問 / 【解答】 markers. Returns file:line " +
+      "locations. Input: {}.",
+    { type: "object", properties: {} },
+    async () => {
+      const map = await loadDocumentMap();
+      if (!map) return { error: "No .tex document is available to check." };
+      return checkExercisesInSources(await readMapSources(service, map, readWorkspaceText));
+    },
+  );
+  const checkJapaneseTextTool = make(
+    "check_japanese_text",
+    "Check Japanese text conventions across the document: a Japanese-capable setup (ltjs*/jlreq/luatexja), one " +
+      "punctuation style (、。 or ，．), half-width digits and letters, no typed full-width indent, Japanese words in " +
+      "math wrapped in \\text{}, upright units, \\[ \\] instead of $$, \\verb under jlreq, and tcolorbox title= " +
+      "values that would split on a half-width comma. Returns file:line locations and the fix for each. Input: {}.",
+    { type: "object", properties: {} },
+    async () => {
+      const map = await loadDocumentMap();
+      if (!map) return { error: "No .tex document is available to check." };
+      const sources = await readMapSources(service, map, readWorkspaceText);
+      // The project's own .sty/.cls files the preamble loads (a house style may load luatexja).
+      const wanted = new Set(sources.length ? loadedStyleNames(sources[0].content) : []);
+      const localStyles = [];
+      if (wanted.size) {
+        let listed = [];
+        try { listed = await service.workspace.listFiles(); } catch { listed = []; }
+        for (const entry of Array.isArray(listed) ? listed : []) {
+          if (typeof entry !== "string") continue;
+          const base = nodePath.posix.basename(entry);
+          if (!wanted.has(base) || localStyles.some((style) => style.name === base)) continue;
+          const content = await readWorkspaceText(service, entry);
+          if (typeof content === "string") localStyles.push({ name: base, content });
+          if (localStyles.length >= 8) break;
+        }
+      }
+      return checkJapaneseInSources(sources, { localStyles });
     },
   );
 
@@ -1112,7 +1170,9 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     "Ask the user ONE question that only they can answer (subject, audience, " +
       "goal, results, data, a real choice) and end this turn. Use fields to " +
       "collect several short facts at once, options for a choice. Never ask " +
-      "what the document already says. Input: { question, fields?, options? }.",
+      "what the document already says, a choice you can make with a sensible default " +
+      "(difficulty, layout, order, wording, where solutions go), or to confirm a plan. " +
+      "Input: { question, fields?, options? }.",
     QUESTION_SCHEMA,
     async (args) => {
       const question = normalizeQuestion(args);
@@ -1208,8 +1268,9 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
   const calculateTool = make(
     "calculate",
     "Calculate numerical values from the user's data before writing them into a document. Batch related expressions in one call. " +
-      "Supports numbers, pi, e, + - * / % ^ **, parentheses, sqrt, abs, exp, log, log10, sin, cos, tan, asin, acos, atan, pow, min, max, sum, mean. " +
-      "Use explicit multiplication. Angles are radians. Results use double precision; keep full precision until final rounding. " +
+      "Supports numbers, pi, e, + - * / % ^ **, parentheses, sqrt, cbrt, abs, exp, log (natural; also ln), log10, log2, sin, cos, tan, asin, acos, atan, pow, min, max, sum, mean, " +
+      "floor, ceil, round, sign, fact(n), comb(n,r) (nCr), perm(n,r) (nPr), gcd, lcm. " +
+      "Use explicit multiplication. Angles are radians. Results use double precision; keep full precision until final rounding. A result that is a simple fraction also comes back as \"fraction\" (e.g. 5/36) for exact answers. " +
       "This checks arithmetic, not physical assumptions or symbolic proofs. Input example: {expressions:[\"mean(9.0,8.9,9.1)/10\",\"4*pi^2*0.2/0.9^2\"]}.",
     { type: "object", properties: { expressions: { type: "array", minItems: 1, maxItems: 50, items: { type: "string", maxLength: 2000 } } }, required: ["expressions"] },
     async (args) => calculateBatch(args),
@@ -1236,6 +1297,8 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     readHistoryTool,
     checkReferencesTool,
     checkBibliographyTool,
+    checkExercisesTool,
+    checkJapaneseTextTool,
     getCompileLogTool,
     arxivSearchTool,
     arxivBibtexTool,

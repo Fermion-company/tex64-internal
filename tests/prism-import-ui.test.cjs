@@ -84,9 +84,10 @@ const setup = () => {
     requestRuntimeSetup: () => { deps.runtime += 1; },
   });
   const dialog = () => body.children.find((node) => node.tagName === "DIALOG") ?? null;
-  const steps = () => dialog()?.find((node) => node.className === "prism-steps").children.map((item) => item.text()) ?? [];
-  const closeButton = () => dialog().find((node) => node.tagName === "BUTTON" && node.textContent === "Close");
-  return { ui, calls, starts, progress: (payload) => onProgress(payload), dialog, steps, closeButton, deps };
+  // The one status line above the buttons (running step, result or failure).
+  const status = () => dialog()?.find((node) => node.className === "prism-diff").text() ?? "";
+  const closeButton = () => dialog().find((node) => node.tagName === "BUTTON" && (node.textContent === "Close" || node.textContent === "Cancel"));
+  return { ui, calls, starts, progress: (payload) => onProgress(payload), dialog, status, closeButton, deps };
 };
 
 const startedResult = (sessionId) => ({
@@ -112,10 +113,11 @@ test("closing while the zip unpacks ends that session and its late result is dro
   const id = page.starts[0].payload.sessionId;
   assert.equal(typeof id, "string");
   assert.ok(id.length >= 8);
-  // Progress for this id moves the steps before `start` returns; another id does not.
+  // Progress for this id moves the status line before `start` returns; another id does not.
   page.progress({ sessionId: id, step: "extract", status: "running", current: 3, total: 10 });
   page.progress({ sessionId: "someone-else", step: "extract", status: "running", current: 9, total: 10 });
-  assert.match(page.steps()[0], /Unpack 3\/10/);
+  assert.equal(page.status(), "Unpacking… 3/10");
+  assert.equal(page.closeButton().textContent, "Cancel", "a running unpack is stopped by the button, so it says Cancel");
 
   page.closeButton().dispatch("click");
   assert.equal(page.dialog(), null);
@@ -139,13 +141,13 @@ test("reopening while the first zip unpacks: the first result neither builds nor
   assert.equal(page.starts.length, 2);
   const second = page.starts[1].payload.sessionId;
   assert.notEqual(second, first);
-  const before = page.steps();
+  const before = page.status();
 
   page.progress({ sessionId: first, step: "extract", status: "running", current: 7, total: 10 });
   page.starts[0].resolve(startedResult(first));
   await flush();
   await flush();
-  assert.deepEqual(page.steps(), before, "the first import changed the second dialog");
+  assert.equal(page.status(), before, "the first import changed the second dialog");
   assert.equal(page.calls.some((call) => call.action === "build"), false);
 
   page.starts[1].resolve(startedResult(second));
@@ -154,6 +156,8 @@ test("reopening while the first zip unpacks: the first result neither builds nor
   const builds = page.calls.filter((call) => call.action === "build");
   assert.equal(builds.length, 1);
   assert.equal(builds[0].payload.sessionId, second);
+  assert.match(page.status(), /^Build Build failed\./, "a failed build leaves the step and its reason in the status line");
+  assert.equal(page.closeButton().textContent, "Close", "nothing runs after the build, so the button says Close");
   page.closeButton().dispatch("click");
   assert.deepEqual(page.calls.filter((call) => call.action === "end").map((call) => call.payload.sessionId), [first, second]);
 });

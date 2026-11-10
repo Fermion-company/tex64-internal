@@ -121,7 +121,7 @@ const executeToolCall = async (service, toolCall, conversationId) => {
     // The tool event (name + target) carries the specifics; the status line
     // only says that work is going on, in words each UI localizes.
     if (name === "run_build" || name === "rename_latex_symbol") {
-      service.sendStatus("running", "Working...", conversationId);
+      service.sendStatus("running", "Working…", conversationId);
     }
 
     // ---- run_build ----

@@ -28,6 +28,8 @@ import { createAiChatStatusController } from "./ai-chat-status.js";
 import { createContextPayloadBuilder } from "./ai-chat-context-payload.js";
 import { createContextBarUpdater } from "./ai-chat-context-bar.js";
 import { initAiChatEventBindings } from "./ai-chat-ui-events.js";
+import type { SteerResultPayload } from "./ai-chat-steer.js";
+import { collabSession } from "./collab/session.js";
 import { createHistoryController } from "./ai-chat-history.js";
 import { createAiChatAttachmentsController, type AiImageAttachment } from "./ai-chat-attachments.js";
 import { createAiChatIncomingHandlers } from "./ai-chat-incoming-handlers.js";
@@ -120,6 +122,8 @@ export type AiChatApi = {
   handleBranchResult: (payload: { ok?: boolean; conversationId?: string; error?: string }) => void;
   handleProposalScope: (payload: { conversationId?: string; proposalId?: string; page?: number }) => void;
   handleTranscribeResult: (payload: { requestId?: string; ok?: boolean; text?: string; error?: string; code?: string }) => void;
+  /** The host's answer to a follow-up handed to the running turn. */
+  handleSteerResult: (payload: SteerResultPayload) => void;
   /**
    * The range a voice edit is about (the selection when recording started,
    * or the paragraph around the cursor): shown as the chip and sent as the
@@ -215,9 +219,9 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     [DEFAULT_MODEL]: "Axiom 1.0",
     [PRO_MODEL]: "Axiom 1.0 Pro",
   };
-  const MODEL_OPTIONS: Array<{ id: string; name: string; descKey: string; pro: boolean }> = [
-    { id: DEFAULT_MODEL, name: "Axiom 1.0", descKey: "model_efficient", pro: false },
-    { id: PRO_MODEL, name: "Axiom 1.0 Pro", descKey: "model_autonomous", pro: true },
+  const MODEL_OPTIONS: Array<{ id: string; name: string; pro: boolean }> = [
+    { id: DEFAULT_MODEL, name: "Axiom 1.0", pro: false },
+    { id: PRO_MODEL, name: "Axiom 1.0 Pro", pro: true },
   ];
   const migrateLegacyModelId = (model: string) =>
     model === "Axiom0.9.1"
@@ -234,9 +238,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     set(".ai-chat-delete-modal-title", "delete_chat");
     set("#ai-chat-delete-cancel", "cancel");
     set("#ai-chat-delete-confirm", "confirm_delete");
-    set(".ai-model-upsell-title", "upsell_title");
-    set(".ai-model-upsell-btn", "see_pro_plans");
-    // The mode pill also owns the composer placeholder (it differs per mode).
+    set(".ai-model-upsell-btn", "open_plans");
     eventApi?.syncModeLabels();
     voice?.syncLabels();
     renderEmptyState(true);
@@ -649,7 +651,8 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       aiSend.style.display = blockSend || !hasDraft ? "none" : "flex";
     }
     if (aiInput instanceof HTMLTextAreaElement) aiInput.disabled = false;
-    // Attachments are allowed while a turn runs: the request queues with them.
+    // Attachments are allowed while a turn runs: the request queues with them
+    // (only plain words go into the running turn).
     if (aiAttach instanceof HTMLButtonElement) aiAttach.disabled = false;
     if (aiAttachInput instanceof HTMLInputElement) aiAttachInput.disabled = false;
     if (aiStop instanceof HTMLButtonElement) {
@@ -1252,18 +1255,21 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     });
     chatLog?.replaceChildren();
     const lastAssistant = [...chat.messages].reverse().find((msg) => msg.role === "assistant") ?? null;
+    // The streamed reply need not be the last message: a correction or a
+    // queued request typed meanwhile sits below it.
+    const se = streamingMessages.get(chat.id);
+    if (se) se.element = null;
     let ordinal = -1;
     chat.messages.forEach((msg) => {
       if (!chatLog) return;
       if (msg.role === "assistant") ordinal += 1;
-      placeInChatLog(
-        chatLog,
-        createMessageElement(msg, {
-          assistantIndex: msg.role === "assistant" ? ordinal : undefined,
-          latest: msg === lastAssistant,
-          renderChanges: renderChangesForMessage(chat),
-        }),
-      );
+      const element = createMessageElement(msg, {
+        assistantIndex: msg.role === "assistant" ? ordinal : undefined,
+        latest: msg === lastAssistant,
+        renderChanges: renderChangesForMessage(chat),
+      });
+      if (se && msg === se.message) se.element = element;
+      placeInChatLog(chatLog, element);
     });
     renderEmptyState();
     const proposals = ensureProposalsEmbedded();
@@ -1275,9 +1281,6 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
         proposals.appendChild(buildUnifiedProposalCard(allProposals, chat, false));
       }
     }
-    const se = streamingMessages.get(chat.id);
-    const last = chatLog?.querySelectorAll(".ai-message");
-    if (se && last && last.length > 0) se.element = last[last.length - 1] as HTMLElement;
     // Re-create thinking element in chat log if this chat is running.
     const thinking = thinkingMessages.get(chat.id);
     if (thinking) {
@@ -1388,6 +1391,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     updateSendState,
     resetToNewChatState,
     scrollToBottom,
+    isCollabGuest: () => collabSession.isGuest(),
   });
   submitFromUi = (text: string) => eventApi?.submitMessage(text, { clearInput: false });
 
@@ -1524,6 +1528,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     askFromPdf,
     handlePdfReverseResult,
     handleTranscribeResult: (payload) => voice.handleTranscribeResult(payload),
+    handleSteerResult: (payload) => eventApi?.handleSteerResult(payload),
     holdVoiceSelection: (selection) => {
       voiceSelection = selection ?? null;
       updateContextBar();

@@ -153,8 +153,7 @@ export const registerHoverProvider = (monaco, deps, state) => {
             if (cached) {
                 return cached;
             }
-            const packageCommand = packageMatch.command === "RequirePackage" ? "RequirePackage" : "usepackage";
-            const value = buildPackageHoverMarkdown(packageMatch.key, packageCommand);
+            const value = buildPackageHoverMarkdown(packageMatch.key);
             if (!value) {
                 return null;
             }
@@ -182,7 +181,7 @@ export const registerHoverProvider = (monaco, deps, state) => {
             if (cached) {
                 return cached;
             }
-            const value = buildPackageHoverMarkdown(classMatch.key, "documentclass");
+            const value = buildPackageHoverMarkdown(classMatch.key);
             if (!value) {
                 return null;
             }

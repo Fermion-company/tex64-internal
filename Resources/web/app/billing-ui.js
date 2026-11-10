@@ -4,402 +4,289 @@ const getBilling = () => {
     const bridge = window.tex64Billing;
     return bridge && typeof bridge.checkout === "function" ? bridge : null;
 };
-// Mirrors tex64.com's /pricing copy so the in-app screen matches the website.
 // TODO: serve this from GET /api/v2/billing/plans to keep a single source.
 const CONTENT = {
     en: {
         heading: "Pricing",
-        subheading: "Core local features are free. Basic and Pro expand your monthly Axiom allowance.",
-        currentPlan: "Current plan",
-        recommended: "Recommended",
+        currentPlan: "Current",
         priceMeta: "USD / mo",
         startBasic: "Start Basic",
         startPro: "Start Pro",
+        changePlan: "Change plan",
         manage: "Manage or cancel subscription",
-        free: {
-            desc: "Start free with local editing and a monthly AI allowance",
-            items: [
-                "Local editing & build",
-                "PDF preview + SyncTeX",
-                "Blocks (math input)",
-                "On-device math OCR",
-                "Monthly Axiom allowance shown in the app",
-                "Documentation access (guides / updates)",
-            ],
-        },
-        basic: {
-            desc: "Add AI support to daily writing for faster output",
-            items: [
-                "AI chat",
-                "AI completion (draft / rewrite)",
-                "Usage dashboard",
-                "Monthly token quota",
-                "Longer chat context",
-                "Standard-priority feedback handling",
-            ],
-        },
-        pro: {
-            desc: "For advanced workflows with expanded AI and platform limits",
-            items: [
-                "Axiom 1.0 Pro — advanced autonomous writing (Pro only)",
-                "Higher monthly quota",
-                "Priority AI chat throughput",
-                "Wider context for long-form tasks",
-                "Priority feedback",
-                "Early access to selected releases",
-            ],
-        },
+        free: [
+            "Local editing & build",
+            "PDF preview + SyncTeX",
+            "Math input",
+            "Math OCR",
+        ],
+        basic: [
+            "AI chat",
+            "Monthly token quota",
+            "Longer chat context",
+        ],
+        pro: [
+            "Axiom 1.0 Pro",
+            "Higher monthly quota",
+            "Priority AI chat throughput",
+            "Wider context",
+            "Early access",
+        ],
     },
     ja: {
         heading: "料金",
-        subheading: "ローカル基本機能は無料。Basic と Pro で毎月の Axiom 利用枠を拡張できます。",
-        currentPlan: "現在のプラン",
-        recommended: "おすすめ",
+        currentPlan: "利用中",
         priceMeta: "USD / 月",
         startBasic: "Basicを開始",
         startPro: "Proを開始",
+        changePlan: "プランを変更",
         manage: "サブスクの管理・解約",
-        free: {
-            desc: "まずは無料で、ローカル執筆と毎月の AI 利用枠を使う",
-            items: [
-                "ローカル編集・ビルド",
-                "PDFプレビュー + SyncTeX",
-                "Blocks（数式入力）",
-                "端末内の数式OCR",
-                "Axiomの月次利用枠はアプリ内に表示",
-                "ドキュメント閲覧（ガイド/更新情報）",
-            ],
-        },
-        basic: {
-            desc: "AI補助を日常執筆に組み込み、作業速度を上げる",
-            items: [
-                "AIチャット",
-                "AI補完（下書き・言い換え）",
-                "使用量表示",
-                "月次トークン上限",
-                "会話コンテキストの継続",
-                "改善提案の優先反映（通常）",
-            ],
-        },
-        pro: {
-            desc: "高度な制作フロー向け。AIと運用の上限を拡張",
-            items: [
-                "Axiom 1.0 Pro — 高度な自律執筆（Pro限定）",
-                "より大きい月次上限",
-                "AIチャット優先処理",
-                "長文タスク向けの広い文脈",
-                "優先改善対象",
-                "先行機能の早期アクセス枠",
-            ],
-        },
+        free: [
+            "ローカル編集・ビルド",
+            "PDFプレビュー + SyncTeX",
+            "数式入力",
+            "数式OCR",
+        ],
+        basic: [
+            "AIチャット",
+            "月次トークン上限",
+            "会話の継続",
+        ],
+        pro: [
+            "Axiom 1.0 Pro",
+            "月次上限の拡大",
+            "AIチャット優先処理",
+            "長文対応",
+            "先行アクセス",
+        ],
     },
     zh: {
         heading: "定价",
-        subheading: "核心本地功能免费。Basic 和 Pro 可扩展每月 Axiom 额度。",
-        currentPlan: "当前方案",
-        recommended: "推荐",
+        currentPlan: "当前",
         priceMeta: "美元 / 月",
         startBasic: "开始 Basic",
         startPro: "开始 Pro",
+        changePlan: "更改方案",
         manage: "管理或取消订阅",
-        free: {
-            desc: "从免费开始，本地编辑加上每月 AI 额度",
-            items: [
-                "本地编辑与构建",
-                "PDF 预览 + SyncTeX",
-                "Blocks（数学输入）",
-                "设备端数学 OCR",
-                "每月 Axiom 额度显示在应用内",
-                "文档访问（指南 / 更新）",
-            ],
-        },
-        basic: {
-            desc: "将 AI 支持融入日常写作，提升输出速度",
-            items: [
-                "AI 聊天",
-                "AI 补全（草稿 / 改写）",
-                "使用量看板",
-                "月度 token 配额",
-                "更长的对话上下文",
-                "标准优先级的反馈处理",
-            ],
-        },
-        pro: {
-            desc: "面向高级工作流，扩展的 AI 与平台限额",
-            items: [
-                "Axiom 1.0 Pro — 高级自主写作（仅 Pro）",
-                "更高的月度配额",
-                "优先级 AI 聊天处理",
-                "长篇任务的更宽上下文",
-                "优先反馈",
-                "部分新版本的抢先体验",
-            ],
-        },
+        free: [
+            "本地编辑与构建",
+            "PDF 预览 + SyncTeX",
+            "数学输入",
+            "数学 OCR",
+        ],
+        basic: [
+            "AI 聊天",
+            "月度 token 配额",
+            "更长的对话上下文",
+        ],
+        pro: [
+            "Axiom 1.0 Pro",
+            "更高的月度配额",
+            "优先级 AI 聊天处理",
+            "更宽的上下文",
+            "抢先体验",
+        ],
     },
     de: {
         heading: "Preise",
-        subheading: "Die lokalen Kernfunktionen sind kostenlos. Basic und Pro erweitern das monatliche Axiom-Kontingent.",
-        currentPlan: "Aktueller Plan",
-        recommended: "Empfohlen",
+        currentPlan: "Aktuell",
         priceMeta: "USD / Monat",
         startBasic: "Basic starten",
         startPro: "Pro starten",
+        changePlan: "Plan ändern",
         manage: "Abo verwalten oder kündigen",
-        free: {
-            desc: "Starten Sie kostenlos mit lokaler Bearbeitung und einem monatlichen KI-Kontingent",
-            items: [
-                "Lokale Bearbeitung & Build",
-                "PDF-Vorschau + SyncTeX",
-                "Blocks (Mathematik-Eingabe)",
-                "Mathematik-OCR auf dem Gerät",
-                "Monatliches Axiom-Kontingent wird in der App angezeigt",
-                "Dokumentationszugang (Anleitungen / Updates)",
-            ],
-        },
-        basic: {
-            desc: "Integrieren Sie KI-Unterstützung in das tägliche Schreiben für mehr Produktivität",
-            items: [
-                "KI-Chat",
-                "KI-Vervollständigung (Entwurf / Umformulierung)",
-                "Nutzungs-Dashboard",
-                "Monatliches Token-Kontingent",
-                "Längerer Chat-Kontext",
-                "Feedback-Bearbeitung mit Standardpriorität",
-            ],
-        },
-        pro: {
-            desc: "Für fortgeschrittene Workflows mit erweiterten KI- und Plattformlimits",
-            items: [
-                "Axiom 1.0 Pro — fortgeschrittenes autonomes Schreiben (nur Pro)",
-                "Höheres monatliches Kontingent",
-                "Priorisierter KI-Chat-Durchsatz",
-                "Weiterer Kontext für längere Texte",
-                "Prioritäts-Feedback",
-                "Frühzeitiger Zugriff auf ausgewählte Releases",
-            ],
-        },
+        free: [
+            "Lokale Bearbeitung & Build",
+            "PDF-Vorschau + SyncTeX",
+            "Mathematik-Eingabe",
+            "Mathematik-OCR",
+        ],
+        basic: [
+            "KI-Chat",
+            "Monatliches Token-Kontingent",
+            "Längerer Chat-Kontext",
+        ],
+        pro: [
+            "Axiom 1.0 Pro",
+            "Höheres monatliches Kontingent",
+            "Priorisierter KI-Chat-Durchsatz",
+            "Weiterer Kontext",
+            "Frühzeitiger Zugriff",
+        ],
     },
     ko: {
         heading: "요금제",
-        subheading: "핵심 로컬 기능은 무료입니다. Basic과 Pro는 매월 Axiom 사용량을 확장합니다.",
-        currentPlan: "현재 플랜",
-        recommended: "추천",
+        currentPlan: "이용 중",
         priceMeta: "USD / 월",
         startBasic: "Basic 시작",
         startPro: "Pro 시작",
+        changePlan: "플랜 변경",
         manage: "구독 관리 또는 취소",
-        free: {
-            desc: "로컬 편집과 매월 AI 사용량으로 무료로 시작합니다",
-            items: [
-                "로컬 편집 및 빌드",
-                "PDF 미리보기 + SyncTeX",
-                "Blocks(수식 입력)",
-                "기기 내 수식 OCR",
-                "월간 Axiom 사용량은 앱에 표시",
-                "문서 접근(가이드 / 업데이트)",
-            ],
-        },
-        basic: {
-            desc: "일상 집필에 AI 지원을 더해 작업 속도를 높입니다",
-            items: [
-                "AI 채팅",
-                "AI 보완(초안 / 다시쓰기)",
-                "사용량 대시보드",
-                "월간 토큰 한도",
-                "더 긴 채팅 컨텍스트",
-                "표준 우선순위 피드백 처리",
-            ],
-        },
-        pro: {
-            desc: "고급 워크플로용. 확장된 AI 및 플랫폼 한도",
-            items: [
-                "Axiom 1.0 Pro — 고급 자율 글쓰기(Pro 전용)",
-                "더 높은 월간 한도",
-                "우선순위 AI 채팅 처리",
-                "장문 작업을 위한 넓은 컨텍스트",
-                "우선순위 피드백",
-                "선별된 릴리스의 얼리 액세스",
-            ],
-        },
+        free: [
+            "로컬 편집 및 빌드",
+            "PDF 미리보기 + SyncTeX",
+            "수식 입력",
+            "수식 OCR",
+        ],
+        basic: [
+            "AI 채팅",
+            "월간 토큰 한도",
+            "더 긴 채팅 컨텍스트",
+        ],
+        pro: [
+            "Axiom 1.0 Pro",
+            "더 높은 월간 한도",
+            "우선순위 AI 채팅 처리",
+            "더 넓은 컨텍스트",
+            "얼리 액세스",
+        ],
     },
     fr: {
         heading: "Tarifs",
-        subheading: "Les fonctions locales essentielles sont gratuites. Basic et Pro augmentent l’allocation Axiom mensuelle.",
-        currentPlan: "Plan actuel",
-        recommended: "Recommandé",
+        currentPlan: "Actuel",
         priceMeta: "USD / mois",
         startBasic: "Démarrer Basic",
         startPro: "Démarrer Pro",
+        changePlan: "Changer d'offre",
         manage: "Gérer ou annuler l'abonnement",
-        free: {
-            desc: "Commencez gratuitement avec l'édition locale et une allocation IA mensuelle",
-            items: [
-                "Édition & build en local",
-                "Prévisualisation PDF + SyncTeX",
-                "Blocks (saisie mathématique)",
-                "OCR mathématique sur l’appareil",
-                "Allocation Axiom mensuelle affichée dans l’application",
-                "Accès à la documentation (guides / mises à jour)",
-            ],
-        },
-        basic: {
-            desc: "Intégrez le support IA à votre écriture quotidienne pour gagner en rapidité",
-            items: [
-                "Chat IA",
-                "Complétion IA (brouillon / reformulation)",
-                "Tableau de bord d'utilisation",
-                "Quota mensuel de jetons",
-                "Contexte de chat plus long",
-                "Traitement des retours en priorité standard",
-            ],
-        },
-        pro: {
-            desc: "Pour les workflows avancés avec des limites IA et plateforme étendues",
-            items: [
-                "Axiom 1.0 Pro — rédaction autonome avancée (Pro uniquement)",
-                "Quota mensuel plus élevé",
-                "Débit prioritaire pour le chat IA",
-                "Contexte plus large pour les tâches longues",
-                "Retours prioritaires",
-                "Accès anticipé à des versions sélectionnées",
-            ],
-        },
+        free: [
+            "Édition & build en local",
+            "Prévisualisation PDF + SyncTeX",
+            "Saisie mathématique",
+            "OCR mathématique",
+        ],
+        basic: [
+            "Chat IA",
+            "Quota mensuel de jetons",
+            "Contexte de chat plus long",
+        ],
+        pro: [
+            "Axiom 1.0 Pro",
+            "Quota mensuel plus élevé",
+            "Débit prioritaire pour le chat IA",
+            "Contexte plus large",
+            "Accès anticipé",
+        ],
     },
     es: {
         heading: "Precios",
-        subheading: "Las funciones locales principales son gratis. Basic y Pro amplían la asignación mensual de Axiom.",
-        currentPlan: "Plan actual",
-        recommended: "Recomendado",
+        currentPlan: "Actual",
         priceMeta: "USD / mes",
         startBasic: "Iniciar Basic",
         startPro: "Iniciar Pro",
+        changePlan: "Cambiar de plan",
         manage: "Gestionar o cancelar la suscripción",
-        free: {
-            desc: "Empieza gratis con edición local y una asignación de IA mensual",
-            items: [
-                "Edición y build en local",
-                "Vista previa de PDF + SyncTeX",
-                "Blocks (entrada matemática)",
-                "OCR matemático en el dispositivo",
-                "La asignación mensual de Axiom se muestra en la app",
-                "Acceso a la documentación (guías / actualizaciones)",
-            ],
-        },
-        basic: {
-            desc: "Añade soporte de IA a tu escritura diaria para producir más rápido",
-            items: [
-                "Chat de IA",
-                "Completado de IA (borrador / reescritura)",
-                "Panel de uso",
-                "Cuota mensual de tokens",
-                "Contexto de chat más largo",
-                "Atención de comentarios con prioridad estándar",
-            ],
-        },
-        pro: {
-            desc: "Para flujos de trabajo avanzados con límites ampliados de IA y plataforma",
-            items: [
-                "Axiom 1.0 Pro — redacción autónoma avanzada (solo Pro)",
-                "Cuota mensual más alta",
-                "Procesamiento prioritario del chat de IA",
-                "Contexto más amplio para tareas largas",
-                "Comentarios prioritarios",
-                "Acceso anticipado a versiones seleccionadas",
-            ],
-        },
+        free: [
+            "Edición y build en local",
+            "Vista previa de PDF + SyncTeX",
+            "Entrada matemática",
+            "OCR matemático",
+        ],
+        basic: [
+            "Chat de IA",
+            "Cuota mensual de tokens",
+            "Contexto de chat más largo",
+        ],
+        pro: [
+            "Axiom 1.0 Pro",
+            "Cuota mensual más alta",
+            "Procesamiento prioritario del chat de IA",
+            "Contexto más amplio",
+            "Acceso anticipado",
+        ],
     },
 };
 const MSG = {
     en: {
-        billingUnavailable: "Billing is unavailable in this build.",
-        preparing: "Preparing secure checkout…",
+        billingUnavailable: "Billing is unavailable.",
+        preparing: "Preparing checkout…",
         checkoutOpened: "Checkout in progress…",
-        signIn: "Please sign in first, then try again.",
-        checkoutUnavailable: "Checkout isn't available right now.",
-        openingPortal: "Opening your billing portal…",
-        noSub: "No active subscription to manage yet.",
+        signIn: "Sign-in required.",
+        checkoutUnavailable: "Checkout is unavailable.",
+        openingPortal: "Opening billing portal…",
+        noSub: "No active subscription.",
         portalErrorPrefix: "Couldn't open the billing portal: ",
-        activating: "Payment received — activating your plan…",
-        activated: "Your plan is now active. Enjoy!",
-        activationSlow: "Payment received. Activation is taking longer than usual — it will finish in the background.",
+        activating: "Payment received. Activating your plan…",
+        activated: "Your plan is now active.",
+        activationSlow: "Payment received. Activation continues in the background.",
     },
     ja: {
-        billingUnavailable: "このビルドでは課金を利用できません。",
-        preparing: "安全な決済を準備しています…",
+        billingUnavailable: "課金は利用できません。",
+        preparing: "決済を準備中…",
         checkoutOpened: "決済中…",
-        signIn: "先にサインインしてから再試行してください。",
-        checkoutUnavailable: "現在チェックアウトを利用できません。",
+        signIn: "ログインが必要です。",
+        checkoutUnavailable: "決済を利用できません。",
         openingPortal: "請求ポータルを開いています…",
-        noSub: "管理できる有効なサブスクリプションがありません。",
+        noSub: "有効なサブスクリプションはありません。",
         portalErrorPrefix: "請求ポータルを開けませんでした：",
-        activating: "決済を受け付けました — プランを反映しています…",
+        activating: "決済完了。プランを反映中…",
         activated: "プランが有効になりました。",
-        activationSlow: "決済は完了しています。反映に時間がかかっていますが、バックグラウンドで完了します。",
+        activationSlow: "決済完了。反映はバックグラウンドで続きます。",
     },
     zh: {
-        billingUnavailable: "此版本无法使用计费。",
-        preparing: "正在准备安全结账…",
+        billingUnavailable: "无法使用计费。",
+        preparing: "正在准备结账…",
         checkoutOpened: "正在结账…",
-        signIn: "请先登录后再试。",
-        checkoutUnavailable: "暂时无法结账。",
+        signIn: "需要登录。",
+        checkoutUnavailable: "无法结账。",
         openingPortal: "正在打开计费门户…",
-        noSub: "暂无可管理的有效订阅。",
+        noSub: "没有有效订阅。",
         portalErrorPrefix: "无法打开计费门户：",
-        activating: "已收到付款 — 正在激活您的方案…",
+        activating: "已付款，正在激活方案…",
         activated: "您的方案已生效。",
-        activationSlow: "已收到付款。激活时间比平常长，将在后台完成。",
+        activationSlow: "已付款，激活将在后台完成。",
     },
     de: {
-        billingUnavailable: "Abrechnung ist in diesem Build nicht verfügbar.",
-        preparing: "Sicherer Checkout wird vorbereitet…",
+        billingUnavailable: "Abrechnung nicht verfügbar.",
+        preparing: "Checkout wird vorbereitet…",
         checkoutOpened: "Checkout läuft…",
-        signIn: "Bitte zuerst anmelden und erneut versuchen.",
-        checkoutUnavailable: "Checkout ist derzeit nicht verfügbar.",
+        signIn: "Anmeldung erforderlich.",
+        checkoutUnavailable: "Checkout nicht verfügbar.",
         openingPortal: "Abrechnungsportal wird geöffnet…",
-        noSub: "Noch kein aktives Abo zum Verwalten.",
+        noSub: "Kein aktives Abo.",
         portalErrorPrefix: "Abrechnungsportal konnte nicht geöffnet werden: ",
-        activating: "Zahlung eingegangen — Ihr Plan wird aktiviert…",
+        activating: "Zahlung eingegangen. Plan wird aktiviert…",
         activated: "Ihr Plan ist jetzt aktiv.",
-        activationSlow: "Zahlung eingegangen. Die Aktivierung dauert länger als üblich und wird im Hintergrund abgeschlossen.",
+        activationSlow: "Zahlung eingegangen. Die Aktivierung läuft im Hintergrund weiter.",
     },
     ko: {
-        billingUnavailable: "이 빌드에서는 결제를 사용할 수 없습니다.",
-        preparing: "안전한 결제를 준비하는 중…",
+        billingUnavailable: "결제를 사용할 수 없습니다.",
+        preparing: "결제 준비 중…",
         checkoutOpened: "결제 진행 중…",
-        signIn: "먼저 로그인한 후 다시 시도하세요.",
-        checkoutUnavailable: "지금은 결제를 사용할 수 없습니다.",
+        signIn: "로그인이 필요합니다.",
+        checkoutUnavailable: "지금은 결제할 수 없습니다.",
         openingPortal: "결제 포털을 여는 중…",
-        noSub: "관리할 활성 구독이 아직 없습니다.",
+        noSub: "활성 구독이 없습니다.",
         portalErrorPrefix: "결제 포털을 열지 못했습니다: ",
-        activating: "결제가 완료되었습니다 — 플랜을 적용하는 중…",
+        activating: "결제 완료. 플랜 적용 중…",
         activated: "플랜이 활성화되었습니다.",
-        activationSlow: "결제는 완료되었습니다. 적용이 평소보다 오래 걸리고 있으며 백그라운드에서 완료됩니다.",
+        activationSlow: "결제 완료. 적용은 백그라운드에서 계속됩니다.",
     },
     fr: {
-        billingUnavailable: "La facturation n'est pas disponible dans cette version.",
-        preparing: "Préparation du paiement sécurisé…",
+        billingUnavailable: "Facturation indisponible.",
+        preparing: "Préparation du paiement…",
         checkoutOpened: "Paiement en cours…",
-        signIn: "Veuillez d'abord vous connecter, puis réessayer.",
-        checkoutUnavailable: "Le paiement n'est pas disponible pour le moment.",
+        signIn: "Connexion requise.",
+        checkoutUnavailable: "Paiement indisponible.",
         openingPortal: "Ouverture du portail de facturation…",
-        noSub: "Aucun abonnement actif à gérer pour l'instant.",
+        noSub: "Aucun abonnement actif.",
         portalErrorPrefix: "Impossible d'ouvrir le portail de facturation : ",
-        activating: "Paiement reçu — activation de votre offre…",
+        activating: "Paiement reçu. Activation de votre offre…",
         activated: "Votre offre est maintenant active.",
-        activationSlow: "Paiement reçu. L'activation prend plus de temps que d'habitude et se terminera en arrière-plan.",
+        activationSlow: "Paiement reçu. L'activation se poursuit en arrière-plan.",
     },
     es: {
-        billingUnavailable: "La facturación no está disponible en esta versión.",
-        preparing: "Preparando el pago seguro…",
+        billingUnavailable: "Facturación no disponible.",
+        preparing: "Preparando el pago…",
         checkoutOpened: "Pago en curso…",
-        signIn: "Inicia sesión primero y vuelve a intentarlo.",
-        checkoutUnavailable: "El pago no está disponible ahora mismo.",
+        signIn: "Debes iniciar sesión.",
+        checkoutUnavailable: "Pago no disponible.",
         openingPortal: "Abriendo tu portal de facturación…",
-        noSub: "Aún no hay una suscripción activa que gestionar.",
+        noSub: "No hay una suscripción activa.",
         portalErrorPrefix: "No se pudo abrir el portal de facturación: ",
-        activating: "Pago recibido: activando tu plan…",
+        activating: "Pago recibido. Activando tu plan…",
         activated: "Tu plan ya está activo.",
-        activationSlow: "Pago recibido. La activación está tardando más de lo habitual y se completará en segundo plano.",
+        activationSlow: "Pago recibido. La activación continúa en segundo plano.",
     },
 };
 const msg = () => MSG[getUiLocale()] || MSG.en;
@@ -411,7 +298,7 @@ const PLANS = [
 const PLAN_RANK = { free: 0, basic: 1, pro: 2 };
 export const initBillingUi = (context, deps) => {
     var _a, _b;
-    const { plansModal, plansModalClose, plansHeading, plansSub, plansList, plansStatus, } = context.dom;
+    const { plansModal, plansModalClose, plansHeading, plansList, plansStatus, } = context.dom;
     let activationTimer = null;
     let activationTargetRank = null;
     let activationTicks = 0;
@@ -607,7 +494,7 @@ export const initBillingUi = (context, deps) => {
     };
     const buildCard = (plan, copy, current, currentRank, preferred) => {
         var _a;
-        const planCopy = copy[plan.key];
+        const features = copy[plan.key];
         const isCurrent = plan.key === current;
         const rank = (_a = PLAN_RANK[plan.key]) !== null && _a !== void 0 ? _a : 0;
         const card = document.createElement("div");
@@ -625,10 +512,10 @@ export const initBillingUi = (context, deps) => {
         name.className = "plan-card-name";
         name.textContent = plan.name;
         head.appendChild(name);
-        if (isCurrent || (plan.highlight && preferred === null)) {
+        if (isCurrent) {
             const chip = document.createElement("span");
             chip.className = "plan-chip";
-            chip.textContent = isCurrent ? copy.currentPlan : copy.recommended;
+            chip.textContent = copy.currentPlan;
             head.appendChild(chip);
         }
         card.appendChild(head);
@@ -647,29 +534,15 @@ export const initBillingUi = (context, deps) => {
         card.appendChild(priceRow);
         const list = document.createElement("ul");
         list.className = "plan-features";
-        for (const item of planCopy.items) {
+        for (const item of features) {
             const li = document.createElement("li");
-            const mark = document.createElement("span");
-            mark.className = "plan-feature-mark";
-            mark.setAttribute("aria-hidden", "true");
-            mark.textContent = "✦";
-            const text = document.createElement("span");
-            text.textContent = item;
-            li.append(mark, text);
+            li.textContent = item;
             list.appendChild(li);
         }
         card.appendChild(list);
         const footer = document.createElement("div");
         footer.className = "plan-card-foot";
-        if (isCurrent) {
-            const btn = document.createElement("button");
-            btn.type = "button";
-            btn.className = "plan-cta is-current";
-            btn.textContent = copy.currentPlan;
-            btn.disabled = true;
-            footer.appendChild(btn);
-        }
-        else if (rank > currentRank) {
+        if (rank > currentRank) {
             const btn = document.createElement("button");
             btn.type = "button";
             btn.className =
@@ -677,17 +550,18 @@ export const initBillingUi = (context, deps) => {
                     (plan.key === preferred || (plan.highlight && preferred === null)
                         ? " primary"
                         : "");
-            btn.textContent = plan.key === "basic" ? copy.startBasic : copy.startPro;
             if (current === "free") {
+                btn.textContent = plan.key === "basic" ? copy.startBasic : copy.startPro;
                 btn.addEventListener("click", () => startCheckout(plan.key));
             }
             else {
                 // Existing subscribers change tier through the portal (avoids a 2nd sub).
+                btn.textContent = copy.changePlan;
                 btn.addEventListener("click", () => openPortal());
             }
             footer.appendChild(btn);
         }
-        // Tiers below the current plan show no button (informational).
+        // The current plan (its chip says so) and the tiers below it show no button.
         card.appendChild(footer);
         return card;
     };
@@ -744,9 +618,6 @@ export const initBillingUi = (context, deps) => {
         const copy = CONTENT[getUiLocale()] || CONTENT.en;
         if (plansHeading)
             plansHeading.textContent = copy.heading;
-        // No subheading: the cards say what each plan includes.
-        if (plansSub)
-            plansSub.hidden = true;
         if (!plansList)
             return;
         const current = (deps.getCurrentPlan() || "free").toLowerCase();

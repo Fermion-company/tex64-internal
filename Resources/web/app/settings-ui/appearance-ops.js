@@ -1,4 +1,4 @@
-import { getCurrentAppearanceTheme, normalizeAppearanceTheme, setAppearanceTheme, } from "../appearance.js";
+import { getAppearanceThemePreference, normalizeAppearanceThemePreference, setAppearanceThemePreference, } from "../appearance.js";
 export const createSettingsAppearanceOps = (runtime) => {
     const { settingsAppearanceThemeSelect } = runtime.context.dom;
     const updateAppearanceThemeUi = () => {
@@ -7,20 +7,20 @@ export const createSettingsAppearanceOps = (runtime) => {
         }
     };
     const loadAppearanceThemeState = () => {
-        runtime.state.appearanceTheme = getCurrentAppearanceTheme();
+        runtime.state.appearanceTheme = getAppearanceThemePreference();
         updateAppearanceThemeUi();
     };
     const setAppearanceThemeState = (theme) => {
         var _a;
-        const nextTheme = (_a = normalizeAppearanceTheme(theme)) !== null && _a !== void 0 ? _a : "dark";
+        const nextTheme = (_a = normalizeAppearanceThemePreference(theme)) !== null && _a !== void 0 ? _a : "system";
         runtime.state.appearanceTheme = nextTheme;
-        setAppearanceTheme(nextTheme);
+        setAppearanceThemePreference(nextTheme);
         updateAppearanceThemeUi();
     };
     if (settingsAppearanceThemeSelect instanceof HTMLSelectElement) {
         settingsAppearanceThemeSelect.addEventListener("change", () => {
             var _a;
-            setAppearanceThemeState((_a = normalizeAppearanceTheme(settingsAppearanceThemeSelect.value)) !== null && _a !== void 0 ? _a : "dark");
+            setAppearanceThemeState((_a = normalizeAppearanceThemePreference(settingsAppearanceThemeSelect.value)) !== null && _a !== void 0 ? _a : "system");
         });
     }
     return {

@@ -178,7 +178,7 @@ export const createViewer = (deps) => {
         }
     };
     window.addEventListener("message", (event) => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e;
         if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
             return;
         }
@@ -246,12 +246,16 @@ export const createViewer = (deps) => {
             });
             return;
         }
+        if (payload.type === "close") {
+            (_c = deps.onPdfClose) === null || _c === void 0 ? void 0 : _c.call(deps);
+            return;
+        }
         if (payload.type === "live-source") {
             if (!matchingLivePreview())
                 return;
             const request = parseLiveSourceRequest(payload.payload);
             if (request)
-                (_c = deps.onLiveSourceRequest) === null || _c === void 0 ? void 0 : _c.call(deps, request);
+                (_d = deps.onLiveSourceRequest) === null || _d === void 0 ? void 0 : _d.call(deps, request);
             return;
         }
         if (payload.type === "live-edit-anchor") {
@@ -285,7 +289,7 @@ export const createViewer = (deps) => {
                 return;
             const request = parseLiveEditRequest(payload.payload);
             if (request)
-                (_d = deps.onLiveEditRequest) === null || _d === void 0 ? void 0 : _d.call(deps, request);
+                (_e = deps.onLiveEditRequest) === null || _e === void 0 ? void 0 : _e.call(deps, request);
         }
     });
     const clearViewerUrl = () => {

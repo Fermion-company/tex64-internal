@@ -12,6 +12,7 @@ const {
   shell,
   systemPreferences,
   Notification,
+  nativeTheme,
   utilityProcess,
 } = require("electron");
 const fs = require("fs");
@@ -422,7 +423,8 @@ const createMainWindow = () => {
     backgroundColor: "#1c2129",
     title: process.env.TEX64_EDITION === "education" ? "TeX64 Education" : "TeX64",
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 12, y: 8 },
+    // Centred on the 44px toolbar (measured: y 15 puts the buttons at 22px).
+    trafficLightPosition: { x: 12, y: 15 },
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -894,7 +896,7 @@ const { GitController } = require("./services/git-controller.cjs");
 gitController = new GitController({
   workspace, state, coordinator: workspaceOperations, safeStorage,
   chooseRecoveryDestination: async ({ path: relative, side }) => {
-    const result = await dialog.showSaveDialog(state.mainWindow, { title: "復旧用ファイルを書き出す", defaultPath: `${side}-${path.basename(relative)}` });
+    const result = await dialog.showSaveDialog(state.mainWindow, { title: "復旧ファイルを保存", defaultPath: `${side}-${path.basename(relative)}` });
     return result.canceled ? null : result.filePath;
   },
   directory: () => path.join(app.getPath("userData"), "git-protection"),
@@ -968,7 +970,7 @@ ipcMain.handle("tex64:git", async (event, action, request) => {
       gitController.validate(request);
       const name = request.name;
       if (typeof name !== "string" || !name || name.length > 160 || /[\\/\0]/.test(name) || name === "." || name === "..") throw new Error("新しいフォルダ名を入力してください。");
-      const selected = await dialog.showOpenDialog(state.mainWindow, { title: "取得先の親フォルダを選択", properties: ["openDirectory", "createDirectory"] });
+      const selected = await dialog.showOpenDialog(state.mainWindow, { title: "取得先の親フォルダ", properties: ["openDirectory", "createDirectory"] });
       if (selected.canceled || !selected.filePaths[0]) return { ok: true, canceled: true };
       gitController.validate(request);
       const destination = path.join(selected.filePaths[0], name);
@@ -1407,6 +1409,8 @@ app.whenReady().then(() => {
   if (!hasSingleInstanceLock) {
     return;
   }
+  // The app follows the OS until the renderer sends a saved dark or light choice.
+  nativeTheme.themeSource = "system";
   protocol.handle(WORKSPACE_PDF_SCHEME, handleWorkspacePdfRequest);
   runStartupWebBuildIfNeeded();
   createMainWindow();
@@ -2574,6 +2578,12 @@ const handleRendererMessage = (event, message) => {
     miscHandlers.handleOpenExternal(message.url);
     return;
   }
+  if (type === "appearance:theme") {
+    // The AI workspace webview reads prefers-color-scheme, which follows this;
+    // "system" hands it back to the OS.
+    if (message.theme === "dark" || message.theme === "light" || message.theme === "system") nativeTheme.themeSource = message.theme;
+    return;
+  }
   if (type === "feedback:send") {
     miscHandlers.handleFeedbackSend(message);
     return;
@@ -2615,8 +2625,9 @@ const handleRendererMessage = (event, message) => {
     return;
   }
   if (type === "agent:steer") {
+    // Code and the AI workspace both come here; a guest's turns run on the host.
     const turn = validateAiModeTurn(message);
-    const accepted = turn.ok && require("./services/openprism/steering.cjs").acceptSteering(agentService, message.conversationId, message);
+    const accepted = turn.ok && !collabHub.isGuest() && require("./services/openprism/steering.cjs").acceptSteering(agentService, message.conversationId, message);
     sendToRenderer("agent:steerResult", { requestId: message.requestId, conversationId: message.conversationId, accepted });
     return;
   }

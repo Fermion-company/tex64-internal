@@ -1,39 +1,45 @@
-/* Design tokens. The dark theme is the design's home — the values mirror the
-   TeX64 Builder handoff (prototypes/tex64-builder, artboard 7a). The paper
-   stays warm in both themes. */
+/* Design tokens. The chrome mirrors the TeX64 editor's palette in
+   Resources/web/theme.css (warm neutral greys and one teal accent); each
+   comment names the theme.css token it copies. Here :root is the light theme
+   (theme.css :root[data-theme="light"]) and [data-theme="dark"] mirrors
+   theme.css :root. Accent is kept for the primary action, the current
+   selection marker and focus; hover and selected fills are neutral. The
+   paper (--paper*) stays warm in both themes. */
 :root {
-  --app-bg: #f7f5fa;
-  --header: #ffffff;
-  --panel: #ffffff;
-  --panel-muted: #f6f2f9;
-  --workspace: #efeaf4;
+  --app-bg: #FAF9F5; /* --bg */
+  --header: #F4F3EE; /* --panel (the editor's .topbar) */
+  --panel: #F4F3EE; /* --panel */
+  --panel-muted: #F0EFE9; /* --panel-muted */
+  --workspace: #FAF9F5; /* --bg (the editor's PDF viewer) */
   --paper: #fbf8f2;
   --paper-ink: #222222;
   --paper-muted: #6b6b6b;
-  --paper-accent: #9b2fc9;
   --paper-caption: #9a9286;
-  --ink: #241e2b;
-  --ink-soft: #5f5570;
-  --ink-faint: #8c819d;
-  --chat-body: #4b4157;
-  --chat-name: #6a5c80;
-  --placeholder: #a89bbd;
-  --line: rgba(48, 35, 62, 0.1);
-  --line-strong: rgba(48, 35, 62, 0.16);
-  --accent: #9b2fc9;
-  --accent-strong: #8b2fcb;
-  --accent-soft: rgba(155, 47, 201, 0.13);
-  --accent-faint: rgba(155, 47, 201, 0.1);
-  --surface-raised: #efe7f6;
-  --surface-deep: #9b2fc9;
-  --brand-gradient: linear-gradient(135deg, #6b2aa0, #9b2fc9);
-  --cta-gradient: linear-gradient(135deg, #8b2fcb, #ff5dc8);
-  --brand-glow: 0 0 14px rgba(255, 93, 200, 0.35);
-  --success: #2f7d5c;
-  --danger: #b84b59;
-  --hover: rgba(48, 35, 62, 0.05);
-  --shadow-menu: 0 16px 40px rgba(42, 28, 58, 0.16);
-  --shadow-paper: 0 24px 60px rgba(42, 28, 58, 0.18);
+  --ink: #141413; /* --text */
+  --ink-soft: #5E5D59; /* --text-soft */
+  --ink-faint: #696863; /* --muted */
+  --chat-body: #141413; /* --text (the editor's .ai-message) */
+  --chat-name: #5E5D59; /* --text-soft */
+  --placeholder: #696863; /* --muted (the editor's .ai-chat-textarea::placeholder) */
+  --line: #E3E1D8; /* --panel-border */
+  --line-strong: #D1CFC5; /* --panel-border-strong */
+  --hover: rgba(20, 20, 19, 0.05); /* --control-bg */
+  --surface-raised: rgba(20, 20, 19, 0.05); /* --control-bg (the editor's user turn) */
+  --accent: #1A7A75; /* --accent; white text 5.14:1 */
+  --accent-hover: #176B66; /* --accent-hover; white text 6.30:1 */
+  --accent-strong: #10706B; /* --accent-strong */
+  --accent-soft: rgba(30, 138, 132, 0.12); /* --accent-soft */
+  --accent-faint: rgba(30, 138, 132, 0.06); /* no theme.css token: --accent-soft at half alpha */
+  /* Keyboard focus ring. theme.css --focus-ring (rgba(30, 138, 132, 0.4)) is
+     only 1.6:1 on these panels; 80% of --accent keeps it at >= 3.19:1. */
+  --focus-ring: color-mix(in srgb, var(--accent) 80%, transparent);
+  --selection: rgba(30, 138, 132, 0.4); /* --focus-ring, the editor's text-selection fill */
+  --success: #15803D; /* --success-text */
+  --danger: #B91C1C; /* --danger-text (used here as a text colour; 5.6:1 or more) */
+  --danger-soft: rgba(220, 38, 38, 0.1); /* --danger-soft */
+  --danger-border: rgba(220, 38, 38, 0.28); /* --danger-border */
+  --shadow-menu: 0 12px 32px rgba(20, 20, 19, 0.1), 0 1px 2px rgba(20, 20, 19, 0.06); /* --shadow */
+  --shadow-paper: 0 24px 60px rgba(20, 20, 19, 0.18);
   --font-ui: Inter, "Noto Sans JP", ui-sans-serif, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
   --font-paper: var(--font-noto-serif, "Noto Serif JP"), "Noto Serif JP", "Yu Mincho",
@@ -42,35 +48,55 @@
 }
 
 :root[data-theme="dark"] {
-  --app-bg: #0e081a;
-  --header: #110a1c;
-  --panel: #1b1029;
-  --panel-muted: #150b22;
-  --workspace: #0e081a;
-  --ink: #f4eefb;
-  --ink-soft: #b6a8c9;
-  --ink-faint: #7c6e92;
-  --chat-body: #d9ceea;
-  --chat-name: #c9b8e8;
-  --placeholder: #5c4d72;
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.12);
-  --accent: #ff5dc8;
-  --accent-strong: #ff8fda;
-  --accent-soft: rgba(255, 93, 200, 0.16);
-  --accent-faint: rgba(255, 93, 200, 0.12);
-  --surface-raised: #2a1c3d;
-  --surface-deep: #3d2a5c;
-  --success: #7ac7a0;
-  --danger: #f18b98;
-  --hover: rgba(255, 255, 255, 0.05);
-  --shadow-menu: 0 18px 46px rgba(0, 0, 0, 0.5);
+  --app-bg: #141413; /* --bg */
+  --header: #1C1C1B; /* --panel (the editor's .topbar) */
+  --panel: #1C1C1B; /* --panel */
+  --panel-muted: #181817; /* --panel-muted */
+  --workspace: #141413; /* --bg (the editor's PDF viewer) */
+  --ink: #E9E7E0; /* --text */
+  --ink-soft: #A9A79F; /* --text-soft */
+  --ink-faint: #87867F; /* --muted */
+  --chat-body: #E9E7E0; /* --text */
+  --chat-name: #A9A79F; /* --text-soft */
+  --placeholder: #87867F; /* --muted */
+  --line: #2B2B29; /* --panel-border */
+  --line-strong: #363634; /* --panel-border-strong */
+  --hover: rgba(250, 249, 245, 0.05); /* --control-bg */
+  --surface-raised: rgba(250, 249, 245, 0.05); /* --control-bg */
+  --accent: #1F7F79; /* --accent; white text 4.81:1 */
+  --accent-hover: #1C7570; /* --accent-hover; white text 5.49:1 */
+  --accent-strong: #7FD3DC; /* --accent-strong */
+  --accent-soft: rgba(127, 211, 220, 0.14); /* --accent-soft */
+  --accent-faint: rgba(127, 211, 220, 0.07); /* no theme.css token: --accent-soft at half alpha */
+  --focus-ring: rgba(127, 211, 220, 0.45); /* --focus-ring; 3.06:1 or more on the panels */
+  --selection: rgba(127, 211, 220, 0.45); /* --focus-ring, the editor's text-selection fill */
+  --success: #6fdca5; /* --success-text */
+  --danger: #FF7B72; /* --danger-text */
+  --danger-soft: rgba(248, 81, 73, 0.15); /* --danger-soft */
+  --danger-border: rgba(248, 81, 73, 0.4); /* --danger-border */
+  --shadow-menu: 0 10px 28px rgba(0, 0, 0, 0.42), 0 1px 2px rgba(0, 0, 0, 0.3); /* --shadow */
   --shadow-paper: 0 30px 70px rgba(0, 0, 0, 0.5);
   color-scheme: dark;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* The Japanese/Latin gap comes from the font engine, not typed spaces;
+   code and what the user types keep their own spacing. */
+body {
+  text-autospace: normal;
+}
+
+code,
+pre,
+kbd,
+samp,
+input,
+textarea,
+[contenteditable="true"] {
+  text-autospace: no-autospace;
 }
 
 html,
@@ -122,15 +148,25 @@ textarea {
 }
 
 ::selection {
-  background: rgba(255, 93, 200, 0.28);
+  background: var(--selection);
 }
 
-:focus-visible {
+:focus:not(:focus-visible) {
   outline: none;
 }
 
-button:focus-visible { filter: brightness(1.18); }
-a:focus-visible { text-decoration: underline; }
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Text fields and the paper's inline editors show focus with their own border. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[contenteditable]:focus-visible {
+  outline: none;
+}
 
 .sr-only {
   position: absolute;
@@ -267,7 +303,7 @@ a:focus-visible { text-decoration: underline; }
 
 .document-switcher-titles small {
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 
@@ -306,9 +342,10 @@ a:focus-visible { text-decoration: underline; }
 }
 
 .document-menu button[aria-current="page"] {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  font-weight: 650;
+  background: var(--hover);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
 .topbar-actions {
@@ -320,11 +357,11 @@ a:focus-visible { text-decoration: underline; }
 
 .native-command-bar {
   display: inline-flex;
-  height: 42px;
+  height: 36px;
   align-items: center;
   gap: 3px;
   border: 1px solid var(--line-strong);
-  border-radius: 11px;
+  border-radius: 9px;
   background: color-mix(in srgb, var(--panel) 72%, transparent);
   padding: 3px;
   box-shadow: 0 1px 2px color-mix(in srgb, #000 12%, transparent);
@@ -346,13 +383,13 @@ a:focus-visible { text-decoration: underline; }
 .native-model-trigger,
 .native-account-button,
 .native-usage-button {
-  height: 34px;
+  height: 28px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
   color: var(--ink-soft);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .native-model-picker,
@@ -362,11 +399,11 @@ a:focus-visible { text-decoration: underline; }
 
 .native-settings-trigger {
   display: inline-flex;
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
+  border-radius: 6px;
   color: var(--ink-faint);
 }
 
@@ -440,6 +477,15 @@ a:focus-visible { text-decoration: underline; }
   color: var(--ink);
 }
 
+/* Stacked menu and list items draw the ring inside, so it is neither clipped
+   by the menu nor laid over the neighbouring item. */
+.document-menu button:focus-visible,
+.native-settings-menu button:focus-visible,
+.native-model-menu button:focus-visible,
+.starter-prompts button:focus-visible {
+  outline-offset: -2px;
+}
+
 .native-settings-menu button + button {
   margin-top: 2px;
   color: var(--ink-faint);
@@ -467,8 +513,12 @@ a:focus-visible { text-decoration: underline; }
 }
 
 .native-model-menu button[aria-selected="true"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.native-model-menu button[aria-selected="true"] > svg {
   color: var(--accent-strong);
-  font-weight: 650;
 }
 
 .native-model-option-name {
@@ -484,7 +534,7 @@ a:focus-visible { text-decoration: underline; }
   align-items: center;
   gap: 4px;
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -503,7 +553,7 @@ a:focus-visible { text-decoration: underline; }
 .native-account-button.is-primary {
   background: transparent;
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
   box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
@@ -527,24 +577,24 @@ a:focus-visible { text-decoration: underline; }
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line-strong);
-  border-radius: 9px;
+  border-radius: 6px;
   background: var(--panel);
   color: var(--ink-soft);
 }
 
 .topbar-icon-button {
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
 }
 
 .topbar-icon-button:hover {
-  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
-  color: var(--accent-strong);
+  background: var(--hover);
+  color: var(--ink);
 }
 
 .native-command-bar .topbar-icon-button {
   border: 0;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
 }
 
@@ -554,36 +604,36 @@ a:focus-visible { text-decoration: underline; }
 }
 
 .topbar-new-button {
-  height: 34px;
+  height: 28px;
   gap: 6px;
   border: 0;
-  background: var(--cta-gradient);
+  background: var(--accent);
   padding: 0 15px;
   color: #fff;
-  font-size: 12.5px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .topbar-new-button:hover {
-  filter: brightness(1.08);
+  background: var(--accent-hover);
 }
 
+/* The same Build as Code mode's toolbar (#build-button): one tinted control. */
 .topbar-build-button {
   min-width: 100px;
-  height: 34px;
+  height: 28px;
   gap: 7px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft);
   padding: 0 16px;
-  color: var(--header);
-  font-size: 12.5px;
-  font-weight: 720;
-  box-shadow: 0 1px 2px color-mix(in srgb, #000 20%, transparent);
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .topbar-build-button:hover:not(:disabled) {
-  opacity: 0.9;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
 .topbar-build-button:disabled {
@@ -638,9 +688,9 @@ a:focus-visible { text-decoration: underline; }
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 17px;
+  gap: 16px;
   overflow-y: auto;
-  padding: 22px 20px 16px;
+  padding: 24px 20px 16px;
 }
 
 .conversation-turn {
@@ -656,7 +706,7 @@ a:focus-visible { text-decoration: underline; }
   background: var(--surface-raised);
   padding: 12px 14px;
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -673,8 +723,8 @@ a:focus-visible { text-decoration: underline; }
 
 .queued-message-state {
   color: var(--ink-faint);
-  font-size: 10px;
-  font-weight: 650;
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.04em;
 }
 
@@ -695,18 +745,18 @@ a:focus-visible { text-decoration: underline; }
   height: 22px;
   place-items: center;
   border-radius: 6px;
-  background: var(--brand-gradient);
-  color: #fff;
+  background: var(--ink);
+  color: var(--panel);
 }
 
 .assistant-name strong {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .assistant-message p {
   margin: 8px 0 0;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
@@ -720,14 +770,14 @@ a:focus-visible { text-decoration: underline; }
 .question-card {
   margin-top: 2px;
   padding: 12px 14px 12px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--line-strong);
   border-radius: 12px;
   background: var(--panel);
 }
 
 .question-heading { display: flex; justify-content: space-between; align-items: center; }
 .question-close { display: inline-flex; padding: 5px; border: 0; background: transparent; color: var(--ink-faint); cursor: pointer; }
-.question-close:hover, .question-close:focus-visible { color: var(--ink); background: var(--hover); outline: none; }
+.question-close:hover, .question-close:focus-visible { color: var(--ink); background: var(--hover); }
 
 .question-text {
   margin: 6px 0 10px;
@@ -751,13 +801,12 @@ a:focus-visible { text-decoration: underline; }
   background: var(--panel);
   color: var(--ink);
   font: inherit;
-  font-size: 12.8px;
+  font-size: 13px;
   cursor: pointer;
 }
 
 .question-option:hover {
-  border-color: var(--accent);
-  background: var(--accent-faint);
+  background: var(--hover);
 }
 
 .question-fields {
@@ -769,7 +818,7 @@ a:focus-visible { text-decoration: underline; }
 .question-field {
   display: grid;
   gap: 3px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ink-soft);
 }
 
@@ -802,16 +851,20 @@ a:focus-visible { text-decoration: underline; }
 }
 
 .question-send {
-  height: 28px;
+  height: 32px;
   padding: 0 12px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--accent);
   color: #fff;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.question-send:hover:not(:disabled) {
+  background: var(--accent-hover);
 }
 
 .question-send:disabled {
@@ -845,7 +898,7 @@ a:focus-visible { text-decoration: underline; }
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.5;
   text-align: left;
   cursor: pointer;
@@ -857,7 +910,7 @@ a:focus-visible { text-decoration: underline; }
 }
 
 .proposal-row:focus-visible {
-  outline: none;
+  outline-offset: -2px;
   background: var(--hover);
 }
 
@@ -873,7 +926,7 @@ a:focus-visible { text-decoration: underline; }
 }
 
 .proposal-list.is-latest .proposal-row.is-active {
-  background: var(--accent-faint);
+  background: var(--hover);
   color: var(--ink);
 }
 
@@ -904,13 +957,13 @@ a:focus-visible { text-decoration: underline; }
   border-radius: 50%;
   border: 1px solid var(--line-strong);
   color: var(--ink-faint);
-  font-size: 9.5px;
+  font-size: 11px;
   line-height: 1;
 }
 
 .proposal-index {
   color: var(--ink-faint);
-  font-size: 11.5px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -943,7 +996,7 @@ a:focus-visible { text-decoration: underline; }
   flex-direction: column;
   gap: 6px;
   color: var(--ink-faint);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 /* ---- Run progress timeline (Base44-style task checklist) ---- */
@@ -964,7 +1017,7 @@ a:focus-visible { text-decoration: underline; }
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .run-timeline li.is-done {
@@ -982,7 +1035,7 @@ a:focus-visible { text-decoration: underline; }
 
 .run-timeline li.is-active svg {
   animation: spin 0.9s linear infinite;
-  color: var(--accent);
+  color: var(--ink-soft);
 }
 
 .run-timeline li.is-upcoming {
@@ -1017,7 +1070,7 @@ a:focus-visible { text-decoration: underline; }
   flex: 0 0 auto;
   border-top: 1px solid var(--line);
   background: var(--panel);
-  padding: 12px 18px 16px;
+  padding: 12px 20px 16px;
 }
 
 /* ---- Element selection chip above the composer ---- */
@@ -1030,9 +1083,9 @@ a:focus-visible { text-decoration: underline; }
   padding: 4px 6px 4px 10px;
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   border-radius: 999px;
-  background: var(--accent-faint);
-  color: var(--accent-strong);
-  font-size: 11.5px;
+  background: var(--hover);
+  color: var(--ink);
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -1043,11 +1096,12 @@ a:focus-visible { text-decoration: underline; }
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  color: var(--accent-strong);
+  color: var(--ink-soft);
 }
 
 .selection-chip button:hover {
-  background: var(--accent-soft);
+  background: var(--hover);
+  color: var(--ink);
 }
 
 .agent-composer,
@@ -1067,7 +1121,7 @@ a:focus-visible { text-decoration: underline; }
 
 .agent-composer-wrap.is-dragging .agent-composer {
   border-color: var(--accent);
-  background: var(--accent-faint);
+  background: var(--hover);
 }
 
 .composer-attach {
@@ -1111,7 +1165,7 @@ a:focus-visible { text-decoration: underline; }
   border-radius: 8px;
   background: var(--panel);
   color: var(--ink);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1;
 }
 
@@ -1137,7 +1191,7 @@ a:focus-visible { text-decoration: underline; }
 
 .attachment-chip-size {
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .attachment-chip button {
@@ -1158,7 +1212,7 @@ a:focus-visible { text-decoration: underline; }
 .composer-notice {
   margin: 6px 2px 0;
   color: var(--ink-soft);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -1173,20 +1227,32 @@ a:focus-visible { text-decoration: underline; }
 
 .message-attachments li {
   display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
   align-items: center;
   gap: 5px;
   padding: 3px 8px 3px 6px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--ink) 7%, transparent);
   color: var(--ink-soft);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.3;
   white-space: nowrap;
 }
 
+.message-attachments li > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message-attachments li > svg {
+  flex-shrink: 0;
+}
+
 .agent-composer:focus-within,
 .large-composer:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 54%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
 }
 
 .agent-composer textarea,
@@ -1196,8 +1262,13 @@ a:focus-visible { text-decoration: underline; }
   min-height: 64px;
   background: transparent;
   color: var(--ink);
-  font-size: 12.5px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* Empty, the chat box rests at two lines (2 × 20px) and grows as you type. */
+.agent-composer textarea {
+  min-height: 40px;
 }
 
 .agent-composer textarea::placeholder,
@@ -1213,19 +1284,19 @@ a:focus-visible { text-decoration: underline; }
 
 .composer-submit {
   position: absolute;
-  right: 9px;
-  bottom: 9px;
+  right: 8px;
+  bottom: 8px;
   display: grid;
   width: 29px;
   height: 29px;
   place-items: center;
   border-radius: 999px;
-  background: var(--surface-deep);
+  background: var(--accent);
   color: #fff;
 }
 
 .composer-submit:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--surface-deep) 78%, #fff 22%);
+  background: var(--accent-hover);
 }
 
 .composer-submit:disabled {
@@ -1271,7 +1342,7 @@ a:focus-visible { text-decoration: underline; }
   border-radius: 7px;
   padding: 7px 9px;
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 11px;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1285,7 +1356,7 @@ a:focus-visible { text-decoration: underline; }
 .starter-prompts [role="alert"] {
   padding: 7px 9px;
   color: var(--danger);
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -1343,9 +1414,9 @@ a:focus-visible { text-decoration: underline; }
 }
 
 .heading-number {
-  color: var(--accent-strong);
-  font-size: 13.5px;
-  font-weight: 700;
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .block-heading-field textarea {
@@ -1355,7 +1426,7 @@ a:focus-visible { text-decoration: underline; }
   color: var(--ink);
   font-family: var(--font-ui);
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.5;
 }
 
@@ -1376,7 +1447,7 @@ a:focus-visible { text-decoration: underline; }
 }
 
 .block-quote-fields {
-  border-left: 2px solid var(--paper-accent);
+  border-left: 2px solid var(--accent);
   padding: 7px 0 7px 15px;
 }
 
@@ -1387,7 +1458,7 @@ a:focus-visible { text-decoration: underline; }
   background: transparent;
   color: var(--ink-soft);
   font-family: var(--font-ui);
-  font-size: 12.5px;
+  font-size: 13px;
   font-style: italic;
   line-height: 1.8;
 }
@@ -1421,13 +1492,13 @@ a:focus-visible { text-decoration: underline; }
   height: 4px;
   border-radius: 50%;
   margin: 9px 0 0 2px;
-  background: var(--paper-accent);
+  background: var(--accent);
 }
 
 .block-list-fields textarea {
   min-height: 27px;
   overflow: hidden;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.8;
 }
 
@@ -1442,12 +1513,12 @@ a:focus-visible { text-decoration: underline; }
 
 .block-list-fields > div:hover > button,
 .block-list-fields > div:focus-within > button {
-  color: #999199;
+  color: var(--ink-faint);
 }
 
 .block-list-fields > div > button:hover {
-  background: #f0ebf5;
-  color: #b84b59;
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .add-list-item {
@@ -1458,13 +1529,13 @@ a:focus-visible { text-decoration: underline; }
   gap: 5px;
   margin-left: 16px;
   padding: 4px 6px;
-  color: #746c74;
+  color: var(--ink-faint);
   font-family: var(--font-ui);
-  font-size: 9.5px;
+  font-size: 11px;
 }
 
 .add-list-item:hover {
-  color: var(--paper-accent);
+  color: var(--accent);
 }
 
 .block-equation {
@@ -1492,9 +1563,12 @@ a:focus-visible { text-decoration: underline; }
   text-align: center;
 }
 
-.equation-render:hover:not(:disabled),
+.equation-render:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
 .equation-render:focus-visible {
-  border-color: #ff5dc8;
+  border-color: var(--accent);
 }
 
 .equation-render .katex-display {
@@ -1516,10 +1590,10 @@ a:focus-visible { text-decoration: underline; }
 
 .equation-source input {
   border-radius: 4px;
-  background: rgba(155, 47, 201, 0.05);
+  background: var(--panel-muted);
   padding: 8px 10px;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px;
+  font-size: 12px;
   text-align: center;
 }
 
@@ -1529,7 +1603,7 @@ a:focus-visible { text-decoration: underline; }
 
 .equation-caption input {
   color: var(--paper-caption);
-  font-size: 10px;
+  font-size: 11px;
   font-style: italic;
   text-align: center;
 }
@@ -1557,7 +1631,7 @@ a:focus-visible { text-decoration: underline; }
   display: block;
   height: 9px;
   border-radius: 999px;
-  background: #ece7ed;
+  background: color-mix(in srgb, var(--paper-ink) 8%, var(--paper));
   animation: pulse-fade 1.3s ease-in-out infinite alternate;
 }
 
@@ -1630,15 +1704,13 @@ a:focus-visible { text-decoration: underline; }
   }
 
   .topbar-new-button {
-    width: 34px;
+    width: 28px;
     padding: 0;
   }
 
   .topbar-build-button {
     min-width: 88px;
-    height: 34px;
     padding: 0 13px;
-    font-size: 12px;
   }
 
   .native-usage-button,
@@ -1665,12 +1737,13 @@ a:focus-visible { text-decoration: underline; }
     border-radius: 7px;
     color: var(--ink-faint);
     font-size: 11px;
-    font-weight: 620;
   }
 
   .mobile-view-tabs button[aria-pressed="true"] {
-    background: var(--accent-soft);
-    color: var(--accent-strong);
+    background: var(--hover);
+    color: var(--ink);
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--line-strong);
   }
 
   .workspace-grid {
@@ -1697,7 +1770,7 @@ a:focus-visible { text-decoration: underline; }
   }
 
   .agent-composer textarea {
-    min-height: 76px;
+    min-height: 42px;
     font-size: 13px;
   }
 
@@ -1717,17 +1790,9 @@ a:focus-visible { text-decoration: underline; }
     gap: 5px;
   }
 
-  .topbar-icon-button,
-  .topbar-new-button {
-    width: 31px;
-    height: 31px;
-  }
-
   .topbar-build-button {
     min-width: 78px;
-    height: 34px;
     padding: 0 10px;
-    font-size: 11.5px;
   }
 
   .native-platform-controls .native-account-button:not(.is-primary) {
@@ -1737,7 +1802,6 @@ a:focus-visible { text-decoration: underline; }
   .native-model-trigger {
     width: 102px;
     padding-left: 6px;
-    font-size: 10.5px;
   }
 
   .document-kind-picker button {
@@ -1786,6 +1850,13 @@ a:focus-visible { text-decoration: underline; }
   display: none;
 }
 
+/* The desktop app's own 44px bar sits right above; match it instead of
+   stacking the web header's 64px under it. */
+[data-platform="native"] .app-topbar {
+  height: 44px;
+  flex-basis: 44px;
+}
+
 /* ---- 紙面 (PDF) surface: preview, compile banner, element card ---- */
 
 .paper-surface {
@@ -1808,7 +1879,7 @@ a:focus-visible { text-decoration: underline; }
   align-items: center;
   gap: 10px;
   padding: 9px 12px 9px 16px;
-  border: 1px solid color-mix(in srgb, var(--danger) 42%, transparent);
+  border: 1px solid var(--danger-border);
   border-radius: 12px;
   background: var(--panel);
   box-shadow: var(--shadow-menu);
@@ -1827,7 +1898,7 @@ a:focus-visible { text-decoration: underline; }
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   color: var(--ink);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -1838,6 +1909,40 @@ a:focus-visible { text-decoration: underline; }
 .compile-banner button:last-child {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   color: var(--accent-strong);
+}
+
+/* Build failure: one line in flow under the PDF toolbar, so it never covers
+   the page. The line itself opens the cause; Build stays in the header. */
+.build-failure-line {
+  display: flex;
+  flex: none;
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.build-failure-line > button,
+.build-failure-line > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding: 7px 12px;
+  color: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-failure-line > button:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.build-failure-line > button:focus-visible {
+  outline-offset: -2px;
 }
 
 .element-card {
@@ -1863,16 +1968,23 @@ a:focus-visible { text-decoration: underline; }
   background: var(--panel-muted);
 }
 
+.element-card-head:last-child {
+  border-bottom: 0;
+}
+
 .element-card-head strong {
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .element-card-head button {
-  padding: 3px 9px;
-  border-radius: 8px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
   color: var(--ink-faint);
-  font-size: 11.5px;
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .element-card-head button:hover {
@@ -1907,48 +2019,41 @@ a:focus-visible { text-decoration: underline; }
   gap: 2px;
 }
 
-.element-card-close {
-  padding: 3px 9px;
-  border-radius: 8px;
-  color: var(--ink-faint);
-  font-size: 11.5px;
+.element-card-head .element-card-close {
+  color: var(--ink-soft);
 }
 
-.element-card-close:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
-
-.element-card-close-icon {
+.element-card-head .element-card-close-icon {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 32px;
   place-items: center;
   padding: 0;
 }
 
-.element-card-confirm {
-  border-radius: 8px;
-  background: var(--accent-soft);
-  padding: 3px 11px;
-  color: var(--accent-strong);
-  font-size: 11.5px;
-  font-weight: 650;
+.element-card-head .element-card-confirm {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
 }
 
-.element-card-confirm:hover {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+.element-card-head .element-card-confirm:hover:not(:disabled) {
+  background: var(--accent-hover);
+  color: #fff;
 }
 
-.element-card-delete {
-  padding: 3px 9px;
-  border-radius: 8px;
+.element-card-head .element-card-confirm:disabled {
+  background: transparent;
   color: var(--ink-faint);
-  font-size: 11.5px;
 }
 
-.element-card-delete:hover {
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
+/* Same specificity as the confirm/close rules, so it beats
+   .element-card-head button (rest) and .element-card-head button:hover. */
+.element-card-head .element-card-delete {
+  color: var(--danger);
+}
+
+.element-card-head .element-card-delete:hover {
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
@@ -1971,7 +2076,7 @@ a:focus-visible { text-decoration: underline; }
 
 .paragraph-edit-area:focus-visible {
   outline: none;
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
 }
 
 .paragraph-syntax {
@@ -2006,7 +2111,7 @@ a:focus-visible { text-decoration: underline; }
 .paragraph-editor-error {
   margin: 8px 0 0;
   color: var(--danger);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 /* ネイティブの新規文書: 題名ひとつでフォルダも main.tex も用意される。 */
@@ -2023,12 +2128,13 @@ a:focus-visible { text-decoration: underline; }
   margin: 0;
   color: var(--ink);
   font-size: 16px;
+  font-weight: 600;
 }
 
 .native-new-document p {
   margin: 0;
   color: var(--ink-soft);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.8;
 }
 
@@ -2040,12 +2146,12 @@ a:focus-visible { text-decoration: underline; }
   background: var(--panel-muted);
   color: var(--ink);
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
 }
 
 .native-new-document input:focus-visible {
   outline: none;
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
 }
 
 .native-new-document-actions {
@@ -2055,10 +2161,12 @@ a:focus-visible { text-decoration: underline; }
 }
 
 .native-new-document-actions button {
-  padding: 7px 14px;
-  border-radius: 9px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 6px;
   color: var(--ink-faint);
-  font-size: 12.5px;
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .native-new-document-actions button:hover:not(:disabled) {
@@ -2067,13 +2175,14 @@ a:focus-visible { text-decoration: underline; }
 }
 
 .native-new-document-actions .native-new-document-create {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  font-weight: 650;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
 }
 
 .native-new-document-actions .native-new-document-create:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: var(--accent-hover);
+  color: #fff;
 }
 
 .native-new-document-actions button:disabled {
@@ -2085,23 +2194,23 @@ a:focus-visible { text-decoration: underline; }
   font-size: 12px;
 }
 
-/* 紙面ツールバー右端の組版ボタン。手動でいつでも組み直せる唯一の入口。 */
+/* 紙面ツールバー右端のビルドボタン。手動でいつでも組み直せる唯一の入口。 */
 .paper-build-button {
   margin-left: 8px;
   height: 24px;
   padding: 0 12px;
   border: none;
   border-radius: 6px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
+  background: var(--accent);
+  color: #fff;
   font-family: inherit;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
   cursor: pointer;
 }
 
 .paper-build-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: var(--accent-hover);
 }
 
 .paper-build-button:disabled {
@@ -2116,35 +2225,6 @@ a:focus-visible { text-decoration: underline; }
   -webkit-box-orient: vertical;
   overflow: hidden;
   line-height: 1.9;
-}
-
-.element-card-hint {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-}
-
-.element-card-hint p {
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: 12px;
-  line-height: 1.7;
-}
-
-.element-card-hint button {
-  align-self: flex-start;
-  padding: 6px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 9px;
-  background: var(--accent-faint);
-  color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.element-card-hint button:hover {
-  background: var(--accent-soft);
 }
 
 /* ---- History (versions) panel ---- */
@@ -2173,7 +2253,7 @@ a:focus-visible { text-decoration: underline; }
   padding: 11px 14px 9px;
   border-bottom: 1px solid var(--line);
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -2212,7 +2292,7 @@ a:focus-visible { text-decoration: underline; }
 
 .history-item-main small {
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .history-item > button {
@@ -2232,14 +2312,14 @@ a:focus-visible { text-decoration: underline; }
 .history-current {
   flex: 0 0 auto;
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 /* ---- Block canvas: selection + live-growth states ---- */
 
 .paper-block.is-selected {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent) !important;
-  background: var(--accent-faint) !important;
+  background: var(--hover) !important;
 }
 
 .paper-block.is-fresh {
@@ -2248,7 +2328,7 @@ a:focus-visible { text-decoration: underline; }
 
 @keyframes block-arrive {
   0% {
-    background: var(--accent-soft);
+    background: var(--hover);
   }
   100% {
     background: transparent;
@@ -2265,13 +2345,7 @@ a:focus-visible { text-decoration: underline; }
   }
 }
 
-/* Paper editing uses the existing control boundary to indicate focus. */
-:focus-visible { outline: none; }
-button:focus-visible { background: var(--hover); color: var(--ink); }
-.element-card-head .element-card-confirm { color: var(--accent-strong); background: var(--accent-soft); font-weight: 650; }
-.element-card-head .element-card-confirm:disabled { color: var(--ink-faint); background: transparent; }
-.element-card-head .element-card-close { color: var(--ink-soft); }
-.draft-status { color: var(--ink-soft); margin-left: 8px; font-size: 10px; font-weight: 400; }
+.draft-status { color: var(--ink-soft); margin-left: 8px; font-size: 11px; font-weight: 400; }
 .element-card.is-display-math { min-width: 0; width: 100%; }
 .is-display-math .paragraph-edit-area { min-height: 0; padding: 8px; background: transparent; border: 0; overflow: visible; }
 .is-display-math .paragraph-math { display: flex; width: 100%; margin: 0; }
@@ -2285,9 +2359,9 @@ button:focus-visible { background: var(--hover); color: var(--ink); }
 .paragraph-editor-error button { color: var(--ink); padding: 5px 8px; margin: 4px; background: var(--hover); border-radius: 5px; }
 .math-wysiwyg-panel { position: fixed; z-index: 1000; display: flex; align-items: stretch; gap: 6px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: var(--shadow-menu); overflow-x: auto; }
 .math-wysiwyg-panel[aria-hidden="true"] { display: none; }
-.math-wysiwyg-item { display: inline-flex; align-items: center; gap: 8px; flex: none; padding: 8px 10px; color: var(--ink); background: var(--panel-muted); border: 1px solid transparent; border-radius: 6px; white-space: nowrap; }
-.math-wysiwyg-item.is-active { background: var(--accent-faint); border-color: var(--accent); }
-.math-wysiwyg-symbol { display: inline-flex; font-size: 19px; }
+.math-wysiwyg-item { display: inline-flex; align-items: center; gap: 8px; flex: none; padding: 4px 8px; color: var(--ink); background: var(--panel-muted); border: 1px solid transparent; border-radius: 6px; white-space: nowrap; }
+.math-wysiwyg-item.is-active { background: var(--hover); border-color: var(--accent); }
+.math-wysiwyg-symbol { display: inline-flex; font-size: 16px; }
 .math-wysiwyg-label { font-size: 11px; color: var(--ink-soft); }
 
 .conflict-source { max-height: 150px; overflow: auto; white-space: pre-wrap; color: var(--ink); font-size: 12px; }

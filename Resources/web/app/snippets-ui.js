@@ -60,7 +60,7 @@ export const openSnippets = (editor = activeEditor) => {
     error.setAttribute("role", "status");
     const search = node("input");
     search.type = "search";
-    search.placeholder = uiText("Search snippets", "スニペットを検索");
+    search.placeholder = uiText("Search", "検索");
     search.setAttribute("aria-label", search.placeholder);
     // The dialog opens on the search box, not on the heading's ▾.
     search.autofocus = true;
@@ -79,7 +79,7 @@ export const openSnippets = (editor = activeEditor) => {
     const fields = [
         [uiText("Name", "名前"), name, ""],
         [uiText("Trigger text", "呼び出し文字"), prefix, uiText("Type this in your document and choose a suggestion.", "本文に入力して、補完候補から選択します。")],
-        [uiText("LaTeX code", "LaTeXコード"), body, uiText("Use ${1:placeholder}, ${2} and $0. After insertion, Tab moves between placeholders.", "${1:初期値}、${2}、$0 を使用。挿入後、Tabで入力箇所を移動します。")],
+        [uiText("Code", "コード"), body, uiText("Use ${1:placeholder}, ${2} and $0. After insertion, Tab moves between placeholders.", "${1:初期値}、${2}、$0を使用。挿入後、Tabで入力箇所を移動します。")],
     ];
     for (const [text, input, explanation] of fields) {
         if (!explanation) {
@@ -122,7 +122,7 @@ export const openSnippets = (editor = activeEditor) => {
         if (!list.childElementCount)
             list.append(node("p", uiText("No snippets", "スニペットはありません")));
         const dirty = draft() !== baseline;
-        saveState.textContent = dirty ? uiText("Unsaved changes", "未保存の変更") : selected ? uiText("Saved", "保存済み") : "";
+        saveState.textContent = dirty ? uiText("Unsaved", "未保存") : "";
         remove.disabled = !selected || busy;
         save.disabled = busy || !dirty;
         save.hidden = !dirty;
@@ -166,19 +166,20 @@ export const openSnippets = (editor = activeEditor) => {
         return saved;
     };
     const save = button(uiText("Save", "保存"), () => void run(async () => { await saveDraft(); }));
-    const remove = button(uiText("Delete snippet…", "スニペットを削除…"), () => {
+    const remove = button(uiText("Delete…", "削除…"), () => {
         var _a, _b;
         if (!window.confirm(uiText(`Delete “${(_a = items.find((item) => item.id === selected)) === null || _a === void 0 ? void 0 : _a.name}”? This removes the snippet from all projects on this computer.`, `「${(_b = items.find((item) => item.id === selected)) === null || _b === void 0 ? void 0 : _b.name}」を削除しますか？このPCの全プロジェクトで使うスニペットが削除されます。`)))
             return;
         void run(async () => { await call("delete", { revision, id: selected }); load(); });
     });
+    remove.classList.add("is-danger");
     const insert = button(uiText("Insert", "挿入"), () => void run(async () => {
         const needsSave = draft() !== baseline;
         const text = needsSave ? (await saveDraft()).body : body.value;
         if (!editor || editor.getModel() !== model || model.isDisposed() || model.getVersionId() !== modelVersion || editor.getRawOptions().readOnly) {
             throw new Error(needsSave
-                ? uiText("Snippet saved. The document changed, so nothing was inserted. Close snippets and select the insertion point again.", "スニペットは保存済みです。文書が変更されたため挿入しませんでした。閉じて挿入位置を選び直してください。")
-                : uiText("The document changed. Close snippets and select the insertion point again.", "文書が変更されました。閉じて挿入位置を選び直してください。"));
+                ? uiText("Saved. The document changed, so nothing was inserted. Select the insertion point again.", "保存しました。文書が変更されたため挿入していません。挿入位置を選び直してください。")
+                : uiText("The document changed. Select the insertion point again.", "文書が変更されました。挿入位置を選び直してください。"));
         }
         const controller = editor.getContribution("snippetController2");
         if (!(controller === null || controller === void 0 ? void 0 : controller.insert))
@@ -193,14 +194,14 @@ export const openSnippets = (editor = activeEditor) => {
         dialog.close(); });
     const actions = node("div");
     actions.className = "snippets-actions";
-    actions.append(save, insert, close);
+    actions.append(close, save, insert);
     const library = node("div");
     library.className = "snippets-library";
-    library.append(search, button(uiText("New snippet", "新規作成"), () => { if (!busy && mayLeave()) {
+    library.append(search, button(uiText("New", "新規"), () => { if (!busy && mayLeave()) {
         load();
         name.focus();
     } }), list);
-    const reload = button(uiText("Reload snippets", "スニペットを再読み込み"), () => { if (!busy && mayLeave())
+    const reload = button(uiText("Reload", "再読み込み"), () => { if (!busy && mayLeave())
         void run(async () => { await call("list"); load(); }); });
     const header = node("div");
     header.className = "snippets-heading";

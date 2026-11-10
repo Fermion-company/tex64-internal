@@ -38,8 +38,8 @@ const IMPORT_RUN_ARGS = "-norc -no-shell-escape";
 const SESSION_ID_RE = /^[A-Za-z0-9-]{8,64}$/;
 
 const DIALOG_STRINGS = {
-  en: { zipTitle: "Prism export", zipButton: "Import", destTitle: "Where to put the projects", destMessage: "The projects are unpacked into a new folder here.", destButton: "Unpack here" },
-  ja: { zipTitle: "Prism の書き出し", zipButton: "読み込む", destTitle: "プロジェクトの置き場所", destMessage: "ここに新しいフォルダを作って展開します。", destButton: "ここに展開" },
+  en: { zipTitle: "Prism export", zipButton: "Import", destTitle: "Destination", destButton: "Unpack here" },
+  ja: { zipTitle: "Prism の書き出し", zipButton: "読み込む", destTitle: "展開先", destButton: "ここに展開" },
 };
 
 const failure = (code, step = null) => Object.assign(new Error(code), { code, step });
@@ -244,7 +244,6 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
     const labels = strings(payload.locale);
     const chosen = await dialog.showOpenDialog(state.mainWindow, {
       title: labels.destTitle,
-      message: labels.destMessage,
       buttonLabel: labels.destButton,
       properties: ["openDirectory", "createDirectory"],
       defaultPath: path.dirname(zipPath),

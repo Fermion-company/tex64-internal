@@ -13,7 +13,7 @@ const PHASE2_MAX_SEQ_LEN = 200;
 const loadImage = (dataUrl) => new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error(uiText("Failed to load image.", "画像の読み込みに失敗しました。")));
+    image.onerror = () => reject(new Error(uiText("Failed to load image.", "画像を読み込めませんでした。")));
     image.src = dataUrl;
 });
 const createCanvas = (width, height) => {
@@ -27,7 +27,7 @@ const copyCanvas = (source) => {
     const clone = createCanvas(source.width, source.height);
     const ctx = clone.getContext("2d");
     if (!ctx) {
-        throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
+        throw new Error(uiText("Canvas initialization failed.", "キャンバスを初期化できませんでした。"));
     }
     ctx.drawImage(source, 0, 0);
     return clone;
@@ -36,7 +36,7 @@ const fitCanvasWithPadding = (source, width, height, background = 255) => {
     const fitted = createCanvas(width, height);
     const ctx = fitted.getContext("2d");
     if (!ctx) {
-        throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
+        throw new Error(uiText("Canvas initialization failed.", "キャンバスを初期化できませんでした。"));
     }
     ctx.fillStyle = `rgb(${background},${background},${background})`;
     ctx.fillRect(0, 0, width, height);
@@ -53,7 +53,7 @@ const fitCanvasWithPadding = (source, width, height, background = 255) => {
 const enhanceCanvas = (canvas, contrast, sharpness) => {
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-        throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
+        throw new Error(uiText("Canvas initialization failed.", "キャンバスを初期化できませんでした。"));
     }
     const { width, height } = canvas;
     const imageData = ctx.getImageData(0, 0, width, height);
@@ -264,7 +264,7 @@ const trimBoundingBoxByProjection = (mask, width, height, box) => {
 const binarizeCanvas = (canvas, options = {}) => {
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-        throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
+        throw new Error(uiText("Canvas initialization failed.", "キャンバスを初期化できませんでした。"));
     }
     const { width, height } = canvas;
     const imageData = ctx.getImageData(0, 0, width, height);
@@ -301,7 +301,7 @@ const getImageData = (image) => {
     const canvas = createCanvas(image.naturalWidth || image.width, image.naturalHeight || image.height);
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-        throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
+        throw new Error(uiText("Canvas initialization failed.", "キャンバスを初期化できませんでした。"));
     }
     ctx.drawImage(image, 0, 0);
     return ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -440,7 +440,7 @@ const extractCropCanvas = (image, box) => {
     const cropCanvas = createCanvas(box.width, box.height);
     const cropCtx = cropCanvas.getContext("2d");
     if (!cropCtx) {
-        throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
+        throw new Error(uiText("Canvas initialization failed.", "キャンバスを初期化できませんでした。"));
     }
     cropCtx.drawImage(image, box.x, box.y, box.width, box.height, 0, 0, box.width, box.height);
     return cropCanvas;
@@ -448,7 +448,7 @@ const extractCropCanvas = (image, box) => {
 const canvasToPayload = (canvas, fallbackImageDataUrl) => {
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-        throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
+        throw new Error(uiText("Canvas initialization failed.", "キャンバスを初期化できませんでした。"));
     }
     const finalData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
     const pixelCount = canvas.width * canvas.height;
@@ -631,7 +631,7 @@ const recognizeMathInternal = async (imageDataUrl, onProgress) => {
             }
         }
         catch (error) {
-            lastError = error instanceof Error ? error : new Error(uiText("OCR failed.", "OCRに失敗しました。"));
+            lastError = error instanceof Error ? error : new Error(uiText("OCR failed.", "OCRできませんでした。"));
         }
         return false;
     };

@@ -349,7 +349,7 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
   const createWebview = async () => {
     if (webview || creating || !host) return;
     creating = true;
-    showFallback(uiText("Connecting to the AI workspace…", "AIワークスペースに接続しています…"));
+    showFallback(uiText("Connecting to the AI workspace…", "AIワークスペースに接続中…"));
     const config = await bridge?.getConfig?.().catch(() => null);
     creating = false;
     if (!config?.ok || !config.url) {
@@ -396,9 +396,7 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
       if (event.isMainFrame === false || event.errorCode === -3) return;
       lastLoadFailed = true;
       showFallback(
-        uiText(
-          "Could not connect to the AI workspace. Try reconnecting.",
-          "AIワークスペースに接続できませんでした。再接続してください。"
+        uiText("Could not connect to the AI workspace.", "AIワークスペースに接続できませんでした。"
         )
       );
     });
@@ -409,9 +407,7 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
     element.addEventListener("render-process-gone", () => {
       if (webview !== element) return;
       showFallback(
-        uiText(
-          "The AI workspace stopped. Try reconnecting.",
-          "AIワークスペースが停止しました。再接続してください。",
+        uiText("The AI workspace stopped.", "AIワークスペースが停止しました。",
         ),
       );
     });
@@ -472,7 +468,7 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
     // discard the guest so getConfig starts the server again and returns its
     // new port/token.
     discardWebview();
-    showFallback(uiText("Reconnecting to the AI workspace…", "AIワークスペースに再接続しています…"));
+    showFallback(uiText("Reconnecting to the AI workspace…", "AIワークスペースに再接続中…"));
     void createWebview();
   });
 

@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 const PROFILE_ENGINES = new Set(["pdflatex", "lualatex", "xelatex", "uplatex"]);
 const normalizeBuildProfiles = (profiles) => {
     const normalized = Array.isArray(profiles) ? profiles : [];
@@ -226,8 +227,8 @@ export const initBuildProfilesUi = (context, deps) => {
             return;
         }
         const message = deep
-            ? "Run clean -C. PDFs etc. will also be deleted. Are you sure?"
-            : "Run clean. Delete auxiliary files. Are you sure?";
+            ? uiText("Delete the PDF and auxiliary files?", "PDFと補助ファイルを削除しますか？")
+            : uiText("Delete the auxiliary files?", "補助ファイルを削除しますか？");
         if (!window.confirm(message)) {
             return;
         }

@@ -10,7 +10,7 @@ import type {
   PlatformAiAccessSnapshot,
   PlatformUsageSnapshot,
 } from "../types.js";
-import type { AppearanceTheme } from "../appearance.js";
+import type { AppearanceThemePreference } from "../appearance.js";
 import type { EnvRegistryApi } from "../env-registry-ui.js";
 import type { EnvStatusSummary } from "../settings-env.js";
 
@@ -22,7 +22,8 @@ export type SettingsUiDeps = {
   postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
   onEditorWordWrapChange?: (enabled: boolean) => void;
   onPdfViewerModeChange?: (mode: "window" | "tab") => void;
-  onUpdateAttentionChange?: (hasAttention: boolean) => void;
+  // Writes every unsaved file before the update installer opens.
+  saveDirtyFiles?: () => Promise<boolean>;
   onRuntimeSetupNeeded?: (summary: EnvStatusSummary) => void;
   // The environment ops own every piece of TeX state, so the first-run gate
   // listens through them rather than tapping the IPC bridge a second time.
@@ -57,7 +58,7 @@ export type SettingsUiApi = {
   getAutoSynctexOnBuildEnabled: () => boolean;
   getReverseSynctexEnabled: () => boolean;
   getPdfViewerMode: () => "window" | "tab";
-  getAppearanceTheme: () => AppearanceTheme;
+  getAppearanceTheme: () => AppearanceThemePreference;
   buildFormatSettingsPayload: () => FormatSettingsPayload;
   getSettingsSnapshot: () => AppSettingsSnapshot;
   applySettingsPatch: (patch: Partial<AppSettingsSnapshot>) => AppSettingsSnapshot;
@@ -124,7 +125,7 @@ export type SettingsUiConfig = {
 export type SettingsUiState = {
   activeSettingsPage: string | null;
   editorAlignEnvEnabled: boolean;
-  appearanceTheme: AppearanceTheme;
+  appearanceTheme: AppearanceThemePreference;
   editorWordWrapEnabled: boolean;
   editorFormatSettings: EditorFormatSettings;
   autoSynctexOnBuildEnabled: boolean;

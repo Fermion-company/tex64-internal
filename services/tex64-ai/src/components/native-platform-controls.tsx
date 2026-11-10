@@ -225,10 +225,10 @@ export function NativePlatformControls({
             ref={settingsTriggerRef}
             type="button"
             className="native-settings-trigger"
-            aria-label="設定"
+            aria-label="アカウント"
             aria-haspopup="menu"
             aria-expanded={settingsMenuOpen}
-            title={platform.email ? `設定・${platform.email}` : "設定"}
+            title={platform.email ? `アカウント・${platform.email}` : "アカウント"}
             onClick={() => {
               setModelMenuOpen(false);
               setSettingsMenuOpen((open) => !open);
@@ -237,7 +237,7 @@ export function NativePlatformControls({
             <Settings2 aria-hidden="true" size={15} />
           </button>
           {settingsMenuOpen ? (
-            <div className="native-settings-menu" role="menu" aria-label="設定">
+            <div className="native-settings-menu" role="menu" aria-label="アカウント">
               <button
                 type="button"
                 role="menuitem"

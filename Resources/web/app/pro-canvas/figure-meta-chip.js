@@ -4,7 +4,7 @@
 // hidden area に入れ、同じ場所に 1 行分だけの view zone を表示する。
 import { onUiLocaleChange, uiText } from "../i18n.js";
 import { decodeFigureBlockAt, isFigureHeaderLine } from "./figure-codec.js";
-const hoverText = () => uiText("This is the figure's data, needed to edit it on the canvas. Deleting it means the figure can no longer be reopened there.", "この図のデータです（キャンバスで編集するのに必要）。消すと「図をキャンバスで編集」が使えなくなります。");
+const hoverText = () => uiText("The figure's canvas data. Delete it and the figure can no longer be edited on the canvas.", "キャンバスで編集するためのデータです。消すと再編集できなくなります。");
 const chipLabel = () => uiText("▤ Edit on canvas", "▤ キャンバスで編集");
 export const figureMetaLineNumbers = (lines) => lines
     .map((line, index) => isFigureHeaderLine(line) ? index + 1 : 0)
@@ -35,7 +35,7 @@ export const installFigureMetaChips = (editor) => {
                 button.onclick = () => {
                     var _a, _b, _c;
                     const decoded = lines ? decodeFigureBlockAt(lines, lineNumber - 1) : null;
-                    if ((decoded === null || decoded === void 0 ? void 0 : decoded.detached) && !window.confirm(uiText("This figure's code has been edited by hand. Updating it from the canvas will discard those edits. Continue?", "この図のコードは手編集されています。キャンバスで更新すると手編集分は失われます。続けますか？")))
+                    if ((decoded === null || decoded === void 0 ? void 0 : decoded.detached) && !window.confirm(uiText("Discard manual edits and update from the canvas?", "手編集を破棄してキャンバスで更新しますか？")))
                         return;
                     if (decoded) {
                         window.dispatchEvent(new CustomEvent("tex64:pro-canvas-open", { detail: {

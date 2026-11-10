@@ -16,11 +16,13 @@ const fetch = async (...args) => {
   return globalThis.fetch(...args);
 };
 
+// Updates arrive quietly, as in the Claude desktop app: a check that finds a
+// new version downloads and verifies it in the background with no UI, and the
+// renderer shows one small chip only once the installer is ready. Opening the
+// installer stays the user's click (the renderer saves first).
 const createUpdateHandlers = ({
   platformService,
   shell,
-  Notification,
-  getUiLocale = () => "en",
   sendToRenderer,
   appPlatform,
   appArch,
@@ -36,6 +38,10 @@ const createUpdateHandlers = ({
     : null;
   let latestUpdateSnapshot = initialStoreUpdateState?.update ?? null;
   let downloadedInstallerPath = null;
+  // The version the verified installer on disk belongs to, so a later check
+  // for the same version keeps it instead of fetching it again.
+  let downloadedVersion = null;
+  let downloadInFlight = null;
   let updateStatus =
     initialStoreUpdateState?.status ??
     {
@@ -52,7 +58,6 @@ const createUpdateHandlers = ({
       updatedAt: Date.now(),
       error: null,
     };
-  let lastNotifiedUpdateVersion = null;
   const toUpdateErrorPayload = (error, fallbackCode = "UPDATE_ERROR") => ({
     code: typeof error?.code === "string" && error.code ? error.code : fallbackCode,
     message:
@@ -95,19 +100,6 @@ const createUpdateHandlers = ({
     emitUpdateStatus(source);
     return latestUpdateSnapshot;
   };
-  const canShowDesktopNotification = () => {
-    if (typeof Notification !== "function") {
-      return false;
-    }
-    if (typeof Notification.isSupported === "function") {
-      try {
-        return Notification.isSupported() === true;
-      } catch {
-        return false;
-      }
-    }
-    return true;
-  };
   const resolveUpdateArtifactUrl = (update = latestUpdateSnapshot) => {
     if (
       update &&
@@ -128,56 +120,6 @@ const createUpdateHandlers = ({
     }
     return resolveUpdateArtifactUrl() || "https://tex64.com/download";
   };
-  const notifyUpdateAvailable = (update, source = "manual") => {
-    if (source !== "background") {
-      return;
-    }
-    if (!update?.hasUpdate) {
-      lastNotifiedUpdateVersion = null;
-      return;
-    }
-    const latestVersion =
-      typeof update.latestVersion === "string" && update.latestVersion.trim()
-        ? update.latestVersion.trim()
-        : "";
-    if (!latestVersion || latestVersion === lastNotifiedUpdateVersion) {
-      return;
-    }
-    lastNotifiedUpdateVersion = latestVersion;
-    if (!canShowDesktopNotification()) {
-      return;
-    }
-    try {
-      const UPDATE_STRINGS = {
-        en: { title: "TeX64 Update", body: (v) => `Version ${v} is available.` },
-        ja: { title: "TeX64 アップデート", body: (v) => `バージョン ${v} が利用できます。` },
-        zh: { title: "TeX64 更新", body: (v) => `版本 ${v} 已可用。` },
-        ko: { title: "TeX64 업데이트", body: (v) => `버전 ${v} 을 사용할 수 있습니다.` },
-        fr: { title: "Mise à jour de TeX64", body: (v) => `La version ${v} est disponible.` },
-        de: { title: "TeX64-Update", body: (v) => `Version ${v} ist verfügbar.` },
-        es: { title: "Actualización de TeX64", body: (v) => `La versión ${v} está disponible.` },
-      };
-      const strings = UPDATE_STRINGS[getUiLocale()] || UPDATE_STRINGS.en;
-      const notification = new Notification({
-        title: strings.title,
-        body: strings.body(latestVersion),
-        silent: true,
-      });
-      if (typeof notification.on === "function" && shell?.openExternal) {
-        notification.on("click", () => {
-          const fallbackUrl = resolveUpdateFallbackUrl();
-          if (fallbackUrl) {
-            shell.openExternal(fallbackUrl).catch(() => {});
-          }
-        });
-      }
-      if (typeof notification.show === "function") {
-        notification.show();
-      }
-    } catch {
-      // ignore notification failures
-    }
-  };
   const emitPlatformUpdate = async (payload = {}, source = "update") => {
     if (!platformService || typeof platformService.fetchUpdateManifest !== "function") {
       return null;
@@ -195,17 +137,28 @@ const createUpdateHandlers = ({
     sendToRenderer("platform:update", { source, update });
     return update;
   };
+  // The feed's artifact URL can be a redirect endpoint (…/redirect), so a name only
+  // counts when it ends like an installer; the response then supplies the real one.
+  const INSTALLER_NAME = /\.(dmg|zip|pkg|exe|msi|msix|appx|appimage)$/i;
+  const installerNameFromUrl = (value) => {
+    try {
+      const name = path.basename(new URL(value).pathname);
+      return INSTALLER_NAME.test(name) ? name : null;
+    } catch {
+      return null;
+    }
+  };
+  const installerNameFromResponse = (response) => {
+    const disposition = response.headers?.get?.("content-disposition") || "";
+    const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(disposition);
+    const fromHeader = match ? path.basename(decodeURIComponent(match[1] || match[2] || "")) : "";
+    if (INSTALLER_NAME.test(fromHeader)) return fromHeader;
+    return installerNameFromUrl(response.url);
+  };
   const resolveUpdateFileName = (artifactUrl, latestVersion) => {
     if (typeof artifactUrl === "string" && artifactUrl.trim()) {
-      try {
-        const parsed = new URL(artifactUrl);
-        const name = path.basename(parsed.pathname);
-        if (name && name !== "/" && name !== ".") {
-          return name;
-        }
-      } catch {
-        // ignore malformed URL
-      }
+      const name = installerNameFromUrl(artifactUrl);
+      if (name) return name;
     }
     const version =
       typeof latestVersion === "string" && latestVersion.trim()
@@ -295,23 +248,33 @@ const createUpdateHandlers = ({
     if (!platformService || typeof platformService.fetchUpdateManifest !== "function") {
       return null;
     }
-    setUpdateStatus(
-      {
-        phase: "checking",
-        message: "Checking for updates.",
-        progressPercent: null,
-        transferredBytes: null,
-        totalBytes: null,
-        checkedAt: null,
-        error: null,
-      },
-      source
-    );
+    // A download already running answers this check; its own check is the
+    // one exception.
+    if (downloadInFlight && payload?.fromDownload !== true) {
+      return latestUpdateSnapshot;
+    }
+    // While the installer waits, a periodic check runs without "checking",
+    // so the chip does not blink every few hours.
+    const keepDownloaded = updateStatus.phase === "downloaded" && Boolean(downloadedInstallerPath);
+    if (!keepDownloaded) {
+      setUpdateStatus(
+        {
+          phase: "checking",
+          message: "Checking for updates.",
+          progressPercent: null,
+          transferredBytes: null,
+          totalBytes: null,
+          checkedAt: null,
+          error: null,
+        },
+        source
+      );
+    }
     try {
       const update = await emitPlatformUpdate(payload, source);
       if (!update?.hasUpdate) {
         downloadedInstallerPath = null;
-        lastNotifiedUpdateVersion = null;
+        downloadedVersion = null;
         setUpdateStatus(
           {
             phase: "up-to-date",
@@ -325,7 +288,26 @@ const createUpdateHandlers = ({
         );
         return update ?? null;
       }
+      if (
+        downloadedInstallerPath &&
+        downloadedVersion &&
+        downloadedVersion === (update.latestVersion ?? null)
+      ) {
+        setUpdateStatus(
+          {
+            phase: "downloaded",
+            latestVersion: update.latestVersion ?? null,
+            currentVersion: update.currentVersion ?? appVersion,
+            checkedAt: update.checkedAt ?? Date.now(),
+            message: "Update file download and verification complete.",
+            error: null,
+          },
+          source
+        );
+        return update;
+      }
       downloadedInstallerPath = null;
+      downloadedVersion = null;
       setUpdateStatus(
         {
           phase: "available",
@@ -340,7 +322,9 @@ const createUpdateHandlers = ({
         },
         source
       );
-      notifyUpdateAvailable(update, source);
+      if (payload?.autoDownload !== false) {
+        void handleUpdateDownload({}).catch(() => {});
+      }
       return update ?? null;
     } catch (error) {
       sendToRenderer("platform:update", {
@@ -362,7 +346,7 @@ const createUpdateHandlers = ({
   const downloadUpdateArtifact = async (artifactUrl, latestVersion, expectedDigest) => {
     const fileName = resolveUpdateFileName(artifactUrl, latestVersion);
     await fsp.mkdir(updateDownloadDir, { recursive: true });
-    const finalPath = path.join(updateDownloadDir, fileName);
+    let finalPath = path.join(updateDownloadDir, fileName);
     const tempPath = `${finalPath}.part`;
     if (!expectedDigest || expectedDigest.algorithm !== "sha256") {
       throw {
@@ -379,6 +363,8 @@ const createUpdateHandlers = ({
           message: `Failed to fetch update file: HTTP ${response.status}.`,
         };
       }
+      const servedName = installerNameFromResponse(response);
+      if (servedName) finalPath = path.join(updateDownloadDir, servedName);
       const responseStream = Readable.fromWeb(response.body);
       const totalBytesRaw = Number.parseInt(response.headers.get("content-length") || "", 10);
       const totalBytes = Number.isFinite(totalBytesRaw) && totalBytesRaw > 0 ? totalBytesRaw : null;
@@ -427,14 +413,24 @@ const createUpdateHandlers = ({
       }
     }
   };
+  // One download at a time; a second request joins the running one.
   const handleUpdateDownload = async (payload) => {
     if (isStoreManagedUpdates) {
       return emitMicrosoftStoreUpdateState("download");
     }
+    if (downloadInFlight) {
+      return downloadInFlight;
+    }
+    downloadInFlight = runUpdateDownload(payload).finally(() => {
+      downloadInFlight = null;
+    });
+    return downloadInFlight;
+  };
+  const runUpdateDownload = async (payload) => {
     let update = latestUpdateSnapshot;
     const shouldForceCheck = payload?.forceCheck === true;
     if (!update || shouldForceCheck) {
-      update = await handleUpdateCheck({ force: true });
+      update = await handleUpdateCheck({ force: true, autoDownload: false, fromDownload: true });
     }
     if (!update) {
       if (updateStatus.phase === "error") {
@@ -514,6 +510,7 @@ const createUpdateHandlers = ({
         update.latestVersion ?? null,
         expectedDigest
       );
+      downloadedVersion = update.latestVersion ?? null;
       setUpdateStatus(
         {
           phase: "downloaded",

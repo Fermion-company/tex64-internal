@@ -337,12 +337,20 @@ export function useWorkspacePdf(
       } else if (state === "failed") {
         const issues = Array.isArray(body.issues) ? body.issues : [];
         const issue = issues.find((value) => value && typeof value === "object" && value.severity === "error") ?? issues[0];
-        const detail = typeof body.message === "string" ? body.message.trim() : "";
+        const issueFile = normalizeWorkspaceRelativePath(issue?.path) ?? targetFile;
+        // The host leads with the file's absolute path, sometimes already cut from the left;
+        // show it the way the workspace names it, then the message: "main.tex:24 Undefined …".
+        const detail = typeof body.message === "string"
+          ? body.message
+              .trim()
+              .replace(/^[^\n]*?[\\/]([^\\/:\n]+)(?=:\d+:)/, (_path: string, base: string) => (issueFile?.endsWith(base) ? issueFile : base))
+              .replace(/^([^\n]*?:\d+):[ \t]*/, "$1 ")
+          : "";
         nextTarget = {
           ...previous,
           building: false,
-          failure: `組版に失敗しました。${previous.page ? "前のPDFを表示しています。" : ""}${detail ? ` ${detail}` : ""}`,
-          issue: { file: normalizeWorkspaceRelativePath(issue?.path) ?? targetFile, line: Number.isSafeInteger(issue?.line) && issue.line > 0 ? issue.line : null },
+          failure: `ビルドできませんでした。${detail}`,
+          issue: { file: issueFile, line: Number.isSafeInteger(issue?.line) && issue.line > 0 ? issue.line : null },
           requestId: requestId ?? previous.requestId,
         };
       } else if (state === "idle") {
@@ -483,7 +491,7 @@ export function useWorkspacePdf(
         if (!cancelled && sameWorkspaceSession(identityRef.current, expected)) {
           setPdfLoadError({
             key: expectedKey,
-            message: "紙面を読み込めませんでした。もう一度組版してください。",
+            message: "紙面を読み込めませんでした。もう一度ビルドしてください。",
           });
         }
       });

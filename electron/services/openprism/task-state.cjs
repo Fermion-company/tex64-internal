@@ -119,7 +119,7 @@ const completedEditReceipt = (task, locale) => {
   if (!task.receipts?.some((receipt) => receipt.turn === task.turn && receipt.applied)) return null;
   const lead = locale === "en"
     ? "The changes were saved, compiled and the PDF was checked. The final response could not be received; completed work has been preserved."
-    : "変更の保存・組版・PDF確認まで完了しました。最後の返答を受信できませんでしたが、作業結果は保存されています。";
+    : "変更の保存・ビルド・PDF確認まで完了しました。最後の返答を受信できませんでしたが、作業結果は保存されています。";
   return `${lead}\n\n${task.steps.map((step) => `${step.title}: ${step.evidence}`).join("\n")}`;
 };
 module.exports = { recordUndo, mergePdfObservation, completedEditReceipt, markPdfObserved, readTask, saveTask, beginTaskTurn, updateTask, recordReceipt, verificationGaps };

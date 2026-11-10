@@ -554,7 +554,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       });
       const message = options?.externalChange ? uiText(
         `${path} changed outside TeX64. Your unsaved edits were kept.`,
-        `${path} が外部で変更されました。未保存の編集は保持しています。`,
+        `${path}が外部で変更されました。未保存の編集は保持しています。`,
       ) : uiText(
         fileDeleted
           ? `Axiom deleted ${path} while it had unsaved edits. Choose which version to keep.`
@@ -876,9 +876,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     const content = editor.getValue();
     if (contentConflicts.has(activePath)) {
       reportSaveError(
-        uiText(
-          "Resolve the edit conflict before saving.",
-          "保存する前に編集競合を解決してください。",
+        uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。",
         ),
       );
       return Promise.resolve(false);
@@ -978,9 +976,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     }
     if (conflicted.length > 0) {
       reportSaveError(
-        uiText(
-          "Resolve the edit conflict before saving.",
-          "保存する前に編集競合を解決してください。",
+        uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。",
         ),
       );
       return false;

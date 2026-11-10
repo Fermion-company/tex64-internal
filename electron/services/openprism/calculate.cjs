@@ -10,7 +10,37 @@ const functions = {
   min: [null, Math.min], max: [null, Math.max],
   sum: [null, (...values) => values.reduce((a, b) => a + b, 0)],
   mean: [null, (...values) => values.reduce((a, b) => a + b, 0) / values.length],
+  // School mathematics: counting, integers, rounding.
+  floor: [1, Math.floor], ceil: [1, Math.ceil], round: [1, Math.round], sign: [1, Math.sign],
+  cbrt: [1, Math.cbrt], log2: [1, Math.log2], ln: [1, Math.log],
+  fact: [1, (n) => { const k = wholeNumber(n, "fact", 170); let r = 1; for (let i = 2; i <= k; i += 1) r *= i; return r; }],
+  comb: [2, (n, r) => { const a = wholeNumber(n, "comb"); const b = wholeNumber(r, "comb"); if (b > a) return 0; let v = 1; for (let i = 1; i <= Math.min(b, a - b); i += 1) v = (v * (a - Math.min(b, a - b) + i)) / i; return Math.round(v); }],
+  perm: [2, (n, r) => { const a = wholeNumber(n, "perm"); const b = wholeNumber(r, "perm"); if (b > a) return 0; let v = 1; for (let i = 0; i < b; i += 1) v *= a - i; return v; }],
+  gcd: [null, (...values) => values.map((v) => wholeNumber(Math.abs(v), "gcd")).reduce((x, y) => { while (y) [x, y] = [y, x % y]; return x; })],
+  lcm: [null, (...values) => values.map((v) => wholeNumber(Math.abs(v), "lcm")).reduce((x, y) => { if (!x || !y) return 0; let a = x, b = y; while (b) [a, b] = [b, a % b]; return (x / a) * y; })],
 };
+
+function wholeNumber(value, name, max = 1e6) {
+  if (!Number.isInteger(value) || value < 0 || value > max) throw new Error(`${name} needs whole numbers from 0 to ${max}.`);
+  return value;
+}
+
+/** p/q for a value that is a simple fraction (|q| <= 100000), else null. */
+function asFraction(value) {
+  if (!Number.isFinite(value) || Number.isInteger(value)) return null;
+  let h1 = 1, h0 = 0, k1 = 0, k0 = 1, x = value;
+  for (let i = 0; i < 40; i += 1) {
+    const a = Math.floor(x);
+    [h1, h0] = [a * h1 + h0, h1];
+    [k1, k0] = [a * k1 + k0, k1];
+    if (k1 > 100000) return null;
+    if (Math.abs(value - h1 / k1) <= 1e-12 * Math.max(1, Math.abs(value))) return `${h1}/${k1}`;
+    const frac = x - a;
+    if (frac === 0) break;
+    x = 1 / frac;
+  }
+  return null;
+}
 
 function calculate(expression) {
   if (typeof expression !== "string" || !expression.trim() || expression.length > 2000) {
@@ -80,8 +110,12 @@ const calculateBatch = (args) => {
     return { error: "Provide 1–50 numeric expressions." };
   }
   return { precision: "IEEE 754 double; radians for angles; round only for final presentation", results: args.expressions.map((expression) => {
-    try { return { expression, value: calculate(expression) }; }
+    try {
+      const value = calculate(expression);
+      const fraction = asFraction(value);
+      return fraction ? { expression, value, fraction } : { expression, value };
+    }
     catch (error) { return { expression, error: error.message }; }
   }) };
 };
-module.exports = { calculate, calculateBatch };
+module.exports = { calculate, calculateBatch, asFraction };

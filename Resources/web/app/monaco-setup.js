@@ -1,6 +1,6 @@
 import { attachSnippetEditor } from "./snippets-ui.js";
-import { attachZoteroEditor } from "./zotero-ui.js";
-import { attachArxivSearch } from "./arxiv-search-ui.js";
+import { attachCitationEditor } from "./zotero-ui.js";
+import { installEditorContextMenu } from "./editor-context-menu.js";
 import { uiText } from "./i18n.js";
 import { aiText } from "./ai-i18n.js";
 import { registerHoverProvider, } from "./monaco-hover.js";
@@ -77,7 +77,7 @@ export const initMonacoSetup = (context, deps) => {
     monacoWindow.require(["vs/editor/editor.main"], () => {
         var _a, _b, _c, _d, _e;
         if (!monacoWindow.monaco || !monacoWindow.monaco.editor) {
-            deps.updateFallback(uiText("Monaco initialization failed.", "Monacoの初期化に失敗しました。"));
+            deps.updateFallback(uiText("Monaco initialization failed.", "Monacoを初期化できませんでした。"));
             return;
         }
         deps.setMonacoApi(monacoWindow.monaco);
@@ -286,8 +286,7 @@ export const initMonacoSetup = (context, deps) => {
                 }
             });
             attachSnippetEditor(editor, monacoWindow.monaco);
-            attachZoteroEditor(editor, () => group.currentFilePath);
-            attachArxivSearch(editor, group);
+            attachCitationEditor(editor, () => group.currentFilePath);
             // Selection → Axiom: the context-menu entry (⌘K) and a small button
             // that floats at the end of a selection in a .tex file. Both open the
             // chat with the selection as its context.
@@ -384,7 +383,7 @@ export const initMonacoSetup = (context, deps) => {
             });
             (_w = (_v = editor).addAction) === null || _w === void 0 ? void 0 : _w.call(_v, {
                 id: "tex64.pro-canvas-edit",
-                label: uiText("Edit figure in canvas", "図をキャンバスで編集"),
+                label: uiText("Edit in canvas", "キャンバスで編集"),
                 contextMenuGroupId: "9_ai",
                 contextMenuOrder: 2,
                 run: () => {
@@ -393,7 +392,7 @@ export const initMonacoSetup = (context, deps) => {
                     const position = (_c = editor.getPosition) === null || _c === void 0 ? void 0 : _c.call(editor);
                     const lines = (_d = model === null || model === void 0 ? void 0 : model.getValue) === null || _d === void 0 ? void 0 : _d.call(model).split(/\r?\n/);
                     const decoded = lines && position ? decodeFigureBlockAt(lines, position.lineNumber - 1) : null;
-                    if ((decoded === null || decoded === void 0 ? void 0 : decoded.detached) && !window.confirm(uiText("This figure's code has been edited by hand. Updating it from the canvas will discard those edits. Continue?", "この図のコードは手編集されています。キャンバスで更新すると手編集分は失われます。続けますか？")))
+                    if ((decoded === null || decoded === void 0 ? void 0 : decoded.detached) && !window.confirm(uiText("Discard manual edits and update from the canvas?", "手編集を破棄してキャンバスで更新しますか？")))
                         return;
                     window.dispatchEvent(new CustomEvent("tex64:pro-canvas-open", {
                         detail: decoded ? {
@@ -433,7 +432,7 @@ export const initMonacoSetup = (context, deps) => {
             if (spellChecker) {
                 (_4 = (_3 = editor).addAction) === null || _4 === void 0 ? void 0 : _4.call(_3, {
                     id: "tex64.spell.addWordToDictionary",
-                    label: uiText("Add word to dictionary", "単語を辞書に追加"),
+                    label: uiText("Add to dictionary", "辞書に追加"),
                     contextMenuGroupId: "9_spell",
                     contextMenuOrder: 1,
                     run: () => {
@@ -441,6 +440,30 @@ export const initMonacoSetup = (context, deps) => {
                     },
                 });
             }
+            // The right-click menu: grouped, translated, and with the items that
+            // apply only somewhere shown only there. Draw (toolbar) still opens a
+            // new canvas anywhere; the command palette still adds any word.
+            installEditorContextMenu(editor, {
+                applies: {
+                    "tex64.spell.addWordToDictionary": () => {
+                        var _a, _b, _c, _d, _e, _f, _g;
+                        const model = (_b = (_a = editor).getModel) === null || _b === void 0 ? void 0 : _b.call(_a);
+                        const position = (_c = editor.getPosition) === null || _c === void 0 ? void 0 : _c.call(editor);
+                        if (!model || !position)
+                            return false;
+                        const markers = (_g = (_f = (_e = (_d = monacoWindow.monaco) === null || _d === void 0 ? void 0 : _d.editor) === null || _e === void 0 ? void 0 : _e.getModelMarkers) === null || _f === void 0 ? void 0 : _f.call(_e, { owner: "spell", resource: model.uri })) !== null && _g !== void 0 ? _g : [];
+                        return markers.some((marker) => marker.startLineNumber === position.lineNumber &&
+                            marker.startColumn <= position.column &&
+                            position.column <= marker.endColumn);
+                    },
+                    "tex64.pro-canvas-edit": () => {
+                        var _a, _b, _c, _d, _e;
+                        const position = (_a = editor.getPosition) === null || _a === void 0 ? void 0 : _a.call(editor);
+                        const lines = (_e = (_d = (_c = (_b = editor).getModel) === null || _c === void 0 ? void 0 : _c.call(_b)) === null || _d === void 0 ? void 0 : _d.getValue) === null || _e === void 0 ? void 0 : _e.call(_d).split(/\r?\n/);
+                        return Boolean(lines && position && decodeFigureBlockAt(lines, position.lineNumber - 1));
+                    },
+                },
+            });
         };
         if (editorHost instanceof HTMLElement) {
             createEditorForGroup(deps.editorSession.getEditorGroup("primary"), editorHost);
@@ -465,7 +488,7 @@ export const initMonacoSetup = (context, deps) => {
         });
         document.body.classList.add("has-editor");
     }, () => {
-        deps.updateFallback(uiText("Failed to load Monaco.", "Monacoの読み込みに失敗しました。"));
+        deps.updateFallback(uiText("Failed to load Monaco.", "Monacoを読み込めませんでした。"));
     });
     return api;
 };

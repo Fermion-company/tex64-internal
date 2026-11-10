@@ -378,7 +378,7 @@ export const createEditorSessionFileOps = (ctx) => {
                 conversationId,
                 externalChange: options === null || options === void 0 ? void 0 : options.externalChange,
             });
-            const message = (options === null || options === void 0 ? void 0 : options.externalChange) ? uiText(`${path} changed outside TeX64. Your unsaved edits were kept.`, `${path} が外部で変更されました。未保存の編集は保持しています。`) : uiText(fileDeleted
+            const message = (options === null || options === void 0 ? void 0 : options.externalChange) ? uiText(`${path} changed outside TeX64. Your unsaved edits were kept.`, `${path}が外部で変更されました。未保存の編集は保持しています。`) : uiText(fileDeleted
                 ? `Axiom deleted ${path} while it had unsaved edits. Choose which version to keep.`
                 : `Axiom changed ${path} on disk while it had unsaved edits. Choose which version to keep.`, fileDeleted
                 ? `未保存の編集中にAxiomが ${path} を削除しました。残す内容を選んでください。`

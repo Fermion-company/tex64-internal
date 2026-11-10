@@ -145,7 +145,7 @@ export const createAiChatIncomingHandlers = (options) => {
             if (statusState === "running" || statusState === "stopping") {
                 runningConversations.add(chat.id);
                 chat.statusMessage = localizeAgentStatus(statusMessage ||
-                    (statusState === "stopping" ? "Finishing partial changes..." : "Thinking..."));
+                    (statusState === "stopping" ? "Finishing partial changes…" : "Thinking…"));
                 upsertThinkingMessage(chat.id, chat.statusMessage);
             }
             else if (statusState === "error" || statusState === "resumable") {
@@ -187,7 +187,7 @@ export const createAiChatIncomingHandlers = (options) => {
             // The host took the request: it is no longer an unsent draft, so a
             // later stop must not put it back into the composer.
             pendingAgentRequests.delete(chat.id);
-            chat.statusMessage = localizeAgentStatus(message || (state === "stopping" ? "Finishing partial changes..." : "Thinking..."));
+            chat.statusMessage = localizeAgentStatus(message || (state === "stopping" ? "Finishing partial changes…" : "Thinking…"));
             upsertThinkingMessage(chat.id, chat.statusMessage);
         }
         else {
@@ -197,7 +197,7 @@ export const createAiChatIncomingHandlers = (options) => {
             const failure = state === "error" ? chat.statusMessage.trim() : "";
             chat.statusMessage = "";
             clearThinkingMessage(chat.id);
-            if (failure && failure !== localizeAgentStatus("Thinking...") && failure !== localizeAgentStatus("Preparing...")) {
+            if (failure && failure !== localizeAgentStatus("Thinking…") && failure !== localizeAgentStatus("Preparing…")) {
                 appendMessage({ role: "system", text: failure }, chat.id);
             }
             // Undo waits for the run to end; the cards learn that here.
@@ -326,7 +326,7 @@ export const createAiChatIncomingHandlers = (options) => {
             if (box) {
                 box.replaceChildren();
                 box.classList.add("is-done");
-                box.textContent = payload.ok ? aiText("rate_thanks") : payload.error || aiText("rate_thanks");
+                box.textContent = payload.ok ? aiText("rate_thanks") : payload.error || aiText("rate_failed");
                 window.setTimeout(() => box.remove(), payload.ok ? 1800 : 4000);
             }
         }

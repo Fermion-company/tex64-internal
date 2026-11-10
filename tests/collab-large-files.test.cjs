@@ -143,7 +143,7 @@ test("an image over the limit is shared as a smaller copy, other large files are
   });
 
   const started = await host.start({ name: "Host" });
-  assert.ok(notices(hostMessages).some((text) => text.startsWith("big.png は 64 KB を超えるため、画質を落とした写し")), "the owner is told the image goes out smaller");
+  assert.ok(notices(hostMessages).some((text) => text.startsWith("big.png は 64 KB を超えるため、縮小版")), "the owner is told the image goes out smaller");
   assert.ok(notices(hostMessages).some((text) => text.startsWith("data.bin（100 KB）は 64 KB を超えるため共有していません")), "and that the other file is not shared");
 
   await guest.join({ link: started.inviteLink, name: "Guest" });
@@ -182,7 +182,7 @@ test("an image over the limit is shared as a smaller copy, other large files are
   await guest.rescan();
   await waitFor(() => fs.existsSync(path.join(hostRoot, "photo.jpg")), 8000, "the guest's photo at the host");
   assert.ok(fs.readFileSync(path.join(hostRoot, "photo.jpg")).toString("latin1").startsWith("small copy of photo.jpg:"));
-  assert.ok(notices(guestMessages).some((text) => text.startsWith("photo.jpg は 64 KB を超えるため、画質を落とした写し")));
+  assert.ok(notices(guestMessages).some((text) => text.startsWith("photo.jpg は 64 KB を超えるため、縮小版")));
   await waitFor(() => notices(hostMessages).some((text) => text.startsWith("photo.jpg は元のファイルが大きいため、画質を落として共有されています")), 4000, "the host is told");
   for (let round = 0; round < 3; round += 1) {
     await host.rescan();

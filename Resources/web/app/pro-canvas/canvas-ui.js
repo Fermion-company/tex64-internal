@@ -267,7 +267,7 @@ export const initProCanvasUi = (deps) => {
       <span class="pro-canvas-segments"><button data-action="canvas-settings" aria-haspopup="dialog" aria-expanded="false">${uiText("Canvas", "キャンバス")}</button><button data-action="snap"></button></span><span class="pro-canvas-separator"></span>
       <button class="pro-canvas-icon-button" data-action="undo" title="${uiText("Undo", "元に戻す")}">↺</button><button class="pro-canvas-icon-button" data-action="redo" title="${uiText("Redo", "やり直す")}">↻</button></div>
       <div class="pro-canvas-main pro-canvas-body"><nav class="pro-canvas-rail pro-canvas-tools" aria-label="${uiText("Drawing tools", "描画ツール")}"></nav><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg><span class="pro-canvas-status pro-canvas-status-chip"></span><div class="pro-canvas-hintbar"></div></div><aside class="pro-canvas-inspector"><section class="pro-canvas-geometry-section"><h3>${uiText("Placement", "配置")}</h3><div class="pro-canvas-geometry"></div></section><section class="pro-canvas-style-section"><h3>${uiText("Style", "スタイル")}</h3><div class="pro-canvas-style"></div></section><p class="pro-canvas-empty pro-canvas-inspector-empty" hidden></p></aside></div><div class="pro-canvas-size-chip" hidden></div>
-      <div class="pro-canvas-bottom pro-canvas-footer"><span class="pro-canvas-footer-spacer"></span><button class="pro-canvas-ghost" data-action="cancel">${uiText("Cancel", "キャンセル")}</button><button class="pro-canvas-primary" data-action="tikz">${detail.replaceRange ? uiText("Update TikZ code", "TikZ コードを更新") : uiText("Insert TikZ code", "TikZ コードを挿入")}</button></div>`;
+      <div class="pro-canvas-bottom pro-canvas-footer"><span class="pro-canvas-footer-spacer"></span><button class="pro-canvas-ghost" data-action="cancel">${uiText("Cancel", "キャンセル")}</button><button class="pro-canvas-primary" data-action="tikz">${detail.replaceRange ? uiText("Update", "更新") : uiText("Insert", "挿入")}</button></div>`;
         document.body.appendChild(overlay);
         overlay.focus();
         const svg = overlay.querySelector("svg");
@@ -290,7 +290,7 @@ export const initProCanvasUi = (deps) => {
         const sizeChip = overlay.querySelector(".pro-canvas-size-chip");
         const toolHost = overlay.querySelector(".pro-canvas-tools");
         const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<path d="M2 12C5 3.5 11 3.5 14 12"/><line x1="2" y1="12" x2="6" y2="5"/><circle cx="6" cy="5" r="1.4"/><circle cx="2" cy="12" r="1.2" style="fill:currentColor"/><circle cx="14" cy="12" r="1.2" style="fill:currentColor"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', fill: '<path d="M4 3l7 7-4 4-5-5z"/><path d="M8.5 4.5l2-2"/><path d="M10 12.5c1.5-2 2.5-2 4 0-.4 1.2-1.1 1.8-2 1.8s-1.6-.6-2-1.8z"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>', plot: '<path d="M3 2v11h11"/><path d="M4 12c2.5-7 5 1 9-7"/>' };
-        [['select', uiText("Select", "選択"), uiText("Select", "選択"), 'V'], ['pen', uiText("Curve", "曲線"), uiText("Curve (pen)", "曲線（ペン）"), 'P'], ['plot', uiText("Function", "関数"), uiText("Function curve", "関数から曲線"), 'G'], ['line', uiText("Line", "直線"), uiText("Line", "直線"), 'L'], ['rect', uiText("Rect", "矩形"), uiText("Rectangle", "矩形"), 'R'], ['ellipse', uiText("Oval", "楕円"), uiText("Ellipse", "楕円"), 'E'], ['fill', uiText("Fill", "塗り"), uiText("Fill an enclosed region", "囲まれた領域を塗る"), 'F'], ['node', uiText("Math", "数式"), uiText("Math label", "数式ラベル"), 'T']].forEach(([id, label, tooltip, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.dataset.noI18n = ""; b.title = `${tooltip} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg><span>${label}</span>`; toolHost.appendChild(b); });
+        [['select', uiText("Select", "選択"), uiText("Select", "選択"), 'V'], ['pen', uiText("Curve", "曲線"), uiText("Curve (pen)", "曲線（ペン）"), 'P'], ['plot', uiText("Function", "関数"), uiText("Function curve", "関数から曲線"), 'G'], ['line', uiText("Line", "直線"), uiText("Line", "直線"), 'L'], ['rect', uiText("Rect", "矩形"), uiText("Rectangle", "矩形"), 'R'], ['ellipse', uiText("Oval", "楕円"), uiText("Ellipse", "楕円"), 'E'], ['fill', uiText("Fill", "塗り"), uiText("Fill", "塗り"), 'F'], ['node', uiText("Math", "数式"), uiText("Math label", "数式ラベル"), 'T']].forEach(([id, label, tooltip, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.dataset.noI18n = ""; b.title = `${tooltip} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg><span>${label}</span>`; toolHost.appendChild(b); });
         // The canvas is self-contained: its SVG approximation is the preview.
         // Keep this hook while the editing code is compact so callers do not need
         // engine-specific branches.
@@ -417,7 +417,7 @@ export const initProCanvasUi = (deps) => {
             const header = document.createElement("div");
             header.className = "pro-canvas-plot-card-header";
             const headTitle = document.createElement("strong");
-            headTitle.textContent = object.axis.axisLines === "none" ? uiText("Edit function curve", "関数曲線を編集") : uiText("Edit graph", "グラフを編集");
+            headTitle.textContent = object.axis.axisLines === "none" ? uiText("Function curve", "関数曲線") : uiText("Graph", "グラフ");
             const headClose = document.createElement("button");
             headClose.type = "button";
             headClose.textContent = "✕";
@@ -434,7 +434,7 @@ export const initProCanvasUi = (deps) => {
             dimensions.className = "pro-canvas-plot-dimensions";
             const dimensionTitle = document.createElement("span");
             dimensionTitle.className = "pro-canvas-plot-range-title";
-            dimensionTitle.textContent = object.axis.axisLines === "none" ? uiText("Curve size", "曲線の大きさ") : uiText("Axis length", "軸の長さ");
+            dimensionTitle.textContent = object.axis.axisLines === "none" ? uiText("Size", "大きさ") : uiText("Axis length", "軸の長さ");
             const plotWidth = field(`${uiText("Width", "幅")} (${scene.unit})`, String(Number(object.width.toPrecision(4))), "number", value => object.width = normalizePlotDimension(value, object.width)), plotHeight = field(`${uiText("Height", "高さ")} (${scene.unit})`, String(Number(object.height.toPrecision(4))), "number", value => object.height = normalizePlotDimension(value, object.height));
             plotWidth.input.min = plotHeight.input.min = "0.01";
             plotWidth.input.dataset.noI18n = "";
@@ -448,7 +448,7 @@ export const initProCanvasUi = (deps) => {
                 main.className = "pro-canvas-plot-card-main";
                 const chip = document.createElement("label");
                 chip.className = "pro-canvas-color-chip";
-                chip.title = uiText(`Series ${index + 1} color`, `系列 ${index + 1} の色`);
+                chip.title = uiText(`Series ${index + 1} color`, `系列${index + 1}の色`);
                 chip.setAttribute("aria-label", chip.title);
                 chip.style.background = series.color;
                 chip.tabIndex = 0;
@@ -468,7 +468,7 @@ export const initProCanvasUi = (deps) => {
                     const mf = document.createElement("math-field");
                     mf.className = "pro-canvas-plot-expr";
                     mf.dataset.noI18n = "";
-                    mf.title = uiText(`Series ${index + 1} ${labelText}`, `系列 ${index + 1} ${labelText}`);
+                    mf.title = uiText(`Series ${index + 1} ${labelText}`, `系列${index + 1} ${labelText}`);
                     mf.setAttribute("math-virtual-keyboard-policy", "manual");
                     mf.setAttribute("placeholder", placeholder);
                     try {
@@ -512,7 +512,7 @@ export const initProCanvasUi = (deps) => {
                     input.className = "pro-canvas-plot-expr";
                     input.placeholder = placeholder;
                     input.dataset.noI18n = "";
-                    input.title = uiText(`Series ${index + 1} ${labelText}`, `系列 ${index + 1} ${labelText}`);
+                    input.title = uiText(`Series ${index + 1} ${labelText}`, `系列${index + 1} ${labelText}`);
                     input.value = value;
                     liveField(input, () => { series[key] = input.value; const nextLatex = exprToLatex(input.value, varName); toggle.disabled = !hasMathLive || nextLatex === null; toggle.title = !hasMathLive ? uiText("Formula input is unavailable", "数式入力を利用できません") : nextLatex === null ? uiText("This expression cannot be shown as a formula", "この式は数式入力に変換できません") : uiText("Edit as a formula", "数式で編集"); toggle.setAttribute("aria-label", toggle.title); refreshError(); });
                     editor = input;
@@ -523,20 +523,20 @@ export const initProCanvasUi = (deps) => {
                     area.rows = 3;
                     area.placeholder = "0,0\n1,1";
                     area.dataset.noI18n = "";
-                    area.title = uiText(`Series ${index + 1} points`, `系列 ${index + 1} の点列`);
+                    area.title = uiText(`Series ${index + 1} points`, `系列${index + 1}の点列`);
                     area.value = series.points || "";
                     liveField(area, () => { series.points = area.value; refreshError(); });
                     expressions.append(area);
                     editors.push(area);
                 }
                 else if (kind === "parametric") {
-                    addExpr("x(t)", "expr", uiText("e.g. cos(deg(t))", "例: cos(deg(t))"));
-                    addExpr("y(t)", "expr2", uiText("e.g. sin(deg(t))", "例: sin(deg(t))"));
+                    addExpr("x(t)", "expr", "cos(deg(t))");
+                    addExpr("y(t)", "expr2", "sin(deg(t))");
                 }
                 else if (kind === "polar")
-                    addExpr("r(θ)", "expr", uiText("e.g. 1+cos(deg(t))", "例: 1+cos(deg(t))"));
+                    addExpr("r(θ)", "expr", "1+cos(deg(t))");
                 else
-                    addExpr("f(x)", "expr", plotTextModes.has(`${object.id}:${index}:expr`) ? uiText("e.g. sin(deg(x))", "例: sin(deg(x))") : uiText("e.g. sin(x)", "例: sin(x)"));
+                    addExpr("f(x)", "expr", plotTextModes.has(`${object.id}:${index}:expr`) ? "sin(deg(x))" : "sin(x)");
                 const eye = document.createElement("button");
                 eye.type = "button";
                 eye.className = "pro-canvas-eye";
@@ -557,7 +557,7 @@ export const initProCanvasUi = (deps) => {
                 main.append(chip, expressions, eye, more, remove);
                 const error = document.createElement("div");
                 error.className = "pro-canvas-plot-error";
-                error.textContent = kind === "points" ? uiText("That point list cannot be interpreted", "点列を解釈できません") : uiText("That expression cannot be interpreted", "式を解釈できません");
+                error.textContent = kind === "points" ? uiText("Point list error", "点列エラー") : uiText("Expression error", "式エラー");
                 error.hidden = valid();
                 editors.forEach(editor => editor.classList.toggle("is-error", !error.hidden));
                 const detailsKey = `${object.id}:${index}`, details = document.createElement("div");
@@ -565,7 +565,7 @@ export const initProCanvasUi = (deps) => {
                 details.hidden = !plotDetailsOpen.has(detailsKey);
                 const kindLabel = document.createElement("label"), kindSelect = document.createElement("select");
                 kindLabel.textContent = uiText("Kind", "種類");
-                for (const [value, text] of [["fn", uiText("Function y=f(x)", "関数 y=f(x)")], ["parametric", uiText("Parametric", "媒介変数")], ["polar", uiText("Polar r(θ)", "極座標 r(θ)")], ["points", uiText("Point list", "点列")]]) {
+                for (const [value, text] of [["fn", uiText("Function y=f(x)", "関数y=f(x)")], ["parametric", uiText("Parametric", "媒介変数")], ["polar", uiText("Polar r(θ)", "極座標r(θ)")], ["points", uiText("Point list", "点列")]]) {
                     const option = document.createElement("option");
                     option.value = value;
                     option.textContent = text;
@@ -615,18 +615,18 @@ export const initProCanvasUi = (deps) => {
             const add = document.createElement("button");
             add.type = "button";
             add.className = "pro-canvas-plot-add";
-            add.textContent = uiText("＋ Add series", "＋ 系列を追加");
+            add.textContent = uiText("＋ Series", "＋ 系列");
             add.onclick = () => { snapshot(false); object.series.push({ kind: "fn", expr: "", domain: null, samples: 100, color: PLOT_PALETTE[object.series.length % PLOT_PALETTE.length], thick: true, legend: "", visible: true }); plotCardSignature = ""; debouncePlotCompile(); render(); requestAnimationFrame(() => buildPlotCard(object, object.series.length - 1)); };
             card.append(add);
             const range = document.createElement("div");
             range.className = "pro-canvas-plot-range";
             const rangeTitle = document.createElement("span");
             rangeTitle.className = "pro-canvas-plot-range-title";
-            rangeTitle.textContent = uiText("x range", "x 範囲");
+            rangeTitle.textContent = uiText("x range", "x範囲");
             const xmin = field(uiText("Min", "最小"), String(Number(object.axis.xmin.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n) && n < object.axis.xmax)
                 object.axis.xmin = n; }), xmax = field(uiText("to", "〜"), String(Number(object.axis.xmax.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n) && n > object.axis.xmin)
                 object.axis.xmax = n; }), auto = document.createElement("label"), autoInput = document.createElement("input");
-            auto.textContent = uiText("auto y", "y 自動");
+            auto.textContent = uiText("auto y", "y自動");
             autoInput.type = "checkbox";
             autoInput.checked = object.axis.ymin === null || object.axis.ymax === null;
             autoInput.onchange = () => { snapshot(false); if (autoInput.checked) {
@@ -667,12 +667,12 @@ export const initProCanvasUi = (deps) => {
             eqInput.type = "checkbox";
             eqInput.checked = Boolean(object.axis.equal);
             eqInput.onchange = () => { snapshot(false); object.axis.equal = eqInput.checked || undefined; debouncePlotCompile(); render(); };
-            eqRow.append(eqInput, document.createTextNode(uiText(" Equal scale (axis equal)", " 等尺 (axis equal)")));
+            eqRow.append(eqInput, document.createTextNode(uiText(" Equal scale", " 等尺")));
             card.append(eqRow);
             const disclosure = document.createElement("details"), summary = document.createElement("summary");
             summary.textContent = uiText("Details", "詳細");
             disclosure.append(summary);
-            for (const [label, key] of [[uiText("x label", "x ラベル"), "xlabel"], [uiText("y label", "y ラベル"), "ylabel"], [uiText("Title", "タイトル"), "title"]]) {
+            for (const [label, key] of [[uiText("x label", "xラベル"), "xlabel"], [uiText("y label", "yラベル"), "ylabel"], [uiText("Title", "タイトル"), "title"]]) {
                 const f = field(label, object.axis[key], "text", v => object.axis[key] = v);
                 disclosure.append(f.row);
             }
@@ -703,12 +703,12 @@ export const initProCanvasUi = (deps) => {
         const replaceSelectedId = (oldId, newId) => { if (!selection.ids.delete(oldId))
             return; selection.ids.add(newId); if (selection.primaryId === oldId)
             selection.primaryId = newId; };
-        const editCode = (object) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 9; area.placeholder = "\\draw (0,0) -- (10,10);"; area.dataset.noI18n = ""; area.value = object.tikz; const save = document.createElement("button"); save.className = "is-primary"; save.textContent = uiText("Apply", "適用"); save.onclick = () => { snapshot(); object.tikz = stripTikzWrapper(area.value); window.removeEventListener("keydown", onPopKey, true); pop.remove(); render(); scheduleCompile(); }; const onPopKey = (e) => { if (e.key !== "Escape" || !pop.isConnected)
+        const editCode = (object) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 9; area.dataset.noI18n = ""; area.value = object.tikz; const save = document.createElement("button"); save.className = "is-primary"; save.textContent = uiText("Apply", "適用"); save.onclick = () => { snapshot(); object.tikz = stripTikzWrapper(area.value); window.removeEventListener("keydown", onPopKey, true); pop.remove(); render(); scheduleCompile(); }; const onPopKey = (e) => { if (e.key !== "Escape" || !pop.isConnected)
             return; e.preventDefault(); e.stopImmediatePropagation(); dismiss(); }; const dismiss = () => { window.removeEventListener("keydown", onPopKey, true); pop.remove(); if (!object.tikz.trim()) {
             removeById(currentObjects(), object.id);
             clearSelection();
             render();
-        } }; window.addEventListener("keydown", onPopKey, true); const cancel = document.createElement("button"); cancel.textContent = uiText("Cancel", "キャンセル"); cancel.onclick = dismiss; pop.append(area, save, cancel); overlay.append(pop); area.focus(); };
+        } }; window.addEventListener("keydown", onPopKey, true); const cancel = document.createElement("button"); cancel.textContent = uiText("Cancel", "キャンセル"); cancel.onclick = dismiss; pop.append(area, cancel, save); overlay.append(pop); area.focus(); };
         let stageObserver = null;
         let colorPop = null, canvasPop = null;
         const closeColorPop = () => { colorPop === null || colorPop === void 0 ? void 0 : colorPop.remove(); colorPop = null; };
@@ -738,8 +738,8 @@ export const initProCanvasUi = (deps) => {
             none.onclick = () => choose(null);
             pop.append(none);
         } pop.addEventListener("click", ev => { if (ev.target === pop)
-            closeColorPop(); }); overlay.append(pop); colorPop = pop; const r = button.getBoundingClientRect(), pw = pop.offsetWidth || 202; let px = r.left - pw - 10; if (px < 8)
-            px = Math.min(innerWidth - pw - 8, r.right + 10); pop.style.left = `${px}px`; pop.style.top = `${Math.max(8, Math.min(innerHeight - (pop.offsetHeight || 260) - 8, r.top - 6))}px`; }; wrap.append(button); return wrap; };
+            closeColorPop(); }); overlay.append(pop); colorPop = pop; const r = button.getBoundingClientRect(), pw = pop.offsetWidth || 202; let px = r.left - pw - 8; if (px < 8)
+            px = Math.min(innerWidth - pw - 8, r.right + 8); pop.style.left = `${px}px`; pop.style.top = `${Math.max(8, Math.min(innerHeight - (pop.offsetHeight || 260) - 8, r.top - 6))}px`; }; wrap.append(button); return wrap; };
         overlay.addEventListener("pointerdown", e => { if (canvasPop && !canvasPop.contains(e.target) && !e.target.closest("[data-action=canvas-settings]"))
             closeCanvasPop(); if (!colorPop || colorPop.contains(e.target) || e.target.closest(".pro-canvas-color-well"))
             return; closeColorPop(); if (e.target.closest(".pro-canvas-stage")) {
@@ -765,7 +765,7 @@ export const initProCanvasUi = (deps) => {
             } });
             const heading = document.createElement("div");
             heading.className = "pro-canvas-canvas-popover-title";
-            heading.textContent = uiText("Canvas settings", "キャンバス設定");
+            heading.textContent = uiText("Canvas", "キャンバス");
             const closeButton = document.createElement("button");
             closeButton.type = "button";
             closeButton.textContent = "✕";
@@ -774,7 +774,7 @@ export const initProCanvasUi = (deps) => {
             heading.append(closeButton);
             pop.append(heading);
             const sizeTitle = document.createElement("strong");
-            sizeTitle.textContent = uiText("Canvas coordinates", "キャンバス座標");
+            sizeTitle.textContent = uiText("Coordinates", "座標");
             const dimensions = document.createElement("div");
             dimensions.className = "pro-canvas-canvas-dimensions";
             const inputs = {};
@@ -785,7 +785,7 @@ export const initProCanvasUi = (deps) => {
             } snapshot(false); scene[key] = next; zoom = 1; panX = panY = 0; refresh(); render(); scheduleCompile(); }; return label; };
             dimensions.append(numberField(uiText("Width", "幅"), "width"), numberField(uiText("Height", "高さ"), "height"));
             const gridTitle = document.createElement("strong");
-            gridTitle.textContent = uiText("Grid spacing", "グリッド間隔");
+            gridTitle.textContent = uiText("Grid", "グリッド");
             const gridRow = document.createElement("div");
             gridRow.className = "pro-canvas-canvas-grid";
             const gridInput = document.createElement("input"), gridUnit = document.createElement("span"), gridPresets = document.createElement("div");
@@ -804,15 +804,15 @@ export const initProCanvasUi = (deps) => {
             } snapshot(false); scene.grid.size = next; refresh(); render(); scheduleCompile(); };
             gridRow.append(gridInput, gridUnit, gridPresets);
             const outputTitle = document.createElement("strong");
-            outputTitle.textContent = uiText("Width on the page", "紙面上の幅");
-            const outputExplain = createExplain(uiText("Canvas coordinates control drawing space. Page width can independently use 0.8\\linewidth, \\textwidth, and similar LaTeX-relative widths.", "キャンバス座標は作図空間です。紙面上の幅は 0.8\\linewidth や \\textwidth などで独立して指定できます。"), { topic: uiText("width on the page", "紙面上の幅") });
+            outputTitle.textContent = uiText("Page width", "紙面幅");
+            const outputExplain = createExplain(uiText("Canvas coordinates control drawing space. Page width can independently use 0.8\\linewidth, \\textwidth, and similar LaTeX-relative widths.", "キャンバス座標は作図空間です。紙面幅は0.8\\linewidthや\\textwidthなどで独立して指定できます。"), { topic: uiText("page width", "紙面幅") });
             outputTitle.classList.add("has-explain");
             outputTitle.append(outputExplain.button);
             const outputRow = document.createElement("div");
             outputRow.className = "pro-canvas-output-width";
             const outputMode = document.createElement("select"), outputValue = document.createElement("input");
             outputMode.title = uiText("Width reference", "幅の基準");
-            outputMode.add(new Option(uiText("Natural size", "実寸（指定なし）"), "natural"));
+            outputMode.add(new Option(uiText("Natural size", "実寸"), "natural"));
             for (const reference of ["linewidth", "textwidth", "columnwidth"])
                 outputMode.add(new Option(`\\${reference}`, reference));
             outputValue.type = "number";
@@ -866,9 +866,6 @@ export const initProCanvasUi = (deps) => {
             anchorSection.append(anchorGrid);
             const fontSection = document.createElement("div");
             fontSection.className = "pro-canvas-node-menu-font";
-            const fontTitle = document.createElement("strong");
-            fontTitle.textContent = uiText("Font", "フォント");
-            fontSection.append(fontTitle);
             const segment = (label, role, value, items, change) => { const row = document.createElement("div"); row.className = "pro-canvas-node-font-row"; const caption = document.createElement("span"); caption.textContent = label; const buttons = document.createElement("span"); buttons.className = "pro-canvas-segments"; buttons.dataset.role = role; items.forEach(item => { const button = document.createElement("button"); button.type = "button"; button.textContent = uiText(item.en, item.ja); button.classList.toggle("is-active", item.value === value); button.onclick = () => { if (item.value !== value)
                 apply(() => change(item.value)); }; buttons.append(button); }); row.append(caption, buttons); return row; };
             const sizeRow = document.createElement("label"), size = document.createElement("select");
@@ -888,7 +885,7 @@ export const initProCanvasUi = (deps) => {
             menu.append(anchorSection, fontSection);
             overlay.append(menu);
             nodeMenu = menu;
-            const rendered = svg.querySelector(`[data-role="node-render"][data-object-id="${CSS.escape(object.id)}"]`), point = sceneToScreen(object.at, view()), target = (_b = rendered === null || rendered === void 0 ? void 0 : rendered.getBoundingClientRect()) !== null && _b !== void 0 ? _b : { left: point.x, right: point.x, top: point.y, bottom: point.y, width: 0, height: 0, x: point.x, y: point.y, toJSON: () => ({}) }, stageRect = stage.getBoundingClientRect(), gap = 10, width = menu.offsetWidth, height = menu.offsetHeight;
+            const rendered = svg.querySelector(`[data-role="node-render"][data-object-id="${CSS.escape(object.id)}"]`), point = sceneToScreen(object.at, view()), target = (_b = rendered === null || rendered === void 0 ? void 0 : rendered.getBoundingClientRect()) !== null && _b !== void 0 ? _b : { left: point.x, right: point.x, top: point.y, bottom: point.y, width: 0, height: 0, x: point.x, y: point.y, toJSON: () => ({}) }, stageRect = stage.getBoundingClientRect(), gap = 8, width = menu.offsetWidth, height = menu.offsetHeight;
             let left = (target.left + target.right - width) / 2, top = target.top - height - gap;
             if (top < stageRect.top + 8)
                 top = target.bottom + gap;
@@ -939,9 +936,9 @@ export const initProCanvasUi = (deps) => {
                 [['front', uiText("Bring to front", "最前面")], ['forward', uiText("Bring forward", "前面へ")], ['backward', uiText("Send backward", "背面へ")], ['back', uiText("Send to back", "最背面")]].forEach(([mode, title]) => { const button = document.createElement("button"); button.title = title; button.setAttribute("aria-label", title); button.dataset.order = mode; button.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${icons[mode]}</svg>`; button.onclick = () => changeOrder(mode); order.append(button); });
                 geometry.append(order);
             }
-            if (!object && !targets.length) {
+            if (!object && !targets.length && selection.ids.size) {
                 emptyNote.hidden = false;
-                emptyNote.textContent = selection.ids.size ? uiText(`${selection.ids.size} selected`, `${selection.ids.size} 個を選択中`) : uiText("Select an object", "オブジェクトを選択してください");
+                emptyNote.textContent = uiText(`${selection.ids.size} selected`, `${selection.ids.size}個を選択中`);
             }
             else if (targets.length) {
                 const effective = resolveStyle(scene, targets[0].style), apply = (key, value, only = targets) => { snapshot(false); only.forEach(target => target.style.props = { ...(target.style.props || {}), [key]: value }); render(); scheduleCompile(); }, seg = (value, items, set) => { const group = document.createElement("span"); group.className = "pro-canvas-segments"; items.forEach(([key, text, icon]) => { const b = document.createElement("button"); b.type = "button"; b.title = text; b.dataset.noI18n = ""; b.classList.toggle("is-active", key === value); if (icon)
@@ -951,7 +948,7 @@ export const initProCanvasUi = (deps) => {
                 if (targets.length > 1) {
                     const badge = document.createElement("span");
                     badge.className = "pro-canvas-style-badge";
-                    badge.textContent = uiText(`Applies to ${targets.length}`, `${targets.length} 個に適用`);
+                    badge.textContent = uiText(`Applies to ${targets.length}`, `${targets.length}個に適用`);
                     host.append(badge);
                 }
                 const line = document.createElement("div");
@@ -1059,7 +1056,6 @@ export const initProCanvasUi = (deps) => {
                     gap.max = "100";
                     gap.step = "0.2";
                     gap.value = String(dash.dashGapPt && dash.dashGapPt > 0 ? dash.dashGapPt : dash.dash === "dashed" ? 3 : 2);
-                    gap.title = uiText("Gap between dashes or dots (pt)", "破線・点線どうしの間隔 (pt)");
                     gap.onchange = () => { const value = Math.max(.1, Math.min(100, Number(gap.value) || 1)); snapshot(false); targets.forEach(target => { var _a; return ((_a = target.style).props || (_a.props = {})).dashGapPt = value; }); render(); scheduleCompile(); };
                     unit.textContent = "pt";
                     gapRow.append(gap, unit);
@@ -1495,11 +1491,11 @@ export const initProCanvasUi = (deps) => {
             overlay.querySelectorAll("[data-tool]").forEach(b => b.classList.toggle("is-active", b.dataset.tool === tool));
             const snap = overlay.querySelector("[data-action=snap]"), snapEnabled = activeSnap();
             snap.textContent = snapEnabled ? uiText("Snap on", "吸着 オン") : uiText("Snap off", "吸着 オフ");
-            snap.title = tool === "node" ? uiText("Math label placement snap (off by default)", "数式ラベル配置の吸着（既定はオフ）") : uiText("Snaps to the grid and to other shapes' edges and centers (hold Alt to suspend)", "グリッドと他の図形の端・中心に吸着します（Alt を押しながらで一時解除）");
+            snap.title = tool === "node" ? uiText("Math label placement snap", "数式ラベル配置の吸着") : uiText("Snaps to the grid and to other shapes' edges and centers (hold Alt to suspend)", "グリッドと他の図形の端・中心に吸着します（Altを押しながらで一時解除）");
             snap.dataset.noI18n = "";
             snap.classList.toggle("is-active", snapEnabled);
             const canvasButton = overlay.querySelector("[data-action=canvas-settings]");
-            canvasButton.title = uiText(`Canvas ${scene.width} × ${scene.height} ${scene.unit} · grid ${scene.grid.size} ${scene.unit}`, `キャンバス ${scene.width} × ${scene.height} ${scene.unit}・グリッド ${scene.grid.size} ${scene.unit}`);
+            canvasButton.title = uiText(`Canvas ${scene.width} × ${scene.height} ${scene.unit} · grid ${scene.grid.size} ${scene.unit}`, `キャンバス${scene.width} × ${scene.height} ${scene.unit}・グリッド${scene.grid.size} ${scene.unit}`);
             canvasButton.setAttribute("aria-expanded", String(Boolean(canvasPop)));
             overlay.querySelector("[data-action=zoom-reset]").textContent = `${Math.round(zoom * 100)}%`;
             overlay.querySelector("[data-action=zoom-reset]").title = uiText("Click: 100% · Shift+click: fit selection", "クリック: 100% / Shift+クリック: 選択にフィット");
@@ -1529,7 +1525,7 @@ export const initProCanvasUi = (deps) => {
                 plotCardSignature = "";
             }
             const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null, nodeToolHasSelectedLabel = tool === "node" && (one === null || one === void 0 ? void 0 : one.type) === "node";
-            setHint(edited ? (plotIsEmpty(edited) ? uiText("Enter an expression to draw it", "式を入力すると描画されます") : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Esc で編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了") : tool !== "select" && !nodeToolHasSelectedLabel ? (_c = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shift で正方形　Alt で吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shift で正円　Alt で吸着オフ"), fill: uiText("Move over an enclosed region to preview · Click to fill · Adjust color or hatch in Style", "囲まれた領域にカーソルを置いて確認　クリックで塗り　色・網掛けはスタイルで調整"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定"), node: uiText("Click to place a math label", "クリックした位置に数式ラベルを置きます"), plot: uiText("Click or drag to place a function curve, then enter y=f(x) and its range", "クリックまたはドラッグで関数曲線を配置し、式 y=f(x) と範囲を指定します"), code: uiText("Click to write TikZ code at that spot", "クリックした位置にTikZコードを直接書けます") }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? uiText("Drag to move · Cmd+G to group · Arrow keys to nudge", "ドラッグ：平行移動　Cmd+G：グループ化　矢印キー：微調整") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Drag to move · Handles resize · Double-click to edit the function and range", "ドラッグ：平行移動　周囲の□：拡大縮小　ダブルクリック：式と範囲を編集") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Drag to move · Double-click to edit the formula", "ドラッグ：平行移動　ダブルクリック：数式編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag to move · End squares resize · Top circle rotates", "線をドラッグ：平行移動　端の□：拡大縮小　上の○：回転") : uiText("Drag to move · Corners resize · Top circle rotates · Double-click edits points", "線をドラッグ：平行移動　四隅：拡大縮小　上の○：回転　ダブルクリック：頂点編集")) : uiText("Drag to move · Handles resize · Top circle rotates · Double-click to edit", "図形をドラッグ：平行移動　周囲の□：拡大縮小　上の○：回転　ダブルクリック：編集"));
+            setHint(edited ? (plotIsEmpty(edited) ? "" : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Escで編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Escで終了") : tool !== "select" && !nodeToolHasSelectedLabel ? (_c = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shiftで水平・垂直・45°　Altで吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shiftで正方形　Altで吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shiftで正円　Altで吸着オフ"), fill: uiText("Move over an enclosed region to preview · Click to fill · Adjust color or hatch in Style", "囲まれた領域にカーソルを置いて確認　クリックで塗り　色・網掛けはスタイルで調整"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enterで確定") }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? uiText("Drag to move · Cmd+G to group · Arrow keys to nudge", "ドラッグ：平行移動　Cmd+G：グループ化　矢印キー：微調整") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Drag to move · Handles resize · Double-click to edit the function and range", "ドラッグ：平行移動　周囲の□：拡大縮小　ダブルクリック：式と範囲を編集") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Drag to move · Double-click to edit the formula", "ドラッグ：平行移動　ダブルクリック：数式編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag to move · End squares resize · Top circle rotates", "線をドラッグ：平行移動　端の□：拡大縮小　上の○：回転") : uiText("Drag to move · Corners resize · Top circle rotates · Double-click edits points", "線をドラッグ：平行移動　四隅：拡大縮小　上の○：回転　ダブルクリック：頂点編集")) : uiText("Drag to move · Handles resize · Top circle rotates · Double-click to edit", "図形をドラッグ：平行移動　周囲の□：拡大縮小　上の○：回転　ダブルクリック：編集"));
         };
         let drag = null;
         let lastClick = null;
@@ -1746,7 +1742,7 @@ export const initProCanvasUi = (deps) => {
                 paintRegions = candidates;
                 const region = paintPreview !== null && paintPreview !== void 0 ? paintPreview : enclosedRegionAt(candidates, raw);
                 if (!region) {
-                    setStatus(uiText("No enclosed region here", "ここには囲まれた領域がありません"), true);
+                    setStatus(uiText("No enclosed region", "囲まれた領域がありません"), true);
                     return;
                 }
                 const previous = selection.ids.size === 1 ? nodeById(selection.primaryId) : null, previousStyle = (previous === null || previous === void 0 ? void 0 : previous.type) === "path" && previous.closed && resolveStyle(scene, previous.style).draw === null ? previous.style.props : null;
@@ -1759,7 +1755,7 @@ export const initProCanvasUi = (deps) => {
                 currentObjects().unshift(object);
                 replaceSelection(object.id);
                 paintPreview = region;
-                setStatus(uiText("Region filled — adjust color or hatch in Style", "領域を塗りました。色・網掛けはスタイルで調整できます"));
+                setStatus(uiText("Region filled", "領域を塗りました"));
                 render();
                 scheduleCompile();
                 return;

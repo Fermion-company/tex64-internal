@@ -29,7 +29,7 @@ export const TOOL_ACTIVITY_LABELS: Record<string, string> = {
   create_file: "本文を書いています",
   write_file: "本文を書いています",
   apply_patch: "本文を書いています",
-  get_compile_log: "組版の結果を見ています",
+  get_compile_log: "ビルドの結果を見ています",
   run_build: "紙面を組み立てています",
   propose_next_steps: "次の一手を考えています",
   ask_user: "質問を用意しています",

@@ -21,7 +21,7 @@ tree には `<base>/.installing-<年>` があり、終わるまで使わない�
 ファイルを提供するパッケージを検索・導入し、同じ文書を自動で再ビルドする。
 最大4回で打ち切り、同一パッケージを同じビルド中に再導入しない。
 
-設定 > 環境から `scheme-full`（CTAN 全パッケージ）へ昇格できる。完全版は軽量版へ
+設定 > ビルドの TeX の行から `scheme-full`（CTAN 全パッケージ）へ昇格できる。完全版は軽量版へ
 ダウングレードしない。
 
 ## 自動判定
@@ -68,7 +68,7 @@ managed root の `tex64-install.json` には `variant: "light"` を記録する�
 TeX Live は毎年春に新しい年版になる。その後、前の年の tree の tlmgr は新しい
 リポジトリから部品を入れられない（cross release）。軽量版はここで自動補完が止まる。
 
-- 設定 > 環境を開いたとき、リポジトリの `tlpkg/texlive.tlpdb` の先頭 4 KB を読み、
+- 設定 > ビルドを開いたとき、リポジトリの `tlpkg/texlive.tlpdb` の先頭 4 KB を読み、
   `depend release/<年>` から今の年版を知る（12 時間に 1 回まで、ネットワークがなければ
   何もしない）。managed tree の年より新しければ `renew: {from, to}` を報告に載せる。
 - 自動補完で tlmgr が cross release で失敗したときも、同じ確認をすぐにし直す。

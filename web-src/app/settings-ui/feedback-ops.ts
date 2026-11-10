@@ -49,7 +49,7 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
       return;
     }
     settingsFeedbackSend.disabled = runtime.state.feedbackPending;
-    settingsFeedbackSend.textContent = runtime.state.feedbackPending ? "Sending..." : "Send";
+    settingsFeedbackSend.textContent = runtime.state.feedbackPending ? "Sending…" : "Send";
   };
 
   const saveFeedbackQueue = () => {
@@ -194,7 +194,7 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     runtime.state.feedbackPending = true;
     runtime.state.feedbackInFlightId = nextItem.id;
     updateFeedbackSendState();
-    setFeedbackStatus("Submitting feedback...");
+    setFeedbackStatus("Sending…");
     const posted = runtime.deps.postToNative(
       {
         type: "feedback:send",
@@ -229,7 +229,7 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     };
     runtime.state.feedbackQueue.push(item);
     saveFeedbackQueue();
-    setFeedbackStatus("Added to send queue.");
+    setFeedbackStatus("Queued.");
     flushFeedbackQueue();
     return true;
   };

@@ -1,5 +1,5 @@
 import { aiText } from "./ai-i18n.js";
-import { setLocalizedAttribute } from "./i18n.js";
+import { canSteer, createAiChatSteering, steerTurnShape } from "./ai-chat-steer.js";
 import { createQuestionElement, readPlanRequest, readQuestionAnswer } from "./ai-chat-message.js";
 const MODE_STORAGE_KEY = "tex64.axiom.mode";
 const loadStoredMode = () => {
@@ -11,13 +11,8 @@ const loadStoredMode = () => {
         return "agent";
     }
 };
-const PLACEHOLDER_BY_MODE = {
-    agent: "Ask anything about this document. @ adds a file",
-    ask: "Ask a question. Nothing is changed",
-    plan: "Plan first. Nothing is written yet",
-};
 export const initAiChatEventBindings = (params) => {
-    const { aiChatLog, aiInput, aiSend, aiAttach, aiAttachInput, aiStatus, aiUndo, aiStop, aiChatNew, aiModeToggle, postToNative, getActiveChatId, setActiveChatId, getPendingAttachments, getChat, createChat, setChatTitle, renderHistoryList, appendMessage, removeQueuedMessage, settleLiveProposals, autoGrow, updateContextBar, requestAgentRun, buildContextPayload, clearPendingAttachments, clearMentionPaths, addImageFiles, isAiBlocked, needsLogin, requestAiAccessCheck, requestPlatformUsage, updateStatusDisplay, runningConversations, resumableConversations, pendingAgentRequests, clearThinkingMessage, upsertThinkingMessage, updateSendState, resetToNewChatState, onModeChange, scrollToBottom, } = params;
+    const { aiChatLog, aiInput, aiSend, aiAttach, aiAttachInput, aiStatus, aiUndo, aiStop, aiChatNew, aiModeToggle, postToNative, getActiveChatId, setActiveChatId, getPendingAttachments, getChat, createChat, setChatTitle, renderHistoryList, appendMessage, removeQueuedMessage, settleLiveProposals, autoGrow, updateContextBar, requestAgentRun, buildContextPayload, clearPendingAttachments, clearMentionPaths, addImageFiles, isAiBlocked, needsLogin, requestAiAccessCheck, requestPlatformUsage, updateStatusDisplay, runningConversations, resumableConversations, pendingAgentRequests, clearThinkingMessage, upsertThinkingMessage, updateSendState, resetToNewChatState, onModeChange, scrollToBottom, isCollabGuest, } = params;
     // ── Mode: Agent edits and builds, Ask only answers ──
     let mode = loadStoredMode();
     const applyModeToDom = () => {
@@ -27,10 +22,6 @@ export const initAiChatEventBindings = (params) => {
                 option.classList.toggle("is-active", active);
                 option.setAttribute("aria-checked", active ? "true" : "false");
             });
-        }
-        if (aiInput instanceof HTMLTextAreaElement) {
-            // The locale pass translates from the recorded English source.
-            setLocalizedAttribute(aiInput, "placeholder", PLACEHOLDER_BY_MODE[mode]);
         }
     };
     const setMode = (next) => {
@@ -61,15 +52,29 @@ export const initAiChatEventBindings = (params) => {
     }
     syncModeLabels();
     const buildPayload = () => buildContextPayload({ axiomMode: mode });
-    // ── Queue: a request typed while a turn runs waits behind it ──
+    // ── Queue: a request typed while a turn runs waits behind it, unless the
+    // running turn can take it as a correction (see ai-chat-steer.ts) ──
     const makeQueueId = () => `q-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 6)}`;
+    // What each turn this window started was started with; a steer must match it.
+    const runShapes = new Map();
+    const steering = createAiChatSteering({ postToNative });
+    // A turn that ended while the host was still answering a steer drains its
+    // queue once that answer is in (a refused steer joins the queue first).
+    const drainWhenSteered = new Set();
+    const enqueue = (chat, item, label) => {
+        chat.queue.push(item);
+        appendMessage({ role: "user", text: label, queued: true, queueId: item.id }, chat.id);
+    };
     const dispatchQueued = (chat, item) => {
         removeQueuedMessage(chat.id, item.id);
         chat.queue = chat.queue.filter((entry) => entry.id !== item.id);
         settleLiveProposals(chat);
         appendMessage({ role: "user", text: item.text }, chat.id);
         const sent = requestAgentRun(chat.id, item.text, item.parts, item.contextPayload);
-        if (!sent) {
+        if (sent) {
+            runShapes.set(chat.id, steerTurnShape(item.contextPayload));
+        }
+        else {
             // Put it back at the front; the reader can send it again by hand.
             chat.queue.unshift(item);
             appendMessage({ role: "user", text: item.text, queued: true, queueId: item.id }, chat.id);
@@ -82,12 +87,40 @@ export const initAiChatEventBindings = (params) => {
         const chat = getChat(chatId);
         if (!chat || runningConversations.has(chat.id))
             return;
+        if (steering.isPending(chat.id)) {
+            drainWhenSteered.add(chat.id);
+            return;
+        }
         const next = chat.queue[0];
         if (!next)
             return;
         if (isAiBlocked() || needsLogin())
             return;
         dispatchQueued(chat, next);
+    };
+    /** The host's answer to a steer: in the running turn, or in the queue. */
+    const settleSteer = (chatId, item, label, accepted) => {
+        const drain = drainWhenSteered.delete(chatId);
+        // The chat may have been rebuilt (a state refresh) or dropped (another
+        // folder) while the host answered.
+        const chat = getChat(chatId);
+        if (!chat)
+            return;
+        if (accepted) {
+            appendMessage({ role: "user", text: label }, chat.id);
+            // The work goes on below the correction.
+            if (runningConversations.has(chat.id)) {
+                clearThinkingMessage(chat.id);
+                upsertThinkingMessage(chat.id, chat.statusMessage);
+            }
+        }
+        else {
+            enqueue(chat, item, label);
+        }
+        renderHistoryList();
+        updateSendState();
+        if (drain)
+            drainQueue(chat.id);
     };
     let sendGuard = false;
     // Core submit path shared by the send button, Enter, the starting points,
@@ -142,8 +175,10 @@ export const initAiChatEventBindings = (params) => {
         const contextPayload = buildContextPayload({ axiomMode: mode, ...((_a = opts === null || opts === void 0 ? void 0 : opts.extras) !== null && _a !== void 0 ? _a : {}) });
         const userLabel = text || "The image has been sent.";
         const attachmentNote = hasAttachments ? `\n[attached images ${pendingAttachments.length}]` : "";
-        // A running turn keeps the chat: the new request waits behind it, in
-        // view, and goes out by itself when the turn ends.
+        // A running turn keeps the chat. Words typed into the composer go into
+        // that turn and show once the host has taken them; anything else, or
+        // words the host does not take, waits behind it, in view, and goes out
+        // by itself when the turn ends.
         if (runningConversations.has(chat.id) && (opts === null || opts === void 0 ? void 0 : opts.queueIfRunning) !== false) {
             const item = {
                 id: makeQueueId(),
@@ -151,8 +186,19 @@ export const initAiChatEventBindings = (params) => {
                 parts: requestParts,
                 contextPayload,
             };
-            chat.queue.push(item);
-            appendMessage({ role: "user", text: `${userLabel}${attachmentNote}`, queued: true, queueId: item.id }, chat.id);
+            const label = `${userLabel}${attachmentNote}`;
+            const steered = (opts === null || opts === void 0 ? void 0 : opts.steerIfRunning) === true &&
+                !opts.extras &&
+                canSteer({
+                    parts: requestParts,
+                    contextPayload,
+                    runningShape: runShapes.get(chat.id),
+                    queued: chat.queue.length,
+                    collabGuest: (isCollabGuest === null || isCollabGuest === void 0 ? void 0 : isCollabGuest()) === true,
+                }) &&
+                steering.steer(chat.id, requestMessage, (accepted) => settleSteer(chat.id, item, label, accepted));
+            if (!steered)
+                enqueue(chat, item, label);
             if (clearInput && aiInput instanceof HTMLTextAreaElement) {
                 aiInput.value = "";
                 autoGrow();
@@ -177,6 +223,7 @@ export const initAiChatEventBindings = (params) => {
         sendGuard = true;
         const sent = requestAgentRun(chat.id, requestMessage, requestParts, contextPayload);
         if (sent) {
+            runShapes.set(chat.id, steerTurnShape(contextPayload));
             clearPendingAttachments();
             clearMentionPaths === null || clearMentionPaths === void 0 ? void 0 : clearMentionPaths();
         }
@@ -185,7 +232,7 @@ export const initAiChatEventBindings = (params) => {
     const handleSend = () => {
         if (!(aiInput instanceof HTMLTextAreaElement))
             return;
-        submitMessage(aiInput.value, { clearInput: true });
+        submitMessage(aiInput.value, { clearInput: true, steerIfRunning: true });
     };
     if (aiSend instanceof HTMLButtonElement)
         aiSend.addEventListener("click", handleSend);
@@ -470,7 +517,7 @@ export const initAiChatEventBindings = (params) => {
                 // Keep the conversation locked until main reports a terminal state.
                 // Main may still be compiling a completed partial edit; reopening send
                 // here can replace its run token and abandon that definitive build.
-                chat.statusMessage = "Finishing partial changes...";
+                chat.statusMessage = aiText("status_finishing");
                 upsertThinkingMessage(chat.id, chat.statusMessage);
                 renderHistoryList();
                 updateSendState();
@@ -487,7 +534,7 @@ export const initAiChatEventBindings = (params) => {
                 return;
             }
             const contextToSend = buildPayload();
-            chat.statusMessage = "Thinking...";
+            chat.statusMessage = aiText("status_thinking");
             runningConversations.add(chat.id);
             resumableConversations.delete(chat.id);
             upsertThinkingMessage(chat.id, chat.statusMessage);
@@ -495,7 +542,10 @@ export const initAiChatEventBindings = (params) => {
             updateSendState();
             updateStatusDisplay();
             const posted = postToNative({ type: "agent:resume", conversationId: chat.id, context: contextToSend }, true);
-            if (!posted) {
+            if (posted) {
+                runShapes.set(chat.id, steerTurnShape(contextToSend));
+            }
+            else {
                 runningConversations.delete(chat.id);
                 resumableConversations.add(chat.id);
                 chat.statusMessage = "";
@@ -513,5 +563,13 @@ export const initAiChatEventBindings = (params) => {
                 aiInput.focus();
         });
     }
-    return { submitMessage, drainQueue, getMode: () => mode, setMode, syncModeLabels, openStepQuestion };
+    return {
+        submitMessage,
+        drainQueue,
+        handleSteerResult: (payload) => steering.handleSteerResult(payload),
+        getMode: () => mode,
+        setMode,
+        syncModeLabels,
+        openStepQuestion,
+    };
 };

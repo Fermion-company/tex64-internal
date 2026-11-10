@@ -8,6 +8,7 @@ import { createAiChatStatusController } from "./ai-chat-status.js";
 import { createContextPayloadBuilder } from "./ai-chat-context-payload.js";
 import { createContextBarUpdater } from "./ai-chat-context-bar.js";
 import { initAiChatEventBindings } from "./ai-chat-ui-events.js";
+import { collabSession } from "./collab/session.js";
 import { createHistoryController } from "./ai-chat-history.js";
 import { createAiChatAttachmentsController } from "./ai-chat-attachments.js";
 import { createAiChatIncomingHandlers } from "./ai-chat-incoming-handlers.js";
@@ -67,8 +68,8 @@ export const initAiChatUi = (context, deps) => {
         [PRO_MODEL]: "Axiom 1.0 Pro",
     };
     const MODEL_OPTIONS = [
-        { id: DEFAULT_MODEL, name: "Axiom 1.0", descKey: "model_efficient", pro: false },
-        { id: PRO_MODEL, name: "Axiom 1.0 Pro", descKey: "model_autonomous", pro: true },
+        { id: DEFAULT_MODEL, name: "Axiom 1.0", pro: false },
+        { id: PRO_MODEL, name: "Axiom 1.0 Pro", pro: true },
     ];
     const migrateLegacyModelId = (model) => model === "Axiom0.9.1"
         ? DEFAULT_MODEL
@@ -85,9 +86,7 @@ export const initAiChatUi = (context, deps) => {
         set(".ai-chat-delete-modal-title", "delete_chat");
         set("#ai-chat-delete-cancel", "cancel");
         set("#ai-chat-delete-confirm", "confirm_delete");
-        set(".ai-model-upsell-title", "upsell_title");
-        set(".ai-model-upsell-btn", "see_pro_plans");
-        // The mode pill also owns the composer placeholder (it differs per mode).
+        set(".ai-model-upsell-btn", "open_plans");
         eventApi === null || eventApi === void 0 ? void 0 : eventApi.syncModeLabels();
         voice === null || voice === void 0 ? void 0 : voice.syncLabels();
         renderEmptyState(true);
@@ -485,7 +484,8 @@ export const initAiChatUi = (context, deps) => {
         }
         if (aiInput instanceof HTMLTextAreaElement)
             aiInput.disabled = false;
-        // Attachments are allowed while a turn runs: the request queues with them.
+        // Attachments are allowed while a turn runs: the request queues with them
+        // (only plain words go into the running turn).
         if (aiAttach instanceof HTMLButtonElement)
             aiAttach.disabled = false;
         if (aiAttachInput instanceof HTMLInputElement)
@@ -1095,17 +1095,25 @@ export const initAiChatUi = (context, deps) => {
         });
         chatLog === null || chatLog === void 0 ? void 0 : chatLog.replaceChildren();
         const lastAssistant = (_a = [...chat.messages].reverse().find((msg) => msg.role === "assistant")) !== null && _a !== void 0 ? _a : null;
+        // The streamed reply need not be the last message: a correction or a
+        // queued request typed meanwhile sits below it.
+        const se = streamingMessages.get(chat.id);
+        if (se)
+            se.element = null;
         let ordinal = -1;
         chat.messages.forEach((msg) => {
             if (!chatLog)
                 return;
             if (msg.role === "assistant")
                 ordinal += 1;
-            placeInChatLog(chatLog, createMessageElement(msg, {
+            const element = createMessageElement(msg, {
                 assistantIndex: msg.role === "assistant" ? ordinal : undefined,
                 latest: msg === lastAssistant,
                 renderChanges: renderChangesForMessage(chat),
-            }));
+            });
+            if (se && msg === se.message)
+                se.element = element;
+            placeInChatLog(chatLog, element);
         });
         renderEmptyState();
         const proposals = ensureProposalsEmbedded();
@@ -1117,10 +1125,6 @@ export const initAiChatUi = (context, deps) => {
                 proposals.appendChild(buildUnifiedProposalCard(allProposals, chat, false));
             }
         }
-        const se = streamingMessages.get(chat.id);
-        const last = chatLog === null || chatLog === void 0 ? void 0 : chatLog.querySelectorAll(".ai-message");
-        if (se && last && last.length > 0)
-            se.element = last[last.length - 1];
         // Re-create thinking element in chat log if this chat is running.
         const thinking = thinkingMessages.get(chat.id);
         if (thinking) {
@@ -1228,6 +1232,7 @@ export const initAiChatUi = (context, deps) => {
         updateSendState,
         resetToNewChatState,
         scrollToBottom,
+        isCollabGuest: () => collabSession.isGuest(),
     });
     submitFromUi = (text) => eventApi === null || eventApi === void 0 ? void 0 : eventApi.submitMessage(text, { clearInput: false });
     const handleSettings = (s) => {
@@ -1338,6 +1343,7 @@ export const initAiChatUi = (context, deps) => {
         askFromPdf,
         handlePdfReverseResult,
         handleTranscribeResult: (payload) => voice.handleTranscribeResult(payload),
+        handleSteerResult: (payload) => eventApi === null || eventApi === void 0 ? void 0 : eventApi.handleSteerResult(payload),
         holdVoiceSelection: (selection) => {
             voiceSelection = selection !== null && selection !== void 0 ? selection : null;
             updateContextBar();
