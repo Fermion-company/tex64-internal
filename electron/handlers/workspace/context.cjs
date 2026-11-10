@@ -1,6 +1,5 @@
 const {
-  EXTENDED_TEXT_FILE_EXTENSIONS,
-  EXTENDED_TEXT_FILE_NAMES,
+  TEXT_FILE_EXTENSIONS,
   isExtendedTextFileName,
 } = require("../../services/text-file-types.cjs");
 const crypto = require("crypto");
@@ -104,32 +103,6 @@ const createWorkspaceContext = (deps) => {
     }
   };
 
-  const TEXT_FILE_EXTENSIONS = new Set([
-    "tex",
-    "bib",
-    "sty",
-    "cls",
-    "bst",
-    "bbx",
-    "cbx",
-    "cfg",
-    "def",
-    "lbx",
-    "ins",
-    "dtx",
-    "ltx",
-    "txt",
-    "aux",
-    "bbl",
-    "blg",
-    "log",
-    "out",
-    "toc",
-    "lof",
-    "lot",
-    "fdb_latexmk",
-    "fls",
-  ]);
   const IMAGE_FILE_EXTENSIONS = new Set([
     "png",
     "jpg",

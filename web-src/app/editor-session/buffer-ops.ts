@@ -1,7 +1,6 @@
 import {
   LATEX_FILE_EXTENSIONS,
   getFileExtension,
-  isEditableTextFilePath,
 } from "../files.js";
 import type { EditorGroupState } from "./types.js";
 import type { EditorSessionRuntime } from "./runtime.js";
@@ -36,6 +35,7 @@ export const createEditorSessionBufferOps = (
   let registeredLanguageIds: Set<string> | null = null;
 
   const getLanguageIdForPath = (path: string) => {
+    if (runtime.monacoModels.get(path)?.plainText) return "plaintext";
     const ext = getFileExtension(path);
     if (ext === "bib") {
       return "bibtex";
@@ -85,7 +85,7 @@ export const createEditorSessionBufferOps = (
     if (!monacoApi || !group.editor) {
       return;
     }
-    if (!isEditableTextFilePath(path)) {
+    if (!runtime.monacoModels.has(path)) {
       return;
     }
     const editor = group.editor as { getModel?: () => unknown };
@@ -160,6 +160,9 @@ export const createEditorSessionBufferOps = (
       (group) => group.currentFilePath === path && group.currentFileSavedContent
     )?.currentFileSavedContent;
     const baseSaved = savedContent ?? entry?.savedContent ?? groupSavedContent;
+    // Monaco hides the BOM by default. Compare the same complete UTF-8 text
+    // that the save path reads, including a BOM when the model carries one.
+    if (entry?.plainText) content = entry.model.getValue(undefined, true);
     if (baseSaved === undefined) {
       // No saved reference exists — treat content itself as saved baseline
       // but do NOT overwrite an existing entry.savedContent.
@@ -215,7 +218,7 @@ export const createEditorSessionBufferOps = (
     if (
       !group.currentFilePath ||
       !group.editor ||
-      !isEditableTextFilePath(group.currentFilePath)
+      !runtime.monacoModels.has(group.currentFilePath)
     ) {
       return;
     }

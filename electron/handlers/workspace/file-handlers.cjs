@@ -1,6 +1,7 @@
 const {
   looksBinary,
   MAX_EXTENDED_TEXT_FILE_BYTES,
+  readUnknownTextFile,
 } = require("../../services/text-file-types.cjs");
 const crypto = require("crypto");
 const path = require("path");
@@ -162,7 +163,10 @@ const createWorkspaceFileHandlers = (ctx) => {
         return;
       }
       if (!isTextFilePath(relativePath) && !isExtendedTextFilePath(relativePath)) {
-        sendOpenResult({ path: relativePath, kind: "unsupported" });
+        const content = await readUnknownTextFile(workspace.resolvePath(relativePath));
+        sendOpenResult(content === null
+          ? { path: relativePath, kind: "unsupported" }
+          : { path: relativePath, kind: "text", content, languageId: "plaintext" });
         return;
       }
       if (isExtendedTextFilePath(relativePath) && !isTextFilePath(relativePath)) {

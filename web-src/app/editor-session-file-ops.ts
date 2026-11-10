@@ -6,10 +6,8 @@ import type {
   MonacoModelEntry,
 } from "./editor-session.js";
 import {
-  isEditableTextFilePath,
   isImageFilePath,
   isPdfFilePath,
-  isTextFilePath,
 } from "./files.js";
 import { buildLineDiff } from "./diff.js";
 import { getUiLocale, uiText } from "./i18n.js";
@@ -330,7 +328,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     clearTemporaryTabs(group, path);
     group.currentFilePath = path;
     group.currentFileSavedContent = null;
-    const keepDirty = isEditableTextFilePath(path) && dirtyFiles.has(path);
+    const keepDirty = monacoModels.has(path) && dirtyFiles.has(path);
     group.isDirty = keepDirty;
     if (!keepDirty) {
       dirtyFiles.delete(path);
@@ -360,13 +358,14 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     }
   };
 
-  const ensureModelEntry = (path: string, content: string, savedContent?: string) => {
+  const ensureModelEntry = (path: string, content: string, savedContent?: string, plainText?: boolean) => {
     const monacoApi = deps.getMonacoApi();
     if (!monacoApi) {
       return null;
     }
     const entry = monacoModels.get(path);
     if (entry) {
+      if (plainText !== undefined) entry.plainText = plainText;
       rememberEditorModelPath(entry.model, path);
       trackLiveEditModel(entry.model);
       const isEntryDirty = dirtyFiles.has(path);
@@ -392,10 +391,10 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     const uri = monacoApiAny.Uri?.file ? monacoApiAny.Uri.file(path) : undefined;
     const existing = uri && monacoApiAny.editor.getModel ? monacoApiAny.editor.getModel(uri) : null;
     const model = (existing ??
-      monacoApiAny.editor.createModel(content, getLanguageIdForPath(path), uri)) as MonacoModel;
+      monacoApiAny.editor.createModel(content, plainText ? "plaintext" : getLanguageIdForPath(path), uri)) as MonacoModel;
     rememberEditorModelPath(model, path);
     trackLiveEditModel(model);
-    const nextEntry = { model, savedContent: savedContent ?? content };
+    const nextEntry = { model, savedContent: savedContent ?? content, plainText };
     monacoModels.set(path, nextEntry);
     updateDirtyState(path, content, nextEntry.savedContent);
     return nextEntry;
@@ -405,7 +404,8 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     group: EditorGroupState,
     path: string,
     content: string,
-    savedContent?: string
+    savedContent?: string,
+    plainText?: boolean
   ) => {
     const monacoApi = deps.getMonacoApi();
     if (!group.editor || !monacoApi) {
@@ -419,7 +419,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       restoreViewState?: (state: unknown) => void;
       focus?: () => void;
     };
-    const entry = ensureModelEntry(path, content, savedContent ?? content);
+    const entry = ensureModelEntry(path, content, savedContent ?? content, plainText);
     clearTemporaryTabs(group, path);
     group.viewer.hideViewer();
     if (isActiveGroup(group)) {
@@ -585,7 +585,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         keepMine.addEventListener("click", () => {
           const conflict = contentConflicts.get(path);
           if (!conflict) return;
-          const mine = entry?.model.getValue() ?? editor.getValue?.() ?? currentValue;
+          const mine = entry?.model.getValue(undefined, entry.plainText) ?? editor.getValue?.() ?? currentValue;
           keepMine.disabled = true;
           useAxiom.disabled = true;
           void savePathContent(
@@ -862,7 +862,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
   const saveCurrentFileInternal = () => {
     const activeGroup = getActiveGroup();
     const activePath = activeGroup.currentFilePath;
-    if (!activePath || !activeGroup.editor || !isEditableTextFilePath(activePath)) {
+    if (!activePath || !activeGroup.editor || !monacoModels.has(activePath)) {
       const message = activePath
         ? "This file format cannot be edited."
         : "No files have been selected to save.";
@@ -873,7 +873,8 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       return deps.collab.flush();
     }
     const editor = activeGroup.editor as { getValue: () => string };
-    const content = editor.getValue();
+    const entry = monacoModels.get(activePath);
+    const content = entry?.plainText ? entry.model.getValue(undefined, true) : editor.getValue();
     if (contentConflicts.has(activePath)) {
       reportSaveError(
         uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。",
@@ -918,7 +919,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
   };
 
   const saveDirtyFilesOnce = async () => {
-    const allDirty = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
+    const allDirty = Array.from(dirtyFiles).filter((path) => monacoModels.has(path));
     const boundDirty = allDirty.filter((path) => deps.collab?.isBound(path));
     const dirtyPaths = allDirty.filter((path) => !deps.collab?.isBound(path));
     if (dirtyPaths.length === 0) {
@@ -939,7 +940,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     const readBuffer = (path: string): string | null => {
       const entry = monacoModels.get(path);
       if (entry?.model?.getValue) {
-        return entry.model.getValue();
+        return entry.model.getValue(undefined, entry.plainText);
       }
       const owner = Object.values(editorGroups).find((group) => group.currentFilePath === path);
       if (!owner?.editor) {
@@ -995,7 +996,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       saveRetryTimer = null;
       saveRetryDelayMs = 0;
     }
-    const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
+    const dirtyPaths = Array.from(dirtyFiles).filter((path) => monacoModels.has(path));
     const failed = Array.from(saveErrors.entries());
     const conflicted = dirtyPaths.filter((path) => contentConflicts.has(path));
     if (failed.length > 0) {
@@ -1056,6 +1057,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     content?: string;
     error?: string;
     kind?: "text" | "image" | "pdf" | "unsupported";
+    languageId?: "plaintext";
     data?: string;
     mimeType?: string;
     livePreview?: { generation: number; documentEpoch: number };
@@ -1089,15 +1091,14 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       return;
     }
     const path = payload.path;
-    const kind =
-      payload.kind === "text" && !isTextFilePath(path)
-        ? "unsupported"
-        : payload.kind ??
+    // Main owns text classification. Older internal senders provide content
+    // without a kind (new files, settings, imported documents).
+    const kind = payload.kind ??
       (isPdfFilePath(path)
         ? "pdf"
         : isImageFilePath(path)
         ? "image"
-        : isTextFilePath(path)
+        : typeof payload.content === "string"
         ? "text"
         : "unsupported");
     if (pendingIndex < 0) {
@@ -1134,7 +1135,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         ]);
         return;
       }
-      const entry = ensureModelEntry(path, payload.content ?? "", payload.content ?? "");
+      const entry = ensureModelEntry(path, payload.content ?? "", payload.content ?? "", payload.languageId === "plaintext");
       if (!entry) {
         deps.updateFallback("Editor is not ready.");
         return;
@@ -1158,7 +1159,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       return;
     }
     const content = payload.content ?? "";
-    applyFileContent(targetGroup, path, content, content);
+    applyFileContent(targetGroup, path, content, content, payload.languageId === "plaintext");
   };
 
   const handleSaveResult = (payload: {

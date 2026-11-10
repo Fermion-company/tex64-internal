@@ -1,30 +1,3 @@
-export const TEXT_FILE_EXTENSIONS = new Set([
-    "tex",
-    "bib",
-    "sty",
-    "cls",
-    "bst",
-    "bbx",
-    "cbx",
-    "cfg",
-    "def",
-    "lbx",
-    "ins",
-    "dtx",
-    "ltx",
-    "txt",
-    "md",
-    "aux",
-    "bbl",
-    "blg",
-    "log",
-    "out",
-    "toc",
-    "lof",
-    "lot",
-    "fdb_latexmk",
-    "fls",
-]);
 export const LATEX_FILE_EXTENSIONS = new Set([
     "tex",
     "sty",
@@ -77,7 +50,5 @@ export const getFileExtension = (value) => {
     }
     return name.slice(index + 1).toLowerCase();
 };
-export const isTextFilePath = (path) => TEXT_FILE_EXTENSIONS.has(getFileExtension(path));
-export const isEditableTextFilePath = isTextFilePath;
 export const isImageFilePath = (path) => IMAGE_FILE_EXTENSIONS.has(getFileExtension(path));
 export const isPdfFilePath = (path) => getFileExtension(path) === "pdf";
