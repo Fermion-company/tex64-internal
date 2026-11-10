@@ -8,21 +8,45 @@ const deferred = () => { let resolve; const promise = new Promise(r => { resolve
 const options = (ensureAccess) => ({ engineDir: "/tmp/tex64-tdom-lifecycle-fixture", existsSync: () => true, port: 49739,
   fileAccess: { ensureAccess, probeIfAllowed: () => true }, pollIntervalMs: 1, startTimeoutMs: 2000 });
 
-test("tdom-engine checkout wins while the old tdom-core name remains a fallback", () => {
+test("bundled engine wins over home checkouts unless explicitly overridden", t => {
+  const envKeys = ["TDOM_ENGINE_DIR", "TEX64_TDOM_ENGINE_DIR"];
+  const savedEnv = envKeys.map(key => process.env[key]);
+  t.after(() => envKeys.forEach((key, index) => {
+    if (savedEnv[index] === undefined) delete process.env[key];
+    else process.env[key] = savedEnv[index];
+  }));
+  envKeys.forEach(key => delete process.env[key]);
   const modern = "/fake/home/tdom-engine";
   const legacy = "/fake/home/tdom-core";
+  const resourcesPath = "/fake/app/Resources";
+  const bundled = `${resourcesPath}/tdom-engine`;
+  const unpacked = `${resourcesPath}/app.asar.unpacked/Resources/tdom-engine`;
   const marker = (directory) => `${directory}/server.js`;
-  const service = new TdomEngineService({
+  const probes = [];
+  const available = new Set([modern, legacy, bundled].map(marker));
+  const fixture = {
     homeDir: "/fake/home",
-    existsSync: (candidate) => candidate === marker(modern) || candidate === marker(legacy),
-  });
-  assert.equal(service.engineDir, modern);
+    existsSync: candidate => { probes.push(candidate); return available.has(candidate); },
+  };
+  const service = new TdomEngineService({ ...fixture, resourcesPath });
+  assert.equal(service.engineDir, bundled);
+  assert.equal(service.isAvailable(), true);
+  assert.equal(probes.some(candidate => candidate.startsWith("/fake/home/")), false);
 
-  const fallback = new TdomEngineService({
-    homeDir: "/fake/home",
-    existsSync: (candidate) => candidate === marker(legacy),
-  });
-  assert.equal(fallback.engineDir, legacy);
+  available.add(marker(unpacked));
+  assert.equal(new TdomEngineService({ ...fixture, resourcesPath }).engineDir, unpacked);
+  const missing = new TdomEngineService(fixture);
+  assert.equal(missing.engineDir, null); // Neither home checkout is an implicit fallback.
+  assert.equal(missing.isAvailable(), false);
+  available.delete(marker(unpacked));
+  available.delete(marker(bundled));
+  assert.equal(new TdomEngineService({ ...fixture, resourcesPath }).isAvailable(), false);
+
+  assert.equal(new TdomEngineService({ ...fixture, resourcesPath, engineDir: modern }).engineDir, modern);
+  process.env.TEX64_TDOM_ENGINE_DIR = legacy;
+  assert.equal(new TdomEngineService({ ...fixture, resourcesPath }).engineDir, legacy);
+  process.env.TDOM_ENGINE_DIR = modern;
+  assert.equal(new TdomEngineService({ ...fixture, resourcesPath, engineDir: legacy }).engineDir, modern);
 });
 
 test("history stop invalidates a start still waiting for access and allows a new start", async () => {

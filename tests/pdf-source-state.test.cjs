@@ -64,19 +64,39 @@ test("ordinary PDF window sends persistent source state on reload and ready, sco
   manager.setWorkspaceRoot(root);
   manager.show(pdf);
   manager.markRestored(root, "boundary-1");
+  // Live/build messages can follow the source state. Check fresh, typed
+  // messages from each action so an old notification cannot satisfy a reload.
+  const expectState = (type, needsRebuild) => {
+    const matching = messages.filter(message => message.type === type);
+    assert.equal(matching.length, 1, `expected one fresh ${type} message`);
+    assert.equal(matching[0].payload.path, pdf);
+    assert.equal(matching[0].payload.needsRebuild, needsRebuild);
+  };
+  messages.length = 0;
   manager.markReady();
-  assert.equal(messages.find(m => m.type === "open").payload.needsRebuild, true);
+  expectState("open", true);
+  expectState("source-state", true);
+  messages.length = 0;
   manager.show(pdf);
-  assert.equal(messages.at(-1).payload.needsRebuild, true);
+  expectState("open", true);
+  messages.length = 0;
   manager.markBuilt(root, path.join(root, "another.pdf"));
-  assert.equal(messages.at(-1).payload.needsRebuild, true);
+  expectState("source-state", true);
+  messages.length = 0;
   manager.markBuilt(root, pdf);
-  assert.equal(messages.at(-1).payload.needsRebuild, false);
+  expectState("source-state", false);
+  messages.length = 0;
   manager.markRestored(path.join(directory, "other-project"), "other-boundary");
-  assert.equal(messages.at(-1).payload.needsRebuild, false);
+  expectState("source-state", false);
+  messages.length = 0;
   manager.markRestored(root, "boundary-2");
+  expectState("source-state", true);
+  messages.length = 0;
   manager.show(pdf, { reload: false });
-  assert.equal(messages.at(-1).payload.needsRebuild, true);
+  assert.equal(messages.some(message => message.type === "open"), false);
+  messages.length = 0;
+  manager.markReady();
+  expectState("source-state", true);
 });
 
 test("embedded viewer retains restore warning across frame reload and scopes identical names to their workspace", async () => {
@@ -86,7 +106,7 @@ test("embedded viewer retains restore warning across frame reload and scopes ide
   const exported = {}; const listeners = [];
   class Element {}
   class Frame extends Element { constructor() { super(); this.src = ""; this.messages = []; this.contentWindow = { postMessage: m => this.messages.push(m.payload) }; } removeAttribute() { this.src = ""; } }
-  const window = { atob: globalThis.atob, location: { href: "https://tex64.test/index.html" }, addEventListener: (_event, callback) => listeners.push(callback) };
+  const window = { atob: globalThis.atob, location: { href: "https://tex64.test/index.html" }, addEventListener: (event, callback) => { if (event === "message") listeners.push(callback); } };
   new Function("exports", "require", "window", "document", "HTMLElement", "HTMLIFrameElement", "HTMLImageElement", compiled)(
     exported, () => ({ IMAGE_MIME_TYPES: new Map(), getFileExtension: () => "pdf" }), window, { activeElement: null }, Element, Frame, class extends Element {},
   );
@@ -94,21 +114,42 @@ test("embedded viewer retains restore warning across frame reload and scopes ide
   const viewer = exported.createViewer({ editorViewer: null, editorViewerImage: null, editorViewerPdf: frame, editorHost: null });
   const root = "/project-a";
   const source = { rootPath: root, requiresRebuild: true, rebuiltPaths: [] };
+  const ready = () => listeners.forEach(listener => listener({ source: frame.contentWindow, data: { source: "tex64-pdf", payload: { type: "ready" } } }));
+  const expectState = (type, needsRebuild) => {
+    const matching = frame.messages.filter(message => message.type === type);
+    assert.equal(matching.length, 1, `expected one fresh ${type} message`);
+    assert.equal(matching[0].payload.path, "main.pdf");
+    assert.equal(matching[0].payload.needsRebuild, needsRebuild);
+    frame.messages.length = 0;
+  };
   exported.updatePdfSourceState(source, true);
   viewer.showPdfViewer("main.pdf", Buffer.from("%PDF").toString("base64"));
-  listeners.forEach(listener => listener({ source: frame.contentWindow, data: { source: "tex64-pdf", payload: { type: "ready" } } }));
-  assert.equal(frame.messages.find(m => m.type === "open").payload.needsRebuild, true);
+  ready();
+  expectState("open", true);
+  viewer.hideViewer();
+  viewer.showPdfViewer("main.pdf", Buffer.from("%PDF").toString("base64"));
+  assert.equal(frame.messages.length, 0); // Reload waits for the new frame.
+  ready();
+  expectState("open", true);
+  // A URL without a scoped target cannot take ownership of a PDF.
   viewer.setLivePreview("http://127.0.0.1:1234", 1);
+  assert.equal(frame.messages.length, 0);
+  const target = { workspaceRoot: root, pdfPath: "main.pdf" };
+  viewer.setLivePreview("http://127.0.0.1:1234", 1, target);
+  assert.deepEqual(frame.messages.splice(0), [{ type: "live", payload: {
+    url: "http://127.0.0.1:1234", generation: 1, target, hold: false, expectedSrcRev: null,
+  } }]);
   exported.updatePdfSourceState({ rootPath: "/project-b", requiresRebuild: false, rebuiltPaths: [] }, true);
-  assert.equal(frame.messages.at(-1).payload.needsRebuild, true); // Existing viewer still belongs to A.
+  expectState("source-state", true); // Existing viewer still belongs to A.
   viewer.setLivePreview(null, 2);
-  assert.equal(frame.messages.at(-1).type, "live");
-  assert.equal(frame.messages.at(-1).payload, null);
+  assert.deepEqual(frame.messages.splice(0), [{ type: "live", payload: null }]);
   exported.updatePdfSourceState({ ...source, rebuiltPaths: ["/project-a/another.pdf"] });
-  assert.equal(frame.messages.at(-1).payload.needsRebuild, true);
+  expectState("source-state", true);
   exported.updatePdfSourceState({ ...source, rebuiltPaths: ["/project-a/main.pdf"] });
-  assert.equal(frame.messages.at(-1).payload.needsRebuild, false);
+  expectState("source-state", false);
+  exported.updatePdfSourceState(source); // A is stale again; B must stay clear.
+  expectState("source-state", true);
   viewer.showPdfViewer("main.pdf", Buffer.from("%PDF").toString("base64")); // New B tab same relative name.
-  assert.equal(frame.messages.at(-1).payload.needsRebuild, false);
+  expectState("open", false);
   viewer.hideViewer();
 });

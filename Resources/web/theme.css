@@ -3201,6 +3201,23 @@ html[lang="ja"] .settings-page .panel-button {
   flex-wrap: nowrap;
 }
 
+/* Keep profile selection and creation together at the head of their card. */
+.panel[data-panel="settings"] .settings-control:has(#settings-build-profile) {
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.panel[data-panel="settings"] #settings-build-profile {
+  min-width: 0;
+  width: 200px;
+}
+
+.panel[data-panel="settings"] #settings-build-profile-add {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 /* Settings Select */
 .settings-select {
   width: 100%;
