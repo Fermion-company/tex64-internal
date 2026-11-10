@@ -4,12 +4,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
 
-function verifyPackagedShim({ appOutDir, electronPlatformName, arch }) {
+function verifyPackagedShim({ appOutDir, electronPlatformName, arch, packager }) {
   if (electronPlatformName !== "darwin") return;
   // electron-builder uses builder-util's numeric Arch enum (x64=1, arm64=3).
   const target = ({ 1: "x64", 3: "arm64" })[arch];
   if (!target) throw new Error(`Unsupported TDOM package architecture: ${arch}`);
-  const dir = path.join(appOutDir, "TeX64.app/Contents/Resources/app.asar.unpacked/Resources/tdom-engine/engine/checkpoint");
+  // The bundle is named after productName, which a local beta build overrides.
+  const appName = `${packager?.appInfo?.productFilename || "TeX64"}.app`;
+  const dir = path.join(appOutDir, appName, "Contents/Resources/app.asar.unpacked/Resources/tdom-engine/engine/checkpoint");
   const so = path.join(dir, `prebuilt/tdomfork-darwin-${target}.so`);
   const hash = createHash("sha256").update(fs.readFileSync(path.join(dir, "tdomfork.c"))).digest("hex");
   if (fs.readFileSync(`${so}.sha256`, "utf8").trim() !== hash) {
