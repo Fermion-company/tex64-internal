@@ -32,7 +32,7 @@ export type EditorGroupState = {
 
 export type MonacoModelContentChange = { rangeOffset: number; rangeLength: number; text: string };
 export type MonacoModel = {
-  getValue: () => string;
+  getValue: (eol?: number, preserveBOM?: boolean) => string;
   getEOL?: () => string;
   setValue: (value: string) => void;
   onDidChangeContent?: (listener: (event: {
@@ -48,7 +48,7 @@ export type MonacoModel = {
     cursorStateComputer: () => unknown[] | null
   ) => unknown;
 };
-export type MonacoModelEntry = { model: MonacoModel; savedContent: string };
+export type MonacoModelEntry = { model: MonacoModel; savedContent: string; plainText?: boolean };
 
 export type LivePreviewEditPayload = {
   sessionId: string;
@@ -248,6 +248,7 @@ export type EditorSessionApi = {
     content?: string;
     error?: string;
     kind?: "text" | "image" | "pdf" | "unsupported";
+    languageId?: "plaintext";
     data?: string;
     mimeType?: string;
     livePreview?: { generation: number; documentEpoch: number };

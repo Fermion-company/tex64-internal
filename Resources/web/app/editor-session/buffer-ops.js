@@ -1,4 +1,4 @@
-import { LATEX_FILE_EXTENSIONS, getFileExtension, isEditableTextFilePath, } from "../files.js";
+import { LATEX_FILE_EXTENSIONS, getFileExtension, } from "../files.js";
 const LANGUAGE_ID_ALIASES = {
     jsonc: "json", json5: "json",
     toml: "ini", conf: "ini", env: "ini", editorconfig: "ini",
@@ -12,7 +12,9 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
     let languageLookup = null;
     let registeredLanguageIds = null;
     const getLanguageIdForPath = (path) => {
-        var _a, _b, _c, _d, _e;
+        var _a, _b, _c, _d, _e, _f;
+        if ((_a = runtime.monacoModels.get(path)) === null || _a === void 0 ? void 0 : _a.plainText)
+            return "plaintext";
         const ext = getFileExtension(path);
         if (ext === "bib") {
             return "bibtex";
@@ -21,7 +23,7 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
             return "latex";
         }
         const monacoApi = runtime.deps.getMonacoApi();
-        const languages = (_b = (_a = monacoApi === null || monacoApi === void 0 ? void 0 : monacoApi.languages) === null || _a === void 0 ? void 0 : _a.getLanguages) === null || _b === void 0 ? void 0 : _b.call(_a);
+        const languages = (_c = (_b = monacoApi === null || monacoApi === void 0 ? void 0 : monacoApi.languages) === null || _b === void 0 ? void 0 : _b.getLanguages) === null || _c === void 0 ? void 0 : _c.call(_b);
         if (!languages) {
             return "plaintext";
         }
@@ -39,12 +41,12 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
                 });
             });
         }
-        const basename = (_c = path.split("/").pop()) !== null && _c !== void 0 ? _c : path;
-        const directMatch = (_d = languageLookup.get(`ext:.${ext.toLowerCase()}`)) !== null && _d !== void 0 ? _d : languageLookup.get(`name:${basename}`);
+        const basename = (_d = path.split("/").pop()) !== null && _d !== void 0 ? _d : path;
+        const directMatch = (_e = languageLookup.get(`ext:.${ext.toLowerCase()}`)) !== null && _e !== void 0 ? _e : languageLookup.get(`name:${basename}`);
         if (directMatch) {
             return directMatch;
         }
-        const alias = (_e = LANGUAGE_ID_ALIASES[ext.toLowerCase()]) !== null && _e !== void 0 ? _e : LANGUAGE_ID_ALIASES[basename.toLowerCase().replace(/^\./, "")];
+        const alias = (_f = LANGUAGE_ID_ALIASES[ext.toLowerCase()]) !== null && _f !== void 0 ? _f : LANGUAGE_ID_ALIASES[basename.toLowerCase().replace(/^\./, "")];
         return alias && (registeredLanguageIds === null || registeredLanguageIds === void 0 ? void 0 : registeredLanguageIds.has(alias)) ? alias : "plaintext";
     };
     const setEditorLanguage = (group, path) => {
@@ -53,7 +55,7 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
         if (!monacoApi || !group.editor) {
             return;
         }
-        if (!isEditableTextFilePath(path)) {
+        if (!runtime.monacoModels.has(path)) {
             return;
         }
         const editor = group.editor;
@@ -120,6 +122,10 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
         const entry = runtime.monacoModels.get(path);
         const groupSavedContent = (_a = Array.from(Object.values(runtime.editorGroups)).find((group) => group.currentFilePath === path && group.currentFileSavedContent)) === null || _a === void 0 ? void 0 : _a.currentFileSavedContent;
         const baseSaved = (_b = savedContent !== null && savedContent !== void 0 ? savedContent : entry === null || entry === void 0 ? void 0 : entry.savedContent) !== null && _b !== void 0 ? _b : groupSavedContent;
+        // Monaco hides the BOM by default. Compare the same complete UTF-8 text
+        // that the save path reads, including a BOM when the model carries one.
+        if (entry === null || entry === void 0 ? void 0 : entry.plainText)
+            content = entry.model.getValue(undefined, true);
         if (baseSaved === undefined) {
             // No saved reference exists — treat content itself as saved baseline
             // but do NOT overwrite an existing entry.savedContent.
@@ -175,7 +181,7 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
     const cacheCurrentBuffer = (group) => {
         if (!group.currentFilePath ||
             !group.editor ||
-            !isEditableTextFilePath(group.currentFilePath)) {
+            !runtime.monacoModels.has(group.currentFilePath)) {
             return;
         }
         const editor = group.editor;

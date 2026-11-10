@@ -1,4 +1,4 @@
-import { isEditableTextFilePath, isImageFilePath, isPdfFilePath, isTextFilePath, } from "./files.js";
+import { isImageFilePath, isPdfFilePath, } from "./files.js";
 import { buildLineDiff } from "./diff.js";
 import { getUiLocale, uiText } from "./i18n.js";
 import { trackLiveEditModel } from "./editor-session/live-edit-history.js";
@@ -205,7 +205,7 @@ export const createEditorSessionFileOps = (ctx) => {
         clearTemporaryTabs(group, path);
         group.currentFilePath = path;
         group.currentFileSavedContent = null;
-        const keepDirty = isEditableTextFilePath(path) && dirtyFiles.has(path);
+        const keepDirty = monacoModels.has(path) && dirtyFiles.has(path);
         group.isDirty = keepDirty;
         if (!keepDirty) {
             dirtyFiles.delete(path);
@@ -232,7 +232,7 @@ export const createEditorSessionFileOps = (ctx) => {
             deps.fileTree.setTreeFocus(false);
         }
     };
-    const ensureModelEntry = (path, content, savedContent) => {
+    const ensureModelEntry = (path, content, savedContent, plainText) => {
         var _a, _b;
         const monacoApi = deps.getMonacoApi();
         if (!monacoApi) {
@@ -240,6 +240,8 @@ export const createEditorSessionFileOps = (ctx) => {
         }
         const entry = monacoModels.get(path);
         if (entry) {
+            if (plainText !== undefined)
+                entry.plainText = plainText;
             rememberEditorModelPath(entry.model, path);
             trackLiveEditModel(entry.model);
             const isEntryDirty = dirtyFiles.has(path);
@@ -258,15 +260,15 @@ export const createEditorSessionFileOps = (ctx) => {
         // documents and resolve cross-file references (\input, .bib) by path.
         const uri = ((_b = monacoApiAny.Uri) === null || _b === void 0 ? void 0 : _b.file) ? monacoApiAny.Uri.file(path) : undefined;
         const existing = uri && monacoApiAny.editor.getModel ? monacoApiAny.editor.getModel(uri) : null;
-        const model = (existing !== null && existing !== void 0 ? existing : monacoApiAny.editor.createModel(content, getLanguageIdForPath(path), uri));
+        const model = (existing !== null && existing !== void 0 ? existing : monacoApiAny.editor.createModel(content, plainText ? "plaintext" : getLanguageIdForPath(path), uri));
         rememberEditorModelPath(model, path);
         trackLiveEditModel(model);
-        const nextEntry = { model, savedContent: savedContent !== null && savedContent !== void 0 ? savedContent : content };
+        const nextEntry = { model, savedContent: savedContent !== null && savedContent !== void 0 ? savedContent : content, plainText };
         monacoModels.set(path, nextEntry);
         updateDirtyState(path, content, nextEntry.savedContent);
         return nextEntry;
     };
-    const applyFileContent = (group, path, content, savedContent) => {
+    const applyFileContent = (group, path, content, savedContent, plainText) => {
         var _a, _b, _c;
         const monacoApi = deps.getMonacoApi();
         if (!group.editor || !monacoApi) {
@@ -274,7 +276,7 @@ export const createEditorSessionFileOps = (ctx) => {
             return;
         }
         const editor = group.editor;
-        const entry = ensureModelEntry(path, content, savedContent !== null && savedContent !== void 0 ? savedContent : content);
+        const entry = ensureModelEntry(path, content, savedContent !== null && savedContent !== void 0 ? savedContent : content, plainText);
         clearTemporaryTabs(group, path);
         group.viewer.hideViewer();
         if (isActiveGroup(group)) {
@@ -404,7 +406,7 @@ export const createEditorSessionFileOps = (ctx) => {
                     const conflict = contentConflicts.get(path);
                     if (!conflict)
                         return;
-                    const mine = (_c = (_a = entry === null || entry === void 0 ? void 0 : entry.model.getValue()) !== null && _a !== void 0 ? _a : (_b = editor.getValue) === null || _b === void 0 ? void 0 : _b.call(editor)) !== null && _c !== void 0 ? _c : currentValue;
+                    const mine = (_c = (_a = entry === null || entry === void 0 ? void 0 : entry.model.getValue(undefined, entry.plainText)) !== null && _a !== void 0 ? _a : (_b = editor.getValue) === null || _b === void 0 ? void 0 : _b.call(editor)) !== null && _c !== void 0 ? _c : currentValue;
                     keepMine.disabled = true;
                     useAxiom.disabled = true;
                     void savePathContent(path, mine, 8000, conflict.diskContent === null ? null : (_d = monacoModels.get(path)) === null || _d === void 0 ? void 0 : _d.savedContent)
@@ -652,7 +654,7 @@ export const createEditorSessionFileOps = (ctx) => {
         var _a;
         const activeGroup = getActiveGroup();
         const activePath = activeGroup.currentFilePath;
-        if (!activePath || !activeGroup.editor || !isEditableTextFilePath(activePath)) {
+        if (!activePath || !activeGroup.editor || !monacoModels.has(activePath)) {
             const message = activePath
                 ? "This file format cannot be edited."
                 : "No files have been selected to save.";
@@ -663,7 +665,8 @@ export const createEditorSessionFileOps = (ctx) => {
             return deps.collab.flush();
         }
         const editor = activeGroup.editor;
-        const content = editor.getValue();
+        const entry = monacoModels.get(activePath);
+        const content = (entry === null || entry === void 0 ? void 0 : entry.plainText) ? entry.model.getValue(undefined, true) : editor.getValue();
         if (contentConflicts.has(activePath)) {
             reportSaveError(uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。"));
             return Promise.resolve(false);
@@ -702,7 +705,7 @@ export const createEditorSessionFileOps = (ctx) => {
         return saveDirtyAgain;
     };
     const saveDirtyFilesOnce = async () => {
-        const allDirty = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
+        const allDirty = Array.from(dirtyFiles).filter((path) => monacoModels.has(path));
         const boundDirty = allDirty.filter((path) => { var _a; return (_a = deps.collab) === null || _a === void 0 ? void 0 : _a.isBound(path); });
         const dirtyPaths = allDirty.filter((path) => { var _a; return !((_a = deps.collab) === null || _a === void 0 ? void 0 : _a.isBound(path)); });
         if (dirtyPaths.length === 0) {
@@ -724,7 +727,7 @@ export const createEditorSessionFileOps = (ctx) => {
             var _a, _b, _c;
             const entry = monacoModels.get(path);
             if ((_a = entry === null || entry === void 0 ? void 0 : entry.model) === null || _a === void 0 ? void 0 : _a.getValue) {
-                return entry.model.getValue();
+                return entry.model.getValue(undefined, entry.plainText);
             }
             const owner = Object.values(editorGroups).find((group) => group.currentFilePath === path);
             if (!(owner === null || owner === void 0 ? void 0 : owner.editor)) {
@@ -778,7 +781,7 @@ export const createEditorSessionFileOps = (ctx) => {
             saveRetryTimer = null;
             saveRetryDelayMs = 0;
         }
-        const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
+        const dirtyPaths = Array.from(dirtyFiles).filter((path) => monacoModels.has(path));
         const failed = Array.from(saveErrors.entries());
         const conflicted = dirtyPaths.filter((path) => contentConflicts.has(path));
         if (failed.length > 0) {
@@ -860,15 +863,15 @@ export const createEditorSessionFileOps = (ctx) => {
             return;
         }
         const path = payload.path;
-        const kind = payload.kind === "text" && !isTextFilePath(path)
-            ? "unsupported"
-            : (_b = payload.kind) !== null && _b !== void 0 ? _b : (isPdfFilePath(path)
-                ? "pdf"
-                : isImageFilePath(path)
-                    ? "image"
-                    : isTextFilePath(path)
-                        ? "text"
-                        : "unsupported");
+        // Main owns text classification. Older internal senders provide content
+        // without a kind (new files, settings, imported documents).
+        const kind = (_b = payload.kind) !== null && _b !== void 0 ? _b : (isPdfFilePath(path)
+            ? "pdf"
+            : isImageFilePath(path)
+                ? "image"
+                : typeof payload.content === "string"
+                    ? "text"
+                    : "unsupported");
         if (pendingIndex < 0) {
             if (kind === "pdf") {
                 setSplitViewEnabled(true);
@@ -903,7 +906,7 @@ export const createEditorSessionFileOps = (ctx) => {
                 ]);
                 return;
             }
-            const entry = ensureModelEntry(path, (_c = payload.content) !== null && _c !== void 0 ? _c : "", (_d = payload.content) !== null && _d !== void 0 ? _d : "");
+            const entry = ensureModelEntry(path, (_c = payload.content) !== null && _c !== void 0 ? _c : "", (_d = payload.content) !== null && _d !== void 0 ? _d : "", payload.languageId === "plaintext");
             if (!entry) {
                 deps.updateFallback("Editor is not ready.");
                 return;
@@ -921,7 +924,7 @@ export const createEditorSessionFileOps = (ctx) => {
             return;
         }
         const content = (_e = payload.content) !== null && _e !== void 0 ? _e : "";
-        applyFileContent(targetGroup, path, content, content);
+        applyFileContent(targetGroup, path, content, content, payload.languageId === "plaintext");
     };
     const handleSaveResult = (payload) => {
         var _a, _b;
