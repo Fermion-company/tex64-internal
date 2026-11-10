@@ -45,7 +45,7 @@ concurrency:
 
 env:
   TDOM_ENGINE_REPOSITORY: https://github.com/Fermion-company/tdom-engine.git
-  TDOM_ENGINE_COMMIT: 828f517876972d29a6a30fa480d10d80d4a04359
+  TDOM_ENGINE_COMMIT: 55e59398e95857eb5beaf51495853e27a51b2c95
 
 jobs:
   prepare_release:
@@ -70,6 +70,8 @@ jobs:
 
   build:
     name: Build (macOS ${{ matrix.arch }})
+    env:
+      TEX64_TARGET_ARCH: ${{ matrix.arch }}
     if: ${{ inputs.windows_only != true }}
     needs: prepare_release
     runs-on: ${{ matrix.runner }}

@@ -178,7 +178,7 @@ export const createViewer = (deps) => {
         }
     };
     window.addEventListener("message", (event) => {
-        var _a, _b, _c, _d, _e;
+        var _a, _b, _c, _d, _e, _f, _g;
         if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
             return;
         }
@@ -250,12 +250,24 @@ export const createViewer = (deps) => {
             (_c = deps.onPdfClose) === null || _c === void 0 ? void 0 : _c.call(deps);
             return;
         }
+        if (payload.type === "live-runtime-error") {
+            if (!matchingLivePreview())
+                return;
+            const error = payload.payload;
+            if (error == null)
+                (_d = deps.onLiveRuntimeError) === null || _d === void 0 ? void 0 : _d.call(deps, null);
+            else if ((error.code === "TDOM_SHIM_UNAVAILABLE" || error.code === "TDOM_STRUCTURED_BOOT_FAILED") &&
+                typeof error.message === "string" && error.message.trim()) {
+                (_e = deps.onLiveRuntimeError) === null || _e === void 0 ? void 0 : _e.call(deps, error.message);
+            }
+            return;
+        }
         if (payload.type === "live-source") {
             if (!matchingLivePreview())
                 return;
             const request = parseLiveSourceRequest(payload.payload);
             if (request)
-                (_d = deps.onLiveSourceRequest) === null || _d === void 0 ? void 0 : _d.call(deps, request);
+                (_f = deps.onLiveSourceRequest) === null || _f === void 0 ? void 0 : _f.call(deps, request);
             return;
         }
         if (payload.type === "live-edit-anchor") {
@@ -289,10 +301,12 @@ export const createViewer = (deps) => {
                 return;
             const request = parseLiveEditRequest(payload.payload);
             if (request)
-                (_e = deps.onLiveEditRequest) === null || _e === void 0 ? void 0 : _e.call(deps, request);
+                (_g = deps.onLiveEditRequest) === null || _g === void 0 ? void 0 : _g.call(deps, request);
         }
     });
     const clearViewerUrl = () => {
+        var _a;
+        (_a = deps.onLiveRuntimeError) === null || _a === void 0 ? void 0 : _a.call(deps, null);
         if (viewerBlobUrl) {
             URL.revokeObjectURL(viewerBlobUrl);
             viewerBlobUrl = null;
@@ -443,12 +457,17 @@ export const createViewer = (deps) => {
         postPdfMessage({ type: "sync", payload });
     };
     const setLivePreview = (url, generation = 0, target = null, hold = false, expectedSrcRev = null) => {
+        var _a;
         const next = url && target ? { url, generation, target, hold, expectedSrcRev } : null;
         if ((livePreview === null || livePreview === void 0 ? void 0 : livePreview.url) === (next === null || next === void 0 ? void 0 : next.url) && (livePreview === null || livePreview === void 0 ? void 0 : livePreview.generation) === (next === null || next === void 0 ? void 0 : next.generation) &&
             (livePreview === null || livePreview === void 0 ? void 0 : livePreview.hold) === (next === null || next === void 0 ? void 0 : next.hold) && (livePreview === null || livePreview === void 0 ? void 0 : livePreview.expectedSrcRev) === (next === null || next === void 0 ? void 0 : next.expectedSrcRev) &&
             (livePreview === null || livePreview === void 0 ? void 0 : livePreview.target.workspaceRoot) === (next === null || next === void 0 ? void 0 : next.target.workspaceRoot) &&
             (livePreview === null || livePreview === void 0 ? void 0 : livePreview.target.pdfPath) === (next === null || next === void 0 ? void 0 : next.target.pdfPath))
             return;
+        if ((livePreview === null || livePreview === void 0 ? void 0 : livePreview.url) !== (next === null || next === void 0 ? void 0 : next.url) || (livePreview === null || livePreview === void 0 ? void 0 : livePreview.generation) !== (next === null || next === void 0 ? void 0 : next.generation) ||
+            (livePreview === null || livePreview === void 0 ? void 0 : livePreview.target.workspaceRoot) !== (next === null || next === void 0 ? void 0 : next.target.workspaceRoot) ||
+            (livePreview === null || livePreview === void 0 ? void 0 : livePreview.target.pdfPath) !== (next === null || next === void 0 ? void 0 : next.target.pdfPath))
+            (_a = deps.onLiveRuntimeError) === null || _a === void 0 ? void 0 : _a.call(deps, null);
         livePreview = next;
         if (pdfViewerReady) {
             postPdfMessage({ type: "live", payload: matchingLivePreview() });

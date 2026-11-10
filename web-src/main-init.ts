@@ -183,6 +183,7 @@ export const initMain = () => {
         true
       );
     },
+    onLiveRuntimeError: (message) => issuesProxy.setLiveRuntimeError("primary", message),
     onLiveSourceRequest: (payload) => requestLiveSource(payload),
     onLiveEditRequest: (payload) => requestLiveEdit(payload),
     onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
@@ -213,6 +214,7 @@ export const initMain = () => {
         true
       );
     },
+    onLiveRuntimeError: (message) => issuesProxy.setLiveRuntimeError("secondary", message),
     onLiveSourceRequest: (payload) => requestLiveSource(payload),
     onLiveEditRequest: (payload) => requestLiveEdit(payload),
     onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
@@ -272,7 +274,7 @@ export const initMain = () => {
                   "The current operation has not stopped yet. Try changing projects again.",
                   "実行中の処理がまだ停止していません。もう一度プロジェクトを切り替えてください。",
                 ));
-          updateIssues(1, message, "error", [{ severity: "error", message }]);
+          updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
           return;
         }
         postToNative(payload);
@@ -722,7 +724,7 @@ export const initMain = () => {
                 "実行中の処理を停止できなかったため、終了を中止しました。",
               );
         const error = result.error || fallback;
-        updateIssues(1, error, "error", [{ severity: "error", message: error }]);
+        updateIssuesProxy(1, error, "error", [{ severity: "error", message: error }]);
         quitPreparation = null;
       }
       postToNative(
@@ -760,7 +762,7 @@ export const initMain = () => {
             "The current operation has not stopped yet. Try switching modes again.",
             "実行中の処理がまだ停止していません。もう一度モードを切り替えてください。",
           );
-        updateIssues(1, message, "error", [{ severity: "error", message }]);
+        updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
         return false;
       })();
     },
@@ -1207,7 +1209,7 @@ export const initMain = () => {
   editorTabsUi.setupInteractions();
   try { mathLiveApi.setupMathField(); } catch (e: any) { 
     console.error("setupMathField error:", e);
-    updateIssues(
+    updateIssuesProxy(
       1,
       uiText(`Failed to initialize formula editor: ${e.message}`, "Failed to initialize formula editor: " + e.message),
       "error",
@@ -1227,7 +1229,7 @@ export const initMain = () => {
   rootSelectorUi.render();
   buildOps.updateSynctexButtonState();
   settingsUi.loadStartupSettings();
-  updateIssues(0, uiText("Build results are summarized here.", "The build results are summarized here."), "info", []);
+  updateIssuesProxy(0, uiText("Build results are summarized here.", "The build results are summarized here."), "info", []);
   if (!workspaceController.getWorkspaceRootKey()) {
     launcherUi.setVisible(true);
     launcherUi.setStatus({ isBusy: false, message: null });

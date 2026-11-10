@@ -2087,12 +2087,17 @@ const initPdfViewer = () => {
     liveMarkEl.setAttribute("aria-label", label);
     liveMarkEl.title = label;
   };
+  const reportLiveRuntimeError = (error) => {
+    bridge?.postMessage?.({ type: "live-runtime-error", payload: error ?? null });
+  };
   const resetLiveMark = () => {
+    reportLiveRuntimeError(null);
     liveStatusMark = null;
     renderLiveMark(null);
   };
   const renderLiveStatus = (data) => {
     renderLiveMark(data);
+    reportLiveRuntimeError(data?.status?.structuredBootError);
     const search = data?.search;
     if (isFindOpen() && findQuery && search?.query === findQuery) {
       renderFindCount(Number(search.current) || 0, Number(search.total) || 0);
