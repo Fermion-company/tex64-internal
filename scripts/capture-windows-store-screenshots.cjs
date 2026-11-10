@@ -447,9 +447,10 @@ const prepareAppState = async (page, locale, workspaceName) => {
     document.body.classList.remove("has-onboarding", "has-launcher");
   });
   await dismissAnnouncements(page);
+  // A group with one tab hides its tab strip: the tab is attached, not visible.
   await page.waitForSelector(
     '.editor-tab[data-group="primary"][data-path="main.tex"].is-active',
-    { timeout: 20_000 }
+    { state: "attached", timeout: 20_000 }
   );
   await page.waitForSelector(
     '[data-editor-group="primary"] .monaco-editor .view-line',
@@ -471,7 +472,7 @@ const prepareAppState = async (page, locale, workspaceName) => {
   await page.waitForSelector('#editor-groups[data-split="true"]', { timeout: 10_000 });
   await page.waitForSelector(
     '.editor-tab[data-group="secondary"][data-path="main.pdf"].is-active',
-    { timeout: 20_000 }
+    { state: "attached", timeout: 20_000 }
   );
   await page.waitForSelector('#editor-viewer-secondary[data-view="pdf"].is-visible', {
     timeout: 20_000,
