@@ -554,7 +554,9 @@ module.exports = (BuildService) => {
     let result = null;
     let adoptionOwnsLease = false;
     try {
-      if (previousAdoption) await previousAdoption;
+      // A prior Build's optional import may still be waiting for a large
+      // resident open. The next explicit Build takes priority over it.
+      if (previousAdoption) void this.pendingBuildAdoptionLease?.release?.();
       if (this.cancelRequested) {
         result = {
           kind: "cancelled",
@@ -627,9 +629,11 @@ module.exports = (BuildService) => {
             }
           });
           this.pendingBuildAdoption = adoptionContinuation;
+          this.pendingBuildAdoptionLease = heavyWorkLease;
           void adoptionContinuation.finally(() => {
             if (this.pendingBuildAdoption === adoptionContinuation) {
               this.pendingBuildAdoption = null;
+              this.pendingBuildAdoptionLease = null;
             }
           });
         }

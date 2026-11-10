@@ -42,9 +42,19 @@ const DEFAULT_START_TIMEOUT_MS = 90_000;
 const DEFAULT_DOCUMENT_OPEN_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_BUILD_LEASE_TTL_MS = 11 * 60 * 1000;
 const CANONICAL_BUILD_ADOPTION_TTL_MS = 15 * 60 * 1000;
-const BUILD_LEASE_ACQUIRE_TIMEOUT_MS = 10 * 60 * 1000;
+const BUILD_LEASE_ACQUIRE_TIMEOUT_MS = 1_500;
+const BUILD_LEASE_PROBE_TTL_MS = 5_000;
 const BUILD_LEASE_REQUEST_TIMEOUT_MS = 2_000;
 const MARKER = "server.js";
+
+const beforeBuildDeadline = async (pending, deadline) => {
+  let timer;
+  try {
+    return await Promise.race([pending, new Promise(resolve => {
+      timer = setTimeout(() => resolve(null), Math.max(0, deadline - Date.now()));
+    })]);
+  } finally { clearTimeout(timer); }
+};
 
 const isPortAvailable = (port) => new Promise((resolve) => {
   const server = net.createServer();
@@ -96,11 +106,12 @@ const requestJson = (url, { method = "GET", body, timeoutMs = 5_000 } = {}) =>
         }
       });
     });
-    req.setTimeout(timeoutMs, () => {
+    const timer = setTimeout(() => {
       const error = new Error("tdom request timed out");
       error.code = "TDOM_REQUEST_TIMEOUT";
       req.destroy(error);
-    });
+    }, timeoutMs);
+    req.once("close", () => clearTimeout(timer));
     req.on("error", reject);
     if (payload) req.write(payload);
     req.end();
@@ -280,7 +291,7 @@ class TdomEngineService {
       error: this.lastError };
   }
 
-  async applyActiveBuildLease() {
+  async applyActiveBuildLease({ timeoutMs = BUILD_LEASE_REQUEST_TIMEOUT_MS, ttlMs = null } = {}) {
     const lease = this.activeBuildLease;
     if (
       !lease ||
@@ -302,9 +313,9 @@ class TdomEngineService {
         requestId: lease.requestId,
         projectRoot: lease.projectRoot,
         mainFile: lease.mainFile,
-        ttlMs: Math.min(lease.ttlMs, remainingMs),
+        ttlMs: Math.min(ttlMs ?? (lease.compatibility === false ? lease.ttlMs : BUILD_LEASE_PROBE_TTL_MS), remainingMs),
       },
-      timeoutMs: BUILD_LEASE_REQUEST_TIMEOUT_MS,
+      timeoutMs,
     }).then((response) => {
       // Keep a token even if release began while this request was in flight;
       // releaseBuildLease awaits the same promise and must return that remote
@@ -374,6 +385,7 @@ class TdomEngineService {
       releasePromise: new Promise((resolve) => { resolveRelease = resolve; }),
       resolveRelease,
       expiryTimer: null,
+      bootstrapOpen: this.inFlightOpen ?? null,
     };
     this.activeBuildLease = lease;
 
@@ -386,17 +398,32 @@ class TdomEngineService {
         break;
       }
       if (Date.now() >= acquireDeadline) {
-        await this.releaseBuildLease(lease);
-        const error = new Error("TDOM heavy TeX work did not become available.");
-        error.code = "TDOM_BUILD_LEASE_UNAVAILABLE";
-        throw error;
+        // Build already stages PDF/SyncTeX and aux in its private output
+        // directory. Keep the local open gate, but give up CPU exclusivity
+        // rather than waiting for a whole resident document to bootstrap.
+        break;
       }
       if (this.state === "starting") {
         await new Promise((resolve) => setTimeout(resolve, 50));
         continue;
       }
-      const response = await this.applyActiveBuildLease();
-      if (lease.token || !this.isRunning() || this.state !== "ready") break;
+      const response = await beforeBuildDeadline(this.applyActiveBuildLease({
+        timeoutMs: Math.max(1, acquireDeadline - Date.now()),
+        // A lost HTTP reply must not leave authority paused for 11 minutes.
+        ttlMs: BUILD_LEASE_PROBE_TTL_MS,
+      }), acquireDeadline);
+      if (lease.token) {
+        const renewed = await beforeBuildDeadline(this.renewCanonicalBuildLease(lease, {
+          timeoutMs: Math.max(1, acquireDeadline - Date.now()),
+        }), acquireDeadline);
+        if (renewed?.renewed !== true) {
+          lease.cleanupToken = lease.token;
+          lease.token = null;
+          lease.response = null;
+        }
+        break;
+      }
+      if (!this.isRunning() || this.state !== "ready") break;
       // A current engine can report a bootstrap or another resource lease
       // synchronously. Retry the same request id: its idempotency prevents an
       // uncertain HTTP timeout from creating an orphan lease.
@@ -417,17 +444,16 @@ class TdomEngineService {
           console.warn("[tdom] Build lease is unsupported by this Live engine.");
           break;
         }
-        await this.releaseBuildLease(lease);
-        const error = new Error("TDOM could not reserve heavy TeX work.");
-        error.code = "TDOM_BUILD_LEASE_UNAVAILABLE";
-        throw error;
+        break;
       }
       const retryAfterMs = Math.max(
         50,
         Math.min(1_000, Number(response?.retryAfterMs) || 250)
       );
-      await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
+      await new Promise((resolve) => setTimeout(resolve,
+        Math.min(retryAfterMs, Math.max(0, acquireDeadline - Date.now()))));
     }
+    lease.compatibility = !lease.token;
     if (!lease.released) {
       lease.expiresAt = Date.now() + ttlMs;
       lease.expiryTimer = setTimeout(() => {
@@ -438,7 +464,7 @@ class TdomEngineService {
     let released = false;
     return {
       requestId: lease.requestId,
-      bound: lease.response?.bound === true,
+      bound: Boolean(lease.token && lease.response?.bound === true),
       adopt: (candidate, snapshot = null) => {
         if (snapshot) lease.pendingSnapshot = snapshot;
         return this.adoptCanonicalBuild(lease, candidate);
@@ -492,7 +518,7 @@ class TdomEngineService {
     }
   }
 
-  async renewCanonicalBuildLease(lease) {
+  async renewCanonicalBuildLease(lease, { timeoutMs = BUILD_LEASE_REQUEST_TIMEOUT_MS } = {}) {
     if (!lease?.token || !this.isRunning() || this.state !== "ready" || !this.url) {
       return { ok: false, renewed: false, reason: "build-lease-unavailable" };
     }
@@ -500,7 +526,7 @@ class TdomEngineService {
       return await requestJson(`${this.url}/canonical/build-lease/renew`, {
         method: "POST",
         body: { requestId: lease.requestId, token: lease.token, ttlMs: 900_000 },
-        timeoutMs: BUILD_LEASE_REQUEST_TIMEOUT_MS,
+        timeoutMs,
       });
     } catch (error) {
       return {
@@ -560,7 +586,44 @@ class TdomEngineService {
     // Give a cold process enough local ownership to boot, acquire its remote
     // lease and perform the required 15-minute renewal before /open.
     this.extendLocalBuildLeaseForAdoption(lease);
-    const snapshot = lease.pendingSnapshot ?? null;
+    const openingSnapshot = lease.bootstrapOpen?.snapshot;
+    const matchingOpen = openingSnapshot?.projectRoot === lease.projectRoot &&
+      openingSnapshot?.filePath === path.resolve(lease.projectRoot, lease.mainFile);
+    const snapshot = lease.pendingSnapshot ?? (matchingOpen ? openingSnapshot : null);
+    const liveRequested = snapshot || (this.lastProjectRoot === lease.projectRoot &&
+      this.lastPath === path.resolve(lease.projectRoot, lease.mainFile));
+    if (!liveRequested) return { adopted: false, deferred: true, reason: "live-preview-not-requested" };
+    if (lease.bootstrapOpen) {
+      // This /open started before Build's local gate. Let it finish once;
+      // reopening here would repeat the entire book bootstrap.
+      // It may still be waiting at the server's lease gate if acquire won
+      // the HTTP race. Keep our local gate but free that remote bootstrap.
+      await this.releaseRemoteBuildLease(lease);
+      await Promise.race([lease.bootstrapOpen.promise.catch(() => {}), lease.releasePromise]);
+      if (lease.released) return { adopted: false, reason: "build-lease-unavailable" };
+    }
+    if (lease.compatibility) {
+      if (lease.applyPromise) await Promise.race([lease.applyPromise, lease.releasePromise]);
+      if (lease.released) return { adopted: false, reason: "build-lease-unavailable" };
+      // A short probe may have granted after our HTTP deadline, then expired.
+      // Reacquire its idempotent request before trusting an adoption identity.
+      lease.cleanupToken = lease.token || lease.cleanupToken;
+      lease.token = null;
+      lease.response = null;
+    }
+    if (liveRequested && this.isRunning() && this.state === "ready") {
+      // Deadline fallback has no authority identity. Reacquire after Build,
+      // while bootstrap continues normally, before validating any PDF.
+      while (!lease.released && !lease.token) {
+        const response = await this.applyActiveBuildLease();
+        if (lease.token || response?.statusCode === 404 || !this.isRunning()) break;
+        if (response?.statusCode !== 409 && response?.statusCode !== 503) break;
+        await Promise.race([
+          new Promise(resolve => setTimeout(resolve, 250)), lease.releasePromise,
+        ]);
+      }
+      if (lease.released) return { adopted: false, reason: "build-lease-unavailable" };
+    }
     const sameActiveDocument = this.isRunning() && this.state === "ready" &&
       lease.response?.bound === true && lease.response?.identity &&
       this.lastProjectRoot === lease.projectRoot &&
@@ -575,11 +638,13 @@ class TdomEngineService {
       await this.start(lease);
     }
     await this.applyActiveBuildLease();
+    if (lease.released) return { adopted: false, reason: "build-lease-unavailable" };
     if (!lease.token) return { adopted: false, reason: "build-lease-not-supported" };
     const renewed = await this.renewCanonicalBuildLease(lease);
     if (renewed?.ok !== true || renewed?.renewed !== true) {
       return { adopted: false, reason: renewed?.reason || "build-lease-renew-failed" };
     }
+    if (lease.released) return { adopted: false, reason: "build-lease-unavailable" };
     const canonicalBuild = {
       ...candidate,
       requestId: lease.requestId,
@@ -626,10 +691,7 @@ class TdomEngineService {
     return response;
   }
 
-  async releaseBuildLease(lease) {
-    if (!lease || lease.released) return;
-    lease.released = true;
-    clearTimeout(lease.expiryTimer);
+  async releaseRemoteBuildLease(lease) {
     if (lease.applyPromise) await lease.applyPromise;
     const releaseToken = lease.token || lease.cleanupToken;
     if (releaseToken && this.isRunning() && this.state === "ready" && this.url) {
@@ -658,6 +720,16 @@ class TdomEngineService {
         );
       }
     }
+    lease.token = null;
+    lease.cleanupToken = null;
+    lease.response = null;
+  }
+
+  async releaseBuildLease(lease) {
+    if (!lease || lease.released) return;
+    lease.released = true;
+    clearTimeout(lease.expiryTimer);
+    await this.releaseRemoteBuildLease(lease);
     if (this.activeBuildLease === lease) this.activeBuildLease = null;
     lease.resolveRelease();
   }
@@ -888,7 +960,7 @@ class TdomEngineService {
     }
     const fullOverlays = [...snapshot.overlays].map(([filePath, text]) => ({ filePath, text }));
     try {
-      const opened = await requestJson(`${this.url}/open`, {
+      const promise = requestJson(`${this.url}/open`, {
         method: "POST",
         body: {
           text: snapshot.source,
@@ -900,6 +972,11 @@ class TdomEngineService {
         },
         timeoutMs: this.documentOpenTimeoutMs,
       });
+      const opening = { snapshot, promise };
+      this.inFlightOpen = opening;
+      let opened;
+      try { opened = await promise; }
+      finally { if (this.inFlightOpen === opening) this.inFlightOpen = null; }
       if (this.pendingOpenRequest === pending) this.pendingOpenRequest = null;
       return opened;
     } catch (error) {

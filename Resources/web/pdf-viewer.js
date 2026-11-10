@@ -2188,7 +2188,7 @@ const initPdfViewer = () => {
       }
     }
     const pageView = pdfViewer.getPageView(page - 1);
-    if (!(pageView?.div instanceof HTMLElement) || !pageView.viewport) return { page, x: 0, y: 0 };
+    if (!(pageView?.div instanceof HTMLElement) || !pageView.viewport) return { page, x: 0, y: 0, marker: false };
     const pageRect = pageView.div.getBoundingClientRect();
     const contentOffset = resolvePageContentOffset(pageView.div);
     const viewportScale = resolveViewportScale(pageView);
@@ -2197,7 +2197,8 @@ const initPdfViewer = () => {
       scrollRect.top + scrollEl.clientHeight / 2 - pageRect.top - contentOffset.top));
     const paperHeight = Math.max(1, Number(resolvePagePdfHeight(pageView)) || renderedHeight);
     const paperY = within / renderedHeight * paperHeight;
-    return { page, x: 0, y: paperY, blockY: paperY, blockHeight: 0 };
+    // Where the reader was, not a Jump target: no landing marker.
+    return { page, x: 0, y: paperY, blockY: paperY, blockHeight: 0, marker: false };
   };
   // A goto-sync the frame echoes back once it has scrolled to that paper point.
   const viewportHandoff = (sync) => ({
