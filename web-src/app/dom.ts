@@ -59,6 +59,8 @@ export const getDomRefs = () => ({
   outlineCitations: document.getElementById("outline-citations"),
   workspaceLabel: document.getElementById("workspace-label"),
   fileTree: document.getElementById("file-tree"),
+  fileTreeNewFile: document.getElementById("file-tree-new-file"),
+  fileTreeNewFolder: document.getElementById("file-tree-new-folder"),
   blockMathInputContainer: document.getElementById("block-math-input-container"),
   blockMathPreviewWrap: document.getElementById("block-math-preview-wrap"),
   blockMathPreview: document.getElementById("block-math-preview"),
