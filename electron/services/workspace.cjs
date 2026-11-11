@@ -164,6 +164,10 @@ class WorkspaceManager {
     return require("./tex-build-target.cjs").resolveBuildTarget(this, relativePath);
   }
 
+  async resolveIncludingDocuments(relativePath) {
+    return require("./tex-build-target.cjs").resolveIncludingDocuments(this, relativePath);
+  }
+
   constructor() {
     this.rootPath = null;
     this.rootFileInfo = null;

@@ -652,21 +652,40 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       targetFile = await workspace.resolveBuildTarget(requestedFile);
     }
     if (!targetFile) return null;
-    targetFile = resolveWorkspaceBuildTarget(rootPath, targetFile);
     const buildProfile = await resolveBuildProfile().catch(() => null);
-    const outputProfile = buildService.resolveBuildOutputProfile(rootPath, targetFile, buildProfile);
-    const pdfPath = outputProfile.invalidDirectoryArgument || (outputProfile.outDirRequested && !outputProfile.outDir)
-      ? null
-      : outputProfile.pdfPath;
     const isFile = (file) => {
       try { return fs.statSync(file).isFile(); } catch { return false; }
     };
-    const synctexPath = pdfPath ? pdfPath.replace(/\.pdf$/i, ".synctex.gz") : null;
-    return {
-      targetFile: rendererPath(targetFile),
-      pdfPath,
-      built: Boolean(pdfPath && isFile(pdfPath) && (isFile(synctexPath) || isFile(synctexPath.replace(/\.gz$/, "")))),
+    const describe = (file) => {
+      const target = resolveWorkspaceBuildTarget(rootPath, file);
+      const outputProfile = buildService.resolveBuildOutputProfile(rootPath, target, buildProfile);
+      const pdfPath = outputProfile.invalidDirectoryArgument || (outputProfile.outDirRequested && !outputProfile.outDir)
+        ? null
+        : outputProfile.pdfPath;
+      const synctexPath = pdfPath ? pdfPath.replace(/\.pdf$/i, ".synctex.gz") : null;
+      const built = Boolean(pdfPath && isFile(pdfPath) && (isFile(synctexPath) || isFile(synctexPath.replace(/\.gz$/, ""))));
+      let builtAt = 0;
+      if (built) { try { builtAt = fs.statSync(pdfPath).mtimeMs; } catch { builtAt = 0; } }
+      return { targetFile: rendererPath(target), pdfPath, built, builtAt };
     };
+    const own = describe(targetFile);
+    // A chapter that can be built on its own (subfiles) is also part of the
+    // book. Jump goes to a PDF that exists: when the chapter itself has none,
+    // the book that includes it answers instead of starting a chapter Build.
+    // With both built, the newer PDF is the one the reader is working on.
+    if (!exactTarget && rendererPath(own.targetFile) === rendererPath(requestedFile) &&
+        typeof workspace.resolveIncludingDocuments === "function") {
+      let including = [];
+      try { including = await workspace.resolveIncludingDocuments(requestedFile); } catch { including = []; }
+      const builtOwners = including.map(describe).filter((entry) => entry.built)
+        .sort((a, b) => b.builtAt - a.builtAt);
+      if (builtOwners.length && (!own.built || builtOwners[0].builtAt > own.builtAt)) {
+        const { builtAt: _ownerBuiltAt, ...owner } = builtOwners[0];
+        return owner;
+      }
+    }
+    const { builtAt: _builtAt, ...result } = own;
+    return result;
   };
 
   return {

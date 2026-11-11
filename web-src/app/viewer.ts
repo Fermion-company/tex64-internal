@@ -49,6 +49,8 @@ export type PdfSyncPayload = {
   page: number;
   x: number;
   y: number;
+  /** Only roughly known (a neighbouring line stood in): shown as a band, not a box. */
+  approximate?: boolean;
   pdfPath?: string;
   blockX?: number;
   blockY?: number;

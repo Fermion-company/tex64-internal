@@ -829,14 +829,18 @@ export const initBuildOpsUi = (context, deps) => {
                 if (pdfPath) {
                     syncPayload.pdfPath = pdfPath;
                 }
+                if (payload.fallback === true)
+                    syncPayload.approximate = true;
                 if (payload.notTypeset === true) {
                     // The first page stands in for a line that is not typeset.
                     syncPayload.marker = false;
                 }
                 else if (payloadMeta) {
-                    syncPayload.sourceFile = payloadMeta.path;
-                    syncPayload.sourceLine = payloadMeta.line;
-                    syncPayload.sourceColumn = payloadMeta.column;
+                    // a line that only reads a file was answered for the start of that file
+                    const redirectedPath = typeof payload.sourcePath === "string" && payload.sourcePath ? payload.sourcePath : null;
+                    syncPayload.sourceFile = redirectedPath !== null && redirectedPath !== void 0 ? redirectedPath : payloadMeta.path;
+                    syncPayload.sourceLine = redirectedPath && typeof payload.sourceLine === "number" ? payload.sourceLine : payloadMeta.line;
+                    syncPayload.sourceColumn = redirectedPath ? 1 : payloadMeta.column;
                 }
                 if (typeof payload.blockWidth === "number" && payload.blockWidth > 0) {
                     syncPayload.blockWidth = payload.blockWidth;

@@ -533,17 +533,33 @@ export const initMain = () => {
   // Fragment → the document Build makes of it: the user's choice first, else
   // what main resolves (asked once per fragment, forgotten after each build
   // since includes may have changed). Ambiguous fragments stay unresolved.
-  const documentOwners = new Map<string, string | null>();
+  // null: asked, no answer yet. false: main has no single document for it.
+  const documentOwners = new Map<string, { document: string; including: string[] } | null | false>();
   const documentOwnerOf = (path: string): string | null | undefined => {
     const chosen = buildOps?.documentFor(path);
     if (chosen) return chosen;
     const key = `${getWorkspaceRootKey() ?? ""}\0${path}`;
-    if (documentOwners.has(key)) return documentOwners.get(key) ?? undefined;
+    if (documentOwners.has(key)) {
+      const owner = documentOwners.get(key);
+      if (owner === false) return null;
+      if (!owner) return undefined;
+      // A chapter that can also be built alone (subfiles) follows the paper
+      // the user is producing: the book once the book was built, the chapter
+      // once the chapter itself was; with neither, its only book.
+      if (owner.document === path && owner.including.length) {
+        if (lastBuildMainFile && owner.including.includes(lastBuildMainFile)) return lastBuildMainFile;
+        if (lastBuildMainFile !== path && owner.including.length === 1) return owner.including[0];
+      }
+      return owner.document;
+    }
     documentOwners.set(key, null);
-    const bridge = (window as unknown as { tex64WordCount?: { documentFor: (path: string) => Promise<{ ok: boolean; document?: string | null }> } }).tex64WordCount;
+    const bridge = (window as unknown as { tex64WordCount?: { documentFor: (path: string) => Promise<{ ok: boolean; document?: string | null; including?: string[] }> } }).tex64WordCount;
     void bridge?.documentFor(path).then((result) => {
-      if (documentOwners.get(key) === null && result?.ok && typeof result.document === "string") documentOwners.set(key, result.document);
-    }, () => {});
+      if (documentOwners.get(key) !== null) return;
+      if (result?.ok && typeof result.document === "string") {
+        documentOwners.set(key, { document: result.document, including: Array.isArray(result.including) ? result.including.filter((entry) => typeof entry === "string") : [] });
+      } else documentOwners.set(key, false);
+    }, () => { if (documentOwners.get(key) === null) documentOwners.set(key, false); });
     return undefined;
   };
   const noteBuildTarget = (path: string | null) => {

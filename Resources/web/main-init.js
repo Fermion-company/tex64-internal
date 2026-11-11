@@ -472,21 +472,43 @@ export const initMain = () => {
         // Fragment → the document Build makes of it: the user's choice first, else
         // what main resolves (asked once per fragment, forgotten after each build
         // since includes may have changed). Ambiguous fragments stay unresolved.
+        // null: asked, no answer yet. false: main has no single document for it.
         const documentOwners = new Map();
         const documentOwnerOf = (path) => {
-            var _a, _b;
+            var _a;
             const chosen = buildOps === null || buildOps === void 0 ? void 0 : buildOps.documentFor(path);
             if (chosen)
                 return chosen;
             const key = `${(_a = getWorkspaceRootKey()) !== null && _a !== void 0 ? _a : ""}\0${path}`;
-            if (documentOwners.has(key))
-                return (_b = documentOwners.get(key)) !== null && _b !== void 0 ? _b : undefined;
+            if (documentOwners.has(key)) {
+                const owner = documentOwners.get(key);
+                if (owner === false)
+                    return null;
+                if (!owner)
+                    return undefined;
+                // A chapter that can also be built alone (subfiles) follows the paper
+                // the user is producing: the book once the book was built, the chapter
+                // once the chapter itself was; with neither, its only book.
+                if (owner.document === path && owner.including.length) {
+                    if (lastBuildMainFile && owner.including.includes(lastBuildMainFile))
+                        return lastBuildMainFile;
+                    if (lastBuildMainFile !== path && owner.including.length === 1)
+                        return owner.including[0];
+                }
+                return owner.document;
+            }
             documentOwners.set(key, null);
             const bridge = window.tex64WordCount;
             void (bridge === null || bridge === void 0 ? void 0 : bridge.documentFor(path).then((result) => {
-                if (documentOwners.get(key) === null && (result === null || result === void 0 ? void 0 : result.ok) && typeof result.document === "string")
-                    documentOwners.set(key, result.document);
-            }, () => { }));
+                if (documentOwners.get(key) !== null)
+                    return;
+                if ((result === null || result === void 0 ? void 0 : result.ok) && typeof result.document === "string") {
+                    documentOwners.set(key, { document: result.document, including: Array.isArray(result.including) ? result.including.filter((entry) => typeof entry === "string") : [] });
+                }
+                else
+                    documentOwners.set(key, false);
+            }, () => { if (documentOwners.get(key) === null)
+                documentOwners.set(key, false); }));
             return undefined;
         };
         const noteBuildTarget = (path) => {

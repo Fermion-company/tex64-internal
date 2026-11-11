@@ -53,16 +53,54 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     // when Settings names another; a fragment follows the document that reads
     // it (main resolves it as Build does), else the root the user set, else the
     // detected root, else the last document built.
-    const isStandaloneSource = (text) => /\\document(?:class|style)\s*(?:\[[^\]]*\])?\s*\{/.test(text.slice(0, 65536)) && text.includes("\\begin{document}");
+    // Same reading as main's isStandaloneDocument (tex-build-target.cjs): text
+    // shown as an example is not the file's structure, and a class line after
+    // body material is quoted text. A chapter that prints a complete document
+    // in a listing used to become its own live root, and its paper never came.
+    const VERBATIM_ENV = "(?:[A-Za-z@]*[Vv]erbatim[A-Za-z@*]*|lstlisting\\*?|minted\\*?|[A-Za-z@]*[Ll]isting[A-Za-z@*]*|filecontents\\*?|comment|luacode\\*?)";
+    const VERBATIM_RE = new RegExp(`\\\\begin\\s*\\{(${VERBATIM_ENV})\\}[\\s\\S]*?\\\\end\\s*\\{\\1\\}`, "g");
+    const isStandaloneSource = (text) => {
+        const source = text.slice(0, 262144)
+            .replace(/(^|[^\\])%[^\n]*/g, "$1")
+            .replace(VERBATIM_RE, " ")
+            .replace(/\\KKcodeS[\s\S]*?\\KKcodeE/g, " ")
+            .replace(/\\KKverb\|[^|\n]*\|/g, " ")
+            .replace(/\\(?:verb|lstinline)\*?([^A-Za-z\s{])[^\n]*?\1/g, " ");
+        const documentClass = /\\document(?:class|style)\s*(?:\[[^\]]*\])?\s*\{/.exec(source);
+        if (!documentClass)
+            return false;
+        const body = /\\begin\s*\{document\}/.exec(source);
+        if (!body || body.index < documentClass.index)
+            return false;
+        return !/\\(?:begin\s*\{|part\b|chapter\b|(?:sub)*section\b|input\b|include\b)/.test(source.slice(0, documentClass.index));
+    };
+    const currentLiveRoot = () => {
+        const key = liveSessionKey;
+        if (!key || key.startsWith("legacy\0"))
+            return null;
+        const at = key.indexOf("\0");
+        return at >= 0 ? key.slice(at + 1) : null;
+    };
     const liveRootFor = (path, text) => {
         var _a;
         const configuredRoot = getRootFile();
         const isTex = Boolean(path && path.toLowerCase().endsWith(".tex"));
-        if (isTex && typeof text === "string" && isStandaloneSource(text))
-            return path;
+        // Main decides ownership as a Build does, and knows which book reads a
+        // chapter. Until its answer is in, the text itself is the best evidence.
         const owner = isTex && path ? getDocumentFor === null || getDocumentFor === void 0 ? void 0 : getDocumentFor(path) : null;
         if (owner && /\.tex$/i.test(owner))
             return owner;
+        if (isTex && typeof text === "string" && isStandaloneSource(text)) {
+            // Main has not answered yet (undefined). A chapter of a book reads as
+            // a document of its own (subfiles), and taking its text at its word
+            // restarted the engine for the chapter and again for the book a moment
+            // later: opening a chapter of a 389-page book cost two full boots.
+            // The running document stays until the answer is in.
+            const running = currentLiveRoot();
+            if (owner === undefined && running && running !== path)
+                return running;
+            return path;
+        }
         if (configuredRoot && (getRootSource === null || getRootSource === void 0 ? void 0 : getRootSource()) === "manual")
             return configuredRoot;
         const lastBuilt = (_a = getLastBuildTarget === null || getLastBuildTarget === void 0 ? void 0 : getLastBuildTarget()) !== null && _a !== void 0 ? _a : null;

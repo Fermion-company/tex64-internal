@@ -1258,6 +1258,28 @@ const initPdfViewer = () => {
     }
     const viewportScale = resolveViewportScale(pageView);
     const pagePdfHeight = resolvePagePdfHeight(pageView);
+    // A position that is only roughly known (a neighbouring line stood in,
+    // or there is no box for the line at all) is shown as a soft band across
+    // the page: "about here", not a frame around a line that may be wrong.
+    const placeBand = () => {
+      const pageHeight = pageView.div.clientHeight || 1;
+      const height = Math.max(18, pageHeight * 0.045);
+      const band = document.createElement("div");
+      band.className = "pdf-sync-highlight pdf-sync-highlight-band";
+      band.style.left = "0px";
+      band.style.top = `${Math.max(0, Math.min(pageHeight - height, viewY - height / 2))}px`;
+      band.style.width = `${pageView.div.clientWidth}px`;
+      band.style.height = `${height}px`;
+      pageView.div.appendChild(band);
+      state.activeMarker = band;
+      state.markerTimer = setTimeout(() => {
+        clearSyncMarker();
+      }, 2400);
+    };
+    if (payload.approximate === true) {
+      placeBand();
+      return;
+    }
     const hasBlock =
       Number.isFinite(payload.blockWidth) &&
       payload.blockWidth > 0 &&
@@ -1381,19 +1403,7 @@ const initPdfViewer = () => {
         return;
       }
     }
-    const fallbackMarker = document.createElement("div");
-    fallbackMarker.className = "pdf-sync-highlight pdf-sync-highlight-dot";
-    fallbackMarker.style.left = `${viewX}px`;
-    fallbackMarker.style.top = `${viewY}px`;
-    fallbackMarker.style.width = "20px";
-    fallbackMarker.style.height = "20px";
-    fallbackMarker.style.borderRadius = "999px";
-    fallbackMarker.style.transform = "translate(-50%, -50%)";
-    pageView.div.appendChild(fallbackMarker);
-    state.activeMarker = fallbackMarker;
-    state.markerTimer = setTimeout(() => {
-      clearSyncMarker();
-    }, 2400);
+    placeBand();
   };
 
   const applySync = (payload) => {

@@ -1,4 +1,5 @@
 const path = require("path");
+const { resolveInputLineTarget } = require("../../services/tex-input-target.cjs");
 
 const createSynctexForwardHandler = (deps, resolvers) => {
   const { fs, pdfWindowManager, synctexService, sendToRenderer, ensureWorkspace, state, delay, resolveJumpDocument } = deps;
@@ -260,8 +261,12 @@ const createSynctexForwardHandler = (deps, resolvers) => {
 	      typeof message?.requestId === "string" && message.requestId.trim()
         ? message.requestId
         : null;
-    const withRequestId = (payload) =>
-      requestId ? { ...payload, requestId } : { ...payload };
+    let redirected = null;
+    const withRequestId = (payload) => ({
+      ...payload,
+      ...(redirected && payload?.ok ? { sourcePath: redirected.path, sourceLine: redirected.line } : {}),
+      ...(requestId ? { requestId } : {}),
+    });
     const forwardSource =
       typeof message?.source === "string" && message.source.trim()
         ? message.source.trim()
@@ -274,7 +279,12 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       }));
       return;
     }
-    const sourcePath = resolveWorkspacePathFromRoot(rootPath, message.path);
+    // A line that only reads a file means the start of that file. The
+    // document is still the one the line belongs to.
+    const inputTarget = forwardSource === "manual"
+      ? resolveInputLineTarget(rootPath, message.path, message.line)
+      : null;
+    const sourcePath = resolveWorkspacePathFromRoot(rootPath, inputTarget?.path ?? message.path);
     // Which document's PDF: the one a Build of this file would write. An
     // explicit pdfPath (a tex64:// link, an older caller) is honoured as is.
     let pdfPath = message.pdfPath ? resolveWorkspacePathFromRoot(rootPath, message.pdfPath) : null;
@@ -332,8 +342,9 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       }));
       return;
     }
-    const line = Number.parseInt(message.line, 10);
-    const column = Number.parseInt(message.column, 10);
+    redirected = inputTarget;
+    const line = Number.parseInt(inputTarget?.line ?? message.line, 10);
+    const column = inputTarget ? 1 : Number.parseInt(message.column, 10);
     const targetLine = Number.isFinite(line) ? line : 1;
     const targetColumn = Number.isFinite(column) ? column : 1;
     const viewerMode = message.pdfViewerMode === "tab" ? "tab" : "window";
