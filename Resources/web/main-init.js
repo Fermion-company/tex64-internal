@@ -474,42 +474,48 @@ export const initMain = () => {
         // since includes may have changed). Ambiguous fragments stay unresolved.
         // null: asked, no answer yet. false: main has no single document for it.
         const documentOwners = new Map();
+        // The last answer for each file. A Build forgets the answers (includes may
+        // have changed) and asks again; until main has answered, the previous one
+        // stands. Without it every Build left a moment in which a chapter, or the
+        // book itself, had no known document and Live chose another.
+        const lastDocumentOwners = new Map();
         const documentOwnerOf = (path) => {
-            var _a;
+            var _a, _b;
             const chosen = buildOps === null || buildOps === void 0 ? void 0 : buildOps.documentFor(path);
             if (chosen)
                 return chosen;
             const key = `${(_a = getWorkspaceRootKey()) !== null && _a !== void 0 ? _a : ""}\0${path}`;
-            if (documentOwners.has(key)) {
-                const owner = documentOwners.get(key);
-                if (owner === false)
-                    return null;
-                if (!owner)
-                    return undefined;
-                // A chapter that can also be built alone (subfiles) follows the paper
-                // the user is producing: the book once the book was built, the chapter
-                // once the chapter itself was; with neither, its only book.
-                if (owner.document === path && owner.including.length) {
-                    if (lastBuildMainFile && owner.including.includes(lastBuildMainFile))
-                        return lastBuildMainFile;
-                    if (lastBuildMainFile !== path && owner.including.length === 1)
-                        return owner.including[0];
-                }
-                return owner.document;
+            if (!documentOwners.has(key)) {
+                documentOwners.set(key, null);
+                const bridge = window.tex64WordCount;
+                void (bridge === null || bridge === void 0 ? void 0 : bridge.documentFor(path).then((result) => {
+                    if (documentOwners.get(key) !== null)
+                        return;
+                    if ((result === null || result === void 0 ? void 0 : result.ok) && typeof result.document === "string") {
+                        documentOwners.set(key, { document: result.document, including: Array.isArray(result.including) ? result.including.filter((entry) => typeof entry === "string") : [] });
+                    }
+                    else
+                        documentOwners.set(key, false);
+                    lastDocumentOwners.set(key, documentOwners.get(key));
+                }, () => { if (documentOwners.get(key) === null)
+                    documentOwners.set(key, false); }));
             }
-            documentOwners.set(key, null);
-            const bridge = window.tex64WordCount;
-            void (bridge === null || bridge === void 0 ? void 0 : bridge.documentFor(path).then((result) => {
-                if (documentOwners.get(key) !== null)
-                    return;
-                if ((result === null || result === void 0 ? void 0 : result.ok) && typeof result.document === "string") {
-                    documentOwners.set(key, { document: result.document, including: Array.isArray(result.including) ? result.including.filter((entry) => typeof entry === "string") : [] });
-                }
-                else
-                    documentOwners.set(key, false);
-            }, () => { if (documentOwners.get(key) === null)
-                documentOwners.set(key, false); }));
-            return undefined;
+            const answered = documentOwners.get(key);
+            const owner = answered === null ? (_b = lastDocumentOwners.get(key)) !== null && _b !== void 0 ? _b : null : answered;
+            if (owner === false)
+                return null;
+            if (!owner)
+                return undefined;
+            // A chapter that can also be built alone (subfiles) follows the paper
+            // the user is producing: the book once the book was built, the chapter
+            // once the chapter itself was; with neither, its only book.
+            if (owner.document === path && owner.including.length) {
+                if (lastBuildMainFile && owner.including.includes(lastBuildMainFile))
+                    return lastBuildMainFile;
+                if (lastBuildMainFile !== path && owner.including.length === 1)
+                    return owner.including[0];
+            }
+            return owner.document;
         };
         const noteBuildTarget = (path) => {
             lastBuildMainFile = path;

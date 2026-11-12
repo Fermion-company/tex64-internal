@@ -75,7 +75,10 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         return !/\\(?:begin\s*\{|part\b|chapter\b|(?:sub)*section\b|input\b|include\b)/.test(source.slice(0, documentClass.index));
     };
     const currentLiveRoot = () => {
-        const key = liveSessionKey;
+        // the document Live was last asked for: a long boot leaves liveSessionKey
+        // on the document before it for minutes, and answering with that one
+        // sent Live back to it in the middle of the boot
+        const key = queuedSessionKey !== null && queuedSessionKey !== void 0 ? queuedSessionKey : liveSessionKey;
         if (!key || key.startsWith("legacy\0"))
             return null;
         const at = key.indexOf("\0");
