@@ -53,6 +53,7 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
   let state: State | null = null, busy = false, phase = "idle", revision = 0;
   const heading = el("div", "history-heading");
   const branches = button(uiText("Branch", "ブランチ"), () => void branchDialog());
+  branches.classList.add("git-branch-button"); // the ⌄ is drawn (theme.css), not typed
   const list = el("div", "git-files");
   const error = el("p", "history-error"); error.setAttribute("role", "status");
   const message = el("input", "history-name"); message.placeholder = uiText("Describe the change", "変更の要点"); message.setAttribute("aria-label", message.placeholder); message.maxLength = 16000;
@@ -358,7 +359,7 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
     });
   }
   function render() {
-    branches.textContent = (state?.branch || (state?.detached ? uiText("Detached HEAD", "ブランチ未選択") : uiText("Branch", "ブランチ"))) + " ▾";
+    branches.textContent = (state?.branch || (state?.detached ? uiText("Detached HEAD", "ブランチ未選択") : uiText("Branch", "ブランチ")));
     branches.disabled = busy || !state?.repository || phase !== "idle";
     merge.disabled = tag.disabled = pushTag.disabled = clone.disabled = settings.disabled = busy || phase !== "idle";
     message.hidden = !state?.repository; commit.hidden = !state?.repository || phase === "conflict" || state?.operation === "merge";

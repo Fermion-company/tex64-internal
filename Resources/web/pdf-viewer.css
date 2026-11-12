@@ -25,12 +25,12 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #FAF9F5;
-  --bg-accent: #F3F2EC;
-  --panel: #F4F3EE;
+  --bg: #FFFFFF;
+  --bg-accent: #F7F7F5;
+  --panel: #FFFFFF;
   --panel-strong: #FFFFFF;
-  --panel-border: #E3E1D8;
-  --panel-border-strong: #D1CFC5;
+  --panel-border: #E6E5E1;
+  --panel-border-strong: #D3D2CC;
   --control-bg: rgba(20, 20, 19, 0.05);
   --text: #141413;
   --text-soft: #5E5D59;

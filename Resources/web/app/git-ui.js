@@ -52,6 +52,7 @@ export function initGitUi(editor, diff) {
     let state = null, busy = false, phase = "idle", revision = 0;
     const heading = el("div", "history-heading");
     const branches = button(uiText("Branch", "ブランチ"), () => void branchDialog());
+    branches.classList.add("git-branch-button"); // the ⌄ is drawn (theme.css), not typed
     const list = el("div", "git-files");
     const error = el("p", "history-error");
     error.setAttribute("role", "status");
@@ -501,7 +502,7 @@ export function initGitUi(editor, diff) {
     }
     function render() {
         var _a, _b, _c, _d;
-        branches.textContent = ((state === null || state === void 0 ? void 0 : state.branch) || ((state === null || state === void 0 ? void 0 : state.detached) ? uiText("Detached HEAD", "ブランチ未選択") : uiText("Branch", "ブランチ"))) + " ▾";
+        branches.textContent = ((state === null || state === void 0 ? void 0 : state.branch) || ((state === null || state === void 0 ? void 0 : state.detached) ? uiText("Detached HEAD", "ブランチ未選択") : uiText("Branch", "ブランチ")));
         branches.disabled = busy || !(state === null || state === void 0 ? void 0 : state.repository) || phase !== "idle";
         merge.disabled = tag.disabled = pushTag.disabled = clone.disabled = settings.disabled = busy || phase !== "idle";
         message.hidden = !(state === null || state === void 0 ? void 0 : state.repository);
