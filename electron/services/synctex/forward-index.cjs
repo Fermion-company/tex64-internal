@@ -601,7 +601,17 @@ module.exports = (SynctexService) => {
         const width = (entry) => (entry.hmin === null || entry.hmax === null ? 0 : entry.hmax - entry.hmin);
         const height = (entry) => (entry.vmin === null || entry.vmax === null ? 0 : entry.vmax - entry.vmin);
         const lowest = Math.max(...entries.map((entry) => entry.vmax ?? 0));
-        const stamp = (entry) => entry.glyphs < enough && height(entry) > lowest * 0.5;
+        // A page that draws its boxes while it ships (frames, a thumb index,
+        // code-box overlays) stamps far more than a head and a folio: the
+        // last page of a chapter carried 121 records of the \part line that
+        // shipped it, and the Jump from that line landed there, one page
+        // before the part's own. Such a stamp is still spread over the page
+        // height while being a small share of that page's glyphs, and the
+        // line has output on a later page too.
+        const pageGlyphs = (entry) => index.pages?.get(entry.page)?.glyphs.length ?? 0;
+        const minority = (entry) => pageGlyphs(entry) > 0 && entry.glyphs < pageGlyphs(entry) * 0.25 &&
+          entries.some((other) => other.page > entry.page);
+        const stamp = (entry) => height(entry) > lowest * 0.5 && (entry.glyphs < enough || (firstSubstantialPage && minority(entry)));
         const own = entries.filter((entry) => !stamp(entry));
         if (own.length === 0) return null;
         // A paragraph's first line at the foot of a page has few glyphs but
