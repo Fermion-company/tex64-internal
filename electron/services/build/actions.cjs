@@ -34,7 +34,14 @@ const MAX_BUILD_INPUT_BYTES = 256 * 1024 * 1024;
 const MAX_PREBUILD_SNAPSHOT_FILES = 8192;
 const MAX_PREBUILD_SNAPSHOT_DIRECTORIES = 2048;
 const MAX_PREBUILD_SNAPSHOT_BYTES = 256 * 1024 * 1024;
-const PREBUILD_SNAPSHOT_DEADLINE_MS = 250;
+// The snapshot proves which project files the Build read, and with that proof
+// the engine takes the Build's PDF as its canonical instead of compiling the
+// document again. At 250 ms a book project (1,011 files, 99 MB) never made
+// it: every Build was recorded "prebuild-snapshot-deadline", and after an
+// 8-minute Build the engine ran LuaLaTeX over all 389 pages a second time,
+// beside the resident boot. A small project is hashed in milliseconds either
+// way; a large one waits at most this long before a Build of minutes.
+const PREBUILD_SNAPSHOT_DEADLINE_MS = 2500;
 const DEADLINE_EXCEEDED = Symbol("deadline-exceeded");
 
 const latexmkHistoryPathHash = ({ rootPath, outDir }) => signatureFor({
