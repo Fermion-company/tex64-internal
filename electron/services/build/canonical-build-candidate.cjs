@@ -19,12 +19,17 @@ const crypto = require("crypto");
 
 const { loadPreviewCacheCandidate } = require("./preview-cache.cjs");
 
-const CANONICAL_SEED_SUFFIXES = [".aux", ".toc", ".lof", ".lot", ".out"];
+// .ind: the resident \printindex reads the index the Build made. Without it
+// a book taken from its Build stayed 13 pages short of that Build for good.
+const CANONICAL_SEED_SUFFIXES = [".aux", ".toc", ".lof", ".lot", ".out", ".ind"];
 const TOOLCHAIN_FINGERPRINT_VERSION = 1;
 // Rewritten by every LuaTeX run (luaotfload's name lookup memo), so it says
-// nothing about the toolchain. Font and name-database caches stay in: they
-// change only when fonts do.
-const VOLATILE_SYSTEM_INPUT = /[\\/]luaotfload-lookup-cache\.lu[ac]$/;
+// nothing about the toolchain.
+// LuaTeX's own caches are derived from the fonts and Lua files this list
+// already names, and luaotfload rewrites them as it goes: one compiled font
+// table (fonts/otl/lmroman10-regular.luc) written during a later run made a
+// Build from the session before "toolchain-changed" at the next open.
+const VOLATILE_SYSTEM_INPUT = /[\\/]luatex-cache[\\/]|[\\/]luaotfload-lookup-cache\.lu[ac]$/;
 const MAX_RECORDER_BYTES = 8 * 1024 * 1024;
 
 const signatureFor = (value) =>
