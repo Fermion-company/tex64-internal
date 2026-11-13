@@ -47,13 +47,40 @@ module.exports = (SynctexService) => {
     // that page's first boxes need checking: a macro line that expands over
     // many pages returned 228 boxes, one reverse lookup each, several seconds.
     let candidateBlocks = blocks;
-    if (Number.isFinite(preferPage)) {
+    // A caller that does not name the page (the Jump taken while a Build is
+    // still running, on the PDF of the Build before) gets the page the index
+    // finds for the line. `synctex view` lists first what the previous page
+    // was stamped with as it shipped, so a \chapter line landed on the last
+    // page of the chapter before it (38 instead of 39 on a 389-page book).
+    let narrowPage = preferPage;
+    if (!Number.isFinite(narrowPage) && Number.isFinite(targetLine) && typeof this.forwardLinesQuick === "function") {
+      try {
+        const quick = this.forwardLinesQuick({
+          sourcePath, pdfPath, lines: [targetLine],
+          firstSubstantialPage: !preferBottom, lastSubstantialPage: Boolean(preferBottom),
+        });
+        const hit = quick?.ok ? quick.results?.[0] : null;
+        if (hit?.found && hit.matchedLine === targetLine && blocks.some((block) => block.page === hit.page)) {
+          narrowPage = hit.page;
+        } else if (hit?.found && !preferBottom && hit.matchedLine > targetLine && hit.matchedLine - targetLine <= 3) {
+          // A heading whose own line carries only the stamps: its output is
+          // filed under the line that follows (the index looked there).
+          return this.forward({
+            sourcePath, line: hit.matchedLine, column, pdfPath, hintLine, hintColumn, registerHint,
+            preferPage: hit.page, preferBottom, maxVerifiedBlocks,
+          });
+        }
+      } catch {
+        // the unnarrowed list stands
+      }
+    }
+    if (Number.isFinite(narrowPage)) {
       // Reading order, first box first: `synctex view` does not list a
       // paragraph's line boxes in order, and its first line is where the
       // jump should land (its last line, when the jump is to where it
       // ends). Order is column, then top to bottom; two columns show as two
       // clusters of left edges.
-      const onPage = blocks.filter((block) => block.page === preferPage);
+      const onPage = blocks.filter((block) => block.page === narrowPage);
       if (onPage.length > 0) {
         const left = (block) => (Number.isFinite(block.h) ? block.h : block.x);
         const widest = Math.max(...onPage.map((block) => block.width || 0));
