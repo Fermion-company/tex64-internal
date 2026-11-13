@@ -724,6 +724,12 @@ export const initMain = () => {
             getRootSource,
             getLastBuildTarget: () => lastBuildMainFile,
             getDocumentFor: (path) => documentOwnerOf(path),
+            getDocumentsIncluding: (path) => {
+                var _a, _b;
+                const key = `${(_a = getWorkspaceRootKey()) !== null && _a !== void 0 ? _a : ""}\0${path}`;
+                const known = (_b = documentOwners.get(key)) !== null && _b !== void 0 ? _b : lastDocumentOwners.get(key);
+                return known ? known.including : null;
+            },
             getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
                 maxFiles: Number.POSITIVE_INFINITY,
                 maxChars: Number.POSITIVE_INFINITY,

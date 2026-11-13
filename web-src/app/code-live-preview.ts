@@ -72,6 +72,7 @@ export const initCodeLivePreview = ({
   getRootSource,
   getLastBuildTarget,
   getDocumentFor,
+    getDocumentsIncluding,
   getDirtyFileSnapshots,
 }: {
   getActiveGroup: () => EditorGroupState;
@@ -84,6 +85,8 @@ export const initCodeLivePreview = ({
   // The document Build would make of a fragment, once known (undefined while
   // it is being resolved).
   getDocumentFor?: (path: string) => string | null | undefined;
+  /** The documents that read `path` (a chapter), as far as known; null before the answer is in. */
+  getDocumentsIncluding?: (path: string) => string[] | null;
   getDirtyFileSnapshots: () => DirtySnapshot[];
 }) => {
   // The document the live paper follows, decided like a Build: a file that is
@@ -125,7 +128,18 @@ export const initCodeLivePreview = ({
     // Main decides ownership as a Build does, and knows which book reads a
     // chapter. Until its answer is in, the text itself is the best evidence.
     const owner = isTex && path ? getDocumentFor?.(path) : null;
-    if (owner && /\.tex$/i.test(owner)) return owner;
+    if (owner && /\.tex$/i.test(owner)) {
+      // A chapter that is a document of its own and that several books read,
+      // none of them built in this session, comes back as its own owner.
+      // While one of those books is the paper on screen, the chapter stays
+      // in it: reopening a project and opening such a chapter switched Live
+      // from the 389-page book to the chapter alone (two pages).
+      if (owner === path && getLastBuildTarget?.() !== path) {
+        const running = currentLiveRoot();
+        if (running && running !== path && getDocumentsIncluding?.(path)?.includes(running)) return running;
+      }
+      return owner;
+    }
     if (isTex && typeof text === "string" && isStandaloneSource(text)) {
       // Main has not answered yet (undefined). A chapter of a book reads as
       // a document of its own (subfiles), and taking its text at its word

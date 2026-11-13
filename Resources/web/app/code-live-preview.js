@@ -47,7 +47,7 @@ const createDebouncedTask = (task, delayMs, maxWaitMs = 0) => {
     return schedule;
 };
 const PROJECT_SOURCE_RE = /\.(?:tex|bib|sty|cls|bst|bbx|cbx|cfg|def|lbx|ltx|dtx|ins)$/i;
-export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getWorkspaceRoot, getRootFile, getRootSource, getLastBuildTarget, getDocumentFor, getDirtyFileSnapshots, }) => {
+export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getWorkspaceRoot, getRootFile, getRootSource, getLastBuildTarget, getDocumentFor, getDocumentsIncluding, getDirtyFileSnapshots, }) => {
     // The document the live paper follows, decided like a Build: a file that is
     // a document itself (\documentclass … \begin{document}) is its own root even
     // when Settings names another; a fragment follows the document that reads
@@ -85,14 +85,25 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         return at >= 0 ? key.slice(at + 1) : null;
     };
     const liveRootFor = (path, text) => {
-        var _a;
+        var _a, _b;
         const configuredRoot = getRootFile();
         const isTex = Boolean(path && path.toLowerCase().endsWith(".tex"));
         // Main decides ownership as a Build does, and knows which book reads a
         // chapter. Until its answer is in, the text itself is the best evidence.
         const owner = isTex && path ? getDocumentFor === null || getDocumentFor === void 0 ? void 0 : getDocumentFor(path) : null;
-        if (owner && /\.tex$/i.test(owner))
+        if (owner && /\.tex$/i.test(owner)) {
+            // A chapter that is a document of its own and that several books read,
+            // none of them built in this session, comes back as its own owner.
+            // While one of those books is the paper on screen, the chapter stays
+            // in it: reopening a project and opening such a chapter switched Live
+            // from the 389-page book to the chapter alone (two pages).
+            if (owner === path && (getLastBuildTarget === null || getLastBuildTarget === void 0 ? void 0 : getLastBuildTarget()) !== path) {
+                const running = currentLiveRoot();
+                if (running && running !== path && ((_a = getDocumentsIncluding === null || getDocumentsIncluding === void 0 ? void 0 : getDocumentsIncluding(path)) === null || _a === void 0 ? void 0 : _a.includes(running)))
+                    return running;
+            }
             return owner;
+        }
         if (isTex && typeof text === "string" && isStandaloneSource(text)) {
             // Main has not answered yet (undefined). A chapter of a book reads as
             // a document of its own (subfiles), and taking its text at its word
@@ -106,7 +117,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         }
         if (configuredRoot && (getRootSource === null || getRootSource === void 0 ? void 0 : getRootSource()) === "manual")
             return configuredRoot;
-        const lastBuilt = (_a = getLastBuildTarget === null || getLastBuildTarget === void 0 ? void 0 : getLastBuildTarget()) !== null && _a !== void 0 ? _a : null;
+        const lastBuilt = (_b = getLastBuildTarget === null || getLastBuildTarget === void 0 ? void 0 : getLastBuildTarget()) !== null && _b !== void 0 ? _b : null;
         return configuredRoot || (lastBuilt && /\.tex$/i.test(lastBuilt) ? lastBuilt : null) || (isTex ? path : null);
     };
     const bridge = window.tex64Tdom;

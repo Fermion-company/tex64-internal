@@ -801,6 +801,11 @@ export const initMain = () => {
     getRootSource,
     getLastBuildTarget: () => lastBuildMainFile,
     getDocumentFor: (path) => documentOwnerOf(path),
+    getDocumentsIncluding: (path) => {
+      const key = `${getWorkspaceRootKey() ?? ""}\0${path}`;
+      const known = documentOwners.get(key) ?? lastDocumentOwners.get(key);
+      return known ? known.including : null;
+    },
     getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
       maxFiles: Number.POSITIVE_INFINITY,
       maxChars: Number.POSITIVE_INFINITY,
