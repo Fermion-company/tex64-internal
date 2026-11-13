@@ -364,6 +364,15 @@ class TdomEngineService {
   }
 
   async acquireBuildLease(payload = {}) {
+    // The import of an earlier Build holds the same reservation while the
+    // engine opens the document with it (minutes for a book). A Build the
+    // user starts meanwhile outranks it, its own result replaces that one:
+    // refusing it here showed "Build could not reserve the TeX engine" right
+    // after reopening a project whose saved Build was being taken over.
+    if (this.activeBuildLease && !this.activeBuildLease.released &&
+        this.activeBuildLease.deferredImport === true && payload.deferredImport !== true) {
+      await this.releaseBuildLease(this.activeBuildLease);
+    }
     if (this.activeBuildLease && !this.activeBuildLease.released) {
       const error = new Error("TDOM heavy work is already reserved by another Build.");
       error.code = "TDOM_BUILD_LEASE_UNAVAILABLE";
@@ -1081,7 +1090,9 @@ class TdomEngineService {
           importLease = await this.acquireBuildLease({
             projectRoot: snapshot.projectRoot,
             mainFile,
+            deferredImport: true,
           });
+          if (this.activeBuildLease && !this.activeBuildLease.released) this.activeBuildLease.deferredImport = true;
           const imported = await importLease.adopt(remembered, snapshot);
           if (imported?.adopted !== true) {
             console.info("[tdom] Build import not adopted:", imported?.reason ?? "unknown");
