@@ -44,6 +44,7 @@ const DEFAULT_BUILD_LEASE_TTL_MS = 11 * 60 * 1000;
 const CANONICAL_BUILD_ADOPTION_TTL_MS = 15 * 60 * 1000;
 const BUILD_LEASE_ACQUIRE_TIMEOUT_MS = 1_500;
 const BUILD_LEASE_PROBE_TTL_MS = 5_000;
+const BUILD_IMPORT_LEASE_WAIT_MS = 5 * 60 * 1000;
 const BUILD_LEASE_REQUEST_TIMEOUT_MS = 2_000;
 const MARKER = "server.js";
 
@@ -647,8 +648,26 @@ class TdomEngineService {
       await this.start(lease);
     }
     await this.applyActiveBuildLease();
+    // An engine that has just started is still settling its first document
+    // and answers 409/503 for a moment. Giving up at once lost the Build
+    // saved by the session before: reopening a book showed no paper until
+    // the whole Build had run again ("build-lease-not-supported" 9 s after
+    // launch). Ask again while that answer lasts, as the Build's own
+    // reservation does.
+    const acquireUntil = Date.now() + BUILD_IMPORT_LEASE_WAIT_MS;
+    while (!lease.released && !lease.token && this.isRunning() && this.state === "ready" &&
+        Date.now() < acquireUntil) {
+      const status = lease.response?.statusCode;
+      if (status !== 409 && status !== 503) break;
+      await Promise.race([new Promise((resolve) => setTimeout(resolve, 500)), lease.releasePromise]);
+      if (lease.released) break;
+      await this.applyActiveBuildLease();
+    }
     if (lease.released) return { adopted: false, reason: "build-lease-unavailable" };
-    if (!lease.token) return { adopted: false, reason: "build-lease-not-supported" };
+    if (!lease.token) {
+      return { adopted: false, reason: lease.response?.reason
+        ? `build-lease-not-granted:${lease.response.reason}` : "build-lease-not-supported" };
+    }
     const renewed = await this.renewCanonicalBuildLease(lease);
     if (renewed?.ok !== true || renewed?.renewed !== true) {
       return { adopted: false, reason: renewed?.reason || "build-lease-renew-failed" };
