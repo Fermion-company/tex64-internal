@@ -84,3 +84,19 @@ test("the index starts on the first page its file fills, not the page that shipp
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("the marker stays on the page chosen for a heading, not the page the heading shipped", () => {
+  // Page 1 carries twelve stamps of the \part line; the heading itself is one line on page 2.
+  const chapter = Array.from({ length: 20 }, (_, i) => row(1, 10 + i, 5000000 + i * 2000000, 40));
+  const stamps = Array.from({ length: 12 }, (_, i) => row(2, 1, 4500000 + i * 3600000, 5, 31000000));
+  const files = project([page(1, [...chapter, ...stamps]), page(2, [row(2, 1, 9000000, 18)])]);
+  try {
+    const service = new SynctexService({});
+    const ask = (pageTrusted) => service.forwardMarkerBox({ pdfPath: files.pdf, sourcePath: files.part, line: 1, page: 2, x: 100, y: 100, pageTrusted });
+    assert.equal(ask(true)?.page, 2);
+    // a page that holds nothing of the line gives no box of it
+    assert.equal(service.forwardMarkerBox({ pdfPath: files.pdf, sourcePath: files.part, line: 1, page: 3, x: 0, y: 0, pageTrusted: true }), null);
+  } finally {
+    fs.rmSync(files.dir, { recursive: true, force: true });
+  }
+});

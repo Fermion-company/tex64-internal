@@ -726,6 +726,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       try {
         const box = synctexService.forwardMarkerBox({
           pdfPath, sourcePath, line: targetLine, page: result.page, x: result.x, y: result.y,
+          pageTrusted: Boolean(indexed),
         });
         if (box && box.width > 0 && box.height > 0) {
           const inside = box.page === result.page && Number.isFinite(result.x) && Number.isFinite(result.y) &&

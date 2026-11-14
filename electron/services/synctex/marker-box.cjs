@@ -159,7 +159,7 @@ module.exports = (SynctexService) => {
    * { page, x, y, width, height } in PDF points (y from the top) for the
    * marker of `line` in `sourcePath`, or null to keep SyncTeX's own box.
    */
-  SynctexService.prototype.forwardMarkerBox = function ({ pdfPath, sourcePath, line, page, x, y }) {
+  SynctexService.prototype.forwardMarkerBox = function ({ pdfPath, sourcePath, line, page, x, y, pageTrusted = false }) {
     const synctexPath = this.findSynctexOutputPath?.(pdfPath);
     const index = synctexPath ? this.loadForwardIndex(synctexPath) : null;
     if (!index || !Number.isInteger(line) || line < 1) return null;
@@ -190,13 +190,19 @@ module.exports = (SynctexService) => {
     if (math && !math.all && collect(line).size) math = null;
     const hits = collect(math ? math.closingLine : line);
     if (!hits.size) return null;
+    // the caller's page is none of this line's (an \input line stands for its file): no box of this line there
+    if (pageTrusted === true && Number.isInteger(page) && !hits.has(page)) return null;
     const total = (map) => [...map.values()].reduce((sum, value) => sum + value, 0);
     let pageNo = Number.isInteger(page) && hits.has(page) ? page : null;
     let best = null;
     for (const [candidate, map] of hits) if (!best || total(map) > total(hits.get(best))) best = candidate;
     // Records an output routine left on a page (a page break while this line
     // was read) are few; the text itself is where most of them are.
-    if (pageNo === null || total(hits.get(pageNo)) * 3 < total(hits.get(best))) pageNo = best;
+    // (a page the caller already chose among this line's pages stays: the
+    // page a chapter heading ships carries more of its records, drawn by the
+    // output routine from top to bottom, than the heading's own page)
+    const keep = pageTrusted === true && pageNo !== null;
+    if (pageNo === null || (!keep && total(hits.get(pageNo)) * 3 < total(hits.get(best)))) pageNo = best;
     let pageLines = index.pages.get(pageNo)?.lines ?? [];
     // A typeset line recorded under an earlier line of the same file was
     // finished before this source line was read: its records here are what
@@ -214,7 +220,7 @@ module.exports = (SynctexService) => {
     if (!hits.has(pageNo)) {
       pageNo = null;
       for (const [candidate, map] of hits) if (pageNo === null || total(map) > total(hits.get(pageNo))) pageNo = candidate;
-    } else {
+    } else if (!keep) {
       for (const [candidate, map] of hits) if (total(map) > total(hits.get(pageNo)) * 3) pageNo = candidate;
     }
     pageLines = index.pages.get(pageNo)?.lines ?? [];
