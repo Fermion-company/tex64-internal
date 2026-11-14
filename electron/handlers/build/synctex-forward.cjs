@@ -484,6 +484,13 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       let quick;
       let anchor = { line: targetLine, toEnd: false };
       try {
+        // The line that prints the index: where the index starts.
+        const ownLine = String(fs.readFileSync(sourcePath, "utf8").split(/\r?\n/)[targetLine - 1] ?? "")
+          .replace(/(^|[^\\])%.*$/, "$1");
+        if (/\\printindex\b/.test(ownLine) && typeof synctexService.forwardIndexStart === "function") {
+          const start = synctexService.forwardIndexStart({ pdfPath });
+          if (start) return { ok: true, page: start.page, x: start.x, y: start.y, fallback: true };
+        }
         anchor = jumpAnchorLine(sourcePath, targetLine);
         // An \input / \include line stands for the file it reads: go to
         // where that file's output begins (or ends, from the blank line

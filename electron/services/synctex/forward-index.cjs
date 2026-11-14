@@ -551,6 +551,39 @@ module.exports = (SynctexService) => {
   };
 
   /**
+   * Where the index begins: the first page the generated index file (.ind)
+   * fills, in PDF points. \printindex prints nothing of its own, and the
+   * nearest inked line of the main file is somewhere else entirely (page 334
+   * for an index that starts on 371). The page shipped just before the index
+   * is stamped with the index file's first line too, so the first page with
+   * at least half the glyphs of the fullest one is taken.
+   */
+  SynctexService.prototype.forwardIndexStart = function ({ pdfPath }) {
+    if (!fs.existsSync(pdfPath)) return null;
+    const synctexPath = this.findSynctexOutputPath(pdfPath);
+    const index = synctexPath ? this.loadForwardIndex(synctexPath) : null;
+    if (!index) return null;
+    const perPage = new Map();
+    for (const [tag, inputPath] of index.inputs) {
+      if (!/\.ind$/i.test(String(inputPath))) continue;
+      for (const pages of index.byTag.get(tag)?.values() ?? []) {
+        for (const entry of pages.values()) {
+          if (!entry.best || !entry.glyphs) continue;
+          const seen = perPage.get(entry.page) ?? { glyphs: 0, top: null };
+          seen.glyphs += entry.glyphs;
+          if (!seen.top || entry.best.v < seen.top.v) seen.top = entry.best;
+          perPage.set(entry.page, seen);
+        }
+      }
+    }
+    if (!perPage.size) return null;
+    const fullest = Math.max(...[...perPage.values()].map((seen) => seen.glyphs));
+    const page = Math.min(...[...perPage].filter(([, seen]) => seen.glyphs >= fullest / 2).map(([number]) => number));
+    const top = perPage.get(page).top;
+    return { page, x: index.toPoints(top.h, index.xOffset), y: index.toPoints(top.v, index.yOffset) };
+  };
+
+  /**
    * Resolves many source lines of one file against one PDF in a single pass
    * over the cached index. Each hit is the topmost typeset spot of that line
    * (or of the nearest line that left ink), in PDF points from the page's

@@ -60,3 +60,27 @@ test("a paragraph that fills most of a page and runs on to the next still begins
     fs.rmSync(files.dir, { recursive: true, force: true });
   }
 });
+
+test("the index starts on the first page its file fills, not the page that shipped just before it", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-fwd-ind-"));
+  try {
+    const main = path.join(dir, "main.tex");
+    fs.writeFileSync(main, "text\n\\printindex\n");
+    fs.writeFileSync(path.join(dir, "main.ind"), "\\begin{theindex}\n\\item a\n\\end{theindex}\n");
+    fs.writeFileSync(path.join(dir, "main.pdf"), "%PDF-1.5\n");
+    const body = Array.from({ length: 20 }, (_, i) => row(1, 1, 5000000 + i * 2000000, 40));
+    const entries = Array.from({ length: 30 }, (_, i) => row(2, 2, 6000000 + i * 1400000, 30));
+    fs.writeFileSync(path.join(dir, "main.synctex"), [
+      "SyncTeX Version:1", `Input:1:${main}`, `Input:2:${path.join(dir, "main.ind")}`, "Output:pdf",
+      "Magnification:1000", "Unit:1", "X Offset:0", "Y Offset:0", "Content:",
+      // page 3: the last page of the text, stamped once with the index file's first line
+      ...page(3, [...body, row(2, 1, 48000000, 4)]),
+      ...page(4, entries), ...page(5, entries.slice(0, 12)),
+      "Postamble:", "Count:0", "",
+    ].join("\n"));
+    const start = new SynctexService({}).forwardIndexStart({ pdfPath: path.join(dir, "main.pdf") });
+    assert.equal(start?.page, 4);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
