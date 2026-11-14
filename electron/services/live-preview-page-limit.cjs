@@ -19,6 +19,7 @@
  * An engine reading stays in force until a newer Build says otherwise.
  */
 
+const { Worker, isMainThread, parentPort, workerData } = require("node:worker_threads");
 const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
@@ -26,7 +27,9 @@ const { pathToFileURL } = require("node:url");
 const LIVE_PREVIEW_PAGE_LIMIT = 200;
 const MAX_PDF_BYTES = 100 * 1024 * 1024;
 
-const countPdfPages = async (pdfPath) => {
+const COUNT_TIMEOUT_MS = 10_000;
+
+const readPageCount = async (pdfPath) => {
   const pdfjsPath = require.resolve("pdfjs-dist/legacy/build/pdf.mjs");
   const { getDocument } = await import(pathToFileURL(pdfjsPath).href);
   const loading = getDocument({
@@ -40,6 +43,32 @@ const countPdfPages = async (pdfPath) => {
     await loading.destroy();
   }
 };
+
+// pdf.js does not come up on Electron's main thread (the open never
+// settles); it runs in a worker, as the other PDF readers do. A count that
+// does not arrive in time is "unknown": the engine's own report decides then.
+const countPdfPages = (pdfPath) => new Promise((resolve, reject) => {
+  const worker = new Worker(__filename, { workerData: { livePreviewPageCount: pdfPath } });
+  let done = false;
+  const finish = (error, pages) => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    void worker.terminate();
+    error ? reject(error) : resolve(pages);
+  };
+  const timer = setTimeout(() => finish(new Error("PDF page count timed out")), COUNT_TIMEOUT_MS);
+  worker.once("message", (value) => value?.error ? finish(new Error(value.error)) : finish(null, value?.pages));
+  worker.once("error", (error) => finish(error));
+  worker.once("exit", () => finish(new Error("PDF page count worker exited")));
+});
+
+if (!isMainThread && typeof workerData?.livePreviewPageCount === "string") {
+  readPageCount(workerData.livePreviewPageCount).then(
+    (pages) => parentPort.postMessage({ pages }),
+    (error) => parentPort.postMessage({ error: error?.message || String(error) }),
+  );
+}
 
 class LivePreviewPageLimit {
   constructor({ limit = LIVE_PREVIEW_PAGE_LIMIT, countPages = countPdfPages, stat = fs.promises.stat } = {}) {
