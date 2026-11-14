@@ -30,6 +30,8 @@ const { spawn } = require("node:child_process");
 const { NO_FILE_ACCESS } = require("./engine-dir.cjs");
 const { getPreferredTexliveBinDirs } = require("./texlive-paths.cjs");
 const { loadPersistedCanonicalBuild } = require("./build/canonical-build-candidate.cjs");
+const { loadPreviewCacheCandidate } = require("./build/preview-cache.cjs");
+const { LivePreviewPageLimit } = require("./live-preview-page-limit.cjs");
 
 // Off the tdom dev default (4633) so a manually run `npm start` in the
 // checkout and the embedded engine don't race for the same port.
@@ -263,6 +265,12 @@ class TdomEngineService {
     this.pendingOpenRequest = null;
     this.activeBuildLease = null;
     this.pendingCanonicalBuilds = new Map();
+    // Realtime preview stops past a realistic length (live-preview-page-limit.cjs).
+    this.pageLimit = options.pageLimit || new LivePreviewPageLimit();
+    this.loadBuildCache = options.loadBuildCache || loadPreviewCacheCandidate;
+    this.pageWatchIntervalMs = options.pageWatchIntervalMs ?? 5_000;
+    this.pageWatchTimer = null;
+    this.pageLimited = false;
   }
 
   resolveDirectory() {
@@ -289,7 +297,52 @@ class TdomEngineService {
   getStatus() {
     return { available: this.isAvailable(), running: this.isRunning(), state: this.state,
       url: this.url, engineDir: this.engineDir, needsAccess: this.needsAccess,
-      error: this.lastError };
+      error: this.lastError, pageLimited: this.pageLimited };
+  }
+
+  // Whether `rootPath` is past the length Live is offered for, from the
+  // paper of its last Build: beside the root, or the copy in the project's
+  // Build cache (the output may go to another directory).
+  async checkPageLimit(rootPath, projectRoot = null) {
+    if (!rootPath) return { limited: false, pages: null };
+    let cachedPaper = null;
+    if (projectRoot && isWithin(projectRoot, rootPath)) {
+      try {
+        const cached = await this.loadBuildCache({
+          rootPath: projectRoot,
+          mainFileName: path.relative(projectRoot, rootPath),
+        });
+        const paper = cached?.hit ? cached.artifacts?.pdf?.filePath : null;
+        if (typeof paper === "string" && paper) cachedPaper = paper;
+      } catch { /* no usable cache: the paper beside the root still counts */ }
+    }
+    return this.pageLimit.check(rootPath, cachedPaper);
+  }
+
+  // The document's length is only known to the engine when no Build has left
+  // a paper, and it changes as the user writes. Ask now and then; past the
+  // limit the engine is stopped and the next push answers `limited`.
+  schedulePageWatch() {
+    if (this.pageWatchTimer || !(this.pageWatchIntervalMs > 0)) return;
+    this.pageWatchTimer = setTimeout(async () => {
+      this.pageWatchTimer = null;
+      const rootPath = this.lastPath;
+      const generation = this.lifecycleGeneration;
+      if (!rootPath || !this.isRunning() || this.state !== "ready") return;
+      try {
+        const status = await requestJson(`${this.url}/status`, { timeoutMs: 2_000 });
+        const current = generation === this.lifecycleGeneration && rootPath === this.lastPath &&
+          this.pendingOpenRequest === null;
+        const pages = Math.max(Number(status?.canonical?.pageCount) || 0, Number(status?.residentPages) || 0);
+        if (current && this.pageLimit.observe(rootPath, pages)) {
+          this.stop();
+          this.pageLimited = true;
+          return;
+        }
+      } catch { /* a busy engine answers the next round */ }
+      if (generation === this.lifecycleGeneration) this.schedulePageWatch();
+    }, this.pageWatchIntervalMs);
+    this.pageWatchTimer.unref?.();
   }
 
   async applyActiveBuildLease({ timeoutMs = BUILD_LEASE_REQUEST_TIMEOUT_MS, ttlMs = null } = {}) {
@@ -595,6 +648,12 @@ class TdomEngineService {
     // A successful Build can finish near the original 11-minute watchdog.
     // Give a cold process enough local ownership to boot, acquire its remote
     // lease and perform the required 15-minute renewal before /open.
+    if ((await this.checkPageLimit(path.resolve(lease.projectRoot, lease.mainFile), lease.projectRoot)).limited) {
+      return { adopted: false, deferred: true, reason: "live-preview-page-limit" };
+    }
+    if (lease.released || this.activeBuildLease !== lease) {
+      return { adopted: false, reason: "build-lease-unavailable" };
+    }
     this.extendLocalBuildLeaseForAdoption(lease);
     const openingSnapshot = lease.bootstrapOpen?.snapshot;
     const matchingOpen = openingSnapshot?.projectRoot === lease.projectRoot &&
@@ -1091,6 +1150,19 @@ class TdomEngineService {
       activeLease.pendingSnapshot ??= snapshot;
     }
     const run = async () => {
+      // Asked when the engine would have to open the document; while it
+      // holds it, the page watch follows its length.
+      const opens = snapshot.fresh || normalizedPath !== this.lastPath ||
+        snapshot.sessionKey !== this.lastSessionKey || this.lastSource === null ||
+        this.pendingOpenRequest !== null;
+      const length = opens ? await this.checkPageLimit(snapshot.filePath, snapshot.projectRoot)
+        : { limited: false };
+      if (length.limited) {
+        if (this.proc || this.state !== "stopped") this.stop();
+        this.pageLimited = true;
+        return { ok: true, limited: true, pages: length.pages };
+      }
+      this.pageLimited = false;
       let pathChangedNow = normalizedPath !== this.lastPath;
       let sessionChangedNow = snapshot.sessionKey !== this.lastSessionKey;
       let requiresOpenNow = snapshot.fresh || pathChangedNow || sessionChangedNow ||
@@ -1208,7 +1280,11 @@ class TdomEngineService {
       }
       return { ok: true, url: this.url, ...(Number.isInteger(acceptedSrcRev) ? { srcRev: acceptedSrcRev } : {}) };
     };
-    const result = this.pushQueue.then(run, run);
+    const watched = () => run().then((answer) => {
+      if (answer?.ok && !answer.limited) this.schedulePageWatch();
+      return answer;
+    });
+    const result = this.pushQueue.then(watched, watched);
     this.pushQueue = result.then(() => undefined, () => undefined);
     return result;
   }
@@ -1291,6 +1367,9 @@ class TdomEngineService {
     this.fulfilledBuildOpenAcks = new WeakMap();
     this.pendingCanonicalBuilds.clear();
     this.pendingOpenRequest = null;
+    this.pageLimited = false;
+    if (this.pageWatchTimer) clearTimeout(this.pageWatchTimer);
+    this.pageWatchTimer = null;
     if (proc) { try { proc.kill("SIGTERM"); } catch {} }
     return { ok: true };
   }

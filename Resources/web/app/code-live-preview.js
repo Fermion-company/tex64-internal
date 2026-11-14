@@ -154,6 +154,10 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     // Build PDF until Live presents at least this revision.
     let liveExpectedSrcRev = null;
     let lastWindowPreviewKey = null;
+    // Document main keeps on its Build paper because it is past the length
+    // Live is offered for (live-preview-page-limit.cjs). Nothing is pushed for
+    // it until another document is in front or a Build has made a new paper.
+    let limitedSessionKey = null;
     const cursorOffset = (editor) => {
         var _a, _b, _c, _d, _e, _f;
         if (editor === void 0) { editor = (_b = (_a = currentProjectSource()) === null || _a === void 0 ? void 0 : _a.editor) !== null && _b !== void 0 ? _b : null; }
@@ -371,6 +375,26 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             distributeLive(null, liveGeneration);
         }
     };
+    const enterPageLimit = (sessionKey) => {
+        limitedSessionKey = sessionKey;
+        lifecycleVersion += 1;
+        latestPushVersion += 1;
+        debouncedPush.cancel();
+        firstPush.cancel();
+        compositionRetry.cancel();
+        debouncedFocus.cancel();
+        pendingExactInputs.clear();
+        pendingPush = null;
+        latestInputAtEpochMs = 0;
+        builtSnapshot = null;
+        buildOwnsView = false;
+        liveExpectedSrcRev = null;
+        engineStarted = false;
+        engineUrl = null;
+        liveSessionKey = null;
+        liveGeneration += 1;
+        distributeLive(null, liveGeneration);
+    };
     const drainPushes = async () => {
         if (pushing || !(bridge === null || bridge === void 0 ? void 0 : bridge.push))
             return;
@@ -388,6 +412,12 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 const result = await bridge.push(snapshot.payload);
                 if (!(result === null || result === void 0 ? void 0 : result.ok))
                     throw new Error((result === null || result === void 0 ? void 0 : result.error) || "live preview push failed");
+                if (result.limited) {
+                    if (active && snapshot.lifecycleVersion === lifecycleVersion)
+                        enterPageLimit(snapshot.sessionKey);
+                    attemptedSnapshot = null;
+                    continue;
+                }
                 // Only the capture ids carried by this accepted request are retired.
                 // An older acknowledgement must never clear a newer edit of same bytes.
                 clearAcceptedExactInputs(snapshot);
@@ -405,6 +435,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                     liveExpectedSrcRev = Number.isInteger(result.srcRev) ? Number(result.srcRev) : null;
                 }
                 if (result.url && isCurrent) {
+                    // a push that follows a length limit starts the engine itself
+                    engineStarted = true;
                     if (snapshot.payload.fresh || engineUrl !== result.url || !engineUrl)
                         liveGeneration += 1;
                     engineUrl = result.url;
@@ -455,6 +487,11 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         const snapshot = currentSnapshot();
         if (!snapshot)
             return;
+        if (limitedSessionKey === snapshot.sessionKey) {
+            pendingExactInputs.clear();
+            latestInputAtEpochMs = 0;
+            return;
+        }
         // A Build keeps the paper until the engine accepts a source that differs
         // from the one it typeset; that push carries the release.
         const changedSinceBuild = Boolean(builtSnapshot) && (sourceRefreshPending ||
@@ -589,6 +626,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         engineStarted = false;
         engineUrl = null;
         liveSessionKey = null;
+        limitedSessionKey = null;
         buildOwnsView = false;
         liveExpectedSrcRev = null;
         liveGeneration += 1;
@@ -609,6 +647,14 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     let historyBlocked = false;
     const refresh = () => {
         applyActive(!historyBlocked && editorSettings.isEnabled("preview.realtime") && getAppMode() === "code");
+        if (active && limitedSessionKey) {
+            // Still the limited document (or a tab that is no source at all): its
+            // Build paper stays, as with the setting off. Another document starts over.
+            const snapshot = currentSnapshot();
+            if (!snapshot || snapshot.sessionKey === limitedSessionKey)
+                return;
+            limitedSessionKey = null;
+        }
         if (active) {
             if (!engineStarted && !starting)
                 void start();
@@ -643,8 +689,19 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             return;
         refresh();
     });
+    // A Build is the one thing that can bring a limited document back under
+    // the limit. Ask main again with the new paper; the answer either starts
+    // Live or keeps the limit, and no engine is started just to ask.
     window.addEventListener("tex64:build-state", (event) => {
-        var _a, _b;
+        var _a, _b, _c;
+        if (active && limitedSessionKey) {
+            if (((_a = event.detail) === null || _a === void 0 ? void 0 : _a.state) !== "success")
+                return;
+            limitedSessionKey = null;
+            sourceRefreshPending = true;
+            pushCurrent();
+            return;
+        }
         if (!active || !liveTarget)
             return;
         const detail = event.detail;
@@ -654,7 +711,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             return;
         const absolute = (value) => /^(?:\/|[A-Za-z]:\/)/.test(value)
             ? normalize(value) : `${normalize(root !== null && root !== void 0 ? root : "")}/${normalize(value)}`;
-        const pdfPath = (_a = detail.pdfPath) !== null && _a !== void 0 ? _a : (_b = detail.targetFile) === null || _b === void 0 ? void 0 : _b.replace(/\.tex$/i, ".pdf");
+        const pdfPath = (_b = detail.pdfPath) !== null && _b !== void 0 ? _b : (_c = detail.targetFile) === null || _c === void 0 ? void 0 : _c.replace(/\.tex$/i, ".pdf");
         if (!pdfPath || absolute(pdfPath) !== absolute(liveTarget.pdfPath))
             return;
         if (detail.state === "building") {
@@ -725,8 +782,13 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         checkingHealth = true;
         try {
             const status = await bridge.status();
-            if (active && healthLifecycleVersion === lifecycleVersion &&
-                (!(status === null || status === void 0 ? void 0 : status.running) || status.state !== "ready")) {
+            const current = active && healthLifecycleVersion === lifecycleVersion;
+            const limitedKey = queuedSessionKey !== null && queuedSessionKey !== void 0 ? queuedSessionKey : liveSessionKey;
+            if (current && (status === null || status === void 0 ? void 0 : status.pageLimited) && limitedKey) {
+                // main stopped the engine: the document grew past the length limit
+                enterPageLimit(limitedKey);
+            }
+            else if (current && (!(status === null || status === void 0 ? void 0 : status.running) || status.state !== "ready")) {
                 lifecycleVersion += 1;
                 latestPushVersion += 1;
                 engineStarted = false;

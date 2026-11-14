@@ -47,6 +47,8 @@ const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) =
   const pushes = [], focuses = [], polls = new Map(), listeners = new Map();
   let text = "initial", enabled = true, changeSettings, contentChanged, cursorChanged;
   let holdNextPush = false, acceptPush;
+  let limited = false, starts = 0;
+  const shown = [], status = { running: true, state: "ready", pageLimited: false };
   const model = { path: initialPath };
   const editor = {
     getValue: () => text,
@@ -58,14 +60,16 @@ const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) =
   model.getOffsetAt = () => 0;
   const group = {
     editor, currentFilePath: model.path, isDirty: true, isComposing: false,
-    viewer: { setLivePreview() {}, getViewerMode: () => "editor" },
+    viewer: { setLivePreview(url) { if (shown.at(-1) !== url) shown.push(url); }, getViewerMode: () => "editor" },
   };
   const window = {
     tex64Tdom: {
-      start: async () => ({ ok: true, url: "http://preview" }),
+      start: async () => { starts += 1; return { ok: true, url: "http://preview" }; },
       stop() {},
+      status: async () => status,
       push(payload) {
         pushes.push({ at: clock.now(), payload });
+        if (limited) return Promise.resolve({ ok: true, limited: true, pages: 389 });
         const result = { ok: true, url: "http://preview", srcRev: pushes.length };
         if (holdNextPush) {
           holdNextPush = false;
@@ -113,6 +117,10 @@ const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) =
     switchFile(path, value) { model.path = group.currentFilePath = path; text = value; },
     setEnabled(value) { enabled = value; changeSettings({ kind: "flag", id: "preview.realtime" }); },
     holdNextPush() { holdNextPush = true; },
+    setLimited(value) { limited = value; },
+    starts: () => starts,
+    shown, status,
+    health: () => polls.get(2000)(),
     acceptPush: () => acceptPush(),
     buildSuccess: () => listeners.get("tex64:build-state")({ detail: {
       state: "success", workspaceRoot: "/project", targetFile: group.currentFilePath,
@@ -290,4 +298,67 @@ test("cursor focus retains its 160ms debounce", async () => {
   assert.equal(h.focuses.length, 0);
   await h.clock.advance(1);
   assert.equal(h.focuses[0].at - start, 160);
+});
+
+test("a document past the length limit keeps its Build paper: no Live frame, no engine restart, no pushes while typing", async () => {
+  const h = await setup({ ready: false });
+  h.setLimited(true);
+  await h.clock.advance(160);
+  assert.equal(h.pushes.length, 1);
+  assert.equal(h.starts(), 1);
+  assert.equal(h.shown.includes("http://preview"), false);
+
+  h.edit("typed while limited");
+  h.poll();
+  await h.clock.advance(500);
+  h.poll();
+  await h.clock.advance(500);
+  assert.equal(h.pushes.length, 1);
+  assert.equal(h.starts(), 1);
+});
+
+test("a Build asks again for a limited document, and Live starts once its paper is under the limit", async () => {
+  const h = await setup({ ready: false });
+  h.setLimited(true);
+  await h.clock.advance(160);
+  h.buildSuccess();
+  await h.clock.advance(50);
+  assert.equal(h.pushes.length, 2);
+  assert.equal(h.shown.includes("http://preview"), false);
+
+  h.setLimited(false);
+  h.buildSuccess();
+  await h.clock.advance(50);
+  assert.equal(h.pushes.length, 3);
+  assert.equal(h.starts(), 1);
+  assert.equal(h.shown.at(-1), "http://preview");
+  h.edit("typed after the shorter Build");
+  await h.clock.advance(50);
+  assert.equal(h.pushes.length, 4);
+});
+
+test("another document leaves the length limit behind", async () => {
+  const h = await setup({ ready: false });
+  h.setLimited(true);
+  await h.clock.advance(160);
+  h.setLimited(false);
+  h.switchFile("/project/short.tex", "a short document");
+  h.poll();
+  await h.clock.advance(160);
+  assert.equal(h.pushes.at(-1).payload.rootFile, "/project/short.tex");
+  assert.equal(h.shown.at(-1), "http://preview");
+});
+
+test("main stopping the engine for a document that grew past the limit ends Live without a restart", async () => {
+  const h = await setup();
+  assert.equal(h.shown.at(-1), "http://preview");
+  const startsBefore = h.starts();
+  Object.assign(h.status, { running: false, state: "stopped", pageLimited: true });
+  await h.health();
+  await h.clock.advance(10);
+  h.poll();
+  await h.clock.advance(500);
+  assert.equal(h.shown.at(-1), null);
+  assert.equal(h.starts(), startsBefore);
+  assert.equal(h.pushes.length, 0);
 });
