@@ -342,7 +342,10 @@ class TdomEngineService {
       // one whole-document TeX run at a time
       mayProbe: !this.activeBuildLease || this.activeBuildLease.released,
     });
-    if (plan?.overlays) for (const [filePath, text] of plan.overlays) snapshot.overlays.set(filePath, text);
+    if (plan?.overlays) {
+      for (const [filePath, text] of plan.overlays) snapshot.overlays.set(filePath, text);
+      if (typeof plan.rootText === "string") snapshot.source = plan.rootText;
+    }
     return plan;
   }
 

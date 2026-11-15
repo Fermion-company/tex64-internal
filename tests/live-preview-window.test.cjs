@@ -89,6 +89,14 @@ test("a window empties every other chapter and seeds the one before it", () => {
   assert.equal(windowOverlays({ units, index: 2, seeds, readText }), null, "no state known for the third");
 });
 
+test("the root's index is blanked without moving a character", () => {
+  const { windowRootText } = require("../electron/services/live-preview-window.cjs");
+  const root = "\\begin{document}\n\\input{a}\n\\ifx\\a\\b\\else\\printindex\\fi\n\\printindex[names]\n\\printindexes\n\\end{document}\n";
+  const blanked = windowRootText(root);
+  assert.equal(blanked.length, root.length);
+  assert.equal(blanked, root.replace("\\else\\printindex\\fi", "\\else\\relax     \\fi"));
+});
+
 test("a file read by a chapter belongs to that chapter", () => {
   const units = rootUnits("/p/book.tex", ROOT);
   const texts = new Map([
@@ -202,7 +210,7 @@ test("past the limit the engine is given the chapter in front, and keeps it whil
   try {
     fs.writeFileSync(path.join(dir, "book.pdf"), "%PDF-1.5 stand-in");
     const hollow = (request) => ({
-      unitPath: request.activePath,
+      unitPath: request.activePath, rootText: request.rootText.endsWith("% windowed") ? request.rootText : `${request.rootText}% windowed`,
       overlays: new Map([[path.join(dir, "tex", "one.tex"), "\\seed\n"], [path.join(dir, "tex", "three.tex"), ""]]),
     });
     const { service, asked, opened } = windowedService(dir, { plan: hollow });
@@ -213,6 +221,7 @@ test("past the limit the engine is given the chapter in front, and keeps it whil
     assert.equal(service.getStatus().pageLimited, false);
     assert.equal(asked[0].activePath, path.join(dir, "tex", "two.tex"));
     assert.equal(asked[0].paper.pages, 250);
+    assert.equal(opened[0].source, `${fs.readFileSync(path.join(dir, "book.tex"), "utf8")}% windowed`);
     assert.deepEqual([...opened[0].overlays].sort(), [
       [path.join(dir, "tex", "one.tex"), "\\seed\n"],
       [path.join(dir, "tex", "three.tex"), ""],

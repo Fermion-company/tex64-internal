@@ -59,6 +59,12 @@ const PROBE_TEX = String.raw`\newwrite\texsfwindow
 \makeatother
 `;
 
+// The index the root prints at its end would hold the chapter's entries
+// alone, on pages the Build paper already has. The engine reads the command
+// from the root's text, so it is blanked there, letter for letter: every
+// line and offset of the root stays where it is.
+const windowRootText = (rootText) => rootText.replace(/\\printindex(?![A-Za-z@]|\s*\[)/g, "\\relax     ");
+
 const stripComment = (line) => {
   for (let i = 0; i < line.length; i++) {
     if (line[i] !== "%") continue;
@@ -342,7 +348,7 @@ class LivePreviewWindow {
     if (!overlays) return state.probing ? { pending: true } : null;
     state.made = { rootText, index, seeds: state.seeds, overlays };
     state.unitPath = units[index].filePath;
-    return { overlays, unitPath: state.unitPath, pending: Boolean(state.probing) };
+    return { overlays, rootText: windowRootText(rootText), unitPath: state.unitPath, pending: Boolean(state.probing) };
   }
 
   stop() {
@@ -352,5 +358,5 @@ class LivePreviewWindow {
 }
 
 module.exports = {
-  LivePreviewWindow, rootUnits, hollowUnit, seedText, parseProbeRecord, windowOverlays, unitIndexOf, PROBE_TEX,
+  LivePreviewWindow, rootUnits, hollowUnit, seedText, parseProbeRecord, windowOverlays, unitIndexOf, windowRootText, PROBE_TEX,
 };
