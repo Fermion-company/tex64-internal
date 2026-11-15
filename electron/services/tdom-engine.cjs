@@ -1182,7 +1182,11 @@ class TdomEngineService {
   }
 
   push(payload = {}) {
+    // TEX64_TRACE_PUSH=1: where a keystroke's time goes on its way to the engine
+    const trace = process.env.TEX64_TRACE_PUSH && Number.isFinite(Number(payload.clientEditAtEpochMs))
+      ? { at: Number(payload.clientEditAtEpochMs), marks: [["ipc", Date.now()]] } : null;
     const snapshot = this.resolvePushSnapshot(payload);
+    trace?.marks.push(["snapshot", Date.now()]);
     const normalizedPath = snapshot.filePath;
     const pathChanged = normalizedPath !== this.lastPath;
     const sessionChanged = snapshot.sessionKey !== this.lastSessionKey;
@@ -1201,6 +1205,7 @@ class TdomEngineService {
       activeLease.pendingSnapshot ??= snapshot;
     }
     const run = async () => {
+      trace?.marks.push(["queue", Date.now()]);
       // Asked when the engine would have to open the document; while it
       // holds it, the page watch follows its length.
       const opens = snapshot.fresh || normalizedPath !== this.lastPath ||
@@ -1303,6 +1308,7 @@ class TdomEngineService {
           return { ok: true, url: this.url };
         }
         const edit = sourceChanged ? diffEdit(this.lastSource, snapshot.source) : { start: 0, end: 0, text: "" };
+        trace?.marks.push(["post", Date.now()]);
         try {
           acceptedSrcRev = (await requestJson(`${this.url}/edit`, {
             method: "POST",
@@ -1320,6 +1326,10 @@ class TdomEngineService {
           this.lastOverlays = new Map(snapshot.overlays);
           this.lastRootMtimeMs = snapshot.rootMtimeMs;
           this.lastAcceptedSrcRev = Number.isInteger(acceptedSrcRev) ? acceptedSrcRev : null;
+          if (trace) {
+            trace.marks.push(["answered", Date.now()]);
+            console.info("[tdom] push trace", trace.marks.map(([name, at]) => `${name} +${at - trace.at}`).join(" "));
+          }
         } catch (error) {
           // Engine and service disagree about the source (restart, external
           // change) — resync with a fresh open rather than compounding.

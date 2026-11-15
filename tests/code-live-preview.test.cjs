@@ -112,6 +112,7 @@ const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) =
   return {
     clock, pushes, focuses, group, api,
     edit(value) { text = value; contentChanged(); },
+    type(value, change) { text = value; contentChanged({ changes: [{ text: change }], isFlush: false }); },
     cursor: () => cursorChanged(),
     poll: () => polls.get(200)(),
     switchFile(path, value) { model.path = group.currentFilePath = path; text = value; },
@@ -154,13 +155,12 @@ test("an empty project sends no preview source and starts previewing its first d
   assert.equal(h.pushes[1].payload.fresh, false);
 });
 
-test("initial binding and startup coalesce into one push at 16ms", async () => {
+test("initial binding and startup coalesce into one push, one task later", async () => {
   const h = await setup({ ready: false });
-  await h.clock.advance(15);
   assert.equal(h.pushes.length, 0);
   await h.clock.advance(1);
   assert.equal(h.pushes.length, 1);
-  assert.equal(h.pushes[0].at, 1016);
+  assert.equal(h.pushes[0].at, 1001);
   assert.equal(h.pushes[0].payload.fresh, true);
 });
 
@@ -169,37 +169,55 @@ test("same-task paste, multi-cursor and programmatic companion edits produce one
   h.edit("paste"); // firstPush after a pause
   h.edit("paste + second cursor"); // debouncedPush in the same task
   h.edit("paste + second cursor + companion");
-  await h.clock.advance(15);
-  assert.equal(h.pushes.length, 0);
+  assert.equal(h.pushes.length, 0, "nothing goes out inside the task that made the edits");
   await h.clock.advance(1);
   assert.deepEqual(h.pushes.map(pushedText), ["paste + second cursor + companion"]);
   await h.clock.advance(100);
   assert.equal(h.pushes.length, 1);
 });
 
-test("continued typing uses a 16ms trailing delay and a 32ms maximum wait", async () => {
+test("a keystroke goes out when the editor's call returns; edits made in one call go out together", async () => {
   const h = await setup();
   h.edit("first");
   await h.clock.advance(16);
   h.pushes.length = 0;
   const start = h.clock.now();
   h.edit("a");
+  assert.equal(h.pushes.length, 0, "not inside the call that made the edit");
+  await h.clock.advance(0);
+  assert.deepEqual(h.pushes.map((push) => [push.at - start, pushedText(push)]), [[0, "a"]]);
   await h.clock.advance(10);
   h.edit("b");
-  await h.clock.advance(10);
-  h.edit("c");
-  await h.clock.advance(10);
-  h.edit("d");
-  await h.clock.advance(1);
-  assert.equal(h.pushes.length, 0);
-  await h.clock.advance(1);
-  assert.equal(h.pushes[0].at - start, 32);
-  assert.equal(pushedText(h.pushes[0]), "d");
-  h.edit("e");
-  await h.clock.advance(15);
-  assert.equal(h.pushes.length, 1);
-  await h.clock.advance(1);
-  assert.equal(h.pushes[1].at - start, 48);
+  await h.clock.advance(0);
+  assert.equal(h.pushes[1].at - start, 10);
+  assert.equal(pushedText(h.pushes[1]), "b");
+  h.pushes.length = 0;
+  for (const text of ["c", "d", "e", "f"]) h.edit(text);
+  await h.clock.advance(0);
+  assert.deepEqual(h.pushes.map(pushedText), ["f"]);
+});
+
+test("plain typed characters go out inside the editor's own call; a brace or a command waits for the call to return", async () => {
+  const h = await setup();
+  h.edit("first");
+  await h.clock.advance(16);
+  h.pushes.length = 0;
+  h.type("first a", "a");
+  assert.deepEqual(h.pushes.map(pushedText), ["first a"], "sent before the editor paints");
+  await h.clock.advance(0); // the engine accepts it
+  h.type("first ", ""); // a deletion
+  assert.equal(h.pushes.length, 2);
+  await h.clock.advance(5);
+  assert.equal(h.pushes.length, 2, "nothing is sent twice");
+  h.type("first \\begin{", "\\begin{");
+  assert.equal(h.pushes.length, 2);
+  h.edit("first \\begin{}"); // the editor closes the brace in the same call
+  await h.clock.advance(0);
+  assert.deepEqual(h.pushes.slice(2).map(pushedText), ["first \\begin{}"]);
+  h.type("first \\begin{}\n", "\n");
+  assert.equal(h.pushes.length, 3, "a new line waits too: the editor may indent or complete after it");
+  await h.clock.advance(0);
+  assert.equal(h.pushes.length, 4);
 });
 
 test("long IME composition retries every 80ms and eventually pushes the committed buffer", async () => {
@@ -207,12 +225,12 @@ test("long IME composition retries every 80ms and eventually pushes the committe
   h.group.isComposing = true;
   h.edit("composition");
   const start = h.clock.now();
-  await h.clock.advance(255);
+  await h.clock.advance(239);
   assert.equal(h.pushes.length, 0);
-  assert.deepEqual(h.clock.firedAt.map(at => at - start), [16, 96, 176]);
+  assert.deepEqual(h.clock.firedAt.map(at => at - start), [80, 160]);
   h.group.isComposing = false; // Also recover if no final content event arrives.
   await h.clock.advance(1);
-  assert.equal(h.pushes[0].at - start, 256);
+  assert.equal(h.pushes[0].at - start, 240);
   assert.equal(pushedText(h.pushes[0]), "composition");
 });
 

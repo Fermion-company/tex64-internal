@@ -13,8 +13,13 @@ import { editorSettings } from "./editor-settings/editor-settings-store.js";
 import { getEditorModelPath } from "./editor-session/model-path.js";
 // Real-app typing → paper (25 tokens, 320ms apart, solo 2-page document):
 // 80/120ms gave p50 103ms / p90 144ms; 16/32ms gave p50 45ms / p90 52ms.
-const TYPING_PUSH_DELAY_MS = 16;
-const TYPING_PUSH_MAX_WAIT_MS = 32;
+// The wait only has to outlast the task that made the edit, so that the
+// companion edit the editor makes in that same task (the \end{…} after a
+// \begin{…}, a closing \]) goes out with it: a timer does that at any
+// length. A frame's worth of waiting was a sixth of a keystroke's whole way
+// to the paper.
+const TYPING_PUSH_DELAY_MS = 1;
+const TYPING_PUSH_MAX_WAIT_MS = 4;
 const COMPOSITION_RETRY_MS = 80;
 // Trailing debounce with an upper bound: a burst of keystrokes closer than
 // delayMs would otherwise keep pushing the task back and the paper would not
@@ -45,6 +50,42 @@ const createDebouncedTask = (task, delayMs, maxWaitMs = 0) => {
         firstDeferredAt = 0;
     };
     return schedule;
+};
+// Runs the task when the code that asked for it has finished, before the
+// browser does anything else. A timer, even of one millisecond, waits until
+// the editor has laid out and painted the keystroke: 10 ms and more on the
+// way to the engine. Everything the editor changes in the same call (a
+// paste, several cursors, the \end{…} it adds after a \begin{…}) is still
+// taken together.
+const createMicrotaskTask = (task) => {
+    let queued = false;
+    let generation = 0;
+    const schedule = () => {
+        if (queued)
+            return;
+        queued = true;
+        const scheduled = generation;
+        queueMicrotask(() => {
+            if (scheduled !== generation)
+                return;
+            queued = false;
+            task();
+        });
+    };
+    schedule.cancel = () => {
+        generation += 1;
+        queued = false;
+    };
+    return schedule;
+};
+// One change of ordinary characters (or a deletion): nothing the editor
+// answers with an edit of its own, as it does for a brace, a backslash
+// command or a new line.
+const PLAIN_TYPED_TEXT_RE = /^[^\\{}[\]$%&#^_~\r\n]*$/;
+const isPlainTypedChange = (event) => {
+    var _a;
+    return !!event && event.isFlush !== true && Array.isArray(event.changes) && event.changes.length === 1 &&
+        typeof ((_a = event.changes[0]) === null || _a === void 0 ? void 0 : _a.text) === "string" && PLAIN_TYPED_TEXT_RE.test(event.changes[0].text);
 };
 const PROJECT_SOURCE_RE = /\.(?:tex|bib|sty|cls|bst|bbx|cbx|cfg|def|lbx|ltx|dtx|ins)$/i;
 export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getWorkspaceRoot, getRootFile, getRootSource, getLastBuildTarget, getDocumentFor, getDocumentsIncluding, getDirtyFileSnapshots, }) => {
@@ -139,7 +180,6 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     let pendingPush = null;
     let pushing = false;
     let latestInputAtEpochMs = 0;
-    let lastContentChangeAtEpochMs = 0;
     let nextExactInputId = 0;
     const pendingExactInputs = new Map();
     // Session and edit version a completed Build typeset. Dirty-only buffers
@@ -395,7 +435,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         lifecycleVersion += 1;
         latestPushVersion += 1;
         debouncedPush.cancel();
-        firstPush.cancel();
+        typedPush.cancel();
         compositionRetry.cancel();
         debouncedFocus.cancel();
         pendingExactInputs.clear();
@@ -545,10 +585,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     // Coalesce same-task paste, multi-cursor and programmatic companion edits.
     // The single-flight latest-wins queue above is the only engine back-pressure.
     const debouncedPush = createDebouncedTask(pushCurrent, TYPING_PUSH_DELAY_MS, TYPING_PUSH_MAX_WAIT_MS);
-    // The first keystroke after a pause (a jump to another place, say) goes
-    // out within a frame: 16ms still takes in the companion edit the editor
-    // makes in the same task (the \end{…} after a \begin{…}, a closing \]).
-    const firstPush = createDebouncedTask(pushCurrent, TYPING_PUSH_DELAY_MS);
+    // A keystroke in the editor: out as soon as the editor's own call returns.
+    const typedPush = createMicrotaskTask(pushCurrent);
     const compositionRetry = createDebouncedTask(pushCurrent, COMPOSITION_RETRY_MS);
     const bindActiveEditor = () => {
         var _a, _b, _c, _d;
@@ -569,12 +607,10 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             const eventEditor = boundEditor;
             const eventPath = boundPath;
             const eventModel = (_d = (_c = eventEditor.getModel) === null || _c === void 0 ? void 0 : _c.call(eventEditor)) !== null && _d !== void 0 ? _d : null;
-            disposable = eventEditor.onDidChangeModelContent(() => {
+            disposable = eventEditor.onDidChangeModelContent((event) => {
                 var _a, _b;
                 sourceEditVersion += 1;
                 const editedAtEpochMs = Date.now();
-                const sincePreviousEdit = editedAtEpochMs - lastContentChangeAtEpochMs;
-                lastContentChangeAtEpochMs = editedAtEpochMs;
                 latestInputAtEpochMs = editedAtEpochMs;
                 const currentModel = (_b = (_a = eventEditor.getModel) === null || _a === void 0 ? void 0 : _a.call(eventEditor)) !== null && _b !== void 0 ? _b : null;
                 const modelPath = editorModelPath(eventEditor);
@@ -584,11 +620,16 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 // URI-less model is still installed.
                 const exactPath = modelPath !== null && modelPath !== void 0 ? modelPath : (currentModel === eventModel ? eventPath : null);
                 captureExactInput(exactPath, eventEditor, editedAtEpochMs);
-                // Both paths coalesce companion edits in the same task.
-                if (sincePreviousEdit > 400 && !pushing && !pendingPush)
-                    firstPush();
+                // The editor lays out and paints the keystroke before its call
+                // returns (6 ms measured). Plain typing does not wait for that; any
+                // other change goes out when the call returns, with whatever the
+                // editor adds to it.
+                if (isPlainTypedChange(event)) {
+                    typedPush.cancel();
+                    pushCurrent();
+                }
                 else
-                    debouncedPush();
+                    typedPush();
             });
         }
         if (boundEditor === null || boundEditor === void 0 ? void 0 : boundEditor.onDidChangeCursorPosition) {
@@ -628,7 +669,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         lifecycleVersion += 1;
         latestPushVersion += 1;
         debouncedPush.cancel();
-        firstPush.cancel();
+        typedPush.cancel();
         compositionRetry.cancel();
         debouncedFocus.cancel();
         disposable === null || disposable === void 0 ? void 0 : disposable.dispose();
