@@ -105,11 +105,54 @@ const hollowUnit = (unit, text, inner = "") => {
   return `${text.slice(0, begin.index + begin[0].length)}\n${inner ? `${inner}\n` : ""}\\end{document}\n`;
 };
 
-/** The state a chapter starts from, as one line of LaTeX. */
-const seedText = (seed) => {
+/** The \newlabel lines of a Build's .aux, with those of the .aux files it reads (one per \include). */
+const buildLabels = (auxPath, readText = readTextOrNull) => {
+  const lines = [];
+  const collect = (file, depth) => {
+    const text = readText(file);
+    if (typeof text !== "string") return;
+    for (const line of text.split("\n")) {
+      if (/^\\newlabel\{/.test(line) && bracesBalanced(line)) lines.push(line);
+      const read = depth < 2 ? /^\\@input\{([^{}]+\.aux)\}\s*$/.exec(line) : null;
+      if (read) collect(path.resolve(path.dirname(auxPath), read[1]), depth + 1);
+    }
+  };
+  collect(auxPath, 0);
+  return lines;
+};
+
+const bracesBalanced = (line) => {
+  let depth = 0;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === "\\") { i++; continue; }
+    if (line[i] === "{") depth++;
+    else if (line[i] === "}" && --depth < 0) return false;
+  }
+  return depth === 0;
+};
+
+// The file of labels defines only those the document does not have yet. The
+// definition sits in the file, not in the chapter's text: no `#` reaches the
+// engine's blocks.
+const LABELS_HEAD = String.raw`\makeatletter
+\def\newlabel#1#2{\@ifundefined{r@#1}{\global\@namedef{r@#1}{#2}}{}}`;
+
+// A path LaTeX can read inside \input{…} as it stands.
+const texReadablePath = (filePath) => !/[%#{}\\~^&$"]/.test(filePath);
+
+/**
+ * The state a chapter starts from, as one line of LaTeX. `labelsPath` is a
+ * file of the Build's \newlabel lines: the numbers and pages of every other
+ * chapter, as of that Build. A label the document has defined itself (from
+ * its own run) keeps its own value.
+ */
+const seedText = (seed, labelsPath = null) => {
+  const labels = labelsPath && texReadablePath(labelsPath)
+    ? `\\begingroup\\input{${labelsPath}}\\endgroup`
+    : "";
   const counters = seed.counters.filter(([name]) => name !== "page" && /^[A-Za-z0-9@:._*-]+$/.test(name))
     .map(([name, value]) => `\\ifcsname c@${name}\\endcsname\\setcounter{${name}}{${value}}\\fi`);
-  return `\\clearpage\\setcounter{page}{${seed.page}}${counters.join("")}`;
+  return `${labels}\\clearpage\\setcounter{page}{${seed.page}}${counters.join("")}`;
 };
 
 const braceGroups = (line, from) => {
@@ -160,13 +203,13 @@ const parseProbeRecord = (text, rootDir) => {
  * The overlays that leave only `units[index]` in the document.
  * `seeds` maps a unit's file to { counters, page }; the first unit needs none.
  */
-const windowOverlays = ({ units, index, seeds, readText }) => {
+const windowOverlays = ({ units, index, seeds, readText, labelsPath = null }) => {
   const overlays = new Map();
   const seed = index > 0 ? seeds.get(units[index].filePath) : null;
   if (index > 0 && !seed) return null;
   units.forEach((unit, at) => {
     if (at === index) return;
-    overlays.set(unit.filePath, hollowUnit(unit, readText(unit.filePath), at === index - 1 ? seedText(seed) : ""));
+    overlays.set(unit.filePath, hollowUnit(unit, readText(unit.filePath), at === index - 1 ? seedText(seed, labelsPath) : ""));
   });
   return overlays;
 };
@@ -257,6 +300,23 @@ class LivePreviewWindow {
       if (saved?.paperKey !== paperKey || !Array.isArray(saved.seeds)) return null;
       return { seeds: new Map(saved.seeds), sheets: saved.sheets ?? null };
     } catch { return null; }
+  }
+
+  // The Build's labels beside the saved state, written once per Build paper.
+  labelsFile(projectRoot, rootPath, state) {
+    if (state.labelsFor === state.paperKey) return state.labelsPath;
+    state.labelsFor = state.paperKey;
+    state.labelsPath = null;
+    try {
+      const lines = buildLabels(rootPath.replace(/\.tex$/i, ".aux"), this.readText);
+      if (lines.length) {
+        const file = this.cacheFile(projectRoot, rootPath).replace(/\.json$/, ".labels.tex");
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, `${LABELS_HEAD}\n${lines.join("\n")}\n`);
+        state.labelsPath = file;
+      }
+    } catch { /* the chapter's references to other chapters stay unresolved */ }
+    return state.labelsPath;
   }
 
   saveCached(projectRoot, rootPath, paperKey, result) {
@@ -357,7 +417,9 @@ class LivePreviewWindow {
     // same state is the same set of files.
     const made = state.made;
     const overlays = made && made.rootText === rootText && made.index === index && made.seeds === state.seeds
-      ? made.overlays : windowOverlays({ units, index, seeds: state.seeds, readText: this.readText });
+      ? made.overlays
+      : windowOverlays({ units, index, seeds: state.seeds, readText: this.readText,
+        labelsPath: this.labelsFile(projectRoot, rootPath, state) });
     if (!overlays) return state.probing ? { pending: true } : null;
     state.made = { rootText, index, seeds: state.seeds, overlays };
     state.unitPath = units[index].filePath;
@@ -373,5 +435,5 @@ class LivePreviewWindow {
 }
 
 module.exports = {
-  LivePreviewWindow, rootUnits, hollowUnit, seedText, parseProbeRecord, windowOverlays, unitIndexOf, windowRootText, outerSheets, PROBE_TEX,
+  LivePreviewWindow, rootUnits, hollowUnit, seedText, parseProbeRecord, windowOverlays, unitIndexOf, windowRootText, outerSheets, buildLabels, PROBE_TEX,
 };

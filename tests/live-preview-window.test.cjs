@@ -303,3 +303,18 @@ test("the engine is told of the outer sheets once, and again when the chapter ch
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("the Build's labels reach the chapter through a file, and only where the path is one LaTeX can read", () => {
+  const { buildLabels } = require("../electron/services/live-preview-window.cjs");
+  const files = new Map([
+    ["/p/book.aux", "\\relax\n\\newlabel{a}{{1}{2}}\n\\newlabel{open}{{1}{2}\n\\@input{tex/two.aux}\n\\bibcite{x}{1}\n\\@writefile{toc}{x}\n"],
+    ["/p/tex/two.aux", "\\newlabel{b}{{3}{4}{title}{section.3}{}}\n\\@setckpt{tex/two}{\\setcounter{page}{9}}\n"],
+  ]);
+  assert.deepEqual(buildLabels("/p/book.aux", (file) => files.get(file) ?? null),
+    ["\\newlabel{a}{{1}{2}}", "\\newlabel{b}{{3}{4}{title}{section.3}{}}"]);
+  const seed = { page: 7, counters: [] };
+  assert.equal(seedText(seed, "/p/.tex64/live-window/x.labels.tex"),
+    "\\begingroup\\input{/p/.tex64/live-window/x.labels.tex}\\endgroup\\clearpage\\setcounter{page}{7}");
+  assert.equal(seedText(seed, "/p/100%/x.labels.tex"), "\\clearpage\\setcounter{page}{7}");
+  assert.equal(seedText(seed, null), "\\clearpage\\setcounter{page}{7}");
+});
