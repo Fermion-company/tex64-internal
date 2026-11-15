@@ -69,7 +69,7 @@ const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) =
       status: async () => status,
       push(payload) {
         pushes.push({ at: clock.now(), payload });
-        if (limited) return Promise.resolve({ ok: true, limited: true, pages: 389 });
+        if (limited) return Promise.resolve({ ok: true, limited: true, pages: 389, ...(limited === "pending" ? { pending: true } : {}) });
         const result = { ok: true, url: "http://preview", srcRev: pushes.length };
         if (holdNextPush) {
           holdNextPush = false;
@@ -315,6 +315,23 @@ test("a document past the length limit keeps its Build paper: no Live frame, no 
   await h.clock.advance(500);
   assert.equal(h.pushes.length, 1);
   assert.equal(h.starts(), 1);
+});
+
+test("while main is preparing the chapter of a long document the push is asked again, and Live starts when it is ready", async () => {
+  const h = await setup({ ready: false });
+  h.setLimited("pending");
+  await h.clock.advance(160);
+  assert.equal(h.pushes.length, 1);
+  assert.equal(typeof h.pushes[0].payload.activePath, "string");
+  assert.equal(h.shown.includes("http://preview"), false);
+  await h.clock.advance(5_000);
+  assert.equal(h.pushes.length, 2);
+  h.setLimited(false);
+  await h.clock.advance(5_000);
+  assert.equal(h.pushes.length, 3);
+  assert.equal(h.shown.includes("http://preview"), true);
+  await h.clock.advance(20_000);
+  assert.equal(h.pushes.length, 3, "nothing is asked again once Live runs");
 });
 
 test("a Build asks again for a limited document, and Live starts once its paper is under the limit", async () => {

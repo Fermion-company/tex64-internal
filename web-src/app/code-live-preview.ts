@@ -365,6 +365,8 @@ export const initCodeLivePreview = ({
           workspaceRoot,
           rootFile,
           buffers: [...buffers].map(([path, text]) => ({ path, text })),
+          // the file in front: of a document past the Live length, its chapter is the one kept live
+          activePath: current?.path,
           fresh: sessionKey !== queuedSessionKey,
           clientEditAtEpochMs: exactInputs.length === 1
             ? exactInputs[0].editAtEpochMs : latestInputAtEpochMs || undefined,
@@ -416,6 +418,18 @@ export const initCodeLivePreview = ({
     }
   };
 
+  let limitedRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  const retryLimited = (sessionKey: string) => {
+    if (limitedRetryTimer !== null) clearTimeout(limitedRetryTimer);
+    limitedRetryTimer = setTimeout(() => {
+      limitedRetryTimer = null;
+      if (!active || limitedSessionKey !== sessionKey) return;
+      limitedSessionKey = null;
+      sourceRefreshPending = true;
+      pushCurrent();
+    }, 5_000);
+  };
+
   const enterPageLimit = (sessionKey: string) => {
     limitedSessionKey = sessionKey;
     lifecycleVersion += 1;
@@ -453,7 +467,11 @@ export const initCodeLivePreview = ({
         const result = await bridge.push(snapshot.payload);
         if (!result?.ok) throw new Error(result?.error || "live preview push failed");
         if (result.limited) {
-          if (active && snapshot.lifecycleVersion === lifecycleVersion) enterPageLimit(snapshot.sessionKey);
+          if (active && snapshot.lifecycleVersion === lifecycleVersion) {
+            enterPageLimit(snapshot.sessionKey);
+            // Main is still reading what the chapter starts from: ask again.
+            if (result.pending) retryLimited(snapshot.sessionKey);
+          }
           attemptedSnapshot = null;
           continue;
         }

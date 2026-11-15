@@ -324,6 +324,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                     workspaceRoot,
                     rootFile,
                     buffers: [...buffers].map(([path, text]) => ({ path, text })),
+                    // the file in front: of a document past the Live length, its chapter is the one kept live
+                    activePath: current === null || current === void 0 ? void 0 : current.path,
                     fresh: sessionKey !== queuedSessionKey,
                     clientEditAtEpochMs: exactInputs.length === 1
                         ? exactInputs[0].editAtEpochMs : latestInputAtEpochMs || undefined,
@@ -375,6 +377,19 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             distributeLive(null, liveGeneration);
         }
     };
+    let limitedRetryTimer = null;
+    const retryLimited = (sessionKey) => {
+        if (limitedRetryTimer !== null)
+            clearTimeout(limitedRetryTimer);
+        limitedRetryTimer = setTimeout(() => {
+            limitedRetryTimer = null;
+            if (!active || limitedSessionKey !== sessionKey)
+                return;
+            limitedSessionKey = null;
+            sourceRefreshPending = true;
+            pushCurrent();
+        }, 5000);
+    };
     const enterPageLimit = (sessionKey) => {
         limitedSessionKey = sessionKey;
         lifecycleVersion += 1;
@@ -413,8 +428,12 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 if (!(result === null || result === void 0 ? void 0 : result.ok))
                     throw new Error((result === null || result === void 0 ? void 0 : result.error) || "live preview push failed");
                 if (result.limited) {
-                    if (active && snapshot.lifecycleVersion === lifecycleVersion)
+                    if (active && snapshot.lifecycleVersion === lifecycleVersion) {
                         enterPageLimit(snapshot.sessionKey);
+                        // Main is still reading what the chapter starts from: ask again.
+                        if (result.pending)
+                            retryLimited(snapshot.sessionKey);
+                    }
                     attemptedSnapshot = null;
                     continue;
                 }

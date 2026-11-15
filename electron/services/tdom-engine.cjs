@@ -32,6 +32,7 @@ const { getPreferredTexliveBinDirs } = require("./texlive-paths.cjs");
 const { loadPersistedCanonicalBuild } = require("./build/canonical-build-candidate.cjs");
 const { loadPreviewCacheCandidate } = require("./build/preview-cache.cjs");
 const { LivePreviewPageLimit } = require("./live-preview-page-limit.cjs");
+const { LivePreviewWindow } = require("./live-preview-window.cjs");
 
 // Off the tdom dev default (4633) so a manually run `npm start` in the
 // checkout and the embedded engine don't race for the same port.
@@ -267,6 +268,12 @@ class TdomEngineService {
     this.pendingCanonicalBuilds = new Map();
     // Realtime preview stops past a realistic length (live-preview-page-limit.cjs).
     this.pageLimit = options.pageLimit || new LivePreviewPageLimit();
+    // Past it, a book that reads its chapters from files keeps Live for the
+    // chapter being edited (live-preview-window.cjs).
+    this.liveWindow = options.liveWindow || new LivePreviewWindow({
+      env: () => ({ ...process.env, PATH: this.buildSpawnEnv().PATH }),
+    });
+    this.windowedPath = null;
     this.loadBuildCache = options.loadBuildCache || loadPreviewCacheCandidate;
     this.pageWatchIntervalMs = options.pageWatchIntervalMs ?? 5_000;
     this.pageWatchTimer = null;
@@ -317,6 +324,26 @@ class TdomEngineService {
       } catch { /* no usable cache: the paper beside the root still counts */ }
     }
     return this.pageLimit.check(rootPath, cachedPaper);
+  }
+
+  // The chapter of a document past the limit that Live can still follow: the
+  // other chapter files are handed to the engine empty, as overlays, and the
+  // user's own unsaved buffers of those files are left out with them.
+  async applyLiveWindow(snapshot, payload) {
+    const rootPath = snapshot.filePath;
+    if (!rootPath || !snapshot.projectRoot || !/\.tex$/i.test(rootPath)) return null;
+    // the window is cut to the paper beside the root: its auxiliary files are what the probe reads
+    const paper = await this.pageLimit.paperPages(rootPath.replace(/\.tex$/i, ".pdf"));
+    if (!paper || paper.pages <= this.pageLimit.limit) return null;
+    const activePath = typeof payload.activePath === "string" && payload.activePath
+      ? path.resolve(snapshot.projectRoot, payload.activePath) : null;
+    const plan = await this.liveWindow.plan({
+      rootPath, rootText: snapshot.source, projectRoot: snapshot.projectRoot, activePath, paper,
+      // one whole-document TeX run at a time
+      mayProbe: !this.activeBuildLease || this.activeBuildLease.released,
+    });
+    if (plan?.overlays) for (const [filePath, text] of plan.overlays) snapshot.overlays.set(filePath, text);
+    return plan;
   }
 
   // The document's length is only known to the engine when no Build has left
@@ -1157,11 +1184,15 @@ class TdomEngineService {
         this.pendingOpenRequest !== null;
       const length = opens ? await this.checkPageLimit(snapshot.filePath, snapshot.projectRoot)
         : { limited: false };
-      if (length.limited) {
+      const windowed = length.limited || (!opens && this.windowedPath === normalizedPath);
+      const window = windowed ? await this.applyLiveWindow(snapshot, payload) : null;
+      if (windowed && !window?.overlays) {
         if (this.proc || this.state !== "stopped") this.stop();
         this.pageLimited = true;
-        return { ok: true, limited: true, pages: length.pages };
+        return { ok: true, limited: true, ...(length.pages ? { pages: length.pages } : {}),
+          ...(window?.pending ? { pending: true } : {}) };
       }
+      this.windowedPath = window ? normalizedPath : null;
       this.pageLimited = false;
       let pathChangedNow = normalizedPath !== this.lastPath;
       let sessionChangedNow = snapshot.sessionKey !== this.lastSessionKey;
@@ -1171,7 +1202,8 @@ class TdomEngineService {
       // reacquire the same resource lease and let the engine validate the
       // persisted-in-process candidate. Rejection still performs a normal
       // open and never claims the cached paper current.
-      const remembered = requiresOpenNow && candidateKey
+      // (a windowed document is not the document the Build typeset)
+      const remembered = requiresOpenNow && candidateKey && !window
         ? this.loadRememberedCanonicalBuild(snapshot.projectRoot, mainFile) ??
           await this.loadPersistedCanonicalBuild(snapshot.projectRoot, mainFile)
         : null;
@@ -1368,13 +1400,17 @@ class TdomEngineService {
     this.pendingCanonicalBuilds.clear();
     this.pendingOpenRequest = null;
     this.pageLimited = false;
+    this.windowedPath = null;
     if (this.pageWatchTimer) clearTimeout(this.pageWatchTimer);
     this.pageWatchTimer = null;
     if (proc) { try { proc.kill("SIGTERM"); } catch {} }
     return { ok: true };
   }
 
-  shutdown() { return this.stop(); }
+  shutdown() {
+    this.liveWindow.stop();
+    return this.stop();
+  }
 }
 
 module.exports = {
