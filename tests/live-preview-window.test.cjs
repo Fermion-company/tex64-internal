@@ -258,3 +258,48 @@ test("a long document that cannot be windowed, or is not ready yet, stays on its
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("the Build paper's sheets around the chapter: before its first sheet, from the next chapter's on", () => {
+  const { outerSheets } = require("../electron/services/live-preview-window.cjs");
+  const units = ["a", "b", "c", "d"].map((name) => ({ command: "input", filePath: `/p/${name}.tex` }));
+  const seeds = new Map([["/p/a.tex", { sheet: 3 }], ["/p/b.tex", { sheet: 39 }], ["/p/d.tex", { sheet: 80 }]]);
+  const paper = { pages: 100 };
+  const ask = (index) => outerSheets({ units, index, seeds, paper, rootPath: "/p/book.tex" });
+  assert.deepEqual(ask(1), { pdfPath: "/p/book.pdf", pages: 100, before: 38, afterFrom: 80 }, "a chapter without a state of its own is skipped over");
+  assert.deepEqual(ask(0), { pdfPath: "/p/book.pdf", pages: 100, before: 0, afterFrom: 39 }, "what the root prints before the first chapter is live with it");
+  assert.deepEqual(ask(3), { pdfPath: "/p/book.pdf", pages: 100, before: 79, afterFrom: 101 }, "nothing follows the last chapter");
+});
+
+test("the engine is told of the outer sheets once, and again when the chapter changes", async () => {
+  const dir = project();
+  const http = require("node:http");
+  const posts = [];
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => { posts.push([req.url, JSON.parse(body)]); res.setHeader("Content-Type", "application/json"); res.end("{\"ok\":true}"); });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    fs.writeFileSync(path.join(dir, "book.pdf"), "%PDF-1.5 stand-in");
+    let before = 90;
+    const { service, opened } = windowedService(dir, { plan: (request) => ({
+      unitPath: request.activePath, overlays: new Map([[path.join(dir, "tex", "one.tex"), `\\seed${before}\n`]]),
+      outer: { pdfPath: path.join(dir, "book.pdf"), pages: 250, before, afterFrom: before + 90 },
+    }) });
+    service.start = async () => { Object.assign(service, { state: "ready", proc: { exitCode: null, killed: false, kill() {} }, port: server.address().port }); };
+    service.openAfterBuildLease = async (snapshot) => { opened.push(snapshot); service.rememberOpenedSnapshot(snapshot, 1); return { fulfilled: true, srcRev: 1 }; };
+    const push = (extra = {}) => service.push({ workspaceRoot: dir, rootFile: "book.tex", activePath: "tex/two.tex", buffers: [], ...extra });
+    await push({ fresh: true });
+    assert.deepEqual(posts, [["/outer", { pdfPath: path.join(dir, "book.pdf"), pages: 250, before: 90, afterFrom: 180 }]]);
+    await push();
+    assert.equal(posts.length, 1, "the same sheets are not sent again");
+    before = 180;
+    await push().catch(() => {});
+    assert.deepEqual(posts.filter(([url]) => url === "/outer").at(-1)[1].before, 180);
+    service.stop();
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

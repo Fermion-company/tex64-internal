@@ -171,6 +171,19 @@ const windowOverlays = ({ units, index, seeds, readText }) => {
   return overlays;
 };
 
+/**
+ * The sheets of the Build paper that stand before and after `units[index]`:
+ * 1…before, and afterFrom…pages. The chapter itself (with whatever the root
+ * prints before the first chapter) is what the engine typesets.
+ */
+const outerSheets = ({ units, index, seeds, paper, rootPath }) => {
+  const before = index > 0 ? (seeds.get(units[index].filePath)?.sheet ?? 0) - 1 : 0;
+  const next = units.slice(index + 1).map((unit) => seeds.get(unit.filePath)?.sheet).find(Number.isInteger);
+  const afterFrom = next ?? paper.pages + 1;
+  if (before < 0 || afterFrom <= before || afterFrom > paper.pages + 1) return null;
+  return { pdfPath: rootPath.replace(/\.tex$/i, ".pdf"), pages: paper.pages, before, afterFrom };
+};
+
 const readTextOrNull = (filePath) => {
   try { return fs.readFileSync(filePath, "utf8"); } catch { return null; }
 };
@@ -348,7 +361,9 @@ class LivePreviewWindow {
     if (!overlays) return state.probing ? { pending: true } : null;
     state.made = { rootText, index, seeds: state.seeds, overlays };
     state.unitPath = units[index].filePath;
-    return { overlays, rootText: windowRootText(rootText), unitPath: state.unitPath, pending: Boolean(state.probing) };
+    return { overlays, rootText: windowRootText(rootText), unitPath: state.unitPath, pending: Boolean(state.probing),
+      // the Build paper's sheets around the chapter, while the state in hand is that paper's
+      outer: state.paperKey === paperKey ? outerSheets({ units, index, seeds: state.seeds, paper, rootPath }) : null };
   }
 
   stop() {
@@ -358,5 +373,5 @@ class LivePreviewWindow {
 }
 
 module.exports = {
-  LivePreviewWindow, rootUnits, hollowUnit, seedText, parseProbeRecord, windowOverlays, unitIndexOf, windowRootText, PROBE_TEX,
+  LivePreviewWindow, rootUnits, hollowUnit, seedText, parseProbeRecord, windowOverlays, unitIndexOf, windowRootText, outerSheets, PROBE_TEX,
 };

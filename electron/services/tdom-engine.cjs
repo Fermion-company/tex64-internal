@@ -274,6 +274,10 @@ class TdomEngineService {
       env: () => ({ ...process.env, PATH: this.buildSpawnEnv().PATH }),
     });
     this.windowedPath = null;
+    // The Build paper's sheets the engine's viewer shows around the chapter,
+    // and the ones it was last told of.
+    this.windowOuter = null;
+    this.sentOuterKey = null;
     this.loadBuildCache = options.loadBuildCache || loadPreviewCacheCandidate;
     this.pageWatchIntervalMs = options.pageWatchIntervalMs ?? 5_000;
     this.pageWatchTimer = null;
@@ -641,7 +645,24 @@ class TdomEngineService {
     return true;
   }
 
+  // Tell the engine which sheets of the Build paper stand around the
+  // document it holds, or that none do. An engine without the endpoint
+  // simply shows the chapter alone.
+  async syncOuterPaper() {
+    const outer = this.windowOuter;
+    const key = outer ? JSON.stringify(outer) : "";
+    if (key === (this.sentOuterKey ?? "") || !this.isRunning() || this.state !== "ready") return;
+    try {
+      await requestJson(`${this.url}/outer`, { method: "POST", body: outer ?? { clear: true }, timeoutMs: 5_000 });
+      this.sentOuterKey = key;
+    } catch (error) {
+      console.info("[tdom] outer paper not set:", error?.message ?? error);
+    }
+  }
+
   rememberOpenedSnapshot(snapshot, acceptedSrcRev = null) {
+    // an open of another document drops the engine's outer paper
+    this.sentOuterKey = null;
     this.lastSource = snapshot.source;
     this.lastPath = snapshot.filePath;
     this.lastProjectRoot = snapshot.projectRoot;
@@ -1196,6 +1217,7 @@ class TdomEngineService {
           ...(window?.pending ? { pending: true } : {}) };
       }
       this.windowedPath = window ? normalizedPath : null;
+      this.windowOuter = window?.outer ?? null;
       this.pageLimited = false;
       let pathChangedNow = normalizedPath !== this.lastPath;
       let sessionChangedNow = snapshot.sessionKey !== this.lastSessionKey;
@@ -1315,8 +1337,11 @@ class TdomEngineService {
       }
       return { ok: true, url: this.url, ...(Number.isInteger(acceptedSrcRev) ? { srcRev: acceptedSrcRev } : {}) };
     };
-    const watched = () => run().then((answer) => {
-      if (answer?.ok && !answer.limited) this.schedulePageWatch();
+    const watched = () => run().then(async (answer) => {
+      if (answer?.ok && !answer.limited) {
+        await this.syncOuterPaper();
+        this.schedulePageWatch();
+      }
       return answer;
     });
     const result = this.pushQueue.then(watched, watched);
@@ -1404,6 +1429,8 @@ class TdomEngineService {
     this.pendingOpenRequest = null;
     this.pageLimited = false;
     this.windowedPath = null;
+    this.windowOuter = null;
+    this.sentOuterKey = null;
     if (this.pageWatchTimer) clearTimeout(this.pageWatchTimer);
     this.pageWatchTimer = null;
     if (proc) { try { proc.kill("SIGTERM"); } catch {} }
