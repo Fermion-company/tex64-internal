@@ -9,6 +9,8 @@ const {
   loadLatexmkHistoryCandidate,
 } = require("./preview-cache.cjs");
 const { isEnvMissingMessage } = require("./utils.cjs");
+const { buildRecordArgs, wantsBuildRecord, saveBuildRecord, PROBE_RECORD_EXT } = require("../live-preview-window.cjs");
+const { countPdfPages, LIVE_PREVIEW_PAGE_LIMIT } = require("../live-preview-page-limit.cjs");
 const {
   TOOLCHAIN_FINGERPRINT_VERSION,
   signatureFor,
@@ -857,6 +859,21 @@ module.exports = (BuildService) => {
           log: "",
         };
       }
+      // A long book in chapters keeps Live for the chapter being edited
+      // (live-preview-window.cjs). What that needs from a whole-document run
+      // is written down by this Build itself; only the staged run carries
+      // it, so no file of it is left among the project's outputs.
+      let liveWindowRecord = false;
+      try {
+        liveWindowRecord = Boolean(pdfOutputTransaction) && await wantsBuildRecord({
+          projectRoot: path.resolve(rootPath),
+          rootPath: path.resolve(rootPath, mainFileName),
+          engine,
+          extraArgs: runExtraArgs,
+          limit: LIVE_PREVIEW_PAGE_LIMIT,
+          countPages: this.countPdfPages ?? countPdfPages,
+        });
+      } catch { liveWindowRecord = false; }
       const startedAt = Date.now();
       let output = "";
       let status = 1;
@@ -864,7 +881,7 @@ module.exports = (BuildService) => {
       try {
         const result = await this.runLatexmk(rootPath, mainFileName, engine, {
           outDir: runOutDir,
-          extraArgs: runExtraArgs,
+          extraArgs: liveWindowRecord ? [...runExtraArgs, ...buildRecordArgs()] : runExtraArgs,
           hasExplicitOutDirArg: runHasExplicitOutDirArg,
           stagedOutput: Boolean(pdfOutputTransaction),
         });
@@ -990,6 +1007,14 @@ module.exports = (BuildService) => {
           let finalPdfPath = resolvedPdfPath;
           try {
             finalPdfPath = this.promotePdfOutput(pdfOutputTransaction, resolvedPdfPath);
+            if (liveWindowRecord && effectiveEngine === engine) {
+              saveBuildRecord({
+                projectRoot: path.resolve(rootPath),
+                rootPath: path.resolve(rootPath, mainFileName),
+                pdfPath: finalPdfPath,
+                recordPath: resolvedPdfPath.replace(/\.pdf$/i, PROBE_RECORD_EXT),
+              });
+            }
           } catch (error) {
             const message = `The build succeeded but the previous PDF was kept: ${
               error?.message ?? "the new PDF could not be committed."

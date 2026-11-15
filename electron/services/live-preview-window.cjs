@@ -27,7 +27,6 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 
-const PROBE_TEX_NAME = "tex64-live-window-probe.tex";
 const PROBE_RECORD_EXT = ".t64w";
 const PROBE_TIMEOUT_MS = 30 * 60_000;
 const UNIT_RE = /^\s*\\(subfile|include|input)\s*\{([^{}]+)\}\s*$/;
@@ -40,24 +39,44 @@ const NOT_AUXILIARY_RE = /\.(?:pdf|synctex(?:\.gz)?|log|fls|fdb_latexmk|tex|sty|
 //   P{path}{file}{page}{sheet}   where the first paragraph after it was shipped:
 //                                the page counter and the sheet's place in the paper
 //   E{sheets}                    the length of the paper
-const PROBE_TEX = String.raw`\newwrite\texsfwindow
-\immediate\openout\texsfwindow=\jobname${PROBE_RECORD_EXT}
-\makeatletter
-\def\texsfwindow@elt#1{{#1}{\the\csname c@#1\endcsname}}
-\@ifundefined{AddToHookNext}{}{\@ifundefined{ReadonlyShipoutCounter}{}{%
-\AtBeginDocument{%
-  \AddToHook{file/before}{%
-    \begingroup\let\@elt\texsfwindow@elt
-    \immediate\write\texsfwindow{F{\detokenize\expandafter{\CurrentFilePath}}{\detokenize\expandafter{\CurrentFile}}\cl@@ckpt}%
-    \endgroup
-    \edef\texsfwindow@next{\noexpand\AddToHookNext{para/begin}{\noexpand\write\texsfwindow{%
-      P{\detokenize\expandafter{\CurrentFilePath}}{\detokenize\expandafter{\CurrentFile}}{\noexpand\the\c@page}{\noexpand\the\ReadonlyShipoutCounter}}}}%
-    \texsfwindow@next
-  }%
-  \AddToHook{enddocument/afterlastpage}{\immediate\write\texsfwindow{E{\the\ReadonlyShipoutCounter}}}%
-}}}
-\makeatother
-`;
+// One line, no `%` and no space that could reach the page: the same code is
+// read from a file by the probe and from the command line by a Build
+// (buildRecordArgs). Nothing is opened or named before \begin{document}, so
+// the job keeps the name of the document.
+//
+// No quote of any kind either: latexmk hands the command line to a shell
+// inside double quotes (Lua strings are written [[…]]).
+//
+// It must not change what is typeset. A \write at the start of a paragraph
+// did (LuaTeX-ja spaces a paragraph's first character by what stands before
+// it; a 389-page book came out with other line breaks). So the first
+// paragraph after a file is read only sets a LuaTeX attribute, which puts
+// nothing in any list, and each shipout looks for that attribute in its
+// page.
+const PROBE_LUA = "texsfwindow={names={},pending={}}" +
+  "function texsfwindow.scan(h,a,f)for n in node.traverse(h)do local v=node.has_attribute(n,a)" +
+  "if v and texsfwindow.pending[v]then f[v]=true end " +
+  "if n.id==node.id([[hlist]])or n.id==node.id([[vlist]])then texsfwindow.scan(n.head,a,f)end end end " +
+  "function texsfwindow.ship(b)if next(texsfwindow.pending)==nil then return end " +
+  "local f={}texsfwindow.scan(tex.box[b].head,luatexbase.attributes.texsfwindowattr,f)" +
+  "for v in pairs(f)do texsfwindow.pending[v]=nil " +
+  String.raw`tex.sprint([[\string\texsfwindowpage{]])tex.sprint(-2,texsfwindow.names[v][1])tex.sprint([[}{]])` +
+  "tex.sprint(-2,texsfwindow.names[v][2])tex.sprint([[}]])end end";
+const PROBE_TEX = String.raw`\makeatletter\@ifundefined{AddToHookNext}{}{\@ifundefined{ReadonlyShipoutCounter}{}{\@ifundefined{directlua}{}{` +
+  String.raw`\directlua{${PROBE_LUA}}` +
+  String.raw`\def\texsfwindow@elt#1{{#1}{\the\csname c@#1\endcsname}}` +
+  // (no `#` inside \AtBeginDocument: hook code keeps it for its own arguments)
+  String.raw`\def\texsfwindowpage#1#2{\immediate\write\texsfwindow{P{#1}{#2}{\the\c@page}{\the\numexpr\ReadonlyShipoutCounter+1\relax}}}` +
+  String.raw`\AtBeginDocument{\newwrite\texsfwindow\newattribute\texsfwindowattr\newcount\texsfwindowcount` +
+  String.raw`\immediate\openout\texsfwindow=\jobname${PROBE_RECORD_EXT}\relax` +
+  String.raw`\AddToHook{file/before}{\begingroup\let\@elt\texsfwindow@elt` +
+  String.raw`\immediate\write\texsfwindow{F{\detokenize\expandafter{\CurrentFilePath}}{\detokenize\expandafter{\CurrentFile}}\cl@@ckpt}\endgroup` +
+  String.raw`\global\advance\texsfwindowcount1\relax` +
+  String.raw`\directlua{texsfwindow.names[\the\texsfwindowcount]={[==[\detokenize\expandafter{\CurrentFilePath}]==],[==[\detokenize\expandafter{\CurrentFile}]==]}}` +
+  String.raw`\edef\texsfwindow@next{\noexpand\AddToHookNext{para/begin}{\global\texsfwindowattr=\the\texsfwindowcount\relax` +
+  String.raw`\noexpand\directlua{texsfwindow.pending[\the\texsfwindowcount]=true}}}\texsfwindow@next}` +
+  String.raw`\AddToHook{shipout/before}{\directlua{texsfwindow.ship(\number\ShipoutBox)}}` +
+  String.raw`\AddToHook{enddocument/afterlastpage}{\immediate\write\texsfwindow{E{\the\ReadonlyShipoutCounter}}}}}}}\makeatother`;
 
 // The index the root prints at its end would hold the chapter's entries
 // alone, on pages the Build paper already has. The engine reads the command
@@ -257,16 +276,88 @@ const unitIndexOf = (filePath, units, readText = readTextOrNull, rootDir = null)
   return -1;
 };
 
+// ---- the record from the Build itself -------------------------------------
+// A Build of such a book is a whole-document run already. With these latexmk
+// arguments it writes the probe's record as it goes, and no probe is needed:
+// the code is put in front of the document on LuaLaTeX's own command line
+// (latexmk's %P), whatever that command is in the project's latexmkrc.
+const buildRecordArgs = () => [
+  "-e", `$pre_tex_code = q{${PROBE_TEX}}; $lualatex =~ s/%S/%P/ unless $lualatex =~ /%P/;`,
+];
+
+const OWN_PRETEX_RE = /pre_?tex|%P/;
+
+/**
+ * Whether a Build of `rootPath` should carry the record: a LuaLaTeX book in
+ * chapters whose last paper is past the Live length, and whose project does
+ * not use latexmk's pretex for something of its own.
+ */
+const wantsBuildRecord = async ({ projectRoot, rootPath, engine, extraArgs = [], limit, countPages, readText = readTextOrNull }) => {
+  if (engine !== "lualatex" || !/\.tex$/i.test(rootPath)) return false;
+  if (extraArgs.some((arg) => OWN_PRETEX_RE.test(String(arg)))) return false;
+  for (const dir of new Set([projectRoot, path.dirname(rootPath)])) {
+    for (const name of [".latexmkrc", "latexmkrc"]) {
+      const rc = readText(path.join(dir, name));
+      if (typeof rc === "string" && OWN_PRETEX_RE.test(rc)) return false;
+    }
+  }
+  const rootText = readText(rootPath);
+  if (typeof rootText !== "string" || !rootUnits(rootPath, rootText).length) return false;
+  try {
+    const pages = await countPages(rootPath.replace(/\.tex$/i, ".pdf"));
+    return Number.isInteger(pages) && pages > limit;
+  } catch { return false; }
+};
+
+const buildRecordFile = (projectRoot, rootPath) => {
+  const id = crypto.createHash("sha256").update(path.relative(projectRoot, rootPath)).digest("hex").slice(0, 16);
+  return path.join(projectRoot, ".tex64", "live-window", `${id}.build.json`);
+};
+
+/** Keeps what a Build wrote down, with the paper it belongs to. */
+const saveBuildRecord = ({ projectRoot, rootPath, pdfPath, recordPath }) => {
+  try {
+    const record = fs.readFileSync(recordPath, "utf8");
+    const stats = fs.statSync(pdfPath);
+    const file = buildRecordFile(projectRoot, rootPath);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ paper: { mtimeMs: stats.mtimeMs, size: stats.size }, record }));
+    return true;
+  } catch { return false; }
+};
+
+const loadBuildRecord = (projectRoot, rootPath, paper) => {
+  try {
+    const saved = JSON.parse(fs.readFileSync(buildRecordFile(projectRoot, rootPath), "utf8"));
+    return saved?.paper?.mtimeMs === paper.mtimeMs && saved.paper.size === paper.size && typeof saved.record === "string"
+      ? saved.record : null;
+  } catch { return null; }
+};
+
+/** The chapters' starting states in a record, if the run it came from broke pages as the paper did. */
+const seedsFromRecord = (record, units, paper, rootDir) => {
+  const parsed = parseProbeRecord(record, rootDir);
+  const seeds = new Map();
+  if (parsed.sheets === paper.pages) {
+    for (const unit of units) {
+      const entry = parsed.files.get(unit.filePath);
+      if (entry && entry.page !== null) seeds.set(unit.filePath, entry);
+    }
+  }
+  return { seeds, sheets: parsed.sheets };
+};
+
 const defaultRunProbe = ({ rootPath, workDir, env, signal }) => new Promise((resolve, reject) => {
   const rootDir = path.dirname(rootPath);
   const jobName = path.basename(rootPath).replace(/\.tex$/i, "");
-  fs.writeFileSync(path.join(workDir, PROBE_TEX_NAME), PROBE_TEX);
+  // The code goes on the command line, as in a Build: a file read before
+  // the document is one more file in the run, and a document can tell.
   const child = spawn("lualatex", [
     "-draftmode", "-interaction=nonstopmode", `-output-directory=${workDir}`, `-jobname=${jobName}`,
-    `\\input{${PROBE_TEX_NAME}}\\input{${path.basename(rootPath)}}`,
+    `${PROBE_TEX}\\input{${path.basename(rootPath)}}`,
   ], {
     cwd: rootDir,
-    env: { ...env, TEXINPUTS: `${workDir}${path.delimiter}${env?.TEXINPUTS ?? ""}` },
+    env,
     stdio: "ignore",
     signal,
   });
@@ -355,20 +446,12 @@ class LivePreviewWindow {
       try {
         workDir = this.prepareWorkDir(rootPath, units);
         const record = await this.runProbe({ rootPath, workDir, env: this.env(), signal: abort.signal });
-        const parsed = parseProbeRecord(record, path.dirname(rootPath));
-        const seeds = new Map();
         // Only a probe that broke pages as the Build did knows the Build's page numbers.
-        if (parsed.sheets === paper.pages) {
-          for (const unit of units) {
-            const entry = parsed.files.get(unit.filePath);
-            if (entry && entry.page !== null) seeds.set(unit.filePath, entry);
-          }
-        }
-        const result = { seeds, sheets: parsed.sheets };
+        const result = seedsFromRecord(record, units, paper, path.dirname(rootPath));
         if (this.states.get(rootPath) === state && !abort.signal.aborted) {
           state.paperKey = paperKey;
-          state.seeds = seeds;
-          state.sheets = parsed.sheets;
+          state.seeds = result.seeds;
+          state.sheets = result.sheets;
           this.saveCached(projectRoot, rootPath, paperKey, result);
         }
       } catch (error) {
@@ -404,8 +487,14 @@ class LivePreviewWindow {
     }
     if (state.paperKey !== paperKey && !state.probing) {
       const cached = this.loadCached(projectRoot, rootPath, paperKey);
+      // what the Build itself wrote down, when it carried the record
+      const record = cached ? null : loadBuildRecord(projectRoot, rootPath, paper);
+      const built = record ? seedsFromRecord(record, units, paper, path.dirname(rootPath)) : null;
       if (cached) Object.assign(state, { paperKey, ...cached });
-      else if (mayProbe) this.startProbe({ rootPath, projectRoot, units, paper, paperKey, state });
+      else if (built?.seeds.size) {
+        Object.assign(state, { paperKey, ...built });
+        this.saveCached(projectRoot, rootPath, paperKey, built);
+      } else if (mayProbe) this.startProbe({ rootPath, projectRoot, units, paper, paperKey, state });
     }
     // A newer Build's state is still being read: the chapter keeps the
     // numbers of the Build before it until then.
@@ -436,4 +525,5 @@ class LivePreviewWindow {
 
 module.exports = {
   LivePreviewWindow, rootUnits, hollowUnit, seedText, parseProbeRecord, windowOverlays, unitIndexOf, windowRootText, outerSheets, buildLabels, PROBE_TEX,
+  buildRecordArgs, wantsBuildRecord, saveBuildRecord, loadBuildRecord, PROBE_RECORD_EXT,
 };

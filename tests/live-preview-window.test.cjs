@@ -318,3 +318,57 @@ test("the Build's labels reach the chapter through a file, and only where the pa
   assert.equal(seedText(seed, "/p/100%/x.labels.tex"), "\\clearpage\\setcounter{page}{7}");
   assert.equal(seedText(seed, null), "\\clearpage\\setcounter{page}{7}");
 });
+
+test("a Build carries the record only for a long LuaLaTeX book in chapters that has no pretex of its own", async () => {
+  const { wantsBuildRecord, buildRecordArgs } = require("../electron/services/live-preview-window.cjs");
+  const dir = project();
+  try {
+    const rootPath = path.join(dir, "book.tex");
+    const ask = (over = {}) => wantsBuildRecord({ projectRoot: dir, rootPath, engine: "lualatex", extraArgs: [], limit: 200,
+      countPages: async () => 250, ...over });
+    assert.equal(await ask(), true);
+    assert.equal(await ask({ countPages: async () => 200 }), false, "within the Live length");
+    assert.equal(await ask({ countPages: async () => { throw new Error("no paper yet"); } }), false);
+    assert.equal(await ask({ engine: "uplatex" }), false);
+    assert.equal(await ask({ extraArgs: ["-usepretex=\\def\\x{}"] }), false);
+    assert.equal(await ask({ rootPath: path.join(dir, "tex", "one.tex") }), false, "one file, no chapters");
+    fs.writeFileSync(path.join(dir, ".latexmkrc"), "$lualatex = 'lualatex -synctex=1 %O %S';\n$out_dir = 'build';\n");
+    assert.equal(await ask(), true, "a project's own command is kept and only given the code");
+    fs.writeFileSync(path.join(dir, ".latexmkrc"), "$pre_tex_code = '\\\\def\\\\draft{1}';\n$lualatex = 'lualatex %O %P';\n");
+    assert.equal(await ask(), false);
+    const args = buildRecordArgs();
+    assert.equal(args[0], "-e");
+    assert.match(args[1], /^\$pre_tex_code = q\{\\makeatletter.*\\makeatother\}; \$lualatex =~ s\/%S\/%P\/ unless \$lualatex =~ \/%P\/;$/);
+    assert.equal(/[\n'"`]|\$(?!pre_tex_code|lualatex)/.test(args[1]), false, "nothing a shell or Perl would read as its own");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the record a Build wrote down starts the window without a probe, for that paper only", async () => {
+  const { saveBuildRecord } = require("../electron/services/live-preview-window.cjs");
+  const dir = project();
+  try {
+    const rootPath = path.join(dir, "book.tex");
+    const pdfPath = path.join(dir, "book.pdf");
+    fs.writeFileSync(pdfPath, "%PDF-1.5 stand-in");
+    fs.writeFileSync(path.join(dir, "staged.t64w"), RECORD);
+    assert.equal(saveBuildRecord({ projectRoot: dir, rootPath, pdfPath, recordPath: path.join(dir, "staged.t64w") }), true);
+    assert.equal(saveBuildRecord({ projectRoot: dir, rootPath, pdfPath, recordPath: path.join(dir, "missing.t64w") }), false);
+    const stats = fs.statSync(pdfPath);
+    let probes = 0;
+    const window = new LivePreviewWindow({ runProbe: () => { probes += 1; return new Promise(() => {}); } });
+    const ask = (paper) => window.plan({ rootPath, rootText: fs.readFileSync(rootPath, "utf8"), projectRoot: dir,
+      activePath: path.join(dir, "tex", "two.tex"), paper });
+    const plan = await ask({ pages: 250, mtimeMs: stats.mtimeMs, size: stats.size });
+    assert.equal(plan.pending, false);
+    assert.match(plan.overlays.get(path.join(dir, "tex", "one.tex")), /\\setcounter\{page\}\{91\}/);
+    assert.equal(probes, 0);
+    // another paper (a Build that did not carry the record) is probed as before
+    assert.deepEqual(await ask({ pages: 250, mtimeMs: stats.mtimeMs + 5, size: stats.size }).then((p) => p.pending), true);
+    assert.equal(probes, 1);
+    window.stop();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
