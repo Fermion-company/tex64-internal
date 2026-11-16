@@ -1314,6 +1314,8 @@ class TdomEngineService {
             method: "POST",
             body: {
               ...edit,
+              // only the revision is read from the answer; the pages go to the viewer over the event stream
+              slim: true,
               ...(Number.isFinite(Number(payload.clientEditAtEpochMs))
                 ? { clientEditAtEpochMs: Number(payload.clientEditAtEpochMs) }
                 : {}),
