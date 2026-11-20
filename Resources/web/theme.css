@@ -19,9 +19,9 @@
 
 :root {
   color-scheme: dark;
-  /* Every select's mark: up and down chevrons, as macOS draws its pop-up buttons;
-     menus (操作 ▾) and explanations keep the single ⌄. --text-soft. */
-  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5' fill='none' stroke='%23A9A79F' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* Every select's mark: one thin ⌄ that turns over while the list is open,
+     the same mark the menus (操作 ⌄) and explanations use. --text-soft. */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.75 4.5 6 7.75 9.25 4.5' fill='none' stroke='%23A9A79F' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   
   /* Deep Space Theme - Softened Contrast */
   --bg: #141413; /* Slightly lighter than pure black */
@@ -124,19 +124,20 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5' fill='none' stroke='%235E5D59' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.75 4.5 6 7.75 9.25 4.5' fill='none' stroke='%235E5D59' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
-  --bg: #FAF9F5;
-  --bg-accent: #F3F2EC;
+  /* The ground is pure white; panels differ from it by a hairline, not a tint. */
+  --bg: #FFFFFF;
+  --bg-accent: #F7F7F5;
   --surface: #FFFFFF;
 
-  --panel: #F4F3EE;
+  --panel: #FFFFFF;
   --panel-strong: #FFFFFF;
-  --panel-muted: #F0EFE9;
-  --panel-header: #F4F3EE;
+  --panel-muted: #F6F6F4;
+  --panel-header: #FFFFFF;
 
-  --panel-border: #E3E1D8;
-  --panel-border-strong: #D1CFC5;
+  --panel-border: #E6E5E1;
+  --panel-border-strong: #D3D2CC;
 
   --control-bg: rgba(20, 20, 19, 0.05);
   --control-border: rgba(20, 20, 19, 0.1);
@@ -148,8 +149,7 @@
 
   --text: #141413;
   --text-soft: #5E5D59;
-  /* ≥ 4.5:1 on every light surface: 4.85 on --panel-muted, 5.03 on --panel,
-     5.30 on --bg, 5.58 on --panel-strong. */
+  /* ≥ 4.5:1 on every light surface: 5.1 on --panel-muted, 5.58 on white. */
   --muted: #696863;
 
   --accent: #1A7A75;
@@ -3908,9 +3908,16 @@ input.settings-select {
   display: none;
 }
 
+/* The same thin › the sidebar sections use, drawn in the text colour. */
 .outline-section-title::before {
-  content: "▸";
+  content: "";
+  flex: none;
   display: inline-block;
+  width: 12px;
+  height: 12px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M4.5 2.75 7.75 6 4.5 9.25' fill='none' stroke='black' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M4.5 2.75 7.75 6 4.5 9.25' fill='none' stroke='black' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
   transition: transform 0.15s ease;
 }
 
@@ -4011,6 +4018,32 @@ input.settings-select {
   font-size: 12px;
 }
 
+.workspace-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 24px;
+  min-width: 0;
+}
+
+.workspace-header .workspace-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.workspace-header .panel-header-actions {
+  flex-shrink: 0;
+}
+
+.workspace-header svg {
+  flex-shrink: 0;
+}
+
+.workspace-header button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .workspace-label {
   font-size: 12px;
   color: var(--muted);
@@ -4089,9 +4122,17 @@ input.settings-select {
 }
 
 .file-folder summary::before {
-  content: "▸";
+  content: "";
+  flex: none;
   display: inline-block;
-  margin-right: 6px;
+  width: 12px;
+  height: 12px;
+  vertical-align: -2px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M4.5 2.75 7.75 6 4.5 9.25' fill='none' stroke='black' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M4.5 2.75 7.75 6 4.5 9.25' fill='none' stroke='black' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  /* 12px of advance, as the typed ▸ had: file rows start at 18px. */
+  margin: 0 3px 0 -3px;
   transform: rotate(0deg);
   transition: transform var(--duration-normal) ease;
 }
@@ -5860,6 +5901,9 @@ input.modal-input {
    hover lift. */
 .issue-item {
   display: grid;
+  /* One column that may not grow past the card: a long file name in the
+     header truncates instead of widening the card past the panel. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   /* The list is a flex column, so without this the cards shrink to fit instead
      of the list scrolling — which squashed their last line into the border. */
@@ -5923,12 +5967,13 @@ input.modal-input {
 /* Which family of problem this is — the first thing anyone should read. Its
    ▾ (what to do about it) follows the text; the location keeps to the right. */
 .issue-kind {
-  flex: 0 1 auto;
-  min-width: 0;
+  /* Never gives way: a squeezed label used to break one character per line.
+     The location beside it is what truncates. */
+  flex: 0 0 auto;
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
 /* Where it happened, stated rather than offered: the card itself is the button. */
@@ -10868,7 +10913,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .compact-actions > summary { display: flex; align-items: center; gap: 6px; min-height: 32px; list-style: none; cursor: pointer; padding: 0 10px 0 12px; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-sm); }
 .compact-actions > summary::-webkit-details-marker { display: none; }
 /* The explain toggle's chevron (explain.ts), drawn as a mask in the text colour. */
-.compact-actions > summary::after { content: ""; flex: none; width: 12px; height: 12px; background: var(--text-soft); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; }
+.compact-actions > summary::after, .git-branch-button::after { content: ""; flex: none; width: 12px; height: 12px; background: var(--text-soft); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; }
 .compact-actions-content { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-direction: column; gap: 2px; width: max-content; max-width: 240px; padding: 8px; border: 1px solid var(--panel-border); border-radius: var(--radius-md); background: var(--bg-accent); box-shadow: var(--shadow); }
 .compact-actions:not([open]) > .compact-actions-content { display: none; }
 .compact-actions-content button { text-align: left; border-color: transparent; }
@@ -11215,35 +11260,49 @@ button.axiom-try-tab:focus-visible { outline: 2px solid var(--accent-strong); ou
 body { text-autospace: normal; }
 .monaco-editor, .xterm, code, pre, kbd, samp, input, textarea, .textLayer, [contenteditable="true"] { text-autospace: no-autospace; }
 
-/* One pop-up button for every select: the OS control drew its own heavy ⌄
-   against the right edge, so each dialog's selects looked unstyled. Same
-   height, padding, border and chevron as the settings selects everywhere. */
+/* One pop-up button for every select, and one list for all of them: the
+   control and its list are drawn here (customizable select), so the list
+   follows the theme instead of the OS menu. */
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select),
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select)::picker(select) {
+  -webkit-appearance: base-select;
+  appearance: base-select;
+}
 :is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select) {
   box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   height: 32px;
-  padding: 0 32px 0 12px;
+  padding: 0 10px 0 12px;
   border: 1px solid var(--input-border);
   border-radius: var(--radius-sm);
-  background-color: var(--input-bg);
-  background-image: var(--select-chevron);
-  background-repeat: no-repeat;
-  /* The up/down mark is narrower than the menus' single ⌄; 9px puts its ink
-     12px from the edge, where the menus' ink ends (measured). */
-  background-position: right 9px center;
-  background-size: 12px 12px;
+  background: var(--input-bg);
   color: var(--text);
   font: inherit;
   font-size: 13px;
   line-height: 30px;
-  text-overflow: ellipsis;
-  -webkit-appearance: none;
-  appearance: none;
+  white-space: nowrap;
+  overflow: hidden;
   cursor: pointer;
+  transition: border-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease;
+}
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select)::picker-icon {
+  content: "";
+  flex: none;
+  width: 12px;
+  height: 12px;
+  background: var(--select-chevron) center / 12px 12px no-repeat;
+  transition: transform var(--duration-normal) ease;
+}
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select):open::picker-icon {
+  transform: rotate(180deg);
 }
 :is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select):hover:not(:disabled) {
   border-color: var(--input-border-strong, var(--panel-border-strong));
 }
-:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select):focus-visible {
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select):is(:focus-visible, :open) {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
@@ -11251,6 +11310,70 @@ body { text-autospace: normal; }
 :is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select):disabled {
   opacity: 0.55;
   cursor: default;
+}
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select)::picker(select) {
+  box-sizing: border-box;
+  min-width: anchor-size(width);
+  max-height: min(320px, 60vh);
+  margin: 4px 0;
+  padding: 4px;
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--panel-strong);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  overflow-y: auto;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity var(--duration-fast) ease, transform var(--duration-fast) ease,
+    overlay var(--duration-fast) allow-discrete, display var(--duration-fast) allow-discrete;
+}
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select)::picker(select):popover-open {
+  opacity: 1;
+  transform: none;
+}
+@starting-style {
+  :is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select)::picker(select):popover-open {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select) option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 12px 0 8px;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 28px;
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+}
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select) option::checkmark {
+  content: "";
+  flex: none;
+  width: 12px;
+  height: 12px;
+  background: var(--accent-strong);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.25 5 8.75l4.5-5.5' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.25 5 8.75l4.5-5.5' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select) option:not(:checked)::checkmark {
+  visibility: hidden;
+}
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select) option:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--control-bg);
+}
+:is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select) option:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select)::picker-icon, :is(select.settings-select, select.history-name, select.zotero-library, select.env-registry-select)::picker(select) { transition: none; }
 }
 
 /* Pull-down menus (操作 ⌄) match the selects: text 12px in, mark 10px from the right. */
@@ -11265,3 +11388,6 @@ body { text-autospace: normal; }
   background-size: 10px 10px;
   padding-right: 20px;
 }
+
+/* The branch button opens a list: its ⌄ is drawn, like every other menu's. */
+.git-branch-button { display: inline-flex; align-items: center; gap: 6px; }

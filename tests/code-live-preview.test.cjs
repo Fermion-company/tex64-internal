@@ -42,12 +42,14 @@ const createClock = () => {
   };
 };
 
-const setup = async ({ ready = true } = {}) => {
+const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) => {
   const clock = createClock();
   const pushes = [], focuses = [], polls = new Map(), listeners = new Map();
   let text = "initial", enabled = true, changeSettings, contentChanged, cursorChanged;
   let holdNextPush = false, acceptPush;
-  const model = { path: "/project/main.tex" };
+  let limited = false, starts = 0;
+  const shown = [], status = { running: true, state: "ready", pageLimited: false };
+  const model = { path: initialPath };
   const editor = {
     getValue: () => text,
     getModel: () => model,
@@ -58,14 +60,16 @@ const setup = async ({ ready = true } = {}) => {
   model.getOffsetAt = () => 0;
   const group = {
     editor, currentFilePath: model.path, isDirty: true, isComposing: false,
-    viewer: { setLivePreview() {}, getViewerMode: () => "editor" },
+    viewer: { setLivePreview(url) { if (shown.at(-1) !== url) shown.push(url); }, getViewerMode: () => "editor" },
   };
   const window = {
     tex64Tdom: {
-      start: async () => ({ ok: true, url: "http://preview" }),
+      start: async () => { starts += 1; return { ok: true, url: "http://preview" }; },
       stop() {},
+      status: async () => status,
       push(payload) {
         pushes.push({ at: clock.now(), payload });
+        if (limited) return Promise.resolve({ ok: true, limited: true, pages: 389, ...(limited === "pending" ? { pending: true } : {}) });
         const result = { ok: true, url: "http://preview", srcRev: pushes.length };
         if (holdNextPush) {
           holdNextPush = false;
@@ -108,11 +112,16 @@ const setup = async ({ ready = true } = {}) => {
   return {
     clock, pushes, focuses, group, api,
     edit(value) { text = value; contentChanged(); },
+    type(value, change) { text = value; contentChanged({ changes: [{ text: change }], isFlush: false }); },
     cursor: () => cursorChanged(),
     poll: () => polls.get(200)(),
     switchFile(path, value) { model.path = group.currentFilePath = path; text = value; },
     setEnabled(value) { enabled = value; changeSettings({ kind: "flag", id: "preview.realtime" }); },
     holdNextPush() { holdNextPush = true; },
+    setLimited(value) { limited = value; },
+    starts: () => starts,
+    shown, status,
+    health: () => polls.get(2000)(),
     acceptPush: () => acceptPush(),
     buildSuccess: () => listeners.get("tex64:build-state")({ detail: {
       state: "success", workspaceRoot: "/project", targetFile: group.currentFilePath,
@@ -122,13 +131,36 @@ const setup = async ({ ready = true } = {}) => {
 
 const pushedText = push => push.payload.buffers[0].text;
 
-test("initial binding and startup coalesce into one push at 16ms", async () => {
+test("an empty project sends no preview source and starts previewing its first document without a reload", async () => {
+  const h = await setup({ ready: false, initialPath: null });
+  await h.clock.advance(500);
+  h.poll();
+  await h.clock.advance(500);
+  assert.deepEqual(h.pushes, []);
+  assert.deepEqual(h.focuses, []);
+
+  const document = "\\documentclass{article}\n\\begin{document}Hello\\end{document}";
+  h.switchFile("/project/main.tex", document);
+  h.poll();
+  await h.clock.advance(16);
+  assert.equal(h.pushes.length, 1);
+  assert.equal(h.pushes[0].payload.workspaceRoot, "/project");
+  assert.equal(h.pushes[0].payload.rootFile, "/project/main.tex");
+  assert.equal(h.pushes[0].payload.fresh, true);
+  assert.equal(pushedText(h.pushes[0]), document);
+
+  h.edit(document.replace("Hello", "Edited"));
+  await h.clock.advance(32);
+  assert.deepEqual(h.pushes.map(pushedText), [document, document.replace("Hello", "Edited")]);
+  assert.equal(h.pushes[1].payload.fresh, false);
+});
+
+test("initial binding and startup coalesce into one push, one task later", async () => {
   const h = await setup({ ready: false });
-  await h.clock.advance(15);
   assert.equal(h.pushes.length, 0);
   await h.clock.advance(1);
   assert.equal(h.pushes.length, 1);
-  assert.equal(h.pushes[0].at, 1016);
+  assert.equal(h.pushes[0].at, 1001);
   assert.equal(h.pushes[0].payload.fresh, true);
 });
 
@@ -137,37 +169,55 @@ test("same-task paste, multi-cursor and programmatic companion edits produce one
   h.edit("paste"); // firstPush after a pause
   h.edit("paste + second cursor"); // debouncedPush in the same task
   h.edit("paste + second cursor + companion");
-  await h.clock.advance(15);
-  assert.equal(h.pushes.length, 0);
+  assert.equal(h.pushes.length, 0, "nothing goes out inside the task that made the edits");
   await h.clock.advance(1);
   assert.deepEqual(h.pushes.map(pushedText), ["paste + second cursor + companion"]);
   await h.clock.advance(100);
   assert.equal(h.pushes.length, 1);
 });
 
-test("continued typing uses a 16ms trailing delay and a 32ms maximum wait", async () => {
+test("a keystroke goes out when the editor's call returns; edits made in one call go out together", async () => {
   const h = await setup();
   h.edit("first");
   await h.clock.advance(16);
   h.pushes.length = 0;
   const start = h.clock.now();
   h.edit("a");
+  assert.equal(h.pushes.length, 0, "not inside the call that made the edit");
+  await h.clock.advance(0);
+  assert.deepEqual(h.pushes.map((push) => [push.at - start, pushedText(push)]), [[0, "a"]]);
   await h.clock.advance(10);
   h.edit("b");
-  await h.clock.advance(10);
-  h.edit("c");
-  await h.clock.advance(10);
-  h.edit("d");
-  await h.clock.advance(1);
-  assert.equal(h.pushes.length, 0);
-  await h.clock.advance(1);
-  assert.equal(h.pushes[0].at - start, 32);
-  assert.equal(pushedText(h.pushes[0]), "d");
-  h.edit("e");
-  await h.clock.advance(15);
-  assert.equal(h.pushes.length, 1);
-  await h.clock.advance(1);
-  assert.equal(h.pushes[1].at - start, 48);
+  await h.clock.advance(0);
+  assert.equal(h.pushes[1].at - start, 10);
+  assert.equal(pushedText(h.pushes[1]), "b");
+  h.pushes.length = 0;
+  for (const text of ["c", "d", "e", "f"]) h.edit(text);
+  await h.clock.advance(0);
+  assert.deepEqual(h.pushes.map(pushedText), ["f"]);
+});
+
+test("plain typed characters go out inside the editor's own call; a brace or a command waits for the call to return", async () => {
+  const h = await setup();
+  h.edit("first");
+  await h.clock.advance(16);
+  h.pushes.length = 0;
+  h.type("first a", "a");
+  assert.deepEqual(h.pushes.map(pushedText), ["first a"], "sent before the editor paints");
+  await h.clock.advance(0); // the engine accepts it
+  h.type("first ", ""); // a deletion
+  assert.equal(h.pushes.length, 2);
+  await h.clock.advance(5);
+  assert.equal(h.pushes.length, 2, "nothing is sent twice");
+  h.type("first \\begin{", "\\begin{");
+  assert.equal(h.pushes.length, 2);
+  h.edit("first \\begin{}"); // the editor closes the brace in the same call
+  await h.clock.advance(0);
+  assert.deepEqual(h.pushes.slice(2).map(pushedText), ["first \\begin{}"]);
+  h.type("first \\begin{}\n", "\n");
+  assert.equal(h.pushes.length, 3, "a new line waits too: the editor may indent or complete after it");
+  await h.clock.advance(0);
+  assert.equal(h.pushes.length, 4);
 });
 
 test("long IME composition retries every 80ms and eventually pushes the committed buffer", async () => {
@@ -175,12 +225,12 @@ test("long IME composition retries every 80ms and eventually pushes the committe
   h.group.isComposing = true;
   h.edit("composition");
   const start = h.clock.now();
-  await h.clock.advance(255);
+  await h.clock.advance(239);
   assert.equal(h.pushes.length, 0);
-  assert.deepEqual(h.clock.firedAt.map(at => at - start), [16, 96, 176]);
+  assert.deepEqual(h.clock.firedAt.map(at => at - start), [80, 160]);
   h.group.isComposing = false; // Also recover if no final content event arrives.
   await h.clock.advance(1);
-  assert.equal(h.pushes[0].at - start, 256);
+  assert.equal(h.pushes[0].at - start, 240);
   assert.equal(pushedText(h.pushes[0]), "composition");
 });
 
@@ -266,4 +316,84 @@ test("cursor focus retains its 160ms debounce", async () => {
   assert.equal(h.focuses.length, 0);
   await h.clock.advance(1);
   assert.equal(h.focuses[0].at - start, 160);
+});
+
+test("a document past the length limit keeps its Build paper: no Live frame, no engine restart, no pushes while typing", async () => {
+  const h = await setup({ ready: false });
+  h.setLimited(true);
+  await h.clock.advance(160);
+  assert.equal(h.pushes.length, 1);
+  assert.equal(h.starts(), 1);
+  assert.equal(h.shown.includes("http://preview"), false);
+
+  h.edit("typed while limited");
+  h.poll();
+  await h.clock.advance(500);
+  h.poll();
+  await h.clock.advance(500);
+  assert.equal(h.pushes.length, 1);
+  assert.equal(h.starts(), 1);
+});
+
+test("while main is preparing the chapter of a long document the push is asked again, and Live starts when it is ready", async () => {
+  const h = await setup({ ready: false });
+  h.setLimited("pending");
+  await h.clock.advance(160);
+  assert.equal(h.pushes.length, 1);
+  assert.equal(typeof h.pushes[0].payload.activePath, "string");
+  assert.equal(h.shown.includes("http://preview"), false);
+  await h.clock.advance(5_000);
+  assert.equal(h.pushes.length, 2);
+  h.setLimited(false);
+  await h.clock.advance(5_000);
+  assert.equal(h.pushes.length, 3);
+  assert.equal(h.shown.includes("http://preview"), true);
+  await h.clock.advance(20_000);
+  assert.equal(h.pushes.length, 3, "nothing is asked again once Live runs");
+});
+
+test("a Build asks again for a limited document, and Live starts once its paper is under the limit", async () => {
+  const h = await setup({ ready: false });
+  h.setLimited(true);
+  await h.clock.advance(160);
+  h.buildSuccess();
+  await h.clock.advance(50);
+  assert.equal(h.pushes.length, 2);
+  assert.equal(h.shown.includes("http://preview"), false);
+
+  h.setLimited(false);
+  h.buildSuccess();
+  await h.clock.advance(50);
+  assert.equal(h.pushes.length, 3);
+  assert.equal(h.starts(), 1);
+  assert.equal(h.shown.at(-1), "http://preview");
+  h.edit("typed after the shorter Build");
+  await h.clock.advance(50);
+  assert.equal(h.pushes.length, 4);
+});
+
+test("another document leaves the length limit behind", async () => {
+  const h = await setup({ ready: false });
+  h.setLimited(true);
+  await h.clock.advance(160);
+  h.setLimited(false);
+  h.switchFile("/project/short.tex", "a short document");
+  h.poll();
+  await h.clock.advance(160);
+  assert.equal(h.pushes.at(-1).payload.rootFile, "/project/short.tex");
+  assert.equal(h.shown.at(-1), "http://preview");
+});
+
+test("main stopping the engine for a document that grew past the limit ends Live without a restart", async () => {
+  const h = await setup();
+  assert.equal(h.shown.at(-1), "http://preview");
+  const startsBefore = h.starts();
+  Object.assign(h.status, { running: false, state: "stopped", pageLimited: true });
+  await h.health();
+  await h.clock.advance(10);
+  h.poll();
+  await h.clock.advance(500);
+  assert.equal(h.shown.at(-1), null);
+  assert.equal(h.starts(), startsBefore);
+  assert.equal(h.pushes.length, 0);
 });

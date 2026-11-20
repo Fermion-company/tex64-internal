@@ -17,71 +17,82 @@ const { execFileSync } = require("node:child_process");
 const repoRoot = path.resolve(__dirname, "..");
 const destination = path.join(repoRoot, "Resources", "tdom-engine");
 
-const envDir = (process.env.TDOM_ENGINE_DIR || process.env.TEX64_TDOM_ENGINE_DIR || "").trim();
-const candidates = envDir
-  ? [envDir]
-  : [
-      path.join(os.homedir(), "Developer", "tdom-engine"),
-      path.join(os.homedir(), "tdom-engine"),
-      path.join(os.homedir(), "Desktop", "tdom-engine"),
-      path.join(os.homedir(), "Developer", "tdom-core"),
-      path.join(os.homedir(), "tdom-core"),
-      path.join(os.homedir(), "Desktop", "tdom-core"),
-    ];
-const source = candidates.find((dir) => fs.existsSync(path.join(dir, "server.js")));
-if (!source) {
-  console.error(
-    `tdom-engine checkout not found (tried: ${candidates.join(", ")}). ` +
-      "Set TDOM_ENGINE_DIR to the checkout."
-  );
-  process.exit(1);
-}
-
-// The minimal runnable engine: everything else in the repo (corpus, paper,
-// tests, tools, web/pdfjs, output) stays behind.
-const INCLUDE = [
-  "package.json",
-  "server.js",
-  "LICENSE",
-  "engine",
-  "host",
-  "vendor",
-  "templates",
-  "samples",
-  "web",
-];
-const SKIP = new Set(["web/pdfjs", "web/compare.html", "web/compare.js", "samples/uploads"]);
-
-const copyEntry = (rel) => {
-  const from = path.join(source, rel);
-  if (!fs.existsSync(from)) return;
-  const stat = fs.statSync(from);
-  if (stat.isDirectory()) {
-    for (const entry of fs.readdirSync(from)) {
-      const childRel = path.posix.join(rel, entry);
-      if (SKIP.has(childRel)) continue;
-      copyEntry(childRel);
-    }
-    return;
+async function syncTdomEngine({ sourceDir, destinationDir = destination, arch } = {}) {
+  const envDir = sourceDir || (process.env.TDOM_ENGINE_DIR || process.env.TEX64_TDOM_ENGINE_DIR || "").trim();
+  const candidates = envDir
+    ? [envDir]
+    : [
+        path.join(os.homedir(), "Developer", "tdom-engine"),
+        path.join(os.homedir(), "tdom-engine"),
+        path.join(os.homedir(), "Desktop", "tdom-engine"),
+        path.join(os.homedir(), "Developer", "tdom-core"),
+        path.join(os.homedir(), "tdom-core"),
+        path.join(os.homedir(), "Desktop", "tdom-core"),
+      ];
+  const source = candidates.find((dir) => fs.existsSync(path.join(dir, "server.js")));
+  if (!source) {
+    console.error(
+      `tdom-engine checkout not found (tried: ${candidates.join(", ")}). ` +
+        "Set TDOM_ENGINE_DIR to the checkout."
+    );
+    throw new Error("tdom-engine checkout not found");
   }
-  const to = path.join(destination, rel);
-  fs.mkdirSync(path.dirname(to), { recursive: true });
-  fs.copyFileSync(from, to);
-};
 
-fs.rmSync(destination, { recursive: true, force: true });
-fs.mkdirSync(destination, { recursive: true });
-for (const rel of INCLUDE) copyEntry(rel);
+  // The minimal runnable engine: everything else in the repo (corpus, paper,
+  // tests, tools, web/pdfjs, output) stays behind.
+  const INCLUDE = [
+    "package.json",
+    "server.js",
+    "LICENSE",
+    "engine",
+    "host",
+    "vendor",
+    "templates",
+    "samples",
+    "web",
+  ];
+  const SKIP = new Set(["web/pdfjs", "web/compare.html", "web/compare.js", "samples/uploads"]);
 
-let commit = null;
-try {
-  commit = execFileSync("git", ["-C", source, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-} catch {
-  /* not a git checkout — record the path only */
+  const copyEntry = (rel) => {
+    const from = path.join(source, rel);
+    if (!fs.existsSync(from)) return;
+    const stat = fs.statSync(from);
+    if (stat.isDirectory()) {
+      for (const entry of fs.readdirSync(from)) {
+        const childRel = path.posix.join(rel, entry);
+        if (SKIP.has(childRel)) continue;
+        copyEntry(childRel);
+      }
+      return;
+    }
+    const to = path.join(destinationDir, rel);
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.copyFileSync(from, to);
+  };
+
+  fs.rmSync(destinationDir, { recursive: true, force: true });
+  fs.mkdirSync(destinationDir, { recursive: true });
+  for (const rel of INCLUDE) copyEntry(rel);
+
+  let commit = null;
+  try {
+    commit = execFileSync("git", ["-C", source, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    /* not a git checkout — record the path only */
+  }
+  fs.writeFileSync(
+    path.join(destinationDir, "VENDOR.json"),
+    `${JSON.stringify({ source, commit, syncedAt: new Date().toISOString() }, null, 2)}\n`
+  );
+
+  await require("./prepare-tdom-shim.cjs").prepareTdomShim({ engineDir: destinationDir, arch });
+
+  console.log(`Synced tdom engine: ${source} -> ${destinationDir}${commit ? ` (${commit.slice(0, 10)})` : ""}`);
+
+  return destinationDir;
 }
-fs.writeFileSync(
-  path.join(destination, "VENDOR.json"),
-  `${JSON.stringify({ source, commit, syncedAt: new Date().toISOString() }, null, 2)}\n`
-);
 
-console.log(`Synced tdom engine: ${source} -> ${destination}${commit ? ` (${commit.slice(0, 10)})` : ""}`);
+module.exports = { syncTdomEngine };
+if (require.main === module) {
+  syncTdomEngine().catch(error => { console.error(error); process.exitCode = 1; });
+}

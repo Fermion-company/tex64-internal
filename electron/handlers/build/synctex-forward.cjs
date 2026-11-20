@@ -1,4 +1,5 @@
 const path = require("path");
+const { resolveInputLineTarget } = require("../../services/tex-input-target.cjs");
 
 const createSynctexForwardHandler = (deps, resolvers) => {
   const { fs, pdfWindowManager, synctexService, sendToRenderer, ensureWorkspace, state, delay, resolveJumpDocument } = deps;
@@ -260,8 +261,12 @@ const createSynctexForwardHandler = (deps, resolvers) => {
 	      typeof message?.requestId === "string" && message.requestId.trim()
         ? message.requestId
         : null;
-    const withRequestId = (payload) =>
-      requestId ? { ...payload, requestId } : { ...payload };
+    let redirected = null;
+    const withRequestId = (payload) => ({
+      ...payload,
+      ...(redirected && payload?.ok ? { sourcePath: redirected.path, sourceLine: redirected.line } : {}),
+      ...(requestId ? { requestId } : {}),
+    });
     const forwardSource =
       typeof message?.source === "string" && message.source.trim()
         ? message.source.trim()
@@ -274,7 +279,12 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       }));
       return;
     }
-    const sourcePath = resolveWorkspacePathFromRoot(rootPath, message.path);
+    // A line that only reads a file means the start of that file. The
+    // document is still the one the line belongs to.
+    const inputTarget = forwardSource === "manual"
+      ? resolveInputLineTarget(rootPath, message.path, message.line)
+      : null;
+    const sourcePath = resolveWorkspacePathFromRoot(rootPath, inputTarget?.path ?? message.path);
     // Which document's PDF: the one a Build of this file would write. An
     // explicit pdfPath (a tex64:// link, an older caller) is honoured as is.
     let pdfPath = message.pdfPath ? resolveWorkspacePathFromRoot(rootPath, message.pdfPath) : null;
@@ -332,8 +342,9 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       }));
       return;
     }
-    const line = Number.parseInt(message.line, 10);
-    const column = Number.parseInt(message.column, 10);
+    redirected = inputTarget;
+    const line = Number.parseInt(inputTarget?.line ?? message.line, 10);
+    const column = inputTarget ? 1 : Number.parseInt(message.column, 10);
     const targetLine = Number.isFinite(line) ? line : 1;
     const targetColumn = Number.isFinite(column) ? column : 1;
     const viewerMode = message.pdfViewerMode === "tab" ? "tab" : "window";
@@ -473,6 +484,13 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       let quick;
       let anchor = { line: targetLine, toEnd: false };
       try {
+        // The line that prints the index: where the index starts.
+        const ownLine = String(fs.readFileSync(sourcePath, "utf8").split(/\r?\n/)[targetLine - 1] ?? "")
+          .replace(/(^|[^\\])%.*$/, "$1");
+        if (/\\printindex\b/.test(ownLine) && typeof synctexService.forwardIndexStart === "function") {
+          const start = synctexService.forwardIndexStart({ pdfPath });
+          if (start) return { ok: true, page: start.page, x: start.x, y: start.y, fallback: true };
+        }
         anchor = jumpAnchorLine(sourcePath, targetLine);
         // An \input / \include line stands for the file it reads: go to
         // where that file's output begins (or ends, from the blank line
@@ -708,6 +726,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       try {
         const box = synctexService.forwardMarkerBox({
           pdfPath, sourcePath, line: targetLine, page: result.page, x: result.x, y: result.y,
+          pageTrusted: Boolean(indexed),
         });
         if (box && box.width > 0 && box.height > 0) {
           const inside = box.page === result.page && Number.isFinite(result.x) && Number.isFinite(result.y) &&

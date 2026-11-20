@@ -45,7 +45,7 @@ concurrency:
 
 env:
   TDOM_ENGINE_REPOSITORY: https://github.com/Fermion-company/tdom-engine.git
-  TDOM_ENGINE_COMMIT: a71322b0950887392a7847c26d6f03aeb2d2c865
+  TDOM_ENGINE_COMMIT: 180c4551d32c3fa6689780bbcac6a885cac6d09b
 
 jobs:
   prepare_release:
@@ -70,6 +70,8 @@ jobs:
 
   build:
     name: Build (macOS ${{ matrix.arch }})
+    env:
+      TEX64_TARGET_ARCH: ${{ matrix.arch }}
     if: ${{ inputs.windows_only != true }}
     needs: prepare_release
     runs-on: ${{ matrix.runner }}
@@ -878,15 +880,34 @@ jobs:
             awsArgs+=(--endpoint-url "$endpoint")
           fi
 
+          retry_upload() {
+            local attempt=1 delay=15 status
+            while true; do
+              if "$@"; then
+                return 0
+              else
+                status=$?
+              fi
+              if [ "$attempt" -eq 4 ]; then
+                echo "Upload failed after 4 attempts (exit ${status})." >&2
+                return "$status"
+              fi
+              echo "Upload attempt ${attempt}/4 failed (exit ${status}); retrying in ${delay}s." >&2
+              sleep "$delay"
+              attempt=$((attempt + 1))
+              delay=$((delay * 2))
+            done
+          }
+
           echo "Uploading release assets to s3://${bucket}/${prefix}/ (region=${AWS_REGION})"
-          aws "${awsArgs[@]}" s3 sync \
+          retry_upload aws "${awsArgs[@]}" s3 sync \
             release \
             "s3://${bucket}/${prefix}/" \
             --cache-control "public,max-age=31536000,immutable"
 
           if [ -f "update/stable.json" ]; then
             echo "Uploading update feed to s3://${bucket}/${updatePrefix}/stable.json"
-            aws "${awsArgs[@]}" s3 cp \
+            retry_upload aws "${awsArgs[@]}" s3 cp \
               "update/stable.json" \
               "s3://${bucket}/${updatePrefix}/stable.json" \
               --cache-control "public,max-age=60"

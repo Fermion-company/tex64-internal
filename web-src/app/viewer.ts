@@ -49,6 +49,8 @@ export type PdfSyncPayload = {
   page: number;
   x: number;
   y: number;
+  /** Only roughly known (a neighbouring line stood in): shown as a band, not a box. */
+  approximate?: boolean;
   pdfPath?: string;
   blockX?: number;
   blockY?: number;
@@ -162,6 +164,7 @@ export type ViewerDeps = {
     pdfPath: string | null;
     context?: { word: string; prev: string | null; next: string | null };
   }) => void;
+  onLiveRuntimeError?: (message: string | null) => void;
   onLiveSourceRequest?: (payload: {
     file: string;
     line: number;
@@ -358,6 +361,16 @@ export const createViewer = (deps: ViewerDeps) => {
       deps.onPdfClose?.();
       return;
     }
+    if (payload.type === "live-runtime-error") {
+      if (!matchingLivePreview()) return;
+      const error = (payload as { payload?: { code?: unknown; message?: unknown } | null }).payload;
+      if (error == null) deps.onLiveRuntimeError?.(null);
+      else if ((error.code === "TDOM_SHIM_UNAVAILABLE" || error.code === "TDOM_STRUCTURED_BOOT_FAILED") &&
+          typeof error.message === "string" && error.message.trim()) {
+        deps.onLiveRuntimeError?.(error.message);
+      }
+      return;
+    }
     if (payload.type === "live-source") {
       if (!matchingLivePreview()) return;
       const request = parseLiveSourceRequest((payload as { payload?: unknown }).payload);
@@ -393,6 +406,7 @@ export const createViewer = (deps: ViewerDeps) => {
   });
 
   const clearViewerUrl = () => {
+    deps.onLiveRuntimeError?.(null);
     if (viewerBlobUrl) {
       URL.revokeObjectURL(viewerBlobUrl);
       viewerBlobUrl = null;
@@ -561,6 +575,9 @@ export const createViewer = (deps: ViewerDeps) => {
         livePreview?.hold === next?.hold && livePreview?.expectedSrcRev === next?.expectedSrcRev &&
         livePreview?.target.workspaceRoot === next?.target.workspaceRoot &&
         livePreview?.target.pdfPath === next?.target.pdfPath) return;
+    if (livePreview?.url !== next?.url || livePreview?.generation !== next?.generation ||
+        livePreview?.target.workspaceRoot !== next?.target.workspaceRoot ||
+        livePreview?.target.pdfPath !== next?.target.pdfPath) deps.onLiveRuntimeError?.(null);
     livePreview = next;
     if (pdfViewerReady) {
       postPdfMessage({ type: "live", payload: matchingLivePreview() });

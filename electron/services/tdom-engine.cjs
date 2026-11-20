@@ -30,6 +30,9 @@ const { spawn } = require("node:child_process");
 const { NO_FILE_ACCESS } = require("./engine-dir.cjs");
 const { getPreferredTexliveBinDirs } = require("./texlive-paths.cjs");
 const { loadPersistedCanonicalBuild } = require("./build/canonical-build-candidate.cjs");
+const { loadPreviewCacheCandidate } = require("./build/preview-cache.cjs");
+const { LivePreviewPageLimit } = require("./live-preview-page-limit.cjs");
+const { LivePreviewWindow } = require("./live-preview-window.cjs");
 
 // Off the tdom dev default (4633) so a manually run `npm start` in the
 // checkout and the embedded engine don't race for the same port.
@@ -42,9 +45,20 @@ const DEFAULT_START_TIMEOUT_MS = 90_000;
 const DEFAULT_DOCUMENT_OPEN_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_BUILD_LEASE_TTL_MS = 11 * 60 * 1000;
 const CANONICAL_BUILD_ADOPTION_TTL_MS = 15 * 60 * 1000;
-const BUILD_LEASE_ACQUIRE_TIMEOUT_MS = 10 * 60 * 1000;
+const BUILD_LEASE_ACQUIRE_TIMEOUT_MS = 1_500;
+const BUILD_LEASE_PROBE_TTL_MS = 5_000;
+const BUILD_IMPORT_LEASE_WAIT_MS = 5 * 60 * 1000;
 const BUILD_LEASE_REQUEST_TIMEOUT_MS = 2_000;
 const MARKER = "server.js";
+
+const beforeBuildDeadline = async (pending, deadline) => {
+  let timer;
+  try {
+    return await Promise.race([pending, new Promise(resolve => {
+      timer = setTimeout(() => resolve(null), Math.max(0, deadline - Date.now()));
+    })]);
+  } finally { clearTimeout(timer); }
+};
 
 const isPortAvailable = (port) => new Promise((resolve) => {
   const server = net.createServer();
@@ -96,11 +110,12 @@ const requestJson = (url, { method = "GET", body, timeoutMs = 5_000 } = {}) =>
         }
       });
     });
-    req.setTimeout(timeoutMs, () => {
+    const timer = setTimeout(() => {
       const error = new Error("tdom request timed out");
       error.code = "TDOM_REQUEST_TIMEOUT";
       req.destroy(error);
-    });
+    }, timeoutMs);
+    req.once("close", () => clearTimeout(timer));
     req.on("error", reject);
     if (payload) req.write(payload);
     req.end();
@@ -251,6 +266,22 @@ class TdomEngineService {
     this.pendingOpenRequest = null;
     this.activeBuildLease = null;
     this.pendingCanonicalBuilds = new Map();
+    // Realtime preview stops past a realistic length (live-preview-page-limit.cjs).
+    this.pageLimit = options.pageLimit || new LivePreviewPageLimit();
+    // Past it, a book that reads its chapters from files keeps Live for the
+    // chapter being edited (live-preview-window.cjs).
+    this.liveWindow = options.liveWindow || new LivePreviewWindow({
+      env: () => ({ ...process.env, PATH: this.buildSpawnEnv().PATH }),
+    });
+    this.windowedPath = null;
+    // The Build paper's sheets the engine's viewer shows around the chapter,
+    // and the ones it was last told of.
+    this.windowOuter = null;
+    this.sentOuterKey = null;
+    this.loadBuildCache = options.loadBuildCache || loadPreviewCacheCandidate;
+    this.pageWatchIntervalMs = options.pageWatchIntervalMs ?? 5_000;
+    this.pageWatchTimer = null;
+    this.pageLimited = false;
   }
 
   resolveDirectory() {
@@ -277,10 +308,78 @@ class TdomEngineService {
   getStatus() {
     return { available: this.isAvailable(), running: this.isRunning(), state: this.state,
       url: this.url, engineDir: this.engineDir, needsAccess: this.needsAccess,
-      error: this.lastError };
+      error: this.lastError, pageLimited: this.pageLimited };
   }
 
-  async applyActiveBuildLease() {
+  // Whether `rootPath` is past the length Live is offered for, from the
+  // paper of its last Build: beside the root, or the copy in the project's
+  // Build cache (the output may go to another directory).
+  async checkPageLimit(rootPath, projectRoot = null) {
+    if (!rootPath) return { limited: false, pages: null };
+    let cachedPaper = null;
+    if (projectRoot && isWithin(projectRoot, rootPath)) {
+      try {
+        const cached = await this.loadBuildCache({
+          rootPath: projectRoot,
+          mainFileName: path.relative(projectRoot, rootPath),
+        });
+        const paper = cached?.hit ? cached.artifacts?.pdf?.filePath : null;
+        if (typeof paper === "string" && paper) cachedPaper = paper;
+      } catch { /* no usable cache: the paper beside the root still counts */ }
+    }
+    return this.pageLimit.check(rootPath, cachedPaper);
+  }
+
+  // The chapter of a document past the limit that Live can still follow: the
+  // other chapter files are handed to the engine empty, as overlays, and the
+  // user's own unsaved buffers of those files are left out with them.
+  async applyLiveWindow(snapshot, payload) {
+    const rootPath = snapshot.filePath;
+    if (!rootPath || !snapshot.projectRoot || !/\.tex$/i.test(rootPath)) return null;
+    // the window is cut to the paper beside the root: its auxiliary files are what the probe reads
+    const paper = await this.pageLimit.paperPages(rootPath.replace(/\.tex$/i, ".pdf"));
+    if (!paper || paper.pages <= this.pageLimit.limit) return null;
+    const activePath = typeof payload.activePath === "string" && payload.activePath
+      ? path.resolve(snapshot.projectRoot, payload.activePath) : null;
+    const plan = await this.liveWindow.plan({
+      rootPath, rootText: snapshot.source, projectRoot: snapshot.projectRoot, activePath, paper,
+      // one whole-document TeX run at a time
+      mayProbe: !this.activeBuildLease || this.activeBuildLease.released,
+    });
+    if (plan?.overlays) {
+      for (const [filePath, text] of plan.overlays) snapshot.overlays.set(filePath, text);
+      if (typeof plan.rootText === "string") snapshot.source = plan.rootText;
+    }
+    return plan;
+  }
+
+  // The document's length is only known to the engine when no Build has left
+  // a paper, and it changes as the user writes. Ask now and then; past the
+  // limit the engine is stopped and the next push answers `limited`.
+  schedulePageWatch() {
+    if (this.pageWatchTimer || !(this.pageWatchIntervalMs > 0)) return;
+    this.pageWatchTimer = setTimeout(async () => {
+      this.pageWatchTimer = null;
+      const rootPath = this.lastPath;
+      const generation = this.lifecycleGeneration;
+      if (!rootPath || !this.isRunning() || this.state !== "ready") return;
+      try {
+        const status = await requestJson(`${this.url}/status`, { timeoutMs: 2_000 });
+        const current = generation === this.lifecycleGeneration && rootPath === this.lastPath &&
+          this.pendingOpenRequest === null;
+        const pages = Math.max(Number(status?.canonical?.pageCount) || 0, Number(status?.residentPages) || 0);
+        if (current && this.pageLimit.observe(rootPath, pages)) {
+          this.stop();
+          this.pageLimited = true;
+          return;
+        }
+      } catch { /* a busy engine answers the next round */ }
+      if (generation === this.lifecycleGeneration) this.schedulePageWatch();
+    }, this.pageWatchIntervalMs);
+    this.pageWatchTimer.unref?.();
+  }
+
+  async applyActiveBuildLease({ timeoutMs = BUILD_LEASE_REQUEST_TIMEOUT_MS, ttlMs = null } = {}) {
     const lease = this.activeBuildLease;
     if (
       !lease ||
@@ -302,9 +401,9 @@ class TdomEngineService {
         requestId: lease.requestId,
         projectRoot: lease.projectRoot,
         mainFile: lease.mainFile,
-        ttlMs: Math.min(lease.ttlMs, remainingMs),
+        ttlMs: Math.min(ttlMs ?? (lease.compatibility === false ? lease.ttlMs : BUILD_LEASE_PROBE_TTL_MS), remainingMs),
       },
-      timeoutMs: BUILD_LEASE_REQUEST_TIMEOUT_MS,
+      timeoutMs,
     }).then((response) => {
       // Keep a token even if release began while this request was in flight;
       // releaseBuildLease awaits the same promise and must return that remote
@@ -353,6 +452,15 @@ class TdomEngineService {
   }
 
   async acquireBuildLease(payload = {}) {
+    // The import of an earlier Build holds the same reservation while the
+    // engine opens the document with it (minutes for a book). A Build the
+    // user starts meanwhile outranks it, its own result replaces that one:
+    // refusing it here showed "Build could not reserve the TeX engine" right
+    // after reopening a project whose saved Build was being taken over.
+    if (this.activeBuildLease && !this.activeBuildLease.released &&
+        this.activeBuildLease.deferredImport === true && payload.deferredImport !== true) {
+      await this.releaseBuildLease(this.activeBuildLease);
+    }
     if (this.activeBuildLease && !this.activeBuildLease.released) {
       const error = new Error("TDOM heavy work is already reserved by another Build.");
       error.code = "TDOM_BUILD_LEASE_UNAVAILABLE";
@@ -374,6 +482,7 @@ class TdomEngineService {
       releasePromise: new Promise((resolve) => { resolveRelease = resolve; }),
       resolveRelease,
       expiryTimer: null,
+      bootstrapOpen: this.inFlightOpen ?? null,
     };
     this.activeBuildLease = lease;
 
@@ -386,17 +495,32 @@ class TdomEngineService {
         break;
       }
       if (Date.now() >= acquireDeadline) {
-        await this.releaseBuildLease(lease);
-        const error = new Error("TDOM heavy TeX work did not become available.");
-        error.code = "TDOM_BUILD_LEASE_UNAVAILABLE";
-        throw error;
+        // Build already stages PDF/SyncTeX and aux in its private output
+        // directory. Keep the local open gate, but give up CPU exclusivity
+        // rather than waiting for a whole resident document to bootstrap.
+        break;
       }
       if (this.state === "starting") {
         await new Promise((resolve) => setTimeout(resolve, 50));
         continue;
       }
-      const response = await this.applyActiveBuildLease();
-      if (lease.token || !this.isRunning() || this.state !== "ready") break;
+      const response = await beforeBuildDeadline(this.applyActiveBuildLease({
+        timeoutMs: Math.max(1, acquireDeadline - Date.now()),
+        // A lost HTTP reply must not leave authority paused for 11 minutes.
+        ttlMs: BUILD_LEASE_PROBE_TTL_MS,
+      }), acquireDeadline);
+      if (lease.token) {
+        const renewed = await beforeBuildDeadline(this.renewCanonicalBuildLease(lease, {
+          timeoutMs: Math.max(1, acquireDeadline - Date.now()),
+        }), acquireDeadline);
+        if (renewed?.renewed !== true) {
+          lease.cleanupToken = lease.token;
+          lease.token = null;
+          lease.response = null;
+        }
+        break;
+      }
+      if (!this.isRunning() || this.state !== "ready") break;
       // A current engine can report a bootstrap or another resource lease
       // synchronously. Retry the same request id: its idempotency prevents an
       // uncertain HTTP timeout from creating an orphan lease.
@@ -417,17 +541,16 @@ class TdomEngineService {
           console.warn("[tdom] Build lease is unsupported by this Live engine.");
           break;
         }
-        await this.releaseBuildLease(lease);
-        const error = new Error("TDOM could not reserve heavy TeX work.");
-        error.code = "TDOM_BUILD_LEASE_UNAVAILABLE";
-        throw error;
+        break;
       }
       const retryAfterMs = Math.max(
         50,
         Math.min(1_000, Number(response?.retryAfterMs) || 250)
       );
-      await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
+      await new Promise((resolve) => setTimeout(resolve,
+        Math.min(retryAfterMs, Math.max(0, acquireDeadline - Date.now()))));
     }
+    lease.compatibility = !lease.token;
     if (!lease.released) {
       lease.expiresAt = Date.now() + ttlMs;
       lease.expiryTimer = setTimeout(() => {
@@ -438,7 +561,7 @@ class TdomEngineService {
     let released = false;
     return {
       requestId: lease.requestId,
-      bound: lease.response?.bound === true,
+      bound: Boolean(lease.token && lease.response?.bound === true),
       adopt: (candidate, snapshot = null) => {
         if (snapshot) lease.pendingSnapshot = snapshot;
         return this.adoptCanonicalBuild(lease, candidate);
@@ -492,7 +615,7 @@ class TdomEngineService {
     }
   }
 
-  async renewCanonicalBuildLease(lease) {
+  async renewCanonicalBuildLease(lease, { timeoutMs = BUILD_LEASE_REQUEST_TIMEOUT_MS } = {}) {
     if (!lease?.token || !this.isRunning() || this.state !== "ready" || !this.url) {
       return { ok: false, renewed: false, reason: "build-lease-unavailable" };
     }
@@ -500,7 +623,7 @@ class TdomEngineService {
       return await requestJson(`${this.url}/canonical/build-lease/renew`, {
         method: "POST",
         body: { requestId: lease.requestId, token: lease.token, ttlMs: 900_000 },
-        timeoutMs: BUILD_LEASE_REQUEST_TIMEOUT_MS,
+        timeoutMs,
       });
     } catch (error) {
       return {
@@ -522,7 +645,24 @@ class TdomEngineService {
     return true;
   }
 
+  // Tell the engine which sheets of the Build paper stand around the
+  // document it holds, or that none do. An engine without the endpoint
+  // simply shows the chapter alone.
+  async syncOuterPaper() {
+    const outer = this.windowOuter;
+    const key = outer ? JSON.stringify(outer) : "";
+    if (key === (this.sentOuterKey ?? "") || !this.isRunning() || this.state !== "ready") return;
+    try {
+      await requestJson(`${this.url}/outer`, { method: "POST", body: outer ?? { clear: true }, timeoutMs: 5_000 });
+      this.sentOuterKey = key;
+    } catch (error) {
+      console.info("[tdom] outer paper not set:", error?.message ?? error);
+    }
+  }
+
   rememberOpenedSnapshot(snapshot, acceptedSrcRev = null) {
+    // an open of another document drops the engine's outer paper
+    this.sentOuterKey = null;
     this.lastSource = snapshot.source;
     this.lastPath = snapshot.filePath;
     this.lastProjectRoot = snapshot.projectRoot;
@@ -559,8 +699,51 @@ class TdomEngineService {
     // A successful Build can finish near the original 11-minute watchdog.
     // Give a cold process enough local ownership to boot, acquire its remote
     // lease and perform the required 15-minute renewal before /open.
+    if ((await this.checkPageLimit(path.resolve(lease.projectRoot, lease.mainFile), lease.projectRoot)).limited) {
+      return { adopted: false, deferred: true, reason: "live-preview-page-limit" };
+    }
+    if (lease.released || this.activeBuildLease !== lease) {
+      return { adopted: false, reason: "build-lease-unavailable" };
+    }
     this.extendLocalBuildLeaseForAdoption(lease);
-    const snapshot = lease.pendingSnapshot ?? null;
+    const openingSnapshot = lease.bootstrapOpen?.snapshot;
+    const matchingOpen = openingSnapshot?.projectRoot === lease.projectRoot &&
+      openingSnapshot?.filePath === path.resolve(lease.projectRoot, lease.mainFile);
+    const snapshot = lease.pendingSnapshot ?? (matchingOpen ? openingSnapshot : null);
+    const liveRequested = snapshot || (this.lastProjectRoot === lease.projectRoot &&
+      this.lastPath === path.resolve(lease.projectRoot, lease.mainFile));
+    if (!liveRequested) return { adopted: false, deferred: true, reason: "live-preview-not-requested" };
+    if (lease.bootstrapOpen) {
+      // This /open started before Build's local gate. Let it finish once;
+      // reopening here would repeat the entire book bootstrap.
+      // It may still be waiting at the server's lease gate if acquire won
+      // the HTTP race. Keep our local gate but free that remote bootstrap.
+      await this.releaseRemoteBuildLease(lease);
+      await Promise.race([lease.bootstrapOpen.promise.catch(() => {}), lease.releasePromise]);
+      if (lease.released) return { adopted: false, reason: "build-lease-unavailable" };
+    }
+    if (lease.compatibility) {
+      if (lease.applyPromise) await Promise.race([lease.applyPromise, lease.releasePromise]);
+      if (lease.released) return { adopted: false, reason: "build-lease-unavailable" };
+      // A short probe may have granted after our HTTP deadline, then expired.
+      // Reacquire its idempotent request before trusting an adoption identity.
+      lease.cleanupToken = lease.token || lease.cleanupToken;
+      lease.token = null;
+      lease.response = null;
+    }
+    if (liveRequested && this.isRunning() && this.state === "ready") {
+      // Deadline fallback has no authority identity. Reacquire after Build,
+      // while bootstrap continues normally, before validating any PDF.
+      while (!lease.released && !lease.token) {
+        const response = await this.applyActiveBuildLease();
+        if (lease.token || response?.statusCode === 404 || !this.isRunning()) break;
+        if (response?.statusCode !== 409 && response?.statusCode !== 503) break;
+        await Promise.race([
+          new Promise(resolve => setTimeout(resolve, 250)), lease.releasePromise,
+        ]);
+      }
+      if (lease.released) return { adopted: false, reason: "build-lease-unavailable" };
+    }
     const sameActiveDocument = this.isRunning() && this.state === "ready" &&
       lease.response?.bound === true && lease.response?.identity &&
       this.lastProjectRoot === lease.projectRoot &&
@@ -575,11 +758,31 @@ class TdomEngineService {
       await this.start(lease);
     }
     await this.applyActiveBuildLease();
-    if (!lease.token) return { adopted: false, reason: "build-lease-not-supported" };
+    // An engine that has just started is still settling its first document
+    // and answers 409/503 for a moment. Giving up at once lost the Build
+    // saved by the session before: reopening a book showed no paper until
+    // the whole Build had run again ("build-lease-not-supported" 9 s after
+    // launch). Ask again while that answer lasts, as the Build's own
+    // reservation does.
+    const acquireUntil = Date.now() + BUILD_IMPORT_LEASE_WAIT_MS;
+    while (!lease.released && !lease.token && this.isRunning() && this.state === "ready" &&
+        Date.now() < acquireUntil) {
+      const status = lease.response?.statusCode;
+      if (status !== 409 && status !== 503) break;
+      await Promise.race([new Promise((resolve) => setTimeout(resolve, 500)), lease.releasePromise]);
+      if (lease.released) break;
+      await this.applyActiveBuildLease();
+    }
+    if (lease.released) return { adopted: false, reason: "build-lease-unavailable" };
+    if (!lease.token) {
+      return { adopted: false, reason: lease.response?.reason
+        ? `build-lease-not-granted:${lease.response.reason}` : "build-lease-not-supported" };
+    }
     const renewed = await this.renewCanonicalBuildLease(lease);
     if (renewed?.ok !== true || renewed?.renewed !== true) {
       return { adopted: false, reason: renewed?.reason || "build-lease-renew-failed" };
     }
+    if (lease.released) return { adopted: false, reason: "build-lease-unavailable" };
     const canonicalBuild = {
       ...candidate,
       requestId: lease.requestId,
@@ -626,10 +829,7 @@ class TdomEngineService {
     return response;
   }
 
-  async releaseBuildLease(lease) {
-    if (!lease || lease.released) return;
-    lease.released = true;
-    clearTimeout(lease.expiryTimer);
+  async releaseRemoteBuildLease(lease) {
     if (lease.applyPromise) await lease.applyPromise;
     const releaseToken = lease.token || lease.cleanupToken;
     if (releaseToken && this.isRunning() && this.state === "ready" && this.url) {
@@ -658,6 +858,16 @@ class TdomEngineService {
         );
       }
     }
+    lease.token = null;
+    lease.cleanupToken = null;
+    lease.response = null;
+  }
+
+  async releaseBuildLease(lease) {
+    if (!lease || lease.released) return;
+    lease.released = true;
+    clearTimeout(lease.expiryTimer);
+    await this.releaseRemoteBuildLease(lease);
     if (this.activeBuildLease === lease) this.activeBuildLease = null;
     lease.resolveRelease();
   }
@@ -888,7 +1098,7 @@ class TdomEngineService {
     }
     const fullOverlays = [...snapshot.overlays].map(([filePath, text]) => ({ filePath, text }));
     try {
-      const opened = await requestJson(`${this.url}/open`, {
+      const promise = requestJson(`${this.url}/open`, {
         method: "POST",
         body: {
           text: snapshot.source,
@@ -900,6 +1110,11 @@ class TdomEngineService {
         },
         timeoutMs: this.documentOpenTimeoutMs,
       });
+      const opening = { snapshot, promise };
+      this.inFlightOpen = opening;
+      let opened;
+      try { opened = await promise; }
+      finally { if (this.inFlightOpen === opening) this.inFlightOpen = null; }
       if (this.pendingOpenRequest === pending) this.pendingOpenRequest = null;
       return opened;
     } catch (error) {
@@ -967,7 +1182,11 @@ class TdomEngineService {
   }
 
   push(payload = {}) {
+    // TEX64_TRACE_PUSH=1: where a keystroke's time goes on its way to the engine
+    const trace = process.env.TEX64_TRACE_PUSH && Number.isFinite(Number(payload.clientEditAtEpochMs))
+      ? { at: Number(payload.clientEditAtEpochMs), marks: [["ipc", Date.now()]] } : null;
     const snapshot = this.resolvePushSnapshot(payload);
+    trace?.marks.push(["snapshot", Date.now()]);
     const normalizedPath = snapshot.filePath;
     const pathChanged = normalizedPath !== this.lastPath;
     const sessionChanged = snapshot.sessionKey !== this.lastSessionKey;
@@ -986,6 +1205,25 @@ class TdomEngineService {
       activeLease.pendingSnapshot ??= snapshot;
     }
     const run = async () => {
+      trace?.marks.push(["queue", Date.now()]);
+      // Asked when the engine would have to open the document; while it
+      // holds it, the page watch follows its length.
+      const opens = snapshot.fresh || normalizedPath !== this.lastPath ||
+        snapshot.sessionKey !== this.lastSessionKey || this.lastSource === null ||
+        this.pendingOpenRequest !== null;
+      const length = opens ? await this.checkPageLimit(snapshot.filePath, snapshot.projectRoot)
+        : { limited: false };
+      const windowed = length.limited || (!opens && this.windowedPath === normalizedPath);
+      const window = windowed ? await this.applyLiveWindow(snapshot, payload) : null;
+      if (windowed && !window?.overlays) {
+        if (this.proc || this.state !== "stopped") this.stop();
+        this.pageLimited = true;
+        return { ok: true, limited: true, ...(length.pages ? { pages: length.pages } : {}),
+          ...(window?.pending ? { pending: true } : {}) };
+      }
+      this.windowedPath = window ? normalizedPath : null;
+      this.windowOuter = window?.outer ?? null;
+      this.pageLimited = false;
       let pathChangedNow = normalizedPath !== this.lastPath;
       let sessionChangedNow = snapshot.sessionKey !== this.lastSessionKey;
       let requiresOpenNow = snapshot.fresh || pathChangedNow || sessionChangedNow ||
@@ -994,7 +1232,8 @@ class TdomEngineService {
       // reacquire the same resource lease and let the engine validate the
       // persisted-in-process candidate. Rejection still performs a normal
       // open and never claims the cached paper current.
-      const remembered = requiresOpenNow && candidateKey
+      // (a windowed document is not the document the Build typeset)
+      const remembered = requiresOpenNow && candidateKey && !window
         ? this.loadRememberedCanonicalBuild(snapshot.projectRoot, mainFile) ??
           await this.loadPersistedCanonicalBuild(snapshot.projectRoot, mainFile)
         : null;
@@ -1004,7 +1243,9 @@ class TdomEngineService {
           importLease = await this.acquireBuildLease({
             projectRoot: snapshot.projectRoot,
             mainFile,
+            deferredImport: true,
           });
+          if (this.activeBuildLease && !this.activeBuildLease.released) this.activeBuildLease.deferredImport = true;
           const imported = await importLease.adopt(remembered, snapshot);
           if (imported?.adopted !== true) {
             console.info("[tdom] Build import not adopted:", imported?.reason ?? "unknown");
@@ -1067,11 +1308,14 @@ class TdomEngineService {
           return { ok: true, url: this.url };
         }
         const edit = sourceChanged ? diffEdit(this.lastSource, snapshot.source) : { start: 0, end: 0, text: "" };
+        trace?.marks.push(["post", Date.now()]);
         try {
           acceptedSrcRev = (await requestJson(`${this.url}/edit`, {
             method: "POST",
             body: {
               ...edit,
+              // only the revision is read from the answer; the pages go to the viewer over the event stream
+              slim: true,
               ...(Number.isFinite(Number(payload.clientEditAtEpochMs))
                 ? { clientEditAtEpochMs: Number(payload.clientEditAtEpochMs) }
                 : {}),
@@ -1084,6 +1328,10 @@ class TdomEngineService {
           this.lastOverlays = new Map(snapshot.overlays);
           this.lastRootMtimeMs = snapshot.rootMtimeMs;
           this.lastAcceptedSrcRev = Number.isInteger(acceptedSrcRev) ? acceptedSrcRev : null;
+          if (trace) {
+            trace.marks.push(["answered", Date.now()]);
+            console.info("[tdom] push trace", trace.marks.map(([name, at]) => `${name} +${at - trace.at}`).join(" "));
+          }
         } catch (error) {
           // Engine and service disagree about the source (restart, external
           // change) — resync with a fresh open rather than compounding.
@@ -1101,7 +1349,14 @@ class TdomEngineService {
       }
       return { ok: true, url: this.url, ...(Number.isInteger(acceptedSrcRev) ? { srcRev: acceptedSrcRev } : {}) };
     };
-    const result = this.pushQueue.then(run, run);
+    const watched = () => run().then(async (answer) => {
+      if (answer?.ok && !answer.limited) {
+        await this.syncOuterPaper();
+        this.schedulePageWatch();
+      }
+      return answer;
+    });
+    const result = this.pushQueue.then(watched, watched);
     this.pushQueue = result.then(() => undefined, () => undefined);
     return result;
   }
@@ -1184,11 +1439,20 @@ class TdomEngineService {
     this.fulfilledBuildOpenAcks = new WeakMap();
     this.pendingCanonicalBuilds.clear();
     this.pendingOpenRequest = null;
+    this.pageLimited = false;
+    this.windowedPath = null;
+    this.windowOuter = null;
+    this.sentOuterKey = null;
+    if (this.pageWatchTimer) clearTimeout(this.pageWatchTimer);
+    this.pageWatchTimer = null;
     if (proc) { try { proc.kill("SIGTERM"); } catch {} }
     return { ok: true };
   }
 
-  shutdown() { return this.stop(); }
+  shutdown() {
+    this.liveWindow.stop();
+    return this.stop();
+  }
 }
 
 module.exports = {

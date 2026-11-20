@@ -551,6 +551,39 @@ module.exports = (SynctexService) => {
   };
 
   /**
+   * Where the index begins: the first page the generated index file (.ind)
+   * fills, in PDF points. \printindex prints nothing of its own, and the
+   * nearest inked line of the main file is somewhere else entirely (page 334
+   * for an index that starts on 371). The page shipped just before the index
+   * is stamped with the index file's first line too, so the first page with
+   * at least half the glyphs of the fullest one is taken.
+   */
+  SynctexService.prototype.forwardIndexStart = function ({ pdfPath }) {
+    if (!fs.existsSync(pdfPath)) return null;
+    const synctexPath = this.findSynctexOutputPath(pdfPath);
+    const index = synctexPath ? this.loadForwardIndex(synctexPath) : null;
+    if (!index) return null;
+    const perPage = new Map();
+    for (const [tag, inputPath] of index.inputs) {
+      if (!/\.ind$/i.test(String(inputPath))) continue;
+      for (const pages of index.byTag.get(tag)?.values() ?? []) {
+        for (const entry of pages.values()) {
+          if (!entry.best || !entry.glyphs) continue;
+          const seen = perPage.get(entry.page) ?? { glyphs: 0, top: null };
+          seen.glyphs += entry.glyphs;
+          if (!seen.top || entry.best.v < seen.top.v) seen.top = entry.best;
+          perPage.set(entry.page, seen);
+        }
+      }
+    }
+    if (!perPage.size) return null;
+    const fullest = Math.max(...[...perPage.values()].map((seen) => seen.glyphs));
+    const page = Math.min(...[...perPage].filter(([, seen]) => seen.glyphs >= fullest / 2).map(([number]) => number));
+    const top = perPage.get(page).top;
+    return { page, x: index.toPoints(top.h, index.xOffset), y: index.toPoints(top.v, index.yOffset) };
+  };
+
+  /**
    * Resolves many source lines of one file against one PDF in a single pass
    * over the cached index. Each hit is the topmost typeset spot of that line
    * (or of the nearest line that left ink), in PDF points from the page's
@@ -601,7 +634,17 @@ module.exports = (SynctexService) => {
         const width = (entry) => (entry.hmin === null || entry.hmax === null ? 0 : entry.hmax - entry.hmin);
         const height = (entry) => (entry.vmin === null || entry.vmax === null ? 0 : entry.vmax - entry.vmin);
         const lowest = Math.max(...entries.map((entry) => entry.vmax ?? 0));
-        const stamp = (entry) => entry.glyphs < enough && height(entry) > lowest * 0.5;
+        // A page that draws its boxes while it ships (frames, a thumb index,
+        // code-box overlays) stamps far more than a head and a folio: the
+        // last page of a chapter carried 121 records of the \part line that
+        // shipped it, and the Jump from that line landed there, one page
+        // before the part's own. Such a stamp is still spread over the page
+        // height while being a small share of that page's glyphs, and the
+        // line has output on a later page too.
+        const pageGlyphs = (entry) => index.pages?.get(entry.page)?.glyphs.length ?? 0;
+        const minority = (entry) => pageGlyphs(entry) > 0 && entry.glyphs < pageGlyphs(entry) * 0.25 &&
+          entries.some((other) => other.page > entry.page);
+        const stamp = (entry) => height(entry) > lowest * 0.5 && (entry.glyphs < enough || (firstSubstantialPage && minority(entry)));
         const own = entries.filter((entry) => !stamp(entry));
         if (own.length === 0) return null;
         // A paragraph's first line at the foot of a page has few glyphs but

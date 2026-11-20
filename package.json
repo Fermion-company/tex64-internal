@@ -4,6 +4,7 @@
   "description": "AI搭載のデスクトップLaTeXエディタ。",
   "author": "株式会社Fermion",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -13,7 +14,7 @@
     "electron:dev:fast": "electron .",
     "dist:bootstrap": "node scripts/bootstrap-electron-assets.cjs",
     "ai-native:prepare": "node scripts/prepare-ai-native-bundle.cjs",
-    "dist:prep": "npm run -s dist:bootstrap && npm run -s ai-native:prepare && npm run -s legal:notice",
+    "dist:prep": "node scripts/prepare-tdom-shim.cjs && npm run -s dist:bootstrap && npm run -s ai-native:prepare && npm run -s legal:notice",
     "electron:pack": "npm run -s dist:prep && npm run -s web:build && electron-builder --dir",
     "electron:dist": "npm run -s electron:dist:mac",
     "electron:dist:mac": "npm run -s dist:prep && npm run -s web:build && electron-builder --mac --publish never",
@@ -47,6 +48,7 @@
     "legal:notice": "node scripts/generate-third-party-notices.cjs --lock package-lock.json --lock services/tex64-ai/package-lock.json --out NOTICE.md --project tex64"
   },
   "build": {
+    "copyright": "Copyright © 2026 Kosei Kawaguchi and Takumi Kokawa. All rights reserved.",
     "appId": "com.wedd.tex64",
     "productName": "TeX64",
     "icon": "Resources/icons/tex64.png",
@@ -58,6 +60,7 @@
         ]
       }
     ],
+    "afterPack": "scripts/verify-tdom-shim.cjs",
     "asarUnpack": [
       "**/*.node",
       "**/*.dll",

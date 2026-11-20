@@ -148,6 +148,7 @@ export const initMain = () => {
                     context: payload.context,
                 }, true);
             },
+            onLiveRuntimeError: (message) => issuesProxy.setLiveRuntimeError("primary", message),
             onLiveSourceRequest: (payload) => requestLiveSource(payload),
             onLiveEditRequest: (payload) => requestLiveEdit(payload),
             onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
@@ -175,6 +176,7 @@ export const initMain = () => {
                     context: payload.context,
                 }, true);
             },
+            onLiveRuntimeError: (message) => issuesProxy.setLiveRuntimeError("secondary", message),
             onLiveSourceRequest: (payload) => requestLiveSource(payload),
             onLiveEditRequest: (payload) => requestLiveEdit(payload),
             onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
@@ -220,7 +222,7 @@ export const initMain = () => {
                         const message = (_a = handoff.error) !== null && _a !== void 0 ? _a : (handoff.phase === "save"
                             ? uiText("Save the current files before changing projects.", "現在のファイルを保存してからプロジェクトを切り替えてください。")
                             : uiText("The current operation has not stopped yet. Try changing projects again.", "実行中の処理がまだ停止していません。もう一度プロジェクトを切り替えてください。"));
-                        updateIssues(1, message, "error", [{ severity: "error", message }]);
+                        updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
                         return;
                     }
                     postToNative(payload);
@@ -470,22 +472,50 @@ export const initMain = () => {
         // Fragment → the document Build makes of it: the user's choice first, else
         // what main resolves (asked once per fragment, forgotten after each build
         // since includes may have changed). Ambiguous fragments stay unresolved.
+        // null: asked, no answer yet. false: main has no single document for it.
         const documentOwners = new Map();
+        // The last answer for each file. A Build forgets the answers (includes may
+        // have changed) and asks again; until main has answered, the previous one
+        // stands. Without it every Build left a moment in which a chapter, or the
+        // book itself, had no known document and Live chose another.
+        const lastDocumentOwners = new Map();
         const documentOwnerOf = (path) => {
             var _a, _b;
             const chosen = buildOps === null || buildOps === void 0 ? void 0 : buildOps.documentFor(path);
             if (chosen)
                 return chosen;
             const key = `${(_a = getWorkspaceRootKey()) !== null && _a !== void 0 ? _a : ""}\0${path}`;
-            if (documentOwners.has(key))
-                return (_b = documentOwners.get(key)) !== null && _b !== void 0 ? _b : undefined;
-            documentOwners.set(key, null);
-            const bridge = window.tex64WordCount;
-            void (bridge === null || bridge === void 0 ? void 0 : bridge.documentFor(path).then((result) => {
-                if (documentOwners.get(key) === null && (result === null || result === void 0 ? void 0 : result.ok) && typeof result.document === "string")
-                    documentOwners.set(key, result.document);
-            }, () => { }));
-            return undefined;
+            if (!documentOwners.has(key)) {
+                documentOwners.set(key, null);
+                const bridge = window.tex64WordCount;
+                void (bridge === null || bridge === void 0 ? void 0 : bridge.documentFor(path).then((result) => {
+                    if (documentOwners.get(key) !== null)
+                        return;
+                    if ((result === null || result === void 0 ? void 0 : result.ok) && typeof result.document === "string") {
+                        documentOwners.set(key, { document: result.document, including: Array.isArray(result.including) ? result.including.filter((entry) => typeof entry === "string") : [] });
+                    }
+                    else
+                        documentOwners.set(key, false);
+                    lastDocumentOwners.set(key, documentOwners.get(key));
+                }, () => { if (documentOwners.get(key) === null)
+                    documentOwners.set(key, false); }));
+            }
+            const answered = documentOwners.get(key);
+            const owner = answered === null ? (_b = lastDocumentOwners.get(key)) !== null && _b !== void 0 ? _b : null : answered;
+            if (owner === false)
+                return null;
+            if (!owner)
+                return undefined;
+            // A chapter that can also be built alone (subfiles) follows the paper
+            // the user is producing: the book once the book was built, the chapter
+            // once the chapter itself was; with neither, its only book.
+            if (owner.document === path && owner.including.length) {
+                if (lastBuildMainFile && owner.including.includes(lastBuildMainFile))
+                    return lastBuildMainFile;
+                if (lastBuildMainFile !== path && owner.including.length === 1)
+                    return owner.including[0];
+            }
+            return owner.document;
         };
         const noteBuildTarget = (path) => {
             lastBuildMainFile = path;
@@ -641,7 +671,7 @@ export const initMain = () => {
                         ? uiText("Some files could not be saved. Quit was canceled.", "保存できなかったファイルがあるため、終了を中止しました。")
                         : uiText("The current operation could not be stopped. Quit was canceled.", "実行中の処理を停止できなかったため、終了を中止しました。");
                     const error = result.error || fallback;
-                    updateIssues(1, error, "error", [{ severity: "error", message: error }]);
+                    updateIssuesProxy(1, error, "error", [{ severity: "error", message: error }]);
                     quitPreparation = null;
                 }
                 postToNative({
@@ -676,7 +706,7 @@ export const initMain = () => {
                     if (result.phase === "save")
                         return false;
                     const message = (_a = result === null || result === void 0 ? void 0 : result.error) !== null && _a !== void 0 ? _a : uiText("The current operation has not stopped yet. Try switching modes again.", "実行中の処理がまだ停止していません。もう一度モードを切り替えてください。");
-                    updateIssues(1, message, "error", [{ severity: "error", message }]);
+                    updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
                     return false;
                 })();
             },
@@ -694,6 +724,12 @@ export const initMain = () => {
             getRootSource,
             getLastBuildTarget: () => lastBuildMainFile,
             getDocumentFor: (path) => documentOwnerOf(path),
+            getDocumentsIncluding: (path) => {
+                var _a, _b;
+                const key = `${(_a = getWorkspaceRootKey()) !== null && _a !== void 0 ? _a : ""}\0${path}`;
+                const known = (_b = documentOwners.get(key)) !== null && _b !== void 0 ? _b : lastDocumentOwners.get(key);
+                return known ? known.including : null;
+            },
             getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
                 maxFiles: Number.POSITIVE_INFINITY,
                 maxChars: Number.POSITIVE_INFINITY,
@@ -1106,7 +1142,7 @@ export const initMain = () => {
         }
         catch (e) {
             console.error("setupMathField error:", e);
-            updateIssues(1, uiText(`Failed to initialize formula editor: ${e.message}`, "Failed to initialize formula editor: " + e.message), "error", []);
+            updateIssuesProxy(1, uiText(`Failed to initialize formula editor: ${e.message}`, "Failed to initialize formula editor: " + e.message), "error", []);
         }
         try {
             resizerUi.setup();
@@ -1126,7 +1162,7 @@ export const initMain = () => {
         rootSelectorUi.render();
         buildOps.updateSynctexButtonState();
         settingsUi.loadStartupSettings();
-        updateIssues(0, uiText("Build results are summarized here.", "The build results are summarized here."), "info", []);
+        updateIssuesProxy(0, uiText("Build results are summarized here.", "The build results are summarized here."), "info", []);
         if (!workspaceController.getWorkspaceRootKey()) {
             launcherUi.setVisible(true);
             launcherUi.setStatus({ isBusy: false, message: null });

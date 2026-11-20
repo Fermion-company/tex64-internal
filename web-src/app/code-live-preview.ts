@@ -18,8 +18,13 @@ import { getEditorModelPath } from "./editor-session/model-path.js";
 
 // Real-app typing → paper (25 tokens, 320ms apart, solo 2-page document):
 // 80/120ms gave p50 103ms / p90 144ms; 16/32ms gave p50 45ms / p90 52ms.
-const TYPING_PUSH_DELAY_MS = 16;
-const TYPING_PUSH_MAX_WAIT_MS = 32;
+// The wait only has to outlast the task that made the edit, so that the
+// companion edit the editor makes in that same task (the \end{…} after a
+// \begin{…}, a closing \]) goes out with it: a timer does that at any
+// length. A frame's worth of waiting was a sixth of a keystroke's whole way
+// to the paper.
+const TYPING_PUSH_DELAY_MS = 1;
+const TYPING_PUSH_MAX_WAIT_MS = 4;
 const COMPOSITION_RETRY_MS = 80;
 
 // Trailing debounce with an upper bound: a burst of keystrokes closer than
@@ -50,9 +55,45 @@ const createDebouncedTask = (task: () => void, delayMs: number, maxWaitMs = 0) =
   return schedule;
 };
 
+// Runs the task when the code that asked for it has finished, before the
+// browser does anything else. A timer, even of one millisecond, waits until
+// the editor has laid out and painted the keystroke: 10 ms and more on the
+// way to the engine. Everything the editor changes in the same call (a
+// paste, several cursors, the \end{…} it adds after a \begin{…}) is still
+// taken together.
+const createMicrotaskTask = (task: () => void) => {
+  let queued = false;
+  let generation = 0;
+  const schedule = () => {
+    if (queued) return;
+    queued = true;
+    const scheduled = generation;
+    queueMicrotask(() => {
+      if (scheduled !== generation) return;
+      queued = false;
+      task();
+    });
+  };
+  schedule.cancel = () => {
+    generation += 1;
+    queued = false;
+  };
+  return schedule;
+};
+
+type LiveContentChange = { changes?: Array<{ text?: string }>; isFlush?: boolean };
+
+// One change of ordinary characters (or a deletion): nothing the editor
+// answers with an edit of its own, as it does for a brace, a backslash
+// command or a new line.
+const PLAIN_TYPED_TEXT_RE = /^[^\\{}[\]$%&#^_~\r\n]*$/;
+const isPlainTypedChange = (event?: LiveContentChange) =>
+  !!event && event.isFlush !== true && Array.isArray(event.changes) && event.changes.length === 1 &&
+  typeof event.changes[0]?.text === "string" && PLAIN_TYPED_TEXT_RE.test(event.changes[0].text);
+
 type LiveEditor = {
   getValue?: () => string;
-  onDidChangeModelContent?: (listener: () => void) => { dispose: () => void };
+  onDidChangeModelContent?: (listener: (event?: LiveContentChange) => void) => { dispose: () => void };
   onDidChangeCursorPosition?: (listener: () => void) => { dispose: () => void };
   getPosition?: () => { lineNumber: number; column: number } | null;
   getModel?: () => {
@@ -72,6 +113,7 @@ export const initCodeLivePreview = ({
   getRootSource,
   getLastBuildTarget,
   getDocumentFor,
+    getDocumentsIncluding,
   getDirtyFileSnapshots,
 }: {
   getActiveGroup: () => EditorGroupState;
@@ -84,6 +126,8 @@ export const initCodeLivePreview = ({
   // The document Build would make of a fragment, once known (undefined while
   // it is being resolved).
   getDocumentFor?: (path: string) => string | null | undefined;
+  /** The documents that read `path` (a chapter), as far as known; null before the answer is in. */
+  getDocumentsIncluding?: (path: string) => string[] | null;
   getDirtyFileSnapshots: () => DirtySnapshot[];
 }) => {
   // The document the live paper follows, decided like a Build: a file that is
@@ -91,14 +135,62 @@ export const initCodeLivePreview = ({
   // when Settings names another; a fragment follows the document that reads
   // it (main resolves it as Build does), else the root the user set, else the
   // detected root, else the last document built.
-  const isStandaloneSource = (text: string) =>
-    /\\document(?:class|style)\s*(?:\[[^\]]*\])?\s*\{/.test(text.slice(0, 65536)) && text.includes("\\begin{document}");
+  // Same reading as main's isStandaloneDocument (tex-build-target.cjs): text
+  // shown as an example is not the file's structure, and a class line after
+  // body material is quoted text. A chapter that prints a complete document
+  // in a listing used to become its own live root, and its paper never came.
+  const VERBATIM_ENV = "(?:[A-Za-z@]*[Vv]erbatim[A-Za-z@*]*|lstlisting\\*?|minted\\*?|[A-Za-z@]*[Ll]isting[A-Za-z@*]*|filecontents\\*?|comment|luacode\\*?)";
+  const VERBATIM_RE = new RegExp(`\\\\begin\\s*\\{(${VERBATIM_ENV})\\}[\\s\\S]*?\\\\end\\s*\\{\\1\\}`, "g");
+  const isStandaloneSource = (text: string) => {
+    const source = text.slice(0, 262144)
+      .replace(/(^|[^\\])%[^\n]*/g, "$1")
+      .replace(VERBATIM_RE, " ")
+      .replace(/\\KKcodeS[\s\S]*?\\KKcodeE/g, " ")
+      .replace(/\\KKverb\|[^|\n]*\|/g, " ")
+      .replace(/\\(?:verb|lstinline)\*?([^A-Za-z\s{])[^\n]*?\1/g, " ");
+    const documentClass = /\\document(?:class|style)\s*(?:\[[^\]]*\])?\s*\{/.exec(source);
+    if (!documentClass) return false;
+    const body = /\\begin\s*\{document\}/.exec(source);
+    if (!body || body.index < documentClass.index) return false;
+    return !/\\(?:begin\s*\{|part\b|chapter\b|(?:sub)*section\b|input\b|include\b)/.test(source.slice(0, documentClass.index));
+  };
+  const currentLiveRoot = () => {
+    // the document Live was last asked for: a long boot leaves liveSessionKey
+    // on the document before it for minutes, and answering with that one
+    // sent Live back to it in the middle of the boot
+    const key = queuedSessionKey ?? liveSessionKey;
+    if (!key || key.startsWith("legacy\0")) return null;
+    const at = key.indexOf("\0");
+    return at >= 0 ? key.slice(at + 1) : null;
+  };
   const liveRootFor = (path: string | null, text: string | null) => {
     const configuredRoot = getRootFile();
     const isTex = Boolean(path && path.toLowerCase().endsWith(".tex"));
-    if (isTex && typeof text === "string" && isStandaloneSource(text)) return path;
+    // Main decides ownership as a Build does, and knows which book reads a
+    // chapter. Until its answer is in, the text itself is the best evidence.
     const owner = isTex && path ? getDocumentFor?.(path) : null;
-    if (owner && /\.tex$/i.test(owner)) return owner;
+    if (owner && /\.tex$/i.test(owner)) {
+      // A chapter that is a document of its own and that several books read,
+      // none of them built in this session, comes back as its own owner.
+      // While one of those books is the paper on screen, the chapter stays
+      // in it: reopening a project and opening such a chapter switched Live
+      // from the 389-page book to the chapter alone (two pages).
+      if (owner === path && getLastBuildTarget?.() !== path) {
+        const running = currentLiveRoot();
+        if (running && running !== path && getDocumentsIncluding?.(path)?.includes(running)) return running;
+      }
+      return owner;
+    }
+    if (isTex && typeof text === "string" && isStandaloneSource(text)) {
+      // Main has not answered yet (undefined). A chapter of a book reads as
+      // a document of its own (subfiles), and taking its text at its word
+      // restarted the engine for the chapter and again for the book a moment
+      // later: opening a chapter of a 389-page book cost two full boots.
+      // The running document stays until the answer is in.
+      const running = currentLiveRoot();
+      if (owner === undefined && running && running !== path) return running;
+      return path;
+    }
     if (configuredRoot && getRootSource?.() === "manual") return configuredRoot;
     const lastBuilt = getLastBuildTarget?.() ?? null;
     return configuredRoot || (lastBuilt && /\.tex$/i.test(lastBuilt) ? lastBuilt : null) || (isTex ? path : null);
@@ -127,7 +219,6 @@ export const initCodeLivePreview = ({
   }) | null = null;
   let pushing = false;
   let latestInputAtEpochMs = 0;
-  let lastContentChangeAtEpochMs = 0;
   let nextExactInputId = 0;
   type ExactInput = {
     id: number;
@@ -149,6 +240,10 @@ export const initCodeLivePreview = ({
   // Build PDF until Live presents at least this revision.
   let liveExpectedSrcRev: number | null = null;
   let lastWindowPreviewKey: string | null = null;
+  // Document main keeps on its Build paper because it is past the length
+  // Live is offered for (live-preview-page-limit.cjs). Nothing is pushed for
+  // it until another document is in front or a Build has made a new paper.
+  let limitedSessionKey: string | null = null;
 
   const cursorOffset = (editor: LiveEditor | null = currentProjectSource()?.editor ?? null) => {
     const position = editor?.getPosition?.();
@@ -310,6 +405,8 @@ export const initCodeLivePreview = ({
           workspaceRoot,
           rootFile,
           buffers: [...buffers].map(([path, text]) => ({ path, text })),
+          // the file in front: of a document past the Live length, its chapter is the one kept live
+          activePath: current?.path,
           fresh: sessionKey !== queuedSessionKey,
           clientEditAtEpochMs: exactInputs.length === 1
             ? exactInputs[0].editAtEpochMs : latestInputAtEpochMs || undefined,
@@ -361,6 +458,39 @@ export const initCodeLivePreview = ({
     }
   };
 
+  let limitedRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  const retryLimited = (sessionKey: string) => {
+    if (limitedRetryTimer !== null) clearTimeout(limitedRetryTimer);
+    limitedRetryTimer = setTimeout(() => {
+      limitedRetryTimer = null;
+      if (!active || limitedSessionKey !== sessionKey) return;
+      limitedSessionKey = null;
+      sourceRefreshPending = true;
+      pushCurrent();
+    }, 5_000);
+  };
+
+  const enterPageLimit = (sessionKey: string) => {
+    limitedSessionKey = sessionKey;
+    lifecycleVersion += 1;
+    latestPushVersion += 1;
+    debouncedPush.cancel();
+    typedPush.cancel();
+    compositionRetry.cancel();
+    debouncedFocus.cancel();
+    pendingExactInputs.clear();
+    pendingPush = null;
+    latestInputAtEpochMs = 0;
+    builtSnapshot = null;
+    buildOwnsView = false;
+    liveExpectedSrcRev = null;
+    engineStarted = false;
+    engineUrl = null;
+    liveSessionKey = null;
+    liveGeneration += 1;
+    distributeLive(null, liveGeneration);
+  };
+
   const drainPushes = async () => {
     if (pushing || !bridge?.push) return;
     pushing = true;
@@ -376,6 +506,15 @@ export const initCodeLivePreview = ({
         attemptedSnapshot = snapshot;
         const result = await bridge.push(snapshot.payload);
         if (!result?.ok) throw new Error(result?.error || "live preview push failed");
+        if (result.limited) {
+          if (active && snapshot.lifecycleVersion === lifecycleVersion) {
+            enterPageLimit(snapshot.sessionKey);
+            // Main is still reading what the chapter starts from: ask again.
+            if (result.pending) retryLimited(snapshot.sessionKey);
+          }
+          attemptedSnapshot = null;
+          continue;
+        }
         // Only the capture ids carried by this accepted request are retired.
         // An older acknowledgement must never clear a newer edit of same bytes.
         clearAcceptedExactInputs(snapshot);
@@ -394,6 +533,8 @@ export const initCodeLivePreview = ({
           liveExpectedSrcRev = Number.isInteger(result.srcRev) ? Number(result.srcRev) : null;
         }
         if (result.url && isCurrent) {
+          // a push that follows a length limit starts the engine itself
+          engineStarted = true;
           if (snapshot.payload.fresh || engineUrl !== result.url || !engineUrl) liveGeneration += 1;
           engineUrl = result.url;
           liveSessionKey = snapshot.sessionKey;
@@ -438,6 +579,11 @@ export const initCodeLivePreview = ({
     const current = currentProjectSource();
     const snapshot = currentSnapshot();
     if (!snapshot) return;
+    if (limitedSessionKey === snapshot.sessionKey) {
+      pendingExactInputs.clear();
+      latestInputAtEpochMs = 0;
+      return;
+    }
     // A Build keeps the paper until the engine accepts a source that differs
     // from the one it typeset; that push carries the release.
     const changedSinceBuild = Boolean(builtSnapshot) && (sourceRefreshPending ||
@@ -471,10 +617,8 @@ export const initCodeLivePreview = ({
   // Coalesce same-task paste, multi-cursor and programmatic companion edits.
   // The single-flight latest-wins queue above is the only engine back-pressure.
   const debouncedPush = createDebouncedTask(pushCurrent, TYPING_PUSH_DELAY_MS, TYPING_PUSH_MAX_WAIT_MS);
-  // The first keystroke after a pause (a jump to another place, say) goes
-  // out within a frame: 16ms still takes in the companion edit the editor
-  // makes in the same task (the \end{…} after a \begin{…}, a closing \]).
-  const firstPush = createDebouncedTask(pushCurrent, TYPING_PUSH_DELAY_MS);
+  // A keystroke in the editor: out as soon as the editor's own call returns.
+  const typedPush = createMicrotaskTask(pushCurrent);
   const compositionRetry = createDebouncedTask(pushCurrent, COMPOSITION_RETRY_MS);
 
   const bindActiveEditor = () => {
@@ -493,11 +637,9 @@ export const initCodeLivePreview = ({
       const eventEditor = boundEditor;
       const eventPath = boundPath;
       const eventModel = eventEditor.getModel?.() ?? null;
-      disposable = eventEditor.onDidChangeModelContent(() => {
+      disposable = eventEditor.onDidChangeModelContent((event) => {
         sourceEditVersion += 1;
         const editedAtEpochMs = Date.now();
-        const sincePreviousEdit = editedAtEpochMs - lastContentChangeAtEpochMs;
-        lastContentChangeAtEpochMs = editedAtEpochMs;
         latestInputAtEpochMs = editedAtEpochMs;
         const currentModel = eventEditor.getModel?.() ?? null;
         const modelPath = editorModelPath(eventEditor);
@@ -507,9 +649,14 @@ export const initCodeLivePreview = ({
         // URI-less model is still installed.
         const exactPath = modelPath ?? (currentModel === eventModel ? eventPath : null);
         captureExactInput(exactPath, eventEditor, editedAtEpochMs);
-        // Both paths coalesce companion edits in the same task.
-        if (sincePreviousEdit > 400 && !pushing && !pendingPush) firstPush();
-        else debouncedPush();
+        // The editor lays out and paints the keystroke before its call
+        // returns (6 ms measured). Plain typing does not wait for that; any
+        // other change goes out when the call returns, with whatever the
+        // editor adds to it.
+        if (isPlainTypedChange(event)) {
+          typedPush.cancel();
+          pushCurrent();
+        } else typedPush();
       });
     }
     if (boundEditor?.onDidChangeCursorPosition) {
@@ -548,7 +695,7 @@ export const initCodeLivePreview = ({
     lifecycleVersion += 1;
     latestPushVersion += 1;
     debouncedPush.cancel();
-    firstPush.cancel();
+    typedPush.cancel();
     compositionRetry.cancel();
     debouncedFocus.cancel();
     disposable?.dispose();
@@ -565,6 +712,7 @@ export const initCodeLivePreview = ({
     engineStarted = false;
     engineUrl = null;
     liveSessionKey = null;
+    limitedSessionKey = null;
     buildOwnsView = false;
     liveExpectedSrcRev = null;
     liveGeneration += 1;
@@ -584,6 +732,13 @@ export const initCodeLivePreview = ({
   let historyBlocked = false;
   const refresh = () => {
     applyActive(!historyBlocked && editorSettings.isEnabled("preview.realtime") && getAppMode() === "code");
+    if (active && limitedSessionKey) {
+      // Still the limited document (or a tab that is no source at all): its
+      // Build paper stays, as with the setting off. Another document starts over.
+      const snapshot = currentSnapshot();
+      if (!snapshot || snapshot.sessionKey === limitedSessionKey) return;
+      limitedSessionKey = null;
+    }
     if (active) {
       if (!engineStarted && !starting) void start();
       bindActiveEditor();
@@ -613,7 +768,17 @@ export const initCodeLivePreview = ({
     refresh();
   });
 
+  // A Build is the one thing that can bring a limited document back under
+  // the limit. Ask main again with the new paper; the answer either starts
+  // Live or keeps the limit, and no engine is started just to ask.
   window.addEventListener("tex64:build-state", (event) => {
+    if (active && limitedSessionKey) {
+      if ((event as CustomEvent<{ state: string }>).detail?.state !== "success") return;
+      limitedSessionKey = null;
+      sourceRefreshPending = true;
+      pushCurrent();
+      return;
+    }
     if (!active || !liveTarget) return;
     const detail = (event as CustomEvent<{
       state: string; pdfPath?: string; targetFile?: string; workspaceRoot?: string;
@@ -689,9 +854,13 @@ export const initCodeLivePreview = ({
     const healthLifecycleVersion = lifecycleVersion;
     checkingHealth = true;
     try {
-      const status = await bridge.status() as { running?: boolean; state?: string } | null;
-      if (active && healthLifecycleVersion === lifecycleVersion &&
-          (!status?.running || status.state !== "ready")) {
+      const status = await bridge.status() as { running?: boolean; state?: string; pageLimited?: boolean } | null;
+      const current = active && healthLifecycleVersion === lifecycleVersion;
+      const limitedKey = queuedSessionKey ?? liveSessionKey;
+      if (current && status?.pageLimited && limitedKey) {
+        // main stopped the engine: the document grew past the length limit
+        enterPageLimit(limitedKey);
+      } else if (current && (!status?.running || status.state !== "ready")) {
         lifecycleVersion += 1;
         latestPushVersion += 1;
         engineStarted = false;

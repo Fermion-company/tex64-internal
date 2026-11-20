@@ -183,6 +183,7 @@ export const initMain = () => {
         true
       );
     },
+    onLiveRuntimeError: (message) => issuesProxy.setLiveRuntimeError("primary", message),
     onLiveSourceRequest: (payload) => requestLiveSource(payload),
     onLiveEditRequest: (payload) => requestLiveEdit(payload),
     onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
@@ -213,6 +214,7 @@ export const initMain = () => {
         true
       );
     },
+    onLiveRuntimeError: (message) => issuesProxy.setLiveRuntimeError("secondary", message),
     onLiveSourceRequest: (payload) => requestLiveSource(payload),
     onLiveEditRequest: (payload) => requestLiveEdit(payload),
     onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
@@ -272,7 +274,7 @@ export const initMain = () => {
                   "The current operation has not stopped yet. Try changing projects again.",
                   "実行中の処理がまだ停止していません。もう一度プロジェクトを切り替えてください。",
                 ));
-          updateIssues(1, message, "error", [{ severity: "error", message }]);
+          updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
           return;
         }
         postToNative(payload);
@@ -531,18 +533,40 @@ export const initMain = () => {
   // Fragment → the document Build makes of it: the user's choice first, else
   // what main resolves (asked once per fragment, forgotten after each build
   // since includes may have changed). Ambiguous fragments stay unresolved.
-  const documentOwners = new Map<string, string | null>();
+  // null: asked, no answer yet. false: main has no single document for it.
+  const documentOwners = new Map<string, { document: string; including: string[] } | null | false>();
+  // The last answer for each file. A Build forgets the answers (includes may
+  // have changed) and asks again; until main has answered, the previous one
+  // stands. Without it every Build left a moment in which a chapter, or the
+  // book itself, had no known document and Live chose another.
+  const lastDocumentOwners = new Map<string, { document: string; including: string[] } | false>();
   const documentOwnerOf = (path: string): string | null | undefined => {
     const chosen = buildOps?.documentFor(path);
     if (chosen) return chosen;
     const key = `${getWorkspaceRootKey() ?? ""}\0${path}`;
-    if (documentOwners.has(key)) return documentOwners.get(key) ?? undefined;
-    documentOwners.set(key, null);
-    const bridge = (window as unknown as { tex64WordCount?: { documentFor: (path: string) => Promise<{ ok: boolean; document?: string | null }> } }).tex64WordCount;
-    void bridge?.documentFor(path).then((result) => {
-      if (documentOwners.get(key) === null && result?.ok && typeof result.document === "string") documentOwners.set(key, result.document);
-    }, () => {});
-    return undefined;
+    if (!documentOwners.has(key)) {
+      documentOwners.set(key, null);
+      const bridge = (window as unknown as { tex64WordCount?: { documentFor: (path: string) => Promise<{ ok: boolean; document?: string | null; including?: string[] }> } }).tex64WordCount;
+      void bridge?.documentFor(path).then((result) => {
+        if (documentOwners.get(key) !== null) return;
+        if (result?.ok && typeof result.document === "string") {
+          documentOwners.set(key, { document: result.document, including: Array.isArray(result.including) ? result.including.filter((entry) => typeof entry === "string") : [] });
+        } else documentOwners.set(key, false);
+        lastDocumentOwners.set(key, documentOwners.get(key) as { document: string; including: string[] } | false);
+      }, () => { if (documentOwners.get(key) === null) documentOwners.set(key, false); });
+    }
+    const answered = documentOwners.get(key);
+    const owner = answered === null ? lastDocumentOwners.get(key) ?? null : answered;
+    if (owner === false) return null;
+    if (!owner) return undefined;
+    // A chapter that can also be built alone (subfiles) follows the paper
+    // the user is producing: the book once the book was built, the chapter
+    // once the chapter itself was; with neither, its only book.
+    if (owner.document === path && owner.including.length) {
+      if (lastBuildMainFile && owner.including.includes(lastBuildMainFile)) return lastBuildMainFile;
+      if (lastBuildMainFile !== path && owner.including.length === 1) return owner.including[0];
+    }
+    return owner.document;
   };
   const noteBuildTarget = (path: string | null) => {
     lastBuildMainFile = path;
@@ -722,7 +746,7 @@ export const initMain = () => {
                 "実行中の処理を停止できなかったため、終了を中止しました。",
               );
         const error = result.error || fallback;
-        updateIssues(1, error, "error", [{ severity: "error", message: error }]);
+        updateIssuesProxy(1, error, "error", [{ severity: "error", message: error }]);
         quitPreparation = null;
       }
       postToNative(
@@ -760,7 +784,7 @@ export const initMain = () => {
             "The current operation has not stopped yet. Try switching modes again.",
             "実行中の処理がまだ停止していません。もう一度モードを切り替えてください。",
           );
-        updateIssues(1, message, "error", [{ severity: "error", message }]);
+        updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
         return false;
       })();
     },
@@ -777,6 +801,11 @@ export const initMain = () => {
     getRootSource,
     getLastBuildTarget: () => lastBuildMainFile,
     getDocumentFor: (path) => documentOwnerOf(path),
+    getDocumentsIncluding: (path) => {
+      const key = `${getWorkspaceRootKey() ?? ""}\0${path}`;
+      const known = documentOwners.get(key) ?? lastDocumentOwners.get(key);
+      return known ? known.including : null;
+    },
     getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
       maxFiles: Number.POSITIVE_INFINITY,
       maxChars: Number.POSITIVE_INFINITY,
@@ -1207,7 +1236,7 @@ export const initMain = () => {
   editorTabsUi.setupInteractions();
   try { mathLiveApi.setupMathField(); } catch (e: any) { 
     console.error("setupMathField error:", e);
-    updateIssues(
+    updateIssuesProxy(
       1,
       uiText(`Failed to initialize formula editor: ${e.message}`, "Failed to initialize formula editor: " + e.message),
       "error",
@@ -1227,7 +1256,7 @@ export const initMain = () => {
   rootSelectorUi.render();
   buildOps.updateSynctexButtonState();
   settingsUi.loadStartupSettings();
-  updateIssues(0, uiText("Build results are summarized here.", "The build results are summarized here."), "info", []);
+  updateIssuesProxy(0, uiText("Build results are summarized here.", "The build results are summarized here."), "info", []);
   if (!workspaceController.getWorkspaceRootKey()) {
     launcherUi.setVisible(true);
     launcherUi.setStatus({ isBusy: false, message: null });

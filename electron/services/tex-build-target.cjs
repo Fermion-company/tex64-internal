@@ -14,10 +14,25 @@ const stripTexComments = (content) => String(content ?? "").split(/\r?\n/).map((
   return result;
 }).join("\n");
 
+// Source shown as an example is not the file's own structure: a chapter that
+// prints a complete "\documentclass … \begin{document}" listing is still a
+// fragment. Drop verbatim-like material before looking for the real preamble.
+const VERBATIM_ENV = "(?:[A-Za-z@]*[Vv]erbatim[A-Za-z@*]*|lstlisting\\*?|minted\\*?|[A-Za-z@]*[Ll]isting[A-Za-z@*]*|filecontents\\*?|comment|luacode\\*?)";
+const stripVerbatim = (source) => source
+  .replace(new RegExp(`\\\\begin\\s*\\{(${VERBATIM_ENV})\\}[\\s\\S]*?\\\\end\\s*\\{\\1\\}`, "g"), " ")
+  .replace(/\\KKcodeS[\s\S]*?\\KKcodeE/g, " ")
+  .replace(/\\KKverb\|[^|\n]*\|/g, " ")
+  .replace(/\\(?:verb|lstinline|mintinline(?:\s*\{[^}]*\})?)\*?([^A-Za-z\s{])[^\n]*?\1/g, " ");
+
 const isStandaloneDocument = (content) => {
-  const source = stripTexComments(content);
-  return /\\document(?:class|style)\s*(?:\[[^\]]*\])?\s*\{/.test(source)
-    && /\\begin\s*\{document\}/.test(source);
+  const source = stripVerbatim(stripTexComments(content));
+  const documentClass = /\\document(?:class|style)\s*(?:\[[^\]]*\])?\s*\{/.exec(source);
+  if (!documentClass) return false;
+  const body = /\\begin\s*\{document\}/.exec(source);
+  if (!body || body.index < documentClass.index) return false;
+  // A document starts with its class. Body material before \documentclass
+  // (headings, environments) means the class line is quoted text.
+  return !/\\(?:begin\s*\{|part\b|chapter\b|(?:sub)*section\b|input\b|include\b)/.test(source.slice(0, documentClass.index));
 };
 
 const parseTexIncludes = (content) => {
@@ -35,7 +50,7 @@ const parseTexIncludes = (content) => {
 // Resolve ownership, not a filename ranking. An independent document wins over
 // the workspace default; fragments follow their including document. Ambiguity
 // requires an explicit magic root instead of silently compiling another PDF.
-const resolveBuildTarget = async (workspace, requestedPath) => {
+const resolveBuildTarget = async (workspace, requestedPath, options = {}) => {
   const root = workspace.getRootPath();
   const normalize = (file) => path.relative(root, workspace.resolvePath(file)).split(path.sep).join("/");
   const current = () => { if (workspace.getRootPath() !== root) throw new Error("Workspace changed."); };
@@ -128,6 +143,15 @@ const resolveBuildTarget = async (workspace, requestedPath) => {
     }
     return false;
   };
+  if (options.includingDocuments === true) {
+    // Every other document that reads this file, whether or not the file
+    // could also be built on its own (a subfiles chapter can).
+    const including = [];
+    for (const candidate of await standaloneDocuments()) {
+      if (candidate !== requested && await includes(candidate)) including.push(candidate);
+    }
+    return including;
+  }
   if (rootFile && rootIsManual && await includes(rootFile)) return rootFile;
   if (isStandaloneDocument(source)) return requested;
   const owners = [];
@@ -149,4 +173,8 @@ const resolveBuildTarget = async (workspace, requestedPath) => {
   return requested;
 };
 
-module.exports = { BUILD_TARGET_CHOICE, resolveBuildTarget, stripTexComments, isStandaloneDocument, parseTexIncludes };
+/** The other documents of the workspace that \\input / \\include / \\subfile this file. */
+const resolveIncludingDocuments = (workspace, requestedPath) =>
+  resolveBuildTarget(workspace, requestedPath, { includingDocuments: true });
+
+module.exports = { BUILD_TARGET_CHOICE, resolveBuildTarget, resolveIncludingDocuments, stripTexComments, isStandaloneDocument, parseTexIncludes };

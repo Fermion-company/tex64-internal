@@ -93,7 +93,7 @@ const darkThemeColors: Record<string, string> = {
 };
 
 const lightThemeColors: Record<string, string> = {
-  "editor.background": "#FCFBF8",
+  "editor.background": "#FFFFFF",
   "editor.foreground": "#1F2937",
   "editorLineNumber.foreground": "#94A3B8",
   "editorLineNumber.activeForeground": "#334155",
@@ -101,12 +101,12 @@ const lightThemeColors: Record<string, string> = {
   "editor.selectionBackground": "#C7EDEA",
   "editor.inactiveSelectionBackground": "#E5EDF6",
   "editor.selectionHighlightBackground": "#29AEA733",
-  "editor.lineHighlightBackground": "#F1F3EE",
+  "editor.lineHighlightBackground": "#F6F6F4",
   "editor.lineHighlightBorder": "#00000000",
   "editorIndentGuide.background": "#E2E8F0",
   "editorIndentGuide.activeBackground": "#CBD5E1",
   "editorWhitespace.foreground": "#CBD5E1",
-  "editorGutter.background": "#F4F3EE",
+  "editorGutter.background": "#FFFFFF",
   "editorWidget.background": "#FBFCFE",
   "editorWidget.border": "#CBD5E1",
   "editorHoverWidget.background": "#FBFCFE",

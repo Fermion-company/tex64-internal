@@ -310,21 +310,8 @@ const createWorkspaceProjectHandlers = (ctx) => {
       return;
     }
     const rootPath = result.filePaths[0];
-    const SUPPORTED_TEMPLATE_LOCALES = new Set(["ja", "en", "zh", "ko", "de", "fr", "es"]);
-    const requestedLocale = payload && typeof payload.locale === "string" ? payload.locale : null;
-    const locale = SUPPORTED_TEMPLATE_LOCALES.has(requestedLocale) ? requestedLocale : "en";
-    // Initializing writes the selected folder. Quiesce the current workspace
-    // before that first mutation, not merely before setRootPath, so selecting
-    // the current/nested folder cannot race an old agent or build.
     const releaseWorkspace = await prepareWorkspaceChange(rootPath, "create");
     if (!releaseWorkspace) {
-      return;
-    }
-    try {
-      await workspace.initializeProject(rootPath, locale);
-    } catch (error) {
-      releaseWorkspace();
-      sendLauncherStatus({ isBusy: false, message: error.message });
       return;
     }
     try {

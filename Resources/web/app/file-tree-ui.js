@@ -1,9 +1,10 @@
-import { uiText } from "./i18n.js";
+import { onUiLocaleChange, uiText } from "./i18n.js";
+import { collabSession } from "./collab/session.js";
 import { explainedHeading } from "./explain.js";
 import { createFileTreeRenderer } from "./file-tree-render.js";
 import { canDropOnFolder, clearDropTargets, getDragData, getParentPath, normalizeInputPath, validatePath, } from "./file-tree-utils.js";
 export const initFileTreeUi = (context, deps) => {
-    const { fileTree, createModal, createModalTitle, createModalParent, createModalLabel, createModalInput, createModalHelp, createModalCancel, createModalSubmit, renameModal, renameModalTitle, renameModalTarget, renameModalInput, renameModalHelp, renameModalCancel, renameModalSubmit, deleteModal, deleteModalTitle, deleteModalTarget, deleteModalHelp, deleteModalCancel, deleteModalSubmit, contextMenu: contextMenuEl, } = context.dom;
+    const { fileTree, fileTreeNewFile, fileTreeNewFolder, createModal, createModalTitle, createModalParent, createModalLabel, createModalInput, createModalHelp, createModalCancel, createModalSubmit, renameModal, renameModalTitle, renameModalTarget, renameModalInput, renameModalHelp, renameModalCancel, renameModalSubmit, deleteModal, deleteModalTitle, deleteModalTarget, deleteModalHelp, deleteModalCancel, deleteModalSubmit, contextMenu: contextMenuEl, } = context.dom;
     let selectedTreePath = null;
     let selectedTreeType = null;
     let treeHasFocus = false;
@@ -156,7 +157,7 @@ export const initFileTreeUi = (context, deps) => {
         setCreateModalOpen(false);
     };
     const submitCreateModal = () => {
-        if (!createModalKind) {
+        if (!createModalKind || collabSession.isViewer()) {
             return;
         }
         if (!deps.getWorkspaceRootKey()) {
@@ -204,6 +205,8 @@ export const initFileTreeUi = (context, deps) => {
             ]);
             return;
         }
+        if (collabSession.isViewer())
+            return;
         if (createModal instanceof HTMLElement) {
             openCreateModal(kind);
             return;
@@ -442,6 +445,43 @@ export const initFileTreeUi = (context, deps) => {
         }
         requestCopyItem(fileClipboard.path, destination);
     };
+    const canCreate = () => Boolean(deps.getWorkspaceRootKey()) && !collabSession.isViewer();
+    const buildCreateActions = (path, type) => ["file", "folder"].map((kind) => ({
+        type: "action",
+        get label() {
+            return kind === "file"
+                ? uiText("New file…", "新しいファイル…")
+                : uiText("New folder…", "新しいフォルダ…");
+        },
+        get enabled() { return canCreate(); },
+        action: () => {
+            if (!canCreate())
+                return;
+            if (path === "")
+                clearFolderSelection();
+            setSelection(path, type);
+            requestCreate(kind);
+        },
+    }));
+    // The header and root context menu share the very same action objects.
+    const rootCreateActions = buildCreateActions("", "dir");
+    const createButtons = [fileTreeNewFile, fileTreeNewFolder];
+    const syncCreateButtons = () => {
+        createButtons.forEach((button, index) => {
+            if (!(button instanceof HTMLButtonElement))
+                return;
+            const item = rootCreateActions[index];
+            button.setAttribute("aria-label", item.label);
+            button.title = item.label;
+            button.disabled = !item.enabled;
+        });
+    };
+    createButtons.forEach((button, index) => {
+        button === null || button === void 0 ? void 0 : button.addEventListener("click", rootCreateActions[index].action);
+    });
+    onUiLocaleChange(syncCreateButtons);
+    collabSession.onChange(syncCreateButtons);
+    syncCreateButtons();
     const buildFileContextMenu = (path) => [
         {
             type: "action",
@@ -450,24 +490,7 @@ export const initFileTreeUi = (context, deps) => {
                 deps.requestOpenFile(path, deps.getActiveEditorGroupKey());
             },
         },
-        {
-            type: "action",
-            label: uiText("New file…", "新しいファイル…"),
-            action: () => {
-                selectedTreePath = path;
-                selectedTreeType = "file";
-                requestCreate("file");
-            },
-        },
-        {
-            type: "action",
-            label: uiText("New folder…", "新しいフォルダ…"),
-            action: () => {
-                selectedTreePath = path;
-                selectedTreeType = "file";
-                requestCreate("folder");
-            },
-        },
+        ...buildCreateActions(path, "file"),
         {
             type: "action",
             label: uiText("Show in Finder", "Finderで表示"),
@@ -511,24 +534,7 @@ export const initFileTreeUi = (context, deps) => {
         },
     ];
     const buildFolderContextMenu = (path) => [
-        {
-            type: "action",
-            label: uiText("New file…", "新しいファイル…"),
-            action: () => {
-                selectedTreePath = path;
-                selectedTreeType = "dir";
-                requestCreate("file");
-            },
-        },
-        {
-            type: "action",
-            label: uiText("New folder…", "新しいフォルダ…"),
-            action: () => {
-                selectedTreePath = path;
-                selectedTreeType = "dir";
-                requestCreate("folder");
-            },
-        },
+        ...(path === "" ? rootCreateActions : buildCreateActions(path, "dir")),
         {
             type: "action",
             label: uiText("Show in Finder", "Finderで表示"),
@@ -596,7 +602,7 @@ export const initFileTreeUi = (context, deps) => {
     const setDragPayload = (payload) => {
         dragPayload = payload;
     };
-    const { render } = createFileTreeRenderer({
+    const { render: renderTree } = createFileTreeRenderer({
         fileTree: fileTree instanceof HTMLElement ? fileTree : null,
         deps,
         actions: {
@@ -613,6 +619,10 @@ export const initFileTreeUi = (context, deps) => {
             setDragPayload,
         },
     });
+    const render = () => {
+        syncCreateButtons();
+        renderTree();
+    };
     const handleRenameResult = (payload) => {
         const { oldPath, newPath } = payload;
         if (payload.isDirectory) {

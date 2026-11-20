@@ -32,6 +32,29 @@ export const createIssuesProxy = (onUpdate: UpdateIssuesFn) => {
     };
   };
 
+  let base: { count: number; summary: string; status: IssuesStatus; issues: IssueItem[] } = {
+    count: 0, summary: "", status: "info", issues: [],
+  };
+  const liveErrors = new Map<string, string>();
+  const publish = () => {
+    const message = liveErrors.values().next().value as string | undefined;
+    const extra: IssueItem[] = message && !base.issues.some(issue => issue.message === message)
+      ? [{ severity: "warning", message }] : [];
+    const issues = [...base.issues, ...extra];
+    const count = base.count + extra.length;
+    const summary = base.summary || message || "";
+    const status = extra.length && base.status === "success" ? "info" : base.status;
+    recordIssuesSnapshot(count, summary, status, issues);
+    onUpdate(count, summary, status, issues);
+  };
+
+  const setLiveRuntimeError = (viewer: string, message: string | null) => {
+    if ((liveErrors.get(viewer) ?? null) === message) return;
+    if (message) liveErrors.set(viewer, message);
+    else liveErrors.delete(viewer);
+    publish();
+  };
+
   const updateIssuesProxy = (
     count: number,
     summary: string,
@@ -51,12 +74,13 @@ export const createIssuesProxy = (onUpdate: UpdateIssuesFn) => {
         : [];
     const normalizedCount =
       count > 0 ? Math.max(count, normalizedIssues.length) : normalizedIssues.length;
-    recordIssuesSnapshot(normalizedCount, summary, status, normalizedIssues);
-    onUpdate(normalizedCount, summary, status, normalizedIssues);
+    base = { count: normalizedCount, summary, status, issues: normalizedIssues };
+    publish();
   };
 
   return {
     updateIssuesProxy,
+    setLiveRuntimeError,
     getLastIssueSnapshot: () => lastIssueSnapshot,
   };
 };

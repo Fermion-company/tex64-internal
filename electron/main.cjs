@@ -1033,9 +1033,13 @@ ipcMain.handle("tex64:documentFor", async (event, request = {}) => {
   try {
     const file = typeof request.path === "string" ? request.path : "";
     if (!workspace.getRootPath() || !/\.tex$/i.test(file)) return { ok: true, document: null };
-    const { resolveBuildTarget, BUILD_TARGET_CHOICE } = require("./services/tex-build-target.cjs");
+    const { resolveBuildTarget, resolveIncludingDocuments, BUILD_TARGET_CHOICE } = require("./services/tex-build-target.cjs");
     try {
-      return { ok: true, document: await resolveBuildTarget(workspace, file) };
+      const document = await resolveBuildTarget(workspace, file);
+      // A chapter that is a document of its own (subfiles) also belongs to
+      // the book: the caller decides which paper it follows.
+      const including = await resolveIncludingDocuments(workspace, file).catch(() => []);
+      return { ok: true, document, including };
     } catch (error) {
       if (error?.code === BUILD_TARGET_CHOICE) return { ok: true, document: null, candidates: error.candidates || [] };
       throw error;
