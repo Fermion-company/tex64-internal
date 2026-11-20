@@ -261,7 +261,8 @@ export const initMonacoSetup = (
         quickSuggestionsDelay: 25,
         suggestOnTriggerCharacters: true,
         tabCompletion: "off",
-        acceptSuggestionOnEnter: "on",
+        // Enter is a line break in TeX source; Tab accepts a suggestion.
+        acceptSuggestionOnEnter: "off",
         // Render hover/suggest widgets in a fixed layer to avoid clipping
         // at the Monaco viewport edge (especially near the first lines).
         fixedOverflowWidgets: true,

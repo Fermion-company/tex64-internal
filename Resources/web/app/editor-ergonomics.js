@@ -47,7 +47,65 @@ export const planTexDelimiterCompletion = (typed, before, after) => {
         replaceLength: after.startsWith(pair.plainClose) ? 1 : 0,
     };
 };
-export const planEnvironmentCompletion = (before, after) => {
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const stripTexComment = (line) => {
+    for (let index = 0; index < line.length; index += 1) {
+        if (line[index] !== "%") {
+            continue;
+        }
+        let slashes = 0;
+        for (let back = index - 1; back >= 0 && line[back] === "\\"; back -= 1) {
+            slashes += 1;
+        }
+        if (slashes % 2 === 0) {
+            return line.slice(0, index);
+        }
+    }
+    return line;
+};
+// Counts "\begin{env}" and "\end{env}" outside comments. When the document
+// already has as many ends as begins, a new "\begin{env}" is closed by an end
+// the user wrote (or a completion added earlier), and adding one more would
+// leave a stray "\end" that stops the build.
+export const countEnvironmentPairs = (text, env) => {
+    const name = escapeRegExp(env);
+    const beginRe = new RegExp(`\\\\begin\\s*\\{${name}\\}`, "g");
+    const endRe = new RegExp(`\\\\end\\s*\\{${name}\\}`, "g");
+    let begins = 0;
+    let ends = 0;
+    for (const raw of text.split(/\r?\n/)) {
+        const line = stripTexComment(raw);
+        begins += (line.match(beginRe) || []).length;
+        ends += (line.match(endRe) || []).length;
+    }
+    return { begins, ends };
+};
+// After the user finishes typing "\end{env}" by hand right above the end a
+// completion inserted, the document holds one end too many. Returns the line
+// number (1-based) of that following end line to remove, or null.
+export const planDuplicateEndRemoval = (before, after, lines, lineNumber, documentText) => {
+    if (after.trim() !== "") {
+        return null;
+    }
+    const endMatch = before.match(/^[ \t]*\\end\{([^{}\r\n]+)\}$/);
+    if (!endMatch) {
+        return null;
+    }
+    const env = endMatch[1];
+    const { begins, ends } = countEnvironmentPairs(documentText, env);
+    if (ends <= begins) {
+        return null;
+    }
+    for (let index = lineNumber; index < lines.length; index += 1) {
+        const next = lines[index];
+        if (next.trim() === "") {
+            continue;
+        }
+        return next.trim() === `\\end{${env}}` ? index + 1 : null;
+    }
+    return null;
+};
+export const planEnvironmentCompletion = (before, after, documentText) => {
     if (after.trim() !== "") {
         return null;
     }
@@ -57,18 +115,16 @@ export const planEnvironmentCompletion = (before, after) => {
     }
     const indent = beginMatch[1];
     const env = beginMatch[2];
+    if (typeof documentText === "string") {
+        const { begins, ends } = countEnvironmentPairs(documentText, env);
+        if (ends >= begins) {
+            return null;
+        }
+    }
     return {
         text: `\n${indent}  \n${indent}\\end{${env}}`,
         cursorColumn: indent.length + 3,
     };
-};
-const suggestWidgetOpen = () => {
-    try {
-        return typeof document !== "undefined" && !!document.querySelector(".suggest-widget.visible");
-    }
-    catch {
-        return false;
-    }
 };
 export const attachEditorErgonomics = (monaco, editor, group) => {
     var _a, _b, _c;
@@ -111,7 +167,19 @@ export const attachEditorErgonomics = (monaco, editor, group) => {
         if (typed !== "}" || !editorSettings.isEnabled("ergo.autoCloseEnvironment")) {
             return;
         }
-        const environment = planEnvironmentCompletion(before, after);
+        const documentText = model.getValue();
+        const duplicateEnd = planDuplicateEndRemoval(before, after, model.getLinesContent ? model.getLinesContent() : documentText.split(/\r?\n/), pos.lineNumber, documentText);
+        if (duplicateEnd) {
+            editor.executeEdits("ergo-env-dedupe", [
+                {
+                    range: new monaco.Range(pos.lineNumber, line.length + 1, duplicateEnd, model.getLineContent(duplicateEnd).length + 1),
+                    text: "",
+                },
+            ]);
+            editor.setPosition(pos);
+            return;
+        }
+        const environment = planEnvironmentCompletion(before, after, documentText);
         if (!environment) {
             return;
         }
@@ -138,9 +206,6 @@ export const attachEditorErgonomics = (monaco, editor, group) => {
         }
         if (group === null || group === void 0 ? void 0 : group.isComposing) {
             return; // don't fight IME composition
-        }
-        if (suggestWidgetOpen()) {
-            return; // let Enter accept the completion
         }
         const model = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor);
         const pos = (_b = editor.getPosition) === null || _b === void 0 ? void 0 : _b.call(editor);
@@ -172,7 +237,7 @@ export const attachEditorErgonomics = (monaco, editor, group) => {
         }
         // "\begin{env}" -> insert body + matching "\end{env}".
         if (editorSettings.isEnabled("ergo.autoCloseEnvironment")) {
-            const environment = planEnvironmentCompletion(before, after);
+            const environment = planEnvironmentCompletion(before, after, model.getValue());
             if (environment) {
                 event.preventDefault();
                 event.stopPropagation();
