@@ -1,8 +1,21 @@
-Copyright (c) 2026 TeX64 contributors.
+TeX64 Proprietary License
+
+Copyright (c) 2026 Kosei Kawaguchi and Takumi Kokawa.
 All rights reserved.
 
-This repository and its contents are proprietary unless a separate written
-license grants additional rights.
+The original TeX64 editor software and documentation are jointly owned by
+Kosei Kawaguchi and Takumi Kokawa. This notice does not specify ownership
+shares or transfer any rights between the copyright holders.
 
-No permission is granted to use, copy, modify, merge, publish, distribute,
-sublicense, or sell this software except as expressly authorized in writing.
+This repository and its original contents are proprietary unless a separate
+written license grants additional rights. No permission is granted to use,
+copy, modify, translate, adapt, create derivative works from, publish,
+distribute, publicly transmit, sublicense, or sell this software except as
+expressly authorized in writing by the copyright holders or permitted by
+applicable law. Authorized end-user use is governed by the applicable
+product license or service terms.
+
+Third-party software, fonts, and other third-party materials remain owned
+by their respective rights holders and governed by their own licenses.
+See NOTICE.md and the notices accompanying those materials. This license
+does not override those licenses or claim ownership of user documents.

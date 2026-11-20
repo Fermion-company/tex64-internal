@@ -4,6 +4,7 @@
   "description": "AI搭載のデスクトップLaTeXエディタ。",
   "author": "株式会社Fermion",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -47,6 +48,7 @@
     "legal:notice": "node scripts/generate-third-party-notices.cjs --lock package-lock.json --lock services/tex64-ai/package-lock.json --out NOTICE.md --project tex64"
   },
   "build": {
+    "copyright": "Copyright © 2026 Kosei Kawaguchi and Takumi Kokawa. All rights reserved.",
     "appId": "com.wedd.tex64",
     "productName": "TeX64",
     "icon": "Resources/icons/tex64.png",
