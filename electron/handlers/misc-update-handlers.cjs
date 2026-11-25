@@ -347,7 +347,8 @@ const createUpdateHandlers = ({
     const fileName = resolveUpdateFileName(artifactUrl, latestVersion);
     await fsp.mkdir(updateDownloadDir, { recursive: true });
     let finalPath = path.join(updateDownloadDir, fileName);
-    const tempPath = `${finalPath}.part`;
+    // Per process: another TeX64 process may download the same file.
+    const tempPath = `${finalPath}.part-${process.pid}`;
     if (!expectedDigest || expectedDigest.algorithm !== "sha256") {
       throw {
         code: "UPDATE_VERIFY_METADATA_MISSING",

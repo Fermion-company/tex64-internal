@@ -81,7 +81,8 @@ const {
 const { createMiscHandlers } = require("./handlers/misc.cjs");
 const { createPrismImportHandlers } = require("./handlers/prism-import.cjs");
 const { createAgentHandlers } = require("./handlers/agent.cjs");
-const { createApplicationMenuTemplate } = require("./app-menu.cjs");
+const { createApplicationMenuTemplate, newWindowLabel } = require("./app-menu.cjs");
+const { WorkspaceWindowLock } = require("./services/workspace-window-lock.cjs");
 
 const e2eUserDataPath =
   typeof process.env.TEX64_E2E_USERDATA === "string"
@@ -137,6 +138,65 @@ if (e2eUserDataPath) {
   const devUserDataPath = path.join(app.getPath("appData"), "tex64-dev");
   app.setPath("userData", devUserDataPath);
 }
+// A process started by File > New Window shares userData with the first one,
+// but two Chromium instances cannot share one storage directory: the second
+// would start with empty settings. It keeps its own under userData and starts
+// from a copy of the first window's settings (see launchDetachedInstance).
+const WINDOW_SESSIONS_DIR = "window-sessions";
+const windowSessionsPath = () => path.join(app.getPath("userData"), WINDOW_SESSIONS_DIR);
+const ownWindowSessionPath =
+  process.env.TEX64_ALLOW_MULTI_INSTANCE === "1"
+    ? path.join(windowSessionsPath(), String(process.pid))
+    : null;
+if (ownWindowSessionPath) {
+  app.setPath("sessionData", ownWindowSessionPath);
+  process.once("exit", () => {
+    try {
+      fs.rmSync(ownWindowSessionPath, { recursive: true, force: true });
+    } catch {
+      // The next launch removes what a dead process left behind.
+    }
+  });
+}
+const sweepWindowSessions = async () => {
+  const entries = await fsp.readdir(windowSessionsPath(), { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const target = path.join(windowSessionsPath(), entry.name);
+    if (entry.isDirectory() && /^\d+$/.test(entry.name)) {
+      try {
+        process.kill(Number(entry.name), 0);
+        continue;
+      } catch (error) {
+        if (error.code !== "ESRCH") continue;
+      }
+    } else if (!/^seed-.+\.json$/.test(entry.name) ||
+        Date.now() - ((await fsp.stat(target).catch(() => null))?.mtimeMs ?? Date.now()) < 60_000) {
+      continue;
+    }
+    await fsp.rm(target, { recursive: true, force: true }).catch(() => {});
+  }
+};
+// The settings the first window handed over, given to the renderer once.
+let windowSettingsSeedTaken = false;
+const takeWindowSettingsSeed = () => {
+  if (windowSettingsSeedTaken) return null;
+  windowSettingsSeedTaken = true;
+  const seedPath = process.env.TEX64_WINDOW_SETTINGS_FILE;
+  if (typeof seedPath !== "string" || path.dirname(path.resolve(seedPath)) !== path.resolve(windowSessionsPath())) return null;
+  try {
+    const entries = JSON.parse(fs.readFileSync(seedPath, "utf8"));
+    return Array.isArray(entries) ? entries : null;
+  } catch {
+    // Without the copy the window starts with default settings.
+    return null;
+  } finally {
+    fs.rmSync(seedPath, { force: true });
+  }
+};
+ipcMain.on("tex64:windowSettingsSeed", (event) => {
+  // Assigning returnValue answers the renderer, so it is assigned once.
+  event.returnValue = takeWindowSettingsSeed();
+});
 if (!app.isPackaged) {
   app.setName("TeX64 Dev");
   app.commandLine.appendSwitch("disable-http-cache");
@@ -264,6 +324,17 @@ const runStartupWebBuildIfNeeded = () => {
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const workspace = new WorkspaceManager();
+// Other app processes (File > New Window) share userData; a folder is open in
+// one of them at a time.
+const workspaceWindowLock = new WorkspaceWindowLock({
+  directory: () => path.join(app.getPath("userData"), "open-workspaces"),
+});
+const setWorkspaceRootPath = workspace.setRootPath.bind(workspace);
+workspace.setRootPath = (rootPath) => {
+  setWorkspaceRootPath(rootPath);
+  workspaceWindowLock.keepOnly(rootPath);
+};
+process.once("exit", () => workspaceWindowLock.releaseAll());
 let historyController = null;
 let gitController = null;
 const projectBoundary = (root) => {
@@ -440,6 +511,11 @@ const createMainWindow = () => {
   }
 
   state.mainWindow = new BrowserWindow(windowOptions);
+  if (allowMultiInstance) {
+    // A window opened with New Window must not cover the first one exactly.
+    const [x, y] = state.mainWindow.getPosition();
+    state.mainWindow.setPosition(x + 28, y + 28);
+  }
   if (process.env.TEX64_EDITION === "education") {
     state.mainWindow.on("page-title-updated", (event) => event.preventDefault());
   }
@@ -623,6 +699,7 @@ const installApplicationMenu = () => {
     },
     locale: state.uiLocale,
     collabActive: Boolean(collabHub?.isActive()),
+    onNewWindow: educationService ? null : () => { launchDetachedInstance(); },
     terminalActive: Boolean(terminalWindow.window?.isFocused()),
     sendTerminalCommand: (command) => {
       const target = terminalWindow.window;
@@ -633,6 +710,11 @@ const installApplicationMenu = () => {
   });
   if (educationService) template.push(educationService.menu());
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  if (process.platform === "darwin" && !educationService) {
+    app.dock?.setMenu(Menu.buildFromTemplate([
+      { label: newWindowLabel(state.uiLocale), click: () => { launchDetachedInstance(); } },
+    ]));
+  }
 };
 
 const sendLspToRenderer = (channel, data) => {
@@ -1069,6 +1151,10 @@ ipcMain.handle("tex64:history", async (event, action, request) => {
 
 workspaceChangeCoordinator.beforeChange = async (change = {}) => {
   // prepareWorkspaceChange holds the workspace lease while this runs.
+  workspaceWindowLock.keepOnly(workspace.getRootPath());
+  if (!workspaceWindowLock.claim(change.toRootPath)) {
+    throw new Error("This folder is already open in another TeX64 window.");
+  }
   if (collabHub.session && collabHub.session.phase !== "opening") await collabHub.leave({ leaseHeld: true });
   await quiesceWorkspaceActivity();
   if (
@@ -1256,12 +1342,40 @@ const flushPendingBillingCompletionLinks = () => {
 const allowMultiInstance =
   process.env.TEX64_ALLOW_MULTI_INSTANCE === "1";
 
-const launchDetachedInstance = () => {
+// Another window is another app process on the same userData: it skips the
+// single-instance lock and starts on the launcher with no folder open.
+const writeWindowSettingsSeed = async () => {
+  const webContents = state.mainWindow?.webContents;
+  if (!mainRendererReady || !webContents || webContents.isDestroyed()) return null;
+  let timer;
+  try {
+    const entries = await Promise.race([
+      webContents.executeJavaScript("Object.entries(localStorage)"),
+      new Promise((resolve) => { timer = setTimeout(() => resolve(null), 2_000); }),
+    ]);
+    if (!Array.isArray(entries)) return null;
+    await fsp.mkdir(windowSessionsPath(), { recursive: true });
+    const seedPath = path.join(windowSessionsPath(), `seed-${require("crypto").randomUUID()}.json`);
+    await fsp.writeFile(seedPath, JSON.stringify(entries), { encoding: "utf8", mode: 0o600 });
+    return seedPath;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+async function launchDetachedInstance() {
+  const seedPath = await writeWindowSettingsSeed();
   try {
     const env = {
       ...process.env,
       TEX64_ALLOW_MULTI_INSTANCE: "1",
+      // The first process already built the renderer in development.
+      TEX64_SKIP_STARTUP_WEB_BUILD: "1",
     };
+    if (seedPath) env.TEX64_WINDOW_SETTINGS_FILE = seedPath;
+    else delete env.TEX64_WINDOW_SETTINGS_FILE;
     const args = [];
     if (process.defaultApp) {
       const appEntry =
@@ -1280,7 +1394,7 @@ const launchDetachedInstance = () => {
   } catch {
     return false;
   }
-};
+}
 
 const queueOAuthCallbackUrl = (value) => {
   const url = normalizeOAuthCallbackUrlInput(value);
@@ -1320,10 +1434,9 @@ if (!hasSingleInstanceLock) {
         });
         return;
       }
-      const launched = launchDetachedInstance();
-      if (!launched) {
-        focusMainWindow();
-      }
+      launchDetachedInstance().then((launched) => {
+        if (!launched) focusMainWindow();
+      });
     });
   }
 }
@@ -1417,6 +1530,7 @@ app.whenReady().then(() => {
   nativeTheme.themeSource = "system";
   protocol.handle(WORKSPACE_PDF_SCHEME, handleWorkspacePdfRequest);
   runStartupWebBuildIfNeeded();
+  sweepWindowSessions().catch(() => {});
   createMainWindow();
   installApplicationMenu();
   if (educationService) educationService.startup();
@@ -1458,7 +1572,9 @@ app.whenReady().then(() => {
       }, 60 * 60 * 1000);
       app.on("browser-window-focus", triggerProductActivity);
     }
-    if (distributionRuntime.useIndependentUpdater) {
+    // Only the first process checks in the background; every window can still
+    // check from Settings.
+    if (distributionRuntime.useIndependentUpdater && !allowMultiInstance) {
       const triggerUpdateCheck = () => {
         Promise.resolve(
           miscHandlers.handleUpdateCheck({ force: false, source: "background" })
@@ -1631,7 +1747,9 @@ app.on("window-all-closed", () => {
     }
     clearWorkspaceSession({ closePdfWindow: true });
   }
-  if (process.platform !== "darwin") {
+  // An extra process (New Window) owns exactly one window: without it there is
+  // nothing left to activate, so it must not linger in the Dock.
+  if (process.platform !== "darwin" || allowMultiInstance) {
     app.quit();
   }
 });

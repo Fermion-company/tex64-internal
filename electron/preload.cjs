@@ -1,5 +1,20 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
+// A window opened with File > New Window has its own storage; it starts from
+// the settings of the window it was opened from (main hands them over once).
+try {
+  const seed = ipcRenderer.sendSync("tex64:windowSettingsSeed");
+  if (Array.isArray(seed)) {
+    for (const entry of seed) {
+      if (Array.isArray(entry) && typeof entry[0] === "string" && typeof entry[1] === "string") {
+        localStorage.setItem(entry[0], entry[1]);
+      }
+    }
+  }
+} catch {
+  // Default settings.
+}
+
 let historyIdentity = {};
 let historyToken = null;
 let gitToken = null;

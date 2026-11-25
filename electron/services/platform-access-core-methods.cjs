@@ -173,11 +173,25 @@ const coreMethods = {
     };
   },
 
+  // Several TeX64 processes share this file (File > New Window). The size and
+  // mtime seen at the last read or write tell whether another one replaced it.
+  async readSessionFileSignature() {
+    const fileSystem = this.fileSystem || fsp;
+    if (typeof fileSystem.stat !== "function") {
+      return null;
+    }
+    return fileSystem
+      .stat(this.filePath)
+      .then((stats) => `${stats.mtimeMs}:${stats.size}`)
+      .catch(() => "missing");
+  },
+
   async load() {
     if (this.state) {
       return clone(this.state);
     }
     const fileSystem = this.fileSystem || fsp;
+    this._sessionFileSignature = await this.readSessionFileSignature();
     const stored = await fileSystem
       .readFile(this.filePath, "utf8")
       .then((content) => JSON.parse(content))
@@ -239,6 +253,7 @@ const coreMethods = {
         });
         await fileSystem.rename(tempPath, this.filePath);
         await fileSystem.chmod(this.filePath, 0o600).catch(() => {});
+        this._sessionFileSignature = await this.readSessionFileSignature();
       } catch (error) {
         await fileSystem.unlink(tempPath).catch(() => {});
         throw error;
@@ -252,6 +267,15 @@ const coreMethods = {
   },
 
   async ensureLoadedState() {
+    if (this.state) {
+      // A sign-in, sign-out or token refresh done by another process must
+      // replace this copy before it is used or saved back over the file.
+      await this._saveQueue;
+      const signature = await this.readSessionFileSignature();
+      if (signature !== null && signature !== this._sessionFileSignature) {
+        this.state = null;
+      }
+    }
     if (!this.state) {
       await this.load();
     }

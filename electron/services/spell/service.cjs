@@ -91,8 +91,13 @@ class SpellService {
       return;
     }
     try {
+      // Another TeX64 process may have added words since this one loaded them.
+      await this.loadUserWords();
+      this.spellers.forEach((spell) => this.userWords.forEach((word) => spell.add(word)));
       await fsp.mkdir(path.dirname(this.userDictPath), { recursive: true });
-      await fsp.writeFile(this.userDictPath, JSON.stringify(Array.from(this.userWords)), "utf8");
+      const tmpPath = `${this.userDictPath}.tmp-${process.pid}`;
+      await fsp.writeFile(tmpPath, JSON.stringify(Array.from(this.userWords)), "utf8");
+      await fsp.rename(tmpPath, this.userDictPath);
     } catch (error) {
       console.warn("[spell] failed to save user dictionary", error);
     }

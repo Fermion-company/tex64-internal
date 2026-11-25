@@ -43,9 +43,7 @@ class ApiUsageService {
   }
 
   async load() {
-    if (this.state) {
-      return clone(this.state);
-    }
+    // Always from disk: another TeX64 process adds to the same totals.
     const stored = await fsp
       .readFile(this.filePath, "utf8")
       .then((content) => JSON.parse(content))
@@ -62,7 +60,9 @@ class ApiUsageService {
       return;
     }
     const payload = JSON.stringify(this.state, null, 2);
-    await fsp.writeFile(this.filePath, payload, "utf8");
+    const tmpPath = `${this.filePath}.tmp-${process.pid}`;
+    await fsp.writeFile(tmpPath, payload, "utf8");
+    await fsp.rename(tmpPath, this.filePath);
   }
 
   async resolvePricing() {
