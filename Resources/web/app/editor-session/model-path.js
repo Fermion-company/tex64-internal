@@ -1,6 +1,5 @@
-// Monaco's file URI is not an authority for the workspace path: Uri.file()
-// turns a relative key such as content/ch16.tex into /content/ch16.tex. Keep
-// the application path beside the model identity instead.
+// Keep the workspace-relative key alongside the model. Its file URI is an
+// absolute path for texlab, and Monaco URIs do not change on file renames.
 const modelPaths = new WeakMap();
 export const rememberEditorModelPath = (model, path) => {
     if ((typeof model !== "object" || model === null) && typeof model !== "function")

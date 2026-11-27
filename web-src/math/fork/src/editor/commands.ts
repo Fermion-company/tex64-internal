@@ -105,21 +105,19 @@ export function perform(
     const arrayEdit = /^(add(Row|Column)(After|Before)|remove(Row|Column))$/.test(
       selector
     );
-    const arrayRoot = arrayEdit ? mathfield.model.root : undefined;
-    const arrayChangeCounter = arrayRoot?.changeCounter;
-    const arraySelection = arrayEdit
-      ? {
-          ...mathfield.model.selection,
-          ranges: mathfield.model.selection.ranges.map(
-            (r) => [...r] as [number, number]
-          ),
-        }
-      : undefined;
+    const deletion = selector.startsWith('delete');
+    const trackEdit = arrayEdit || deletion;
+    const rootBefore = trackEdit ? mathfield.model.root : undefined;
+    const counterBefore = rootBefore?.changeCounter;
+    const selectionBefore = trackEdit ? mathfield.model.selection : undefined;
+    const previousOp = mathfield.undoManager.lastOp;
     if (arrayEdit) {
       mathfield.flushInlineShortcutBuffer();
       mathfield.stopCoalescingUndo();
-    } else if (/^(delete|add)/.test(selector)) {
+    } else if (deletion) {
       if (selector !== 'deleteBackward') mathfield.flushInlineShortcutBuffer();
+    } else if (selector.startsWith('add')) {
+      mathfield.flushInlineShortcutBuffer();
       mathfield.snapshot(selector);
     }
 
@@ -127,16 +125,15 @@ export function perform(
 
     COMMANDS[selector]!.fn(mathfield.model, ...args);
 
-    if (arrayEdit) {
-      // Selecting a newly added cell also stops coalescing. That selection
-      // belongs to the new content, so restore the old state's selection
-      // before recording the completed command as one undoable change.
-      mathfield.undoManager.stopCoalescing(arraySelection);
-      if (
-        mathfield.model.root !== arrayRoot ||
-        mathfield.model.root.changeCounter !== arrayChangeCounter
-      )
-        mathfield.snapshot();
+    if (trackEdit && (
+      mathfield.model.root !== rootBefore ||
+      mathfield.model.root.changeCounter !== counterBefore
+    )) {
+      // Restore the selection of the old content, then record the new
+      // content so redo can replay it. Consecutive deletions may coalesce.
+      if (arrayEdit || previousOp !== selector)
+        mathfield.undoManager.stopCoalescing(selectionBefore);
+      mathfield.snapshot(deletion ? selector : undefined);
     }
 
     updateAutocomplete(mathfield);

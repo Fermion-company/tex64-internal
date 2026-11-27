@@ -4,13 +4,13 @@
 // the "uiLocale" message). `role:` items are localized by Electron itself from
 // the OS locale — that part cannot follow the in-app setting.
 const MENU_LABELS = {
-  en: { settings: "Settings…", file: "File", newFile: "New File", newProject: "New Project…", openFolder: "Open Folder…", save: "Save", importPrism: "Import from Prism…", collaborate: "Collaborate…", wordCount: "Word Count…", undo: "Undo", redo: "Redo" },
-  ja: { settings: "設定…", file: "ファイル", newFile: "新規ファイル", newProject: "新規プロジェクト…", openFolder: "フォルダを開く…", save: "保存", importPrism: "Prism から読み込む…", collaborate: "共同編集…", wordCount: "文字数…", undo: "取り消す", redo: "やり直す" },
-  zh: { settings: "设置…", file: "文件", newFile: "新建文件", newProject: "新建项目…", openFolder: "打开文件夹…", save: "保存", importPrism: "从 Prism 导入…" },
-  ko: { settings: "설정…", file: "파일", newFile: "새 파일", newProject: "새 프로젝트…", openFolder: "폴더 열기…", save: "저장", importPrism: "Prism에서 가져오기…" },
-  fr: { settings: "Réglages…", file: "Fichier", newFile: "Nouveau fichier", newProject: "Nouveau projet…", openFolder: "Ouvrir un dossier…", save: "Enregistrer", importPrism: "Importer depuis Prism…" },
-  de: { settings: "Einstellungen…", file: "Datei", newFile: "Neue Datei", newProject: "Neues Projekt…", openFolder: "Ordner öffnen…", save: "Sichern", importPrism: "Aus Prism importieren…" },
-  es: { settings: "Ajustes…", file: "Archivo", newFile: "Nuevo archivo", newProject: "Nuevo proyecto…", openFolder: "Abrir carpeta…", save: "Guardar", importPrism: "Importar desde Prism…" },
+  en: { math: "Math", captureFormula: "Capture Formula from Screen…", settings: "Settings…", file: "File", newWindow: "New Window", newFile: "New File", newProject: "New Project…", openFolder: "Open Folder…", save: "Save", importPrism: "Import from Prism…", collaborate: "Collaborate…", wordCount: "Word Count…", undo: "Undo", redo: "Redo", find: "Find…", snippets: "Snippets…", terminal: "Terminal", restartShell: "Restart shell…", hideTerminal: "Hide window (keep running)" },
+  ja: { math: "数式", captureFormula: "画面から数式を取り込む…", settings: "設定…", file: "ファイル", newWindow: "新しいウィンドウ", newFile: "新規ファイル", newProject: "新規プロジェクト…", openFolder: "フォルダを開く…", save: "保存", importPrism: "Prism から読み込む…", collaborate: "共同編集…", wordCount: "文字数…", undo: "取り消す", redo: "やり直す", find: "検索…", snippets: "スニペット…", terminal: "ターミナル", restartShell: "シェルを再起動…", hideTerminal: "ウインドウを隠す（実行は継続）" },
+  zh: { math: "数学", captureFormula: "从屏幕导入公式…", settings: "设置…", file: "文件", newWindow: "新建窗口", newFile: "新建文件", newProject: "新建项目…", openFolder: "打开文件夹…", save: "保存", importPrism: "从 Prism 导入…", collaborate: "协作…", wordCount: "字数统计…", undo: "撤销", redo: "重做", find: "查找…", snippets: "代码片段…", terminal: "终端", restartShell: "重新启动 Shell…", hideTerminal: "隐藏窗口（保持运行）" },
+  ko: { math: "수식", captureFormula: "화면에서 수식 가져오기…", settings: "설정…", file: "파일", newWindow: "새 창", newFile: "새 파일", newProject: "새 프로젝트…", openFolder: "폴더 열기…", save: "저장", importPrism: "Prism에서 가져오기…", collaborate: "공동 편집…", wordCount: "단어 수…", undo: "실행 취소", redo: "다시 실행", find: "찾기…", snippets: "코드 조각…", terminal: "터미널", restartShell: "셸 다시 시작…", hideTerminal: "창 숨기기(셸은 계속 실행)" },
+  fr: { math: "Mathématiques", captureFormula: "Capturer une formule à l’écran…", settings: "Réglages…", file: "Fichier", newWindow: "Nouvelle fenêtre", newFile: "Nouveau fichier", newProject: "Nouveau projet…", openFolder: "Ouvrir un dossier…", save: "Enregistrer", importPrism: "Importer depuis Prism…", collaborate: "Collaborer…", wordCount: "Nombre de mots…", undo: "Annuler", redo: "Rétablir", find: "Rechercher…", snippets: "Extraits de code…", terminal: "Terminal", restartShell: "Redémarrer le shell…", hideTerminal: "Masquer la fenêtre (le shell reste actif)" },
+  de: { math: "Mathematik", captureFormula: "Formel vom Bildschirm erfassen…", settings: "Einstellungen…", file: "Datei", newWindow: "Neues Fenster", newFile: "Neue Datei", newProject: "Neues Projekt…", openFolder: "Ordner öffnen…", save: "Sichern", importPrism: "Aus Prism importieren…", collaborate: "Gemeinsam bearbeiten…", wordCount: "Wörter zählen…", undo: "Rückgängig", redo: "Wiederholen", find: "Suchen…", snippets: "Textbausteine…", terminal: "Terminal", restartShell: "Shell neu starten…", hideTerminal: "Fenster ausblenden (Shell läuft weiter)" },
+  es: { math: "Matemáticas", captureFormula: "Capturar una fórmula de la pantalla…", settings: "Ajustes…", file: "Archivo", newWindow: "Nueva ventana", newFile: "Nuevo archivo", newProject: "Nuevo proyecto…", openFolder: "Abrir carpeta…", save: "Guardar", importPrism: "Importar desde Prism…", collaborate: "Colaborar…", wordCount: "Recuento de palabras…", undo: "Deshacer", redo: "Rehacer", find: "Buscar…", snippets: "Fragmentos de código…", terminal: "Terminal", restartShell: "Reiniciar el intérprete…", hideTerminal: "Ocultar la ventana (el intérprete sigue activo)" },
 };
 
 const createApplicationMenuTemplate = ({
@@ -54,6 +54,8 @@ const createApplicationMenuTemplate = ({
     {
       label: labels.file,
       submenu: [
+        commandItem(labels.newWindow, "project:new-window"),
+        { type: "separator" },
         commandItem(labels.newFile, "file:new", "CmdOrCtrl+N"),
         { type: "separator" },
         commandItem(labels.newProject, "project:new", "CmdOrCtrl+Shift+N"),
@@ -77,13 +79,14 @@ const createApplicationMenuTemplate = ({
         : [{ role: "undo" }, { role: "redo" }]),
       { type: "separator" },
       { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "pasteAndMatchStyle" }, { role: "delete" }, { role: "selectAll" },
-      { type: "separator" }, commandItem(locale === "ja" ? "検索…" : "Find…", "edit:find", "CmdOrCtrl+F"),
-      commandItem(locale === "ja" ? "スニペット…" : "Snippets…", "snippets:open"),
+      { type: "separator" }, commandItem(labels.find, "edit:find", "CmdOrCtrl+F"),
+      commandItem(labels.snippets, "snippets:open"),
     ] },
     { role: "viewMenu" },
-    { label: locale === "ja" ? "ターミナル" : "Terminal", submenu: [
-      { label: locale === "ja" ? "シェルを再起動…" : "Restart shell…", enabled: terminalActive, click: () => sendTerminalCommand("restart") },
-      { label: locale === "ja" ? "ウインドウを隠す（実行は継続）" : "Hide window (keep running)", enabled: terminalActive, click: () => sendTerminalCommand("hide") },
+    { label: labels.math, submenu: [commandItem(labels.captureFormula, "math:capture")] },
+    { label: labels.terminal, submenu: [
+      { label: labels.restartShell, enabled: terminalActive, click: () => sendTerminalCommand("restart") },
+      { label: labels.hideTerminal, enabled: terminalActive, click: () => sendTerminalCommand("hide") },
     ] },
     { role: "windowMenu" }
   );

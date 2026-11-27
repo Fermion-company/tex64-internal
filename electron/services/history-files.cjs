@@ -78,9 +78,9 @@ async function syncDirectory(directory) {
 async function atomicWrite(file, bytes, { exclusive = false } = {}) {
   const temporary = `${file}.tmp-${crypto.randomUUID()}`;
   const handle = await fsp.open(temporary, "wx", 0o600);
-  try { await handle.writeFile(bytes); await handle.sync(); }
-  finally { await handle.close(); }
   try {
+    try { await handle.writeFile(bytes); await handle.sync(); }
+    finally { await handle.close(); }
     if (exclusive) await fsp.link(temporary, file);
     else await fsp.rename(temporary, file);
     await syncDirectory(path.dirname(file));

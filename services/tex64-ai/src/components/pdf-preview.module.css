@@ -143,6 +143,11 @@
   display: block;
 }
 
+@media screen {
+  .viewer[data-dark-pdf-pages="true"] .page { background-color: #202020; }
+  .viewer[data-dark-pdf-pages="true"] .pageCanvas { filter: invert(.875) hue-rotate(180deg); }
+}
+
 .emptyState {
   display: flex;
   align-items: center;
@@ -163,6 +168,8 @@
 
 .regionHitArea {
   position: absolute;
+  /* Above the page text, below PDF links. */
+  z-index: 1;
   margin: 0;
   padding: 0;
   border: none;
@@ -177,6 +184,7 @@
 
 .regionHighlight {
   position: absolute;
+  z-index: 1;
   pointer-events: none;
   border: 1px solid transparent;
   border-radius: 4px;
@@ -298,6 +306,8 @@
 
 .anchorLayer {
   position: absolute;
+  /* Only the margin buttons extend into the page. */
+  z-index: 3;
   top: 0;
   right: 0;
   bottom: 0;
@@ -431,3 +441,83 @@
 
 
 .selectionCard:has(:global(.is-display-math)), .selectionCard:has(:global(.is-table)) { width: min(650px, calc(100% - 24px)) !important; left: 50% !important; transform: translateX(-50%); }
+
+.askSelection {
+  position: absolute;
+  z-index: 7;
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: var(--shadow-menu);
+  color: var(--ink);
+  font: 500 12px/1.4 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.askSelection:hover, .askSelection:focus-visible {
+  border-color: var(--accent);
+  background: var(--panel-muted);
+}
+
+.textLayer:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+.desktopToolbar {
+  position: relative;
+  padding-inline: 8px;
+  column-gap: 3px;
+}
+
+.toolbarSpace { flex: 1; }
+.more > summary { list-style: none; cursor: pointer; }
+.more > summary::-webkit-details-marker { display: none; }
+.more[open] > summary { background: var(--hover); color: var(--ink); }
+
+.morePanel {
+  position: absolute;
+  z-index: 9;
+  inset-inline-end: 6px;
+  top: calc(100% + 4px);
+  display: grid;
+  min-width: 178px;
+  padding: 6px;
+  box-shadow: var(--shadow-menu);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.moreZoom {
+  display: grid;
+  grid-template-columns: 28px 1fr 28px;
+  align-items: center;
+  gap: 2px;
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.moreZoom .fitButton { grid-column: 1 / -1; }
+.morePanel > .toolButton, .moreZoom .fitButton {
+  justify-content: flex-start;
+  gap: 8px;
+  padding-inline: 8px;
+  width: 100%;
+  font: inherit;
+  color: var(--ink);
+}
+
+.reviewLine {
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  z-index: 2;
+  height: 1.4em;
+  transform: translateY(-1em);
+  border-inline-start: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  pointer-events: none;
+}

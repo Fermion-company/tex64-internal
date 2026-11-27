@@ -1,4 +1,5 @@
 const path = require("path");
+const { isUtf8 } = require("node:buffer");
 const fsp = require("fs/promises");
 const crypto = require("crypto");
 const { spawn } = require("child_process");
@@ -49,8 +50,7 @@ const readFileFromDisk = async (resolvedPath, { forceBase64 = false } = {}) => {
   if (buffer.length === 0) {
     return { content: "", encoding: "utf8", binary: false, size: 0, contentHash };
   }
-  const hasNullByte = buffer.includes(0);
-  if (hasNullByte) {
+  if (buffer.includes(0) || !isUtf8(buffer)) {
     return {
       content: buffer.toString("base64"),
       encoding: "base64",

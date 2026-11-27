@@ -1,12 +1,12 @@
+import { isTexFilePath } from "../files.js";
 export const initBlockEditSession = (deps) => {
     let mode = "insert";
     let lastDetectedKey = null;
     const buildDetectedKey = (detected) => { var _a; return `${detected.type}:${detected.start}:${detected.end}:${(_a = detected.fullMatch) !== null && _a !== void 0 ? _a : ""}`; };
     const canEdit = () => {
-        var _a;
         const group = deps.getActiveGroup();
         const editor = group.editor;
-        if (!editor || !((_a = group.currentFilePath) === null || _a === void 0 ? void 0 : _a.endsWith(".tex"))) {
+        if (!editor || !isTexFilePath(group.currentFilePath)) {
             return false;
         }
         return true;
@@ -92,7 +92,7 @@ export const initBlockEditSession = (deps) => {
         syncDetectedAtPosition(position, { force: true, allowTabSwitch });
     };
     document.addEventListener("keydown", (event) => {
-        if (event.key !== "Escape") {
+        if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) {
             return;
         }
         if (mode !== "edit") {

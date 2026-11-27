@@ -16,6 +16,8 @@
 RUN_DIR=/tmp/zotero-run SHOTS_DIR=$PWD/testing/zotero-20261031/shots node testing/zotero-20261031/drive.mjs
 ```
 
+指定した `RUN_DIR` や `SHOTS_DIR` がすでにある場合は、その中に実行ごとの子フォルダを作ります。実際の保存先は起動時に表示します。ポート 23119 をほかのアプリが使用しているときは開始前に終了します。
+
 手で触るときは `node testing/zotero-20261031/mock-zotero.cjs` を立てたまま `npx electron .` で開く。
 
 ## 手順と結果（2026-10-31、評価 r2 反映後）

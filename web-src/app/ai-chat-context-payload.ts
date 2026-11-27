@@ -1,3 +1,4 @@
+import type { ActiveFileSnapshot, EditorSessionApi } from "./editor-session/types.js";
 import { getIssueResolution } from "./issue-resolution.js";
 import { getUiLocale } from "./i18n.js";
 import type { IssueItem, IssuesStatus } from "./types.js";
@@ -5,7 +6,7 @@ import type { MentionRef } from "./ai-chat-mention.js";
 
 type ContextDeps = {
   getActiveFilePath: () => string | null;
-  getActiveFileSnapshot?: () => { path: string; content: string; isDirty: boolean } | null;
+  getActiveFileSnapshot?: () => ActiveFileSnapshot | null;
   getActiveSelectionSnapshot?: () => {
     path: string;
     text: string;
@@ -15,10 +16,7 @@ type ContextDeps = {
     endLine: number;
     endColumn: number;
   } | null;
-  getOpenFileSnapshots?: (options?: { maxFiles?: number; maxChars?: number }) => {
-    files: Array<{ path: string; isDirty: boolean; isActive: boolean }>;
-    snapshots: Array<{ path: string; content: string; isDirty: boolean; truncated: boolean; contentLength: number }>;
-  };
+  getOpenFileSnapshots?: EditorSessionApi["getOpenFileSnapshots"];
   getRecentIssuesSnapshot?: () => {
     count: number;
     summary: string;
@@ -29,10 +27,10 @@ type ContextDeps = {
 };
 
 const MAX_ACTIVE_FILE_CONTEXT_CHARS = 10000;
-const MAX_OPEN_FILE_CONTEXT_CHARS = 8000;
 const MAX_SELECTION_CONTEXT_CHARS = 4000;
-const MAX_OPEN_FILE_SNAPSHOTS = 4;
-const MAX_OPEN_FILES_METADATA = 12;
+// Dirty buffers travel to the local host so tools can read the working copy.
+// Clean files remain available directly from disk.
+export const MAX_DIRTY_FILE_CONTEXT_CHARS = 400_000;
 const MAX_RECENT_ISSUES = 5;
 
 export type ContextExtras = {
@@ -48,10 +46,10 @@ export type ContextExtras = {
 
 export const createContextPayloadBuilder = (deps: ContextDeps) => {
   const buildActiveFileContext = () => {
-    const maxChars = MAX_ACTIVE_FILE_CONTEXT_CHARS;
     const snapshot = deps.getActiveFileSnapshot?.() ?? null;
     const fallbackPath = deps.getActiveFilePath();
     if (!snapshot) return fallbackPath ? { activeFilePath: fallbackPath } : {};
+    const maxChars = snapshot.isDirty ? MAX_DIRTY_FILE_CONTEXT_CHARS : MAX_ACTIVE_FILE_CONTEXT_CHARS;
     let content = snapshot.content;
     let truncated = false;
     if (Number.isFinite(maxChars) && content.length > maxChars) {
@@ -62,6 +60,7 @@ export const createContextPayloadBuilder = (deps: ContextDeps) => {
       activeFilePath: snapshot.path,
       activeFileContent: content,
       activeFileIsDirty: snapshot.isDirty,
+      activeFileRevision: snapshot.modelRevision,
       activeFileContentTruncated: truncated,
       activeFileContentLength: snapshot.content.length,
     };
@@ -96,16 +95,13 @@ export const createContextPayloadBuilder = (deps: ContextDeps) => {
   };
 
   const buildOpenFilesContext = () => {
-    const maxChars = MAX_OPEN_FILE_CONTEXT_CHARS;
-    const s = deps.getOpenFileSnapshots?.({ maxFiles: MAX_OPEN_FILE_SNAPSHOTS, maxChars });
-    if (!s) {
-      return {};
-    }
-    const files =
-      s.files.length > MAX_OPEN_FILES_METADATA
-        ? s.files.slice(0, MAX_OPEN_FILES_METADATA)
-        : s.files;
-    return { openFiles: files, openFileSnapshots: s.snapshots };
+    const open = deps.getOpenFileSnapshots?.({
+      maxFiles: 0,
+      maxChars: MAX_DIRTY_FILE_CONTEXT_CHARS,
+      onlyDirty: true,
+      excludePath: deps.getActiveFilePath(),
+    });
+    return open ? { openFiles: open.files, openFileSnapshots: open.snapshots } : {};
   };
 
   const buildIssuesContext = () => {

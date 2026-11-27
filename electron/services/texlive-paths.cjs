@@ -102,9 +102,7 @@ const readReleaseYear = (dir) => {
 };
 
 const hasTlmgr = (root, platform = process.platform, arch = process.arch) =>
-  getManagedTexliveBinDirs(platform, arch, root).some((dir) =>
-    ["tlmgr", "tlmgr.bat"].some((name) => fs.existsSync(pathFor(platform).join(dir, name)))
-  );
+  Boolean(findCommandInDirs("tlmgr", getManagedTexliveBinDirs(platform, arch, root), platform));
 
 // Every finished managed tree, newest TeX Live year first (the preferred folder
 // first within a year).
@@ -151,8 +149,12 @@ const getManagedInstallRoot = (year = null, platform = process.platform, env = p
 
 // The managed TeX Live in use: the newest finished tree, else where a new one
 // would go ("" where there is none).
-const getManagedTexliveRoot = (platform = process.platform, env = process.env) =>
-  listManagedTexliveRoots(platform, env)[0] || getManagedInstallRoot(null, platform, env);
+const getManagedTexliveRoot = (platform = process.platform, env = process.env, arch = process.arch) =>
+  listManagedTexliveRoots(platform, env, arch)[0] || getManagedInstallRoot(null, platform, env);
+
+// TeX Live 2023 changed the Windows binary directory from win32 to windows.
+// TinyTeX and relocated trees need not include a year in the install path.
+const windowsTexBins = root => ["windows", "win32"].map(name => path.win32.join(root, "bin", name));
 
 const getManagedTexliveBinDirs = (
   platform = process.platform,
@@ -172,7 +174,7 @@ const getManagedTexliveBinDirs = (
     ];
   }
   if (platform === "win32") {
-    return [path.win32.join(root, "bin", "windows")];
+    return windowsTexBins(root);
   }
   if (platform === "linux") {
     const archSpecific = arch === "arm64" ? "aarch64-linux" : "x86_64-linux";
@@ -184,13 +186,25 @@ const getManagedTexliveBinDirs = (
 // TinyTeX (https://yihui.org/tinytex) installs a user-owned TeX Live outside the
 // usual system prefixes and only symlinks into PATH via `tlmgr path add`, which
 // the user may have skipped. Probing its fixed home makes detection reliable.
+function windowsTinytexRoots(env) {
+  const override = typeof env?.TINYTEX_DIR === "string" && env.TINYTEX_DIR.trim();
+  if (override) {
+    // Accept a portable tree itself and the parent used by TinyTeX's installer.
+    return [override, path.win32.join(override, "TinyTeX")];
+  }
+  const roaming = typeof env?.APPDATA === "string" && env.APPDATA.trim();
+  const own = roaming && path.win32.join(roaming, "TinyTeX");
+  const shared = path.win32.join(getWindowsProgramData(env), "TinyTeX");
+  return [own, shared].filter(Boolean);
+}
+
 const getTinytexRoot = (platform = process.platform, env = process.env) => {
+  if (platform === "win32") {
+    const roots = windowsTinytexRoots(env);
+    return roots.find(root => fs.existsSync(path.win32.join(root, "bin"))) || roots[0];
+  }
   if (typeof env?.TINYTEX_DIR === "string" && env.TINYTEX_DIR.trim()) {
     return env.TINYTEX_DIR.trim();
-  }
-  if (platform === "win32") {
-    const appData = typeof env?.APPDATA === "string" ? env.APPDATA.trim() : "";
-    return appData ? path.win32.join(appData, "TinyTeX") : "";
   }
   const home = typeof env?.HOME === "string" ? env.HOME.trim() : "";
   if (!home) {
@@ -206,13 +220,9 @@ const getTinytexBinDirs = (
   arch = process.arch,
   env = process.env
 ) => {
+  if (platform === "win32") return windowsTinytexRoots(env).flatMap(windowsTexBins);
   const root = getTinytexRoot(platform, env);
-  if (!root) {
-    return [];
-  }
-  if (platform === "win32") {
-    return [path.win32.join(root, "bin", "windows")];
-  }
+  if (!root) return [];
   if (platform === "darwin") {
     const archSpecific = arch === "arm64" ? "aarch64-darwin" : "x86_64-darwin";
     return [
@@ -239,60 +249,82 @@ const getSystemTexliveBinDirs = (
     ];
   }
   if (platform === "win32") {
-    // any C:\texlive\<year> (a newer year than this build knows included), newest first
-    let installedYears = [];
-    try {
-      installedYears = fs.readdirSync("C:\\texlive").filter((name) => /^\d{4}$/.test(name)).sort().reverse();
-    } catch {
-      installedYears = [];
+    const local = getWindowsLocalAppData();
+    const programDirs = [
+      process.env.ProgramFiles || "C:/Program Files",
+      process.env["ProgramFiles(x86)"] || "C:/Program Files (x86)",
+      local && path.win32.join(local, "Programs"),
+    ].filter(Boolean);
+    const systemDrive = process.env.SystemDrive || process.env.SYSTEMDRIVE ||
+      path.win32.parse(process.env.SystemRoot || process.env.SYSTEMROOT || "").root;
+    const drives = new Set([systemDrive, "C:"].filter(v => /^[a-z]:[\\/]?$/i.test(v))
+      .map(v => v.slice(0, 2).toUpperCase()));
+    const standard = [];
+    for (const drive of drives) {
+      const base = path.win32.join(drive + "\\", "texlive");
+      let years = [];
+      try { years = fs.readdirSync(base).filter(name => /^\d{4}$/.test(name)); } catch { /* defaults still apply */ }
+      for (const y of [...new Set([...years, year, "2026", "2025", "2024", "2023", "2022"])].sort().reverse()) {
+        standard.push(path.win32.join(base, y, "bin", Number(y) < 2023 ? "win32" : "windows"));
+      }
     }
     return [
-      ...installedYears.map((y) => path.win32.join("C:\\", "texlive", y, "bin", "windows")),
-      path.win32.join("C:\\", "texlive", year, "bin", "windows"),
-      "C:\\texlive\\2026\\bin\\windows",
-      "C:\\texlive\\2025\\bin\\windows",
-      "C:\\texlive\\2024\\bin\\windows",
-      "C:\\texlive\\2023\\bin\\windows",
-      "C:\\Program Files\\MiKTeX\\miktex\\bin\\x64",
-      "C:\\Program Files (x86)\\MiKTeX\\miktex\\bin\\x64",
+      ...standard,
+      ...programDirs.map(dir => path.win32.join(dir, "MiKTeX", "miktex", "bin", "x64")),
       ...getTinytexBinDirs(platform, arch),
     ];
   }
   return ["/usr/local/bin", "/usr/bin", ...getTinytexBinDirs(platform, arch)];
 };
 
-const unique = (items) => {
+const unique = (items, platform) => {
   const seen = new Set();
-  const result = [];
-  for (const item of items) {
-    if (typeof item !== "string" || !item) {
-      continue;
-    }
-    const key = process.platform === "win32" ? item.toLowerCase() : item;
-    if (seen.has(key)) {
-      continue;
-    }
+  return items.filter(item => {
+    if (typeof item !== "string" || !item) return false;
+    const key = platform === "win32" ? path.win32.normalize(item).toLowerCase() : item;
+    if (seen.has(key)) return false;
     seen.add(key);
-    result.push(item);
-  }
-  return result;
+    return true;
+  });
 };
 
-const getPreferredTexliveBinDirs = (platform = process.platform, arch = process.arch) =>
-  unique([
-    ...getManagedTexliveBinDirs(platform, arch),
-    ...getSystemTexliveBinDirs(platform, arch),
-  ]);
+function splitCommandPath(value, platform) {
+  if (!value) return [];
+  if (platform !== "win32") return value.split(":");
+  // A semicolon in a quoted Windows PATH entry is part of the directory name.
+  return (value.match(/(?:[^;"]+|"[^"]*")+/g) || []).map(dir => dir.trim().replace(/^"|"$/g, ""));
+}
 
-const extendTexlivePath = (
-  existingPath,
-  platform = process.platform,
-  arch = process.arch
-) => {
-  const base = typeof existingPath === "string" ? existingPath : "";
-  return unique([...getPreferredTexliveBinDirs(platform, arch), base])
-    .filter(Boolean)
-    .join(path.delimiter);
+function commandSearchDirs(existingPath, platform, arch, extraDirs = []) {
+  const p = pathFor(platform);
+  const roots = getManagedTexliveBases(platform);
+  const override = process.env.TEX64_MANAGED_TEXLIVE_ROOT?.trim();
+  const ready = listManagedTexliveRoots(platform, process.env, arch);
+  const dirs = unique([
+    ...extraDirs,
+    ...getManagedTexliveBinDirs(platform, arch, ready[0] || ""),
+    ...getSystemTexliveBinDirs(platform, arch),
+    ...splitCommandPath(existingPath, platform),
+  ], platform);
+  // The install destination may also be present in a PATH inherited from
+  // the terminal. Do not launch its partially populated tools through either route.
+  return dirs.filter(dir => {
+    const bin = p.dirname(dir);
+    if (p.basename(bin).toLowerCase() !== "bin") return true;
+    const root = p.dirname(bin);
+    const managed = override ? p.relative(override, root) === ""
+      : /^\d{4}$/.test(p.basename(root)) && roots.some(base => p.relative(base, p.dirname(root)) === "");
+    return !managed || ready.some(installed => p.relative(root, installed) === "");
+  });
+}
+
+const getPreferredTexliveBinDirs = (platform = process.platform, arch = process.arch) =>
+  commandSearchDirs("", platform, arch);
+
+const extendTexlivePath = (existingPath, platform = process.platform, arch = process.arch) => {
+  const dirs = commandSearchDirs(existingPath, platform, arch);
+  return dirs.map(dir => platform === "win32" && dir.includes(";") ? '"' + dir + '"' : dir)
+    .join(pathFor(platform).delimiter);
 };
 
 const commandFileNames = (command, platform = process.platform) => {
@@ -308,12 +340,14 @@ const commandFileNames = (command, platform = process.platform) => {
 
 const findCommandInDirs = (command, dirs, platform = process.platform) => {
   const names = commandFileNames(command, platform);
-  for (const dir of unique(dirs)) {
+  for (const dir of unique(dirs, platform)) {
     for (const name of names) {
-      const candidate = path.join(dir, name);
-      if (fs.existsSync(candidate)) {
+      const candidate = pathFor(platform).join(dir, name);
+      try {
+        if (!fs.statSync(candidate, { throwIfNoEntry: false })?.isFile()) continue;
+        if (platform !== "win32") fs.accessSync(candidate, fs.constants.X_OK);
         return candidate;
-      }
+      } catch { /* Continue to the next installation if this one is inaccessible. */ }
     }
   }
   return null;
@@ -327,11 +361,7 @@ const findTexCommand = (
 ) =>
   findCommandInDirs(
     command,
-    [
-      ...extraDirs,
-      ...getPreferredTexliveBinDirs(platform, arch),
-      ...(process.env.PATH || "").split(path.delimiter),
-    ],
+    commandSearchDirs(process.env.PATH, platform, arch, extraDirs),
     platform
   );
 
@@ -342,8 +372,9 @@ const findManagedTexCommand = (
   command,
   platform = process.platform,
   arch = process.arch,
-  root = getManagedTexliveRoot(platform)
-) => findCommandInDirs(command, getManagedTexliveBinDirs(platform, arch, root), platform);
+  root = getManagedTexliveRoot(platform, process.env, arch)
+) => root && !fs.existsSync(getInstallingFlagPath(root, platform))
+  ? findCommandInDirs(command, getManagedTexliveBinDirs(platform, arch, root), platform) : null;
 
 module.exports = {
   DEFAULT_MANAGED_TEXLIVE_YEAR,

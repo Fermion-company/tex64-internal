@@ -7,11 +7,17 @@
 const fs = require("fs");
 const path = require("path");
 
-const READS_FILE = /^\s*\\(input|include|subfile|subfileinclude)\s*\{([^{}]+)\}\s*(?:%.*)?$/;
+const { activeTexSource, parseTexIncludes, includeCandidates, findTexIncludeBase } = require("./tex-build-target.cjs");
 
 const isInside = (root, file) => {
   const relative = path.relative(root, file);
-  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+  return relative !== "" && relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative);
+};
+
+const projectFile = (root, relativePath) => {
+  const file = path.resolve(root, relativePath);
+  if (!isInside(root, file) || !isInside(fs.realpathSync(root), fs.realpathSync(file))) return null;
+  return file;
 };
 
 /** 1-based number of the first line of `text` that prints something: after
@@ -29,42 +35,55 @@ const firstContentLine = (text) => {
   return Math.min(lines.length, from + 1) || 1;
 };
 
-/**
- * Where a Jump from line `line` of `relativePath` should look instead, or
- * null when that line does not read a file of the project.
- * Returns { path, line } with a workspace-relative path.
- */
-const resolveInputLineTarget = (rootPath, relativePath, line) => {
+const includeOnLine = (root, file, line) => {
+  if (!root || typeof file !== "string") return null;
   try {
-    if (!rootPath || typeof relativePath !== "string") return null;
-    const source = path.resolve(rootPath, relativePath);
-    if (!isInside(rootPath, source)) return null;
-    const lineNumber = Number.parseInt(line, 10);
-    if (!Number.isFinite(lineNumber) || lineNumber < 1) return null;
-    const text = fs.readFileSync(source, "utf8").split(/\r?\n/)[lineNumber - 1];
-    const match = typeof text === "string" ? READS_FILE.exec(text) : null;
-    if (!match) return null;
-    const name = match[2].trim();
-    if (!name || /[\\#]/.test(name)) return null;
-    // TeX looks from the document's folder; \subfile from the file it is in.
-    const bases = [path.dirname(source), rootPath];
-    for (const base of bases) {
-      for (const candidate of [name, `${name}.tex`]) {
-        const file = path.resolve(base, candidate);
-        if (!isInside(rootPath, file) || !/\.tex$/i.test(file)) continue;
-        let stat = null;
-        try { stat = fs.statSync(file); } catch { stat = null; }
-        if (!stat?.isFile()) continue;
-        return {
-          path: path.relative(rootPath, file).split(path.sep).join("/"),
-          line: firstContentLine(fs.readFileSync(file, "utf8")),
-        };
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  }
+    const source = projectFile(root, file);
+    if (!source) return null;
+    const text = fs.readFileSync(source, "utf8");
+    const code = activeTexSource(text).split(/\r?\n/)[Number(line) - 1] ?? "";
+    const [include] = parseTexIncludes(code, { masked: true, wholeLine: true });
+    if (!include || /[\\#]/.test(include.file + (include.directory ?? ""))) return null;
+    return include;
+  } catch { return null; }
 };
 
-module.exports = { resolveInputLineTarget, firstContentLine };
+const targetAtBase = (root, file, include, base, mainDir) => {
+  for (const candidate of includeCandidates(include, file, base, mainDir)) {
+    try {
+      const child = projectFile(root, candidate.file);
+      if (!child || !/\.tex$/i.test(child) || !fs.statSync(child).isFile()) continue;
+      return { path: candidate.file, line: firstContentLine(fs.readFileSync(child, "utf8")) };
+    } catch { /* try the remaining TeX search paths */ }
+  }
+  return null;
+};
+
+// For callers working with a standalone source, its folder is the engine's cwd.
+const resolveInputLineTarget = (root, file, line) => {
+  const include = includeOnLine(root, file, line);
+  if (!include) return null;
+  const dir = path.posix.dirname(file);
+  return targetAtBase(root, file, include, dir, dir);
+};
+
+const resolveDocumentInputLineTarget = async (root, file, line, getDocument) => {
+  const include = includeOnLine(root, file, line);
+  if (!include) return null;
+  const document = getDocument();
+  if (!document) return null;
+  const sources = new Map();
+  const read = async (name) => {
+    if (!sources.has(name)) {
+      try {
+        const source = projectFile(root, name);
+        sources.set(name, source ? await fs.promises.readFile(source, "utf8") : null);
+      } catch { sources.set(name, null); }
+    }
+    return sources.get(name);
+  };
+  const base = await findTexIncludeBase(document, file, read);
+  return base === null ? null : targetAtBase(root, file, include, base, path.posix.dirname(document));
+};
+
+module.exports = { resolveInputLineTarget, resolveDocumentInputLineTarget, firstContentLine };

@@ -19,6 +19,7 @@ export type EditorGroupState = {
   viewer: ReturnType<typeof createViewer>;
   editor: unknown | null;
   openTabs: string[];
+  automaticPreviewPath?: string;
   currentFilePath: string | null;
   currentFileSavedContent: string | null;
   isDirty: boolean;
@@ -27,11 +28,17 @@ export type EditorGroupState = {
   isComposing: boolean;
   compositionText: string;
   composingFilePath: string | null;
+  compositionBaseline?: { model: MonacoModel; text: string; dirty: boolean };
   pendingCompositionAction: (() => void) | null;
 };
 
 export type MonacoModelContentChange = { rangeOffset: number; rangeLength: number; text: string };
+export type ActiveFileSnapshot = { path: string; content: string; isDirty: boolean; modelRevision?: string };
+
 export type MonacoModel = {
+  readonly id?: string;
+  getVersionId?: () => number;
+  getPositionAt?: (offset: number) => { lineNumber: number; column: number };
   getValue: (eol?: number, preserveBOM?: boolean) => string;
   getEOL?: () => string;
   setValue: (value: string) => void;
@@ -48,6 +55,13 @@ export type MonacoModel = {
     cursorStateComputer: () => unknown[] | null
   ) => unknown;
 };
+export type FormatTarget = {
+  path: string;
+  content: string;
+  isCurrent: () => boolean;
+  apply: (formatted: string) => Promise<boolean>;
+};
+
 export type MonacoModelEntry = { model: MonacoModel; savedContent: string; plainText?: boolean };
 
 export type LivePreviewEditPayload = {
@@ -77,6 +91,8 @@ export type LivePreviewSourceAnchor = {
 };
 
 export type EditorSessionDeps = {
+  isLivePaper: (pdfPath: string) => boolean;
+  getWorkspaceRoot: () => string | null;
   getWorkspaceFiles: () => string[];
   getRootFilePath: () => string | null;
   postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
@@ -150,7 +166,7 @@ export type EditorSessionApi = {
   getActiveGroup: () => EditorGroupState;
   getActiveEditorGroupKey: () => EditorGroupKey;
   getActiveFilePath: () => string | null;
-  getActiveFileSnapshot: () => { path: string; content: string; isDirty: boolean } | null;
+  getActiveFileSnapshot: () => ActiveFileSnapshot | null;
   getActiveSelectionSnapshot: () => {
     path: string;
     text: string;
@@ -161,9 +177,11 @@ export type EditorSessionApi = {
     endColumn: number;
   } | null;
   getOpenFileSnapshots: (options?: {
+    readModelText?: (model: MonacoModel) => string;
     maxFiles?: number;
     maxChars?: number;
     onlyDirty?: boolean;
+    excludePath?: string | null;
   }) => {
     files: Array<{ path: string; isDirty: boolean; isActive: boolean }>;
     snapshots: Array<{
@@ -172,6 +190,7 @@ export type EditorSessionApi = {
       isDirty: boolean;
       truncated: boolean;
       contentLength: number;
+      modelRevision?: string;
     }>;
   };
   isActiveGroup: (group: EditorGroupState) => boolean;
@@ -188,12 +207,15 @@ export type EditorSessionApi = {
   getHistoryBuffers: () => Array<{ path: string; content: string; savedContent: string }>;
   applyHistoryFiles: (files: Array<{ path: string; content: string | null }>) => void;
   closeTab: (group: EditorGroupState, path: string) => void;
+  cancelPendingFirstPreview: () => void;
+  openFirstPreview: (path: string, saved: boolean) => void;
   scheduleAfterComposition: (group: EditorGroupState, action: () => void) => void;
   handleCompositionEnd: (group: EditorGroupState) => void;
   updateDirtyState: (path: string, content: string, savedContent?: string) => void;
   clearJumpHighlight: (group: EditorGroupState) => void;
   scheduleAutoSave: () => void;
   getSaveStatus: () => SaveStatus;
+  loadWorkspaceTextModel: (path: string) => Promise<boolean>;
   requestOpenFile: (path: string, groupKey: EditorGroupKey, force?: boolean) => boolean;
   jumpToFileLine: (
     path: string,
@@ -230,6 +252,7 @@ export type EditorSessionApi = {
   applyLivePreviewEdit: (payload: LivePreviewEditPayload) => boolean;
   getLivePreviewSourceAnchor: (payload: LivePreviewAnchorPayload) => Promise<LivePreviewSourceAnchor | null>;
   handleExternalFileChange: (payload: { path: string; content: string | null; fileDeleted?: boolean }) => void;
+  captureFormatTarget: () => FormatTarget | null;
   saveCurrentFile: () => Promise<boolean>;
   saveDirtyFiles: () => Promise<boolean>;
   requestInitialOpen: () => void;

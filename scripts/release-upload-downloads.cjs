@@ -2,9 +2,7 @@
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const {
-  isPublicDownloadsArtifact,
-} = require("./release-artifact-policy.cjs");
+const { isReleasePackage } = require("./prepare-release-directories.cjs");
 
 if (typeof fetch !== "function") {
   console.error("ERROR: Node.js 18+ is required (global fetch is unavailable).");
@@ -99,7 +97,7 @@ const findReleaseArtifacts = (releaseDir, version) => {
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     const name = entry.name;
-    if (!isPublicDownloadsArtifact(name)) continue;
+    if (!isReleasePackage(name)) continue;
     if (!name.includes(marker)) continue;
     artifacts.push(path.join(releaseDir, name));
   }
@@ -311,18 +309,14 @@ const main = async () => {
   }
   console.log("");
 
-  const syncArgs = [
-    "s3",
-    "sync",
-    releaseDir,
-    `s3://${bucket}/tex64/v${version}/`,
-    "--cache-control",
-    "public,max-age=31536000,immutable",
-  ];
-  if (dryRun) {
-    syncArgs.push("--dryrun");
+  for (const file of [...artifacts, checksumPath]) {
+    const args = [
+      "s3", "cp", file, `s3://${bucket}/tex64/v${version}/${path.basename(file)}`,
+      "--cache-control", "public,max-age=31536000,immutable",
+    ];
+    if (dryRun) args.push("--dryrun");
+    runAws(awsBaseArgs, args, awsEnv);
   }
-  runAws(awsBaseArgs, syncArgs, awsEnv);
 
   const cpArgs = [
     "s3",

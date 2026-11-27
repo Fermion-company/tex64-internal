@@ -714,6 +714,15 @@
                         </select>
                       </div>
                     </div>
+                    <div class="settings-item">
+                      <label class="settings-label" for="settings-dark-pdf-pages"><span class="settings-title">Dark PDF pages</span></label>
+                      <div class="settings-control">
+                        <label class="settings-switch" for="settings-dark-pdf-pages">
+                          <input class="settings-switch-input" id="settings-dark-pdf-pages" type="checkbox" aria-label="Dark PDF pages">
+                          <span class="settings-switch-track" aria-hidden="true"></span>
+                        </label>
+                      </div>
+                    </div>
                   </div>
                   <div class="settings-group">
                     <div class="settings-group-title">Editor</div>
@@ -1104,12 +1113,13 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Google</span>
-                        <span class="settings-desc" id="settings-auth-status">Signed out</span>
+                        <span class="settings-desc" id="settings-auth-status" role="status">Signed out</span>
                       </div>
                       <div class="settings-control settings-inline settings-inline-wrap">
                         <button class="panel-button" id="settings-auth-login" type="button">
                           Login
                         </button>
+                        <button class="panel-button ghost is-hidden" id="settings-auth-cancel" type="button" aria-hidden="true">Cancel</button>
                         <button class="panel-button ghost is-hidden" id="settings-auth-logout" type="button">
                           Logout
                         </button>
@@ -1132,6 +1142,7 @@
                       </div>
                     </div>
                     <div class="settings-inline settings-inline-wrap">
+                      <button class="panel-button ghost" id="settings-axiom-examples" type="button">Axiom examples</button>
                       <button class="panel-button" id="settings-plan-open" type="button">
                         Pricing
                       </button>
@@ -1269,6 +1280,7 @@
               class="editor-splitter"
               id="editor-splitter"
               role="separator"
+              tabindex="0"
               aria-orientation="vertical"
               aria-label="Split view boundaries"
               aria-valuemin="0"
@@ -1360,11 +1372,8 @@
         <div class="ai-mode-webview-host" id="ai-mode-webview-host"></div>
         <div class="ai-mode-fallback is-hidden" id="ai-mode-fallback">
           <div class="ai-mode-fallback-card">
-            <h2>TeX64 AI</h2>
-            <p id="ai-mode-fallback-status">Connecting to the AI workspace…</p>
-            <div class="ai-mode-fallback-actions">
-              <button id="ai-mode-retry" type="button">Reconnect</button>
-            </div>
+            <p id="ai-mode-fallback-status" role="status">Connecting to the AI workspace…</p>
+            <button id="ai-mode-retry" type="button" hidden>Reconnect</button>
             <p class="ai-mode-dev-hint" id="ai-mode-dev-hint" hidden>
               Start the AI workspace for development with
               <code>cd services/tex64-ai &amp;&amp; npm run dev</code>.
@@ -1408,7 +1417,7 @@
         </div>
       </div>
 
-      <div class="feedback-overlay" id="feedback-modal" aria-hidden="true">
+      <div class="feedback-overlay" id="feedback-modal" role="dialog" aria-modal="true" aria-labelledby="feedback-modal-title" aria-hidden="true" inert>
         <button
           class="feedback-overlay-close"
           id="feedback-modal-cancel"

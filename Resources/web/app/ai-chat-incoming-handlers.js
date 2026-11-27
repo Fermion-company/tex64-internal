@@ -1,7 +1,7 @@
 import { setMessageRating, updateMessageElement } from "./ai-chat-message.js";
 import { aiText, localizeAgentStatus, localizeToolLabel } from "./ai-i18n.js";
 export const createAiChatIncomingHandlers = (options) => {
-    const { chats, chatIndex, proposalIndex, runningConversations, resumableConversations, streamingMessages, thinkingMessages, pendingAgentRequests, getActiveChatId, setActiveChatId, ensureChat, getChat, setChatTitle, clearPendingAttachments, renderHistoryList, renderChatContent, updateSendState, updateStatusDisplay, upsertThinkingMessage, clearThinkingMessage, finalizeStreamingMessage, ensureStreamingMessage, scrollToBottom, appendMessage, scheduleUsageRefresh, rebuildProposalCards, restoreDraftFromPending, updateContextBar, switchActiveChat, drainQueue, refreshActiveChat, settleLiveProposals, latestReplyWithChanges, } = options;
+    const { chats, chatIndex, proposalIndex, runningConversations, resumableConversations, streamingMessages, thinkingMessages, pendingAgentRequests, getActiveChatId, setActiveChatId, ensureChat, getChat, setChatTitle, renderHistoryList, renderChatContent, updateSendState, updateStatusDisplay, upsertThinkingMessage, clearThinkingMessage, finalizeStreamingMessage, ensureStreamingMessage, scrollToBottom, appendMessage, scheduleUsageRefresh, rebuildProposalCards, restoreDraftFromPending, updateContextBar, switchActiveChat, forgetRunningTurn, drainQueue, refreshActiveChat, settleLiveProposals, latestReplyWithChanges, } = options;
     /** A chat created by "branch": opened as soon as the host lists it. */
     let pendingBranchTarget = null;
     // バックグラウンドでDoneしたエージェントのトースト通知
@@ -48,6 +48,7 @@ export const createAiChatIncomingHandlers = (options) => {
         const previousActiveId = getActiveChatId();
         const previousChats = new Map(chats.map((chat) => [chat.id, chat]));
         const previouslyRunning = new Set(runningConversations);
+        const previousStreams = new Map(streamingMessages);
         chats.splice(0, chats.length);
         chatIndex.clear();
         proposalIndex.clear();
@@ -56,7 +57,6 @@ export const createAiChatIncomingHandlers = (options) => {
         streamingMessages.clear();
         thinkingMessages.clear();
         setActiveChatId(null);
-        clearPendingAttachments();
         sessions.forEach((session) => {
             var _a, _b, _c, _d, _e, _f;
             if (!session || typeof session !== "object") {
@@ -102,6 +102,11 @@ export const createAiChatIncomingHandlers = (options) => {
                     previous.messages.length >= restoredMessages.length);
             chat.messages = keepLocalTranscript ? previous.messages : restoredMessages;
             if (keepLocalTranscript && previous) {
+                // The next delta and the final reply still belong to the same row
+                // after a file-tree refresh rebuilds the visible transcript.
+                const stream = previousStreams.get(conversationId);
+                if (stream)
+                    streamingMessages.set(conversationId, { message: stream.message, element: null });
                 // Ratings live on the host; the local transcript learns them here.
                 let ordinal = 0;
                 const restoredReplies = restoredMessages.filter((msg) => msg.role === "assistant");
@@ -192,6 +197,7 @@ export const createAiChatIncomingHandlers = (options) => {
         }
         else {
             runningConversations.delete(chat.id);
+            forgetRunningTurn === null || forgetRunningTurn === void 0 ? void 0 : forgetRunningTurn(chat.id);
             // A turn that ended in an error leaves its reason in the transcript as
             // one quiet line; the working line that carried it goes away.
             const failure = state === "error" ? chat.statusMessage.trim() : "";
@@ -566,7 +572,7 @@ export const createAiChatIncomingHandlers = (options) => {
         updateStatusDisplay();
     };
     const handleRequestRejected = (payload) => {
-        var _a, _b;
+        var _a;
         if (!payload.conversationId)
             return;
         const chat = getChat(payload.conversationId);
@@ -574,15 +580,6 @@ export const createAiChatIncomingHandlers = (options) => {
         if (!chat || !pending)
             return;
         pendingAgentRequests.delete(payload.conversationId);
-        // submitMessage adds this optimistic user row immediately before posting.
-        // The host rejected that post, so remove exactly the newest user row and
-        // restore its draft without unlocking the operation already in progress.
-        for (let index = chat.messages.length - 1; index >= 0; index -= 1) {
-            if (((_b = chat.messages[index]) === null || _b === void 0 ? void 0 : _b.role) !== "user")
-                continue;
-            chat.messages.splice(index, 1);
-            break;
-        }
         restoreDraftFromPending(chat.id, pending);
         if (chat.id === getActiveChatId())
             renderChatContent();

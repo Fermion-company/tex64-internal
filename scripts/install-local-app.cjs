@@ -60,8 +60,11 @@ function parseArgs(argv) {
     else if (arg === "--no-launch") parsed.launch = false;
     else if (arg === "--from-hook") parsed.fromHook = true;
     else if (arg === "--force") parsed.force = true;
-    else if (arg === "--target") parsed.target = path.resolve(argv[++i] || DEFAULT_TARGET);
-    else if (arg.startsWith("--target=")) parsed.target = path.resolve(arg.slice("--target=".length));
+    else if (arg === "--target" || arg.startsWith("--target=")) {
+      const value = arg === "--target" ? argv[++i] : arg.slice("--target=".length);
+      if (!value || value.startsWith("--")) throw new Error("--target requires an application bundle path");
+      parsed.target = path.resolve(value);
+    }
     else {
       console.error(`ERROR: unknown argument: ${arg}`);
       process.exit(1);
@@ -288,14 +291,33 @@ function signBundle(appPath, identity) {
 
 // ---------------------------------------------------------------- install
 
+function checkInstallTarget(target) {
+  if (path.extname(target).toLowerCase() !== ".app") {
+    throw new Error(`Expected a .app bundle as the installation target: ${target}`);
+  }
+  const existing = fs.lstatSync(target, { throwIfNoEntry: false });
+  if (!existing) return false;
+  const id = existing.isDirectory() && tryRun("/usr/bin/plutil", [
+    "-extract", "CFBundleIdentifier", "raw", "-o", "-", path.join(target, "Contents", "Info.plist"),
+  ]);
+  if (!id || !id.ok || id.stdout.trim() !== BUNDLE_ID) {
+    throw new Error(`Existing target is not a TeX64 application bundle: ${target}`);
+  }
+  return true;
+}
+
 function runningAppPids(appPath) {
-  const executable = path.join(appPath, "Contents", "MacOS", "TeX64");
-  const result = tryRun("pgrep", ["-f", executable]);
-  if (!result.ok) return [];
-  return result.stdout
-    .split("\n")
-    .map((line) => Number.parseInt(line.trim(), 10))
-    .filter((pid) => Number.isInteger(pid) && pid !== process.pid);
+  const executable = path.join(fs.realpathSync(appPath), "Contents", "MacOS", "TeX64");
+  const output = run("ps", ["-axww", "-o", "pid=,comm="]);
+  return output.split("\n").flatMap(line => {
+    const match = /^\s*(\d+)\s+(.+)$/.exec(line);
+    if (!match || !match[2].endsWith("/Contents/MacOS/TeX64")) return [];
+    try {
+      return fs.realpathSync(match[2]) === executable ? [Number(match[1])] : [];
+    } catch {
+      return [];
+    }
+  });
 }
 
 function sleepMs(ms) {
@@ -304,30 +326,22 @@ function sleepMs(ms) {
 }
 
 function quitRunningApp(appPath) {
-  if (runningAppPids(appPath).length === 0) return false;
-  log("quitting the running TeX64…");
-  tryRun("osascript", ["-e", `tell application id "${BUNDLE_ID}" to quit`]);
+  const pids = runningAppPids(appPath);
+  if (!pids.length) return false;
+  log("asking the running TeX64 to quit…");
+  run("osascript", ["-l", "JavaScript", "-e", `
+    ObjC.import("AppKit");
+    function run(pids) {
+      for (const pid of pids) {
+        const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier(Number(pid));
+        if (app) app.terminate;
+      }
+    }`, "--", ...pids.map(String)]);
   for (let waited = 0; waited < 15000; waited += 500) {
     if (runningAppPids(appPath).length === 0) return true;
     sleepMs(500);
   }
-  for (const pid of runningAppPids(appPath)) {
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch {
-      /* already gone */
-    }
-  }
-  sleepMs(2000);
-  for (const pid of runningAppPids(appPath)) {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-      /* already gone */
-    }
-  }
-  sleepMs(500);
-  return true;
+  throw new Error("TeX64 is still running. Finish saving and close it before updating.");
 }
 
 function assertWritableParent(target) {
@@ -345,23 +359,35 @@ function assertWritableParent(target) {
 function install(sourceApp, target) {
   assertWritableParent(target);
   const parent = path.dirname(target);
-  const staging = path.join(parent, `.${path.basename(target)}.new-${process.pid}`);
-  const backup = path.join(parent, `.${path.basename(target)}.old-${process.pid}`);
-
-  fs.rmSync(staging, { recursive: true, force: true });
-  log(`copying bundle into ${parent}…`);
-  runInherit("ditto", [sourceApp, staging]);
-
-  const hadPrevious = fs.existsSync(target);
-  if (hadPrevious) fs.renameSync(target, backup);
+  checkInstallTarget(target);
+  const temporary = fs.mkdtempSync(path.join(parent, ".tex64-install-"));
+  const staging = path.join(temporary, "new.app");
+  const backup = path.join(temporary, "previous.app");
+  let backupNeedsRestore = false;
   try {
-    fs.renameSync(staging, target);
-  } catch (error) {
-    if (hadPrevious) fs.renameSync(backup, target);
-    fs.rmSync(staging, { recursive: true, force: true });
-    throw error;
+    log(`copying bundle into ${parent}…`);
+    runInherit("ditto", [sourceApp, staging]);
+    if (!checkInstallTarget(staging)) throw new Error("Missing staged application");
+    if (checkInstallTarget(target)) {
+      fs.renameSync(target, backup);
+      backupNeedsRestore = true;
+    }
+    try {
+      // Recheck the actual item we moved before disposing of it.
+      if (backupNeedsRestore) checkInstallTarget(backup);
+      fs.renameSync(staging, target);
+    } catch (error) {
+      if (backupNeedsRestore) {
+        fs.renameSync(backup, target);
+        backupNeedsRestore = false;
+      }
+      throw error;
+    }
+    backupNeedsRestore = false;
+  } finally {
+    if (backupNeedsRestore) log(`Previous application preserved at ${backup}`);
+    else fs.rmSync(temporary, { recursive: true, force: true });
   }
-  if (hadPrevious) fs.rmSync(backup, { recursive: true, force: true });
 
   tryRun("xattr", ["-dr", "com.apple.quarantine", target]);
   tryRun("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", [
@@ -374,6 +400,8 @@ function install(sourceApp, target) {
 // ---------------------------------------------------------------- main
 
 function deployOnce() {
+  const target = options.target;
+  checkInstallTarget(target);
   const sourceApp = packagedAppPath();
   if (!options.skipBuild) {
     build();
@@ -392,8 +420,7 @@ function deployOnce() {
     }
   }
 
-  const target = options.target;
-  const wasRunning = quitRunningApp(target);
+  const wasRunning = checkInstallTarget(target) && quitRunningApp(target);
   install(sourceApp, target);
 
   const shouldLaunch = options.launch === null ? wasRunning : options.launch;

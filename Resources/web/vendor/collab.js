@@ -44,6 +44,394 @@ var TeX64Collab = (() => {
     }
   });
 
+  // node_modules/diff/libcjs/diff/base.js
+  var require_base = __commonJS({
+    "node_modules/diff/libcjs/diff/base.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      var Diff = class {
+        diff(oldStr, newStr, options = {}) {
+          let callback;
+          if (typeof options === "function") {
+            callback = options;
+            options = {};
+          } else if ("callback" in options) {
+            callback = options.callback;
+          }
+          const oldString = this.castInput(oldStr, options);
+          const newString = this.castInput(newStr, options);
+          const oldTokens = this.removeEmpty(this.tokenize(oldString, options));
+          const newTokens = this.removeEmpty(this.tokenize(newString, options));
+          return this.diffWithOptionsObj(oldTokens, newTokens, options, callback);
+        }
+        diffWithOptionsObj(oldTokens, newTokens, options, callback) {
+          var _a;
+          const done = (value) => {
+            value = this.postProcess(value, options);
+            if (callback) {
+              setTimeout(function() {
+                callback(value);
+              }, 0);
+              return void 0;
+            } else {
+              return value;
+            }
+          };
+          const newLen = newTokens.length, oldLen = oldTokens.length;
+          let editLength = 1;
+          let maxEditLength = newLen + oldLen;
+          if (options.maxEditLength != null) {
+            maxEditLength = Math.min(maxEditLength, options.maxEditLength);
+          }
+          const maxExecutionTime = (_a = options.timeout) !== null && _a !== void 0 ? _a : Infinity;
+          const abortAfterTimestamp = Date.now() + maxExecutionTime;
+          const bestPath = [{ oldPos: -1, lastComponent: void 0 }];
+          let newPos = this.extractCommon(bestPath[0], newTokens, oldTokens, 0, options);
+          if (bestPath[0].oldPos + 1 >= oldLen && newPos + 1 >= newLen) {
+            return done(this.buildValues(bestPath[0].lastComponent, newTokens, oldTokens));
+          }
+          let minDiagonalToConsider = -Infinity, maxDiagonalToConsider = Infinity;
+          const execEditLength = () => {
+            for (let diagonalPath = Math.max(minDiagonalToConsider, -editLength); diagonalPath <= Math.min(maxDiagonalToConsider, editLength); diagonalPath += 2) {
+              let basePath;
+              const removePath = bestPath[diagonalPath - 1], addPath = bestPath[diagonalPath + 1];
+              if (removePath) {
+                bestPath[diagonalPath - 1] = void 0;
+              }
+              let canAdd = false;
+              if (addPath) {
+                const addPathNewPos = addPath.oldPos - diagonalPath;
+                canAdd = addPath && 0 <= addPathNewPos && addPathNewPos < newLen;
+              }
+              const canRemove = removePath && removePath.oldPos + 1 < oldLen;
+              if (!canAdd && !canRemove) {
+                bestPath[diagonalPath] = void 0;
+                continue;
+              }
+              if (!canRemove || canAdd && removePath.oldPos < addPath.oldPos) {
+                basePath = this.addToPath(addPath, true, false, 0, options);
+              } else {
+                basePath = this.addToPath(removePath, false, true, 1, options);
+              }
+              newPos = this.extractCommon(basePath, newTokens, oldTokens, diagonalPath, options);
+              if (basePath.oldPos + 1 >= oldLen && newPos + 1 >= newLen) {
+                return done(this.buildValues(basePath.lastComponent, newTokens, oldTokens)) || true;
+              } else {
+                bestPath[diagonalPath] = basePath;
+                if (basePath.oldPos + 1 >= oldLen) {
+                  maxDiagonalToConsider = Math.min(maxDiagonalToConsider, diagonalPath - 1);
+                }
+                if (newPos + 1 >= newLen) {
+                  minDiagonalToConsider = Math.max(minDiagonalToConsider, diagonalPath + 1);
+                }
+              }
+            }
+            editLength++;
+          };
+          if (callback) {
+            (function exec() {
+              setTimeout(function() {
+                if (editLength > maxEditLength || Date.now() > abortAfterTimestamp) {
+                  return callback(void 0);
+                }
+                if (!execEditLength()) {
+                  exec();
+                }
+              }, 0);
+            })();
+          } else {
+            while (editLength <= maxEditLength && Date.now() <= abortAfterTimestamp) {
+              const ret = execEditLength();
+              if (ret) {
+                return ret;
+              }
+            }
+          }
+        }
+        addToPath(path, added, removed, oldPosInc, options) {
+          const last2 = path.lastComponent;
+          if (last2 && !options.oneChangePerToken && last2.added === added && last2.removed === removed) {
+            return {
+              oldPos: path.oldPos + oldPosInc,
+              lastComponent: { count: last2.count + 1, added, removed, previousComponent: last2.previousComponent }
+            };
+          } else {
+            return {
+              oldPos: path.oldPos + oldPosInc,
+              lastComponent: { count: 1, added, removed, previousComponent: last2 }
+            };
+          }
+        }
+        extractCommon(basePath, newTokens, oldTokens, diagonalPath, options) {
+          const newLen = newTokens.length, oldLen = oldTokens.length;
+          let oldPos = basePath.oldPos, newPos = oldPos - diagonalPath, commonCount = 0;
+          while (newPos + 1 < newLen && oldPos + 1 < oldLen && this.equals(oldTokens[oldPos + 1], newTokens[newPos + 1], options)) {
+            newPos++;
+            oldPos++;
+            commonCount++;
+            if (options.oneChangePerToken) {
+              basePath.lastComponent = { count: 1, previousComponent: basePath.lastComponent, added: false, removed: false };
+            }
+          }
+          if (commonCount && !options.oneChangePerToken) {
+            basePath.lastComponent = { count: commonCount, previousComponent: basePath.lastComponent, added: false, removed: false };
+          }
+          basePath.oldPos = oldPos;
+          return newPos;
+        }
+        equals(left, right, options) {
+          if (options.comparator) {
+            return options.comparator(left, right);
+          } else {
+            return left === right || !!options.ignoreCase && left.toLowerCase() === right.toLowerCase();
+          }
+        }
+        removeEmpty(array) {
+          const ret = [];
+          for (let i = 0; i < array.length; i++) {
+            if (array[i]) {
+              ret.push(array[i]);
+            }
+          }
+          return ret;
+        }
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        castInput(value, options) {
+          return value;
+        }
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        tokenize(value, options) {
+          return Array.from(value);
+        }
+        join(chars) {
+          return chars.join("");
+        }
+        postProcess(changeObjects, options) {
+          return changeObjects;
+        }
+        get useLongestToken() {
+          return false;
+        }
+        buildValues(lastComponent, newTokens, oldTokens) {
+          const components = [];
+          let nextComponent;
+          while (lastComponent) {
+            components.push(lastComponent);
+            nextComponent = lastComponent.previousComponent;
+            delete lastComponent.previousComponent;
+            lastComponent = nextComponent;
+          }
+          components.reverse();
+          const componentLen = components.length;
+          let componentPos = 0, newPos = 0, oldPos = 0;
+          for (; componentPos < componentLen; componentPos++) {
+            const component = components[componentPos];
+            if (!component.removed) {
+              if (!component.added && this.useLongestToken) {
+                let value = newTokens.slice(newPos, newPos + component.count);
+                value = value.map(function(value2, i) {
+                  const oldValue = oldTokens[oldPos + i];
+                  return oldValue.length > value2.length ? oldValue : value2;
+                });
+                component.value = this.join(value);
+              } else {
+                component.value = this.join(newTokens.slice(newPos, newPos + component.count));
+              }
+              newPos += component.count;
+              if (!component.added) {
+                oldPos += component.count;
+              }
+            } else {
+              component.value = this.join(oldTokens.slice(oldPos, oldPos + component.count));
+              oldPos += component.count;
+            }
+          }
+          return components;
+        }
+      };
+      exports.default = Diff;
+    }
+  });
+
+  // node_modules/diff/libcjs/diff/character.js
+  var require_character = __commonJS({
+    "node_modules/diff/libcjs/diff/character.js"(exports) {
+      "use strict";
+      var __importDefault = exports && exports.__importDefault || function(mod) {
+        return mod && mod.__esModule ? mod : { "default": mod };
+      };
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.characterDiff = void 0;
+      exports.diffChars = diffChars;
+      var base_js_1 = __importDefault(require_base());
+      var CharacterDiff = class extends base_js_1.default {
+      };
+      exports.characterDiff = new CharacterDiff();
+      function diffChars(oldStr, newStr, options) {
+        return exports.characterDiff.diff(oldStr, newStr, options);
+      }
+    }
+  });
+
+  // node_modules/diff/libcjs/util/params.js
+  var require_params = __commonJS({
+    "node_modules/diff/libcjs/util/params.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.generateOptions = generateOptions;
+      function generateOptions(options, defaults) {
+        if (typeof options === "function") {
+          defaults.callback = options;
+        } else if (options) {
+          for (const name in options) {
+            if (Object.prototype.hasOwnProperty.call(options, name)) {
+              defaults[name] = options[name];
+            }
+          }
+        }
+        return defaults;
+      }
+    }
+  });
+
+  // node_modules/diff/libcjs/diff/line.js
+  var require_line = __commonJS({
+    "node_modules/diff/libcjs/diff/line.js"(exports) {
+      "use strict";
+      var __importDefault = exports && exports.__importDefault || function(mod) {
+        return mod && mod.__esModule ? mod : { "default": mod };
+      };
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.lineDiff = void 0;
+      exports.diffLines = diffLines;
+      exports.diffTrimmedLines = diffTrimmedLines;
+      exports.tokenize = tokenize;
+      var base_js_1 = __importDefault(require_base());
+      var params_js_1 = require_params();
+      var LineDiff = class extends base_js_1.default {
+        constructor() {
+          super(...arguments);
+          this.tokenize = tokenize;
+        }
+        equals(left, right, options) {
+          if (options.ignoreWhitespace) {
+            if (!options.newlineIsToken || !left.includes("\n")) {
+              left = left.trim();
+            }
+            if (!options.newlineIsToken || !right.includes("\n")) {
+              right = right.trim();
+            }
+          } else if (options.ignoreNewlineAtEof && !options.newlineIsToken) {
+            if (left.endsWith("\n")) {
+              left = left.slice(0, -1);
+            }
+            if (right.endsWith("\n")) {
+              right = right.slice(0, -1);
+            }
+          }
+          return super.equals(left, right, options);
+        }
+      };
+      exports.lineDiff = new LineDiff();
+      function diffLines(oldStr, newStr, options) {
+        return exports.lineDiff.diff(oldStr, newStr, options);
+      }
+      function diffTrimmedLines(oldStr, newStr, options) {
+        options = (0, params_js_1.generateOptions)(options, { ignoreWhitespace: true });
+        return exports.lineDiff.diff(oldStr, newStr, options);
+      }
+      function tokenize(value, options) {
+        if (options.stripTrailingCr) {
+          value = value.replace(/\r\n/g, "\n");
+        }
+        const retLines = [], linesAndNewlines = value.split(/(\n|\r\n)/);
+        if (!linesAndNewlines[linesAndNewlines.length - 1]) {
+          linesAndNewlines.pop();
+        }
+        for (let i = 0; i < linesAndNewlines.length; i++) {
+          const line = linesAndNewlines[i];
+          if (i % 2 && !options.newlineIsToken) {
+            retLines[retLines.length - 1] += line;
+          } else {
+            retLines.push(line);
+          }
+        }
+        return retLines;
+      }
+    }
+  });
+
+  // electron/services/collab/text-delta.cjs
+  var require_text_delta = __commonJS({
+    "electron/services/collab/text-delta.cjs"(exports, module) {
+      var { diffChars } = require_character();
+      var { diffLines } = require_line();
+      var CHAR_DIFF_MAX_RANGE_LENGTH = 4096;
+      var CHAR_DIFF_MAX_EDIT_LENGTH = 256;
+      var CHAR_DIFF_TIMEOUT_MS = 20;
+      var CHAR_DIFF_TOTAL_BUDGET_MS = 100;
+      var partsToHunks = (parts, start = 0) => {
+        const hunks = [];
+        let offset = start;
+        let pending = null;
+        const flush = () => {
+          if (pending) hunks.push(pending);
+          pending = null;
+        };
+        for (const part of parts) {
+          if (!part.added && !part.removed) {
+            flush();
+            offset += part.value.length;
+            continue;
+          }
+          if (!pending) pending = { start: offset, end: offset, text: "" };
+          if (part.removed) {
+            pending.end += part.value.length;
+            offset += part.value.length;
+          } else {
+            pending.text += part.value;
+          }
+        }
+        flush();
+        return hunks;
+      };
+      var textHunks = (from2, to) => {
+        const ranges = partsToHunks(diffLines(from2, to));
+        const deadline = performance.now() + CHAR_DIFF_TOTAL_BUDGET_MS;
+        const hunks = [];
+        for (const range of ranges) {
+          const remaining = deadline - performance.now();
+          if (range.end - range.start > CHAR_DIFF_MAX_RANGE_LENGTH || range.text.length > CHAR_DIFF_MAX_RANGE_LENGTH || remaining <= 0) {
+            hunks.push(range);
+            continue;
+          }
+          const parts = diffChars(from2.slice(range.start, range.end), range.text, {
+            maxEditLength: CHAR_DIFF_MAX_EDIT_LENGTH,
+            timeout: Math.min(CHAR_DIFF_TIMEOUT_MS, remaining)
+          });
+          if (parts) hunks.push(...partsToHunks(parts, range.start));
+          else hunks.push(range);
+        }
+        return hunks;
+      };
+      var applyHunks = (ytext, hunks, origin) => {
+        if (!hunks.length) return;
+        ytext.doc.transact(() => {
+          for (let i = hunks.length - 1; i >= 0; i--) {
+            const { start, end, text: text2 } = hunks[i];
+            if (end > start) ytext.delete(start, end - start);
+            if (text2) ytext.insert(start, text2);
+          }
+        }, origin);
+      };
+      var applyTextDelta = (ytext, from2, to, origin) => {
+        if (from2 === to) return;
+        applyHunks(ytext, textHunks(from2, to), origin);
+      };
+      module.exports = { textHunks, applyHunks, applyTextDelta };
+    }
+  });
+
   // node_modules/.cache/tex64-collab-vendor/entry.js
   var entry_exports = {};
   __export(entry_exports, {
@@ -52,7 +440,8 @@ var TeX64Collab = (() => {
     awarenessProtocol: () => awareness_exports,
     decoding: () => decoding_exports,
     encoding: () => encoding_exports,
-    syncProtocol: () => sync_exports
+    syncProtocol: () => sync_exports,
+    textDelta: () => import_tex64_collab_text_delta.default
   });
 
   // node_modules/yjs/dist/yjs.mjs
@@ -10634,5 +11023,8 @@ ${err.toString()}`);
     }
     return messageType;
   };
+
+  // node_modules/.cache/tex64-collab-vendor/entry.js
+  var import_tex64_collab_text_delta = __toESM(require_text_delta(), 1);
   return __toCommonJS(entry_exports);
 })();

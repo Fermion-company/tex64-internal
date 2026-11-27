@@ -17,6 +17,16 @@ const { execFileSync } = require("node:child_process");
 const repoRoot = path.resolve(__dirname, "..");
 const destination = path.join(repoRoot, "Resources", "tdom-engine");
 
+function canonicalPath(target) {
+  if (fs.existsSync(target)) return fs.realpathSync(target);
+  return path.join(canonicalPath(path.dirname(target)), path.basename(target));
+}
+
+function contains(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative);
+}
+
 async function syncTdomEngine({ sourceDir, destinationDir = destination, arch } = {}) {
   const envDir = sourceDir || (process.env.TDOM_ENGINE_DIR || process.env.TEX64_TDOM_ENGINE_DIR || "").trim();
   const candidates = envDir
@@ -36,6 +46,19 @@ async function syncTdomEngine({ sourceDir, destinationDir = destination, arch } 
         "Set TDOM_ENGINE_DIR to the checkout."
     );
     throw new Error("tdom-engine checkout not found");
+  }
+
+  const sourcePath = fs.realpathSync(source);
+  const targetPath = canonicalPath(path.resolve(destinationDir));
+  if (contains(sourcePath, targetPath) || contains(targetPath, sourcePath)) {
+    throw new Error("TDOM source and destination directories must be separate");
+  }
+  const previous = fs.lstatSync(destinationDir, { throwIfNoEntry: false });
+  if (previous && (!previous.isDirectory() || (
+    fs.readdirSync(destinationDir).length > 0 &&
+    !fs.existsSync(path.join(destinationDir, "VENDOR.json"))
+  ))) {
+    throw new Error(`Refusing to replace an existing directory without a generated TDOM bundle: ${destinationDir}`);
   }
 
   // The minimal runnable engine: everything else in the repo (corpus, paper,

@@ -58,6 +58,10 @@ const isAiModeAgentPayload = (payload: unknown): boolean => {
 };
 
 type BridgeHandlersDeps = {
+  onBlockHistorySaveError?: (invalid: boolean) => void;
+  onEmptyLiveError?: (detail: unknown) => void;
+  onPdfWindowIssue?: (message: string | null) => void;
+  checkEditorPaths?: (root: string, paths: string[]) => boolean;
   bridgeWindow: BridgeWindow;
   postToNative: (
     payload: { type: string; [key: string]: unknown },
@@ -140,6 +144,7 @@ type BridgeHandlersDeps = {
       content?: string;
       error?: string;
       source?: string;
+      requestId?: string;
       stale?: boolean;
     }) => void;
     handleBuildLog: (log: string | null) => void;
@@ -569,6 +574,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           content?: string;
           error?: string;
           source?: string;
+          requestId?: string;
           stale?: boolean;
         });
         break;
@@ -601,6 +607,12 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
             source?: { file: string; line: number; column: number } | null;
           },
         );
+        break;
+      case "pdf:emptyLiveError":
+        deps.onEmptyLiveError?.(message.payload);
+        break;
+      case "pdf:liveIssue":
+        deps.onPdfWindowIssue?.(typeof message.payload === "string" ? message.payload : null);
         break;
       case "pdf:liveSource":
         {
@@ -698,6 +710,17 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           deps.agent?.handleState?.(message.payload as AgentUiState);
         }
         break;
+      case "blocks:saveError": {
+        const payload = message.payload as { rootPath: string; invalid?: boolean };
+        if (payload.rootPath === externalWorkspaceRoot) deps.onBlockHistorySaveError?.(payload.invalid === true);
+        break;
+      }
+      case "agent:checkEditorPaths": {
+        const { requestId, root, paths } = message.payload as { requestId: string; root: string; paths: string[] };
+        const ok = Array.isArray(paths) && deps.checkEditorPaths?.(root, paths) === true;
+        deps.postToNative({ type: "agent:editorPathsResult", requestId, ok }, true);
+        break;
+      }
       case "settings:request": {
         const payload = message.payload as {
           requestId?: string;

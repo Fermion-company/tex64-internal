@@ -23,6 +23,15 @@ const orientComparison = (value, reversed) => {
 // Every changed path must participate in the synchronization acknowledgement.
 const editorContent = (bytes) => bytes && !bytes.includes(0) && Buffer.from(bytes.toString("utf8")).equals(bytes) ? bytes.toString("utf8") : null;
 
+async function currentEditorContent(root, relative) {
+  try {
+    return editorContent((await readRegular(root, relative))?.bytes);
+  } catch (error) {
+    if (error.code === "UNSAFE_PATH" || error.code === "FILE_TOO_LARGE") return null;
+    throw error;
+  }
+}
+
 class HistoryController {
   constructor(deps) {
     this.deps = deps;
@@ -126,29 +135,28 @@ class HistoryController {
       if (!op || request.token !== op.id || op.phase !== "syncing") throw fail("HISTORY_BUSY", "There is no restored editor state to acknowledge.");
       const buffers = request.buffers;
       if (!Array.isArray(op.syncFiles) || !Array.isArray(buffers)) throw fail("SYNC_REQUIRED", "The editor must confirm the restored files before editing resumes.");
-      for (const file of op.syncFiles || []) {
+      for (const file of op.syncFiles) {
         const buffer = buffers.find((item) => item.path === file.path);
-        if (buffer && (file.content === null || buffer.content !== file.content || buffer.savedContent !== file.content)) {
-          throw fail("SYNC_REQUIRED", "An editor still contains the previous version. Keep this window open and retry synchronization.");
+        if (!buffer) continue;
+        if (file.content === null || buffer.content !== file.content || buffer.savedContent !== file.content ||
+            await currentEditorContent(store.root, file.path) !== file.content) {
+          throw fail("SYNC_REQUIRED", "The editor and the file on disk differ. Keep this window open and retry synchronization.");
         }
       }
+      if (this.operation !== op) throw fail("HISTORY_BUSY", "The project operation changed.");
       this.operation = null; this.emit(); return {};
     }
     if (action === "sync") {
       const op = this.operation;
       if (!op || op.phase !== "syncing") throw fail("HISTORY_BUSY", "There is no restored state to synchronize.");
-      if (!Array.isArray(op.syncFiles)) {
-        if (!Array.isArray(op.syncOperations)) throw fail("SYNC_REQUIRED", "The restored files are not ready to synchronize. Keep this project protected.");
-        const files = [];
-        for (const item of op.syncOperations) {
-          if (!item.modified) files.push({ path: item.path, content: null });
-          else {
-            const bytes = await store.blob(item.modified.blob);
-            files.push({ path: item.path, content: editorContent(bytes) });
-          }
-        }
-        op.syncFiles = files;
+      const affected = op.syncOperations ?? op.syncFiles;
+      if (!Array.isArray(affected)) throw fail("SYNC_REQUIRED", "The restored files are not ready to synchronize. Keep this project protected.");
+      const files = [];
+      for (const item of affected) {
+        files.push({ path: item.path, content: await currentEditorContent(store.root, item.path) });
       }
+      if (this.operation !== op) throw fail("HISTORY_BUSY", "The project operation changed.");
+      op.syncFiles = files;
       await this.deps.afterRestore(op.syncOperations || []);
       return { token: op.id, files: op.syncFiles };
     }
@@ -158,8 +166,7 @@ class HistoryController {
       const files = [];
       for (const buffer of request.buffers || []) {
         if (protectedReason(buffer.path)) continue;
-        const file = await readRegular(store.root, buffer.path);
-        files.push({ path: buffer.path, content: editorContent(file?.bytes) });
+        files.push({ path: buffer.path, content: await currentEditorContent(store.root, buffer.path) });
       }
       await this.refreshBoundary(store);
       this.operation.syncFiles = files;

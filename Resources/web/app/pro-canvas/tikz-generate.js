@@ -98,7 +98,7 @@ export const generateTikz = (scene) => {
             return "fill";
         if ((effective.fill !== null || effective.pattern) && effective.draw !== null)
             return "filldraw";
-        return "draw";
+        return effective.draw === null ? "path" : "draw";
     };
     const withOptions = (name, options) => `\\${name}${options.length ? `[${options.join(", ")}]` : ""}`;
     const transformKeys = (t) => {
@@ -217,7 +217,14 @@ export const generateTikz = (scene) => {
         }
         const options = objectOptions(object.style);
         if (object.type === "node") {
-            options.unshift(`anchor=${object.anchor}`);
+            // The canvas offers left/centre/right alignment on the text baseline.
+            // PGF's rectangle shape has a single "text" anchor at the left origin.
+            if (object.anchor === "text east")
+                options.unshift("anchor=base east", "inner xsep=0pt", "outer xsep=0pt");
+            else if (object.anchor === "text west")
+                options.unshift("anchor=text");
+            else
+                options.unshift(`anchor=${object.anchor === "text" ? "base" : object.anchor}`);
             const font = nodeFontOption(object.fontFamily, object.fontSize, object.fontShape, object.fontWeight, object.monospace);
             if (font)
                 options.push(font);

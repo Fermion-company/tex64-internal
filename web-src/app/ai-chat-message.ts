@@ -33,7 +33,7 @@ const renderMathInText = (html: string): string => {
     try {
       return katex.renderToString(expr.trim(), { displayMode, throwOnError: false });
     } catch {
-      return `<code>${expr}</code>`;
+      return `<code>${escapeHtml(expr)}</code>`;
     }
   };
   // Display math first: $$...$$ and \[...\]
@@ -212,6 +212,11 @@ const stripFileCitations = (text: string): string => {
   });
 };
 
+type InlineToken = { text: string; tokens?: unknown[] };
+type InlineContext = { parser?: { parseInline(tokens: unknown[]): string } };
+const inline = (context: InlineContext, token: InlineToken) =>
+  token.tokens && context.parser ? context.parser.parseInline(token.tokens) : escapeHtml(token.text);
+
 const configureMarked = () => {
   const renderer = {
     code(token: { text: string; lang?: string }): string {
@@ -238,13 +243,10 @@ const configureMarked = () => {
       return escapeHtml(token.text);
     },
     link(
-      this: { parser?: { parseInline(tokens: unknown[]): string } },
+      this: InlineContext,
       token: { href: string; title?: string | null; text: string; tokens?: unknown[] },
     ): string {
-      const label =
-        token.tokens && typeof this.parser?.parseInline === "function"
-          ? this.parser.parseInline(token.tokens)
-          : escapeHtml(token.text);
+      const label = inline(this, token);
       const href = token.href ?? "";
       if (href.startsWith(FILE_LINK_SCHEME)) {
         const encoded = href.slice(FILE_LINK_SCHEME.length);
@@ -265,23 +267,23 @@ const configureMarked = () => {
       }
       return label;
     },
-    heading(token: { text: string; depth: number }): string {
+    heading(this: InlineContext, token: InlineToken & { depth: number }): string {
       const level = Math.min(3, token.depth);
-      return `<h${level} class="ai-md-heading ai-md-heading-${level}">${token.text}</h${level}>`;
+      return `<h${level} class="ai-md-heading ai-md-heading-${level}">${inline(this, token)}</h${level}>`;
     },
     list(this: { parser: { parse(tokens: unknown[]): string } }, token: { ordered: boolean; items: { tokens: unknown[] }[] }): string {
       const tag = token.ordered ? "ol" : "ul";
       const items = token.items.map((item) => `<li>${this.parser.parse(item.tokens)}</li>`).join("");
       return `<${tag} class="ai-md-list">${items}</${tag}>`;
     },
-    table(token: {
-      header: { text: string; align: string | null }[];
-      rows: { text: string; align: string | null }[][];
+    table(this: InlineContext, token: {
+      header: (InlineToken & { align: string | null })[];
+      rows: (InlineToken & { align: string | null })[][];
     }): string {
       const ths = token.header
         .map((h) => {
           const align = h.align ? ` style="text-align:${h.align}"` : "";
-          return `<th${align}>${h.text}</th>`;
+          return `<th${align}>${inline(this, h)}</th>`;
         })
         .join("");
       const bodyRows = token.rows
@@ -289,7 +291,7 @@ const configureMarked = () => {
           const tds = row
             .map((cell) => {
               const align = cell.align ? ` style="text-align:${cell.align}"` : "";
-              return `<td${align}>${cell.text}</td>`;
+              return `<td${align}>${inline(this, cell)}</td>`;
             })
             .join("");
           return `<tr>${tds}</tr>`;
@@ -738,7 +740,7 @@ export const createMessageElement = (message: ChatMessage, options: MessageRende
       bar.className = "ai-queued-bar";
       const label = document.createElement("span");
       label.className = "ai-queued-label";
-      label.textContent = aiText("queued");
+      label.textContent = aiText(message.manualRetry ? "unsent" : "queued");
       const sendNow = document.createElement("button");
       sendNow.type = "button";
       sendNow.className = "ai-queued-action";

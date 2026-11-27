@@ -16,6 +16,7 @@
   "dependencies": {
     "@ai-sdk/gateway": "^4.0.51",
     "@ai-sdk/openai": "^4.0.41",
+    "@fontsource-variable/noto-serif-jp": "5.3.1",
     "@vercel/blob": "^2.7.0",
     "@vercel/sandbox": "^2.9.2",
     "ai": "^7.0.64",

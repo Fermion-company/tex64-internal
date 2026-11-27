@@ -7,6 +7,15 @@ export const initMathCapture = (context, deps) => {
     };
     let sources = [];
     let selectedSource = null;
+    let captureVersion = 0;
+    let recognition = null;
+    const cancelRecognition = () => {
+        if (!recognition)
+            return;
+        recognition.abort();
+        recognition = null;
+        deps.captureUi.setCropBusy(false);
+    };
     let dragStart = { x: 0, y: 0 };
     let selection = { x: 0, y: 0, width: 0, height: 0 };
     const captureIssueMessages = new Set([
@@ -39,8 +48,9 @@ export const initMathCapture = (context, deps) => {
         if (!(mathCaptureCropImage instanceof HTMLImageElement))
             return null;
         const rect = mathCaptureCropCanvas.getBoundingClientRect();
-        const naturalWidth = mathCaptureCropImage.naturalWidth || 1;
-        const naturalHeight = mathCaptureCropImage.naturalHeight || 1;
+        const { naturalWidth, naturalHeight } = mathCaptureCropImage;
+        if (!rect.width || !rect.height || !naturalWidth || !naturalHeight)
+            return null;
         const canvasWidth = rect.width;
         const canvasHeight = rect.height;
         const imageAspect = naturalWidth / naturalHeight;
@@ -93,6 +103,9 @@ export const initMathCapture = (context, deps) => {
         if (selection.width < 2 || selection.height < 2) {
             mathCaptureCropSelection.style.display = "none";
             mathCaptureCropGuide.style.display = "none";
+            if (mathCaptureCropSize && mathCaptureCropImage instanceof HTMLImageElement && mathCaptureCropImage.complete && mathCaptureCropImage.naturalWidth) {
+                mathCaptureCropSize.textContent = `${mathCaptureCropImage.naturalWidth} × ${mathCaptureCropImage.naturalHeight}`;
+            }
             return;
         }
         mathCaptureCropSelection.style.display = "block";
@@ -108,7 +121,7 @@ export const initMathCapture = (context, deps) => {
         const geometry = resolveImageGeometry();
         if (!geometry || !(mathCaptureCropSize instanceof HTMLElement))
             return;
-        const { offsetX, offsetY, displayWidth, displayHeight, naturalWidth, naturalHeight } = geometry;
+        const { displayWidth, displayHeight, naturalWidth, naturalHeight } = geometry;
         const scaleX = naturalWidth / displayWidth;
         const scaleY = naturalHeight / displayHeight;
         const cropWidth = Math.max(0, Math.round(selection.width * scaleX));
@@ -156,42 +169,47 @@ export const initMathCapture = (context, deps) => {
         return canvas.toDataURL("image/png");
     };
     const isPermissionDenied = (status) => status === "denied" || status === "restricted";
-    const showPermissionGuideIfNeeded = async () => {
+    const showPermissionGuideIfNeeded = async (version) => {
         const captureApi = getCaptureApi();
         if (!(captureApi === null || captureApi === void 0 ? void 0 : captureApi.checkPermission)) {
             // No permission API available (non-macOS or older Electron) — skip
             return false;
         }
         const status = await captureApi.checkPermission().catch(() => "unknown");
+        if (version !== captureVersion)
+            return true;
         if (isPermissionDenied(status)) {
             deps.captureUi.showPermissionGuide();
             return true;
         }
         return false;
     };
-    const fetchSources = async () => {
+    const fetchSources = async (version) => {
         const captureApi = getCaptureApi();
         if (!(captureApi === null || captureApi === void 0 ? void 0 : captureApi.listSources)) {
             setStatus("Screen capture is not available. Please confirm permission for screen recording.");
             return false;
         }
         try {
-            sources = await captureApi.listSources({
+            const listed = await captureApi.listSources({
                 thumbnailSize: { width: 480, height: 270 },
             });
+            if (version !== captureVersion)
+                return false;
+            sources = listed;
         }
         catch {
             // List failed — check if it's a permission issue
-            const guided = await showPermissionGuideIfNeeded();
-            if (!guided) {
+            const guided = await showPermissionGuideIfNeeded(version);
+            if (!guided && version === captureVersion) {
                 setStatus("Failed to get window list. Please confirm permission for screen recording.");
             }
             return false;
         }
         if (sources.length === 0) {
             // Empty sources — likely permission denied (macOS returns [] when denied)
-            const guided = await showPermissionGuideIfNeeded();
-            if (!guided) {
+            const guided = await showPermissionGuideIfNeeded(version);
+            if (!guided && version === captureVersion) {
                 setStatus("There are no retrievable windows. Please confirm permission for screen recording.");
             }
             return false;
@@ -200,14 +218,16 @@ export const initMathCapture = (context, deps) => {
     };
     const openCapture = async () => {
         var _a;
+        cancelRecognition();
+        const version = ++captureVersion;
         clearCaptureIssues();
         // Pre-check permission before attempting to list sources
-        const permissionBlocked = await showPermissionGuideIfNeeded();
-        if (permissionBlocked) {
+        const permissionBlocked = await showPermissionGuideIfNeeded(version);
+        if (permissionBlocked || version !== captureVersion) {
             return;
         }
-        const ok = await fetchSources();
-        if (!ok) {
+        const ok = await fetchSources(version);
+        if (!ok || version !== captureVersion) {
             return;
         }
         deps.captureUi.openWindowPicker(sources, (_a = selectedSource === null || selectedSource === void 0 ? void 0 : selectedSource.id) !== null && _a !== void 0 ? _a : null);
@@ -223,19 +243,28 @@ export const initMathCapture = (context, deps) => {
             openCapture();
         },
         onWindowSelect: async (id) => {
-            var _a;
+            var _a, _b;
+            const version = ++captureVersion;
             selectedSource = (_a = sources.find((source) => source.id === id)) !== null && _a !== void 0 ? _a : null;
             if (!selectedSource)
                 return;
-            if (!selectedSource.thumbnailUrl) {
-                setStatus("Failed to obtain thumbnail of selected screen. Please select another screen.");
-                return;
+            const captureApi = getCaptureApi();
+            const hasPreview = Boolean(selectedSource.thumbnailUrl);
+            if (!hasPreview) {
+                // An enumerated window can have no list thumbnail and still be capturable.
+                const image = await ((_b = captureApi === null || captureApi === void 0 ? void 0 : captureApi.captureHighRes) === null || _b === void 0 ? void 0 : _b.call(captureApi, id).catch(() => null));
+                if (captureVersion !== version)
+                    return;
+                if (!(image === null || image === void 0 ? void 0 : image.thumbnailUrl)) {
+                    setStatus("Failed to obtain thumbnail of selected screen. Please select another screen.");
+                    return;
+                }
+                selectedSource = { ...selectedSource, ...image };
             }
             deps.captureUi.closeWindowPicker();
             // Show cropper immediately with picker thumbnail, then upgrade to high-res
-            let imageUrl = selectedSource.thumbnailUrl;
-            let sizeWidth = selectedSource.width;
-            let sizeHeight = selectedSource.height;
+            const { thumbnailUrl: imageUrl, width: sizeWidth, height: sizeHeight } = selectedSource;
+            cachedGeometry = null;
             deps.captureUi.openCropper({
                 imageUrl,
                 sizeLabel: sizeWidth && sizeHeight
@@ -250,18 +279,16 @@ export const initMathCapture = (context, deps) => {
             }
             resetSelection();
             // Upgrade to high-res capture in background
-            const captureApi = getCaptureApi();
-            if (captureApi === null || captureApi === void 0 ? void 0 : captureApi.captureHighRes) {
+            if (hasPreview && (captureApi === null || captureApi === void 0 ? void 0 : captureApi.captureHighRes)) {
                 try {
                     const hiRes = await captureApi.captureHighRes(id);
+                    if (captureVersion !== version)
+                        return;
                     if ((hiRes === null || hiRes === void 0 ? void 0 : hiRes.thumbnailUrl) && mathCaptureCropImage instanceof HTMLImageElement) {
                         mathCaptureCropImage.onload = () => {
                             cacheGeometry();
                             // Preserve existing selection after image swap
                             updateSelectionUi();
-                            if (hiRes.width && hiRes.height) {
-                                deps.captureUi.setCropSizeLabel(`${hiRes.width} × ${hiRes.height}`);
-                            }
                         };
                         mathCaptureCropImage.src = hiRes.thumbnailUrl;
                         if (selectedSource) {
@@ -276,13 +303,17 @@ export const initMathCapture = (context, deps) => {
             }
         },
         onWindowCancel: () => {
+            captureVersion++;
             selectedSource = null;
         },
         onCropRetry: () => {
-            // User requested: "Back" closes entire flow, not return to picker
-            deps.captureUi.closeCropper();
+            var _a;
+            cancelRecognition();
+            captureVersion++;
+            deps.captureUi.openWindowPicker(sources, (_a = selectedSource === null || selectedSource === void 0 ? void 0 : selectedSource.id) !== null && _a !== void 0 ? _a : null);
         },
         onCropCancel: () => {
+            cancelRecognition();
             // User requested: "Esc cancels current crop, but screen shouldn't close"
             if (selection.width > 0 || selection.height > 0) {
                 resetSelection();
@@ -290,18 +321,25 @@ export const initMathCapture = (context, deps) => {
         },
         onCropApply: async () => {
             var _a;
+            if (recognition)
+                return;
             const dataUrl = cropToDataUrl();
             if (!dataUrl) {
                 setStatus("Cutting failed.");
                 return;
             }
-            // Show loading state while OCR processes
+            const request = new AbortController();
+            recognition = request;
             deps.captureUi.setCropBusy(true, "Recognizing…");
             try {
                 const result = await deps.onCaptureImage(dataUrl, (current, total) => {
-                    deps.captureUi.setCropBusy(true, `Recognizing… (${current}/${total})`);
-                });
+                    if (!request.signal.aborted)
+                        deps.captureUi.setCropBusy(true, `Recognizing… (${current}/${total})`);
+                }, request.signal);
+                if (request.signal.aborted)
+                    return;
                 if (result.ok) {
+                    captureVersion++;
                     deps.captureUi.closeCropper();
                 }
                 else {
@@ -310,10 +348,14 @@ export const initMathCapture = (context, deps) => {
                 }
             }
             catch {
-                deps.captureUi.setCropError("Recognition failed");
+                if (!request.signal.aborted)
+                    deps.captureUi.setCropError("Recognition failed");
             }
             finally {
-                deps.captureUi.setCropBusy(false);
+                if (recognition === request) {
+                    recognition = null;
+                    deps.captureUi.setCropBusy(false);
+                }
             }
         },
     });
@@ -323,7 +365,29 @@ export const initMathCapture = (context, deps) => {
     let cachedGeometry = null;
     let rafPending = false;
     const cacheGeometry = () => {
-        cachedGeometry = resolveImageGeometry();
+        const next = resolveImageGeometry();
+        if (!next)
+            return;
+        const old = cachedGeometry;
+        cachedGeometry = next;
+        if (!old || (old.displayWidth === next.displayWidth && old.displayHeight === next.displayHeight
+            && old.offsetX === next.offsetX && old.offsetY === next.offsetY))
+            return;
+        // Keep the selected pixels when the window or preview changes size.
+        const scaleX = next.displayWidth / old.displayWidth;
+        const scaleY = next.displayHeight / old.displayHeight;
+        const position = (point) => ({
+            x: next.offsetX + (point.x - old.offsetX) * scaleX,
+            y: next.offsetY + (point.y - old.offsetY) * scaleY,
+        });
+        const rectangle = (area) => ({
+            ...position(area), width: area.width * scaleX, height: area.height * scaleY,
+        });
+        selection = rectangle(selection);
+        if (interactionMode !== "idle") {
+            startSelection = rectangle(startSelection);
+            dragStart = position(dragStart);
+        }
     };
     const stopInteraction = (pointerId) => {
         if (!(mathCaptureCropCanvas instanceof HTMLElement)) {
@@ -344,6 +408,13 @@ export const initMathCapture = (context, deps) => {
         updateSelectionUi();
     };
     if (mathCaptureCropCanvas instanceof HTMLElement) {
+        new ResizeObserver(() => {
+            var _a;
+            if (!((_a = context.dom.mathCaptureCropModal) === null || _a === void 0 ? void 0 : _a.classList.contains("is-open")))
+                return;
+            cacheGeometry();
+            updateSelectionUi();
+        }).observe(mathCaptureCropCanvas);
         mathCaptureCropCanvas.addEventListener("pointerdown", (event) => {
             if (event.button !== 0) {
                 return;

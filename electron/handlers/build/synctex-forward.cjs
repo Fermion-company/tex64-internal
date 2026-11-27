@@ -1,5 +1,5 @@
 const path = require("path");
-const { resolveInputLineTarget } = require("../../services/tex-input-target.cjs");
+const { resolveDocumentInputLineTarget } = require("../../services/tex-input-target.cjs");
 
 const createSynctexForwardHandler = (deps, resolvers) => {
   const { fs, pdfWindowManager, synctexService, sendToRenderer, ensureWorkspace, state, delay, resolveJumpDocument } = deps;
@@ -107,34 +107,6 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       }
     }
     return { line: lineNumber, toEnd: false };
-  };
-
-  // The file an \input / \include / \subfile line reads, if it exists. TeX
-  // resolves the name against the directory it runs in: the project root,
-  // which is also the PDF's unless the build writes to an output directory.
-  const includedFileOnLine = (sourcePath, lineNumber, baseDirs) => {
-    let text;
-    try {
-      text = fs.readFileSync(sourcePath, "utf8").split(/\r?\n/)[lineNumber - 1];
-    } catch {
-      return null;
-    }
-    if (typeof text !== "string") return null;
-    const code = text.replace(/(^|[^\\])%.*$/, "$1");
-    const match = /\\(?:input|include|subfile)\s*\{([^}]+)\}/.exec(code);
-    if (!match) return null;
-    const name = match[1].trim();
-    for (const base of baseDirs) {
-      for (const candidate of [name, `${name}.tex`]) {
-        const full = path.resolve(base, candidate);
-        try {
-          if (fs.statSync(full).isFile()) return full;
-        } catch {
-          // try the next spelling or directory
-        }
-      }
-    }
-    return null;
   };
 
   const readMtimeMs = (targetPath) => {
@@ -279,12 +251,8 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       }));
       return;
     }
-    // A line that only reads a file means the start of that file. The
-    // document is still the one the line belongs to.
-    const inputTarget = forwardSource === "manual"
-      ? resolveInputLineTarget(rootPath, message.path, message.line)
-      : null;
-    const sourcePath = resolveWorkspacePathFromRoot(rootPath, inputTarget?.path ?? message.path);
+    let sourcePath = resolveWorkspacePathFromRoot(rootPath, message.path);
+    let mainFile = null;
     // Which document's PDF: the one a Build of this file would write. An
     // explicit pdfPath (a tex64:// link, an older caller) is honoured as is.
     let pdfPath = message.pdfPath ? resolveWorkspacePathFromRoot(rootPath, message.pdfPath) : null;
@@ -318,6 +286,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         }));
         return;
       }
+      mainFile = document?.targetFile ?? null;
       pdfPath = document?.pdfPath ?? null;
     }
     if (!pdfPath) pdfPath = state.lastBuildPdfPath;
@@ -342,6 +311,27 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       }));
       return;
     }
+    // Explicit PDF links can bypass build-target selection. Its SyncTeX header
+    // identifies the actual root even when the PDF lives in an output folder.
+    const getDocument = () => {
+      if (mainFile) return mainFile;
+      const sync = synctexService.findSynctexOutputPath?.(pdfPath);
+      const inputs = sync && synctexService.loadForwardIndex?.(sync)?.inputs;
+      if (!inputs?.size) return null;
+      const root = fs.realpathSync(rootPath);
+      const owner = fs.realpathSync(inputs.get(Math.min(...inputs.keys())));
+      mainFile = resolveWorkspaceRelativePath(root, owner)?.split(path.sep).join("/") ?? null;
+      return mainFile;
+    };
+    const resolveInclude = async (absolute, line) => {
+      const relative = resolveWorkspaceRelativePath(rootPath, absolute);
+      if (!relative) return null;
+      try { return await resolveDocumentInputLineTarget(rootPath, relative.split(path.sep).join("/"), line, getDocument); }
+      catch { return null; }
+    };
+    const inputTarget = forwardSource === "manual" ? await resolveInclude(sourcePath, message.line) : null;
+    if (isStaleRequest()) return;
+    if (inputTarget) sourcePath = resolveWorkspacePathFromRoot(rootPath, inputTarget.path);
     redirected = inputTarget;
     const line = Number.parseInt(inputTarget?.line ?? message.line, 10);
     const column = inputTarget ? 1 : Number.parseInt(message.column, 10);
@@ -496,11 +486,8 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         // where that file's output begins (or ends, from the blank line
         // after it). The line itself only marks where TeX came back from
         // the file, often the last page.
-        const included = includedFileOnLine(sourcePath, anchor.line, [
-          rootPath,
-          path.dirname(pdfPath),
-          path.dirname(sourcePath),
-        ]);
+        const nested = await resolveInclude(sourcePath, anchor.line);
+        const included = nested && resolveWorkspacePathFromRoot(rootPath, nested.path);
         if (included) {
           let lastLine = 1;
           try {
@@ -861,7 +848,12 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     }
   };
 
-  return { handleSynctexForward, handleSynctexForwardBatch };
+  const clearSynctexWorkspace = () => {
+    synctexForwardGeneration += 1;
+    synctexForwardResultCache.clear();
+    synctexService.clearWorkspaceCaches();
+  };
+  return { handleSynctexForward, handleSynctexForwardBatch, clearSynctexWorkspace };
 };
 
 module.exports = { createSynctexForwardHandler };

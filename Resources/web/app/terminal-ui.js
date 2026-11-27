@@ -31,6 +31,8 @@ export const initTerminalUi = (context) => {
     const bridge = window.tex64Terminal;
     const globals = window;
     const groups = [];
+    let workspace = null;
+    const lastPane = new Map();
     const sessionsById = new Map();
     // PTY output can arrive before invoke(create) resolves. Subscribe once, before
     // any spawn, and replay those early events when its id becomes known.
@@ -84,6 +86,10 @@ export const initTerminalUi = (context) => {
     const render = () => {
         tabs.replaceChildren();
         for (const group of groups) {
+            if (group.workspace !== workspace) {
+                group.panes.forEach((pane) => { pane.element.hidden = true; });
+                continue;
+            }
             const item = document.createElement("div");
             item.className = "terminal-tab";
             item.classList.toggle("is-active", group === activeGroup);
@@ -286,7 +292,7 @@ export const initTerminalUi = (context) => {
         session.element.remove();
     };
     const closeSession = (session) => {
-        var _a, _b;
+        var _a, _b, _c;
         const group = groups.find((entry) => entry.panes.includes(session));
         if (!group)
             return;
@@ -295,21 +301,23 @@ export const initTerminalUi = (context) => {
         if (!group.panes.length) {
             const index = groups.indexOf(group);
             groups.splice(index, 1);
-            if (activeGroup === group)
-                activeGroup = (_a = groups[Math.max(0, index - 1)]) !== null && _a !== void 0 ? _a : null;
+            if (activeGroup === group) {
+                activeGroup = (_b = (_a = groups.slice(0, index).reverse().find((entry) => entry.workspace === workspace)) !== null && _a !== void 0 ? _a : groups.find((entry) => entry.workspace === workspace)) !== null && _b !== void 0 ? _b : null;
+            }
         }
         if (activeSession === session)
-            activeSession = (_b = activeGroup === null || activeGroup === void 0 ? void 0 : activeGroup.panes[0]) !== null && _b !== void 0 ? _b : null;
+            activeSession = (_c = activeGroup === null || activeGroup === void 0 ? void 0 : activeGroup.panes[0]) !== null && _c !== void 0 ? _c : null;
         render();
         focus();
     };
     const create = (cwd) => {
+        var _a;
         if (disposed)
             return;
-        const session = makeSession(cwd);
+        const session = makeSession((_a = cwd !== null && cwd !== void 0 ? cwd : workspace) !== null && _a !== void 0 ? _a : undefined);
         if (!session)
             return;
-        const group = { number: nextNumber++, panes: [session] };
+        const group = { number: nextNumber++, workspace, panes: [session] };
         groups.push(group);
         activeGroup = group;
         activeSession = session;
@@ -319,13 +327,14 @@ export const initTerminalUi = (context) => {
         focus();
     };
     const split = () => {
+        var _a, _b;
         if (!activeGroup) {
             create();
             return;
         }
         if (activeGroup.panes.length >= 2)
             return;
-        const session = makeSession();
+        const session = makeSession((_b = (_a = activeSession === null || activeSession === void 0 ? void 0 : activeSession.cwd) !== null && _a !== void 0 ? _a : workspace) !== null && _b !== void 0 ? _b : undefined);
         if (!session)
             return;
         activeGroup.panes.push(session);
@@ -405,11 +414,27 @@ export const initTerminalUi = (context) => {
         for (const session of allSessions())
             destroySession(session);
         groups.length = 0;
+        lastPane.clear();
         early.clear();
     };
     window.addEventListener("beforeunload", dispose);
     return {
-        show: () => { visible = true; if (!groups.length)
+        setWorkspace: (root) => {
+            var _a, _b, _c;
+            if (root === workspace || disposed)
+                return;
+            if (activeSession)
+                lastPane.set(workspace, activeSession);
+            workspace = root;
+            const previous = lastPane.get(root);
+            lastPane.delete(root);
+            activeGroup = (_b = (_a = groups.find((group) => group.workspace === root && previous && group.panes.includes(previous))) !== null && _a !== void 0 ? _a : groups.find((group) => group.workspace === root)) !== null && _b !== void 0 ? _b : null;
+            activeSession = activeGroup && previous && activeGroup.panes.includes(previous) ? previous : (_c = activeGroup === null || activeGroup === void 0 ? void 0 : activeGroup.panes[0]) !== null && _c !== void 0 ? _c : null;
+            render();
+            if (visible && root && !activeGroup)
+                create();
+        },
+        show: () => { visible = true; if (!activeGroup)
             create(); scheduleFit(); focus(); },
         hide: () => { visible = false; bridge === null || bridge === void 0 ? void 0 : bridge.setFocused(false); },
         create, split, restart, dispose,

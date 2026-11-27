@@ -8,7 +8,7 @@ const LANGUAGE_ID_ALIASES = {
     vue: "html", svelte: "html", astro: "html", erb: "html",
     mm: "objective-c",
 };
-export const createEditorSessionBufferOps = (runtime, coreOps) => {
+export const createEditorSessionBufferOps = (runtime, coreOps, onDirtyChanged) => {
     let languageLookup = null;
     let registeredLanguageIds = null;
     const getLanguageIdForPath = (path) => {
@@ -86,6 +86,13 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
         return runtime.emptyEditorModel;
     };
     const clearEditorView = (group) => {
+        // A workspace change can dispose the composing model before Monaco's
+        // compositionend callback. Its candidate and tab action belong to that model.
+        group.isComposing = false;
+        group.compositionText = "";
+        group.composingFilePath = null;
+        delete group.compositionBaseline;
+        group.pendingCompositionAction = null;
         if (!group.editor) {
             return;
         }
@@ -103,8 +110,9 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
         }
         // Blur will trigger compositionend which handles recovery
         group.pendingCompositionAction = action;
-        const input = (_a = group.editorHost) === null || _a === void 0 ? void 0 : _a.querySelector("textarea.inputarea");
-        input === null || input === void 0 ? void 0 : input.blur();
+        const input = document.activeElement;
+        if (input instanceof HTMLElement && ((_a = group.editorHost) === null || _a === void 0 ? void 0 : _a.contains(input)))
+            input.blur();
     };
     const handleCompositionEnd = (group) => {
         if (!group.pendingCompositionAction) {
@@ -124,7 +132,7 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
         const baseSaved = (_b = savedContent !== null && savedContent !== void 0 ? savedContent : entry === null || entry === void 0 ? void 0 : entry.savedContent) !== null && _b !== void 0 ? _b : groupSavedContent;
         // Monaco hides the BOM by default. Compare the same complete UTF-8 text
         // that the save path reads, including a BOM when the model carries one.
-        if (entry === null || entry === void 0 ? void 0 : entry.plainText)
+        if (entry && (entry.plainText || (baseSaved === null || baseSaved === void 0 ? void 0 : baseSaved.charCodeAt(0)) === 0xfeff))
             content = entry.model.getValue(undefined, true);
         if (baseSaved === undefined) {
             // No saved reference exists — treat content itself as saved baseline
@@ -150,8 +158,11 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
                 group.isDirty = runtime.dirtyFiles.has(path);
             }
         });
-        if (wasDirty !== runtime.dirtyFiles.has(path))
+        const dirty = runtime.dirtyFiles.has(path);
+        if (wasDirty !== dirty) {
+            onDirtyChanged === null || onDirtyChanged === void 0 ? void 0 : onDirtyChanged(path, dirty);
             window.dispatchEvent(new Event("tex64:dirty-state-changed"));
+        }
     };
     const storeViewState = (group, path) => {
         if (!group.editor) {

@@ -10,6 +10,7 @@ import { PromptAtom } from '../atoms/prompt';
 import { getLocalDOMRect } from 'editor-mathfield/utils';
 import { _Mathfield } from 'editor-mathfield/mathfield-private';
 import { deleteRange } from './delete';
+import { range } from './selection-utils';
 
 /*
  * Calculates the offset of the "next word".
@@ -117,6 +118,13 @@ export function skip(
   direction: 'forward' | 'backward',
   options?: { extend?: boolean; delete?: boolean }
 ): boolean {
+  if (options?.delete && !model.selectionIsCollapsed) {
+    return deleteRange(
+      model,
+      range(model.selection),
+      direction === 'forward' ? 'deleteWordForward' : 'deleteWordBackward'
+    );
+  }
   const previousPosition = model.position;
 
   if (!(options?.extend ?? false)) model.collapseSelection(direction);

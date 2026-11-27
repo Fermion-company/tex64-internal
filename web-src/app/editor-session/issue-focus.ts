@@ -36,6 +36,8 @@ export const createEditorSessionIssueFocusOps = (
       issueOps.clearIssueHighlight();
       navigationOps.jumpToFileLine(detail.path, detail.line, targetKey, {
         className,
+        column: detail.column ?? undefined,
+        issueMessage: detail.message,
         force: true,
       });
       return;
@@ -71,7 +73,7 @@ export const createEditorSessionIssueFocusOps = (
       },
     ]);
     editor.revealLineInCenter(detail.line);
-    editor.setPosition({ lineNumber: detail.line, column: 1 });
+    editor.setPosition({ lineNumber: detail.line, column: detail.column ?? 1 });
     editor.focus();
   };
 

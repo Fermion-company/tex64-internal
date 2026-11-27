@@ -2,13 +2,31 @@ const MAX_DIFF_CELLS = 4000000;
 export const buildLineDiff = (beforeLines, afterLines) => {
     const rows = beforeLines.length;
     const cols = afterLines.length;
-    // Guard: fall back to naive diff for very large files to avoid memory exhaustion
+    // Keep unchanged ends of long manuscripts out of the quadratic LCS table.
     if (rows * cols > MAX_DIFF_CELLS) {
-        const diff = [];
-        for (const line of beforeLines)
-            diff.push({ type: "del", line });
-        for (const line of afterLines)
-            diff.push({ type: "add", line });
+        let first = 0;
+        let beforeEnd = rows;
+        let afterEnd = cols;
+        while (first < beforeEnd && first < afterEnd && beforeLines[first] === afterLines[first])
+            first++;
+        while (beforeEnd > first && afterEnd > first && beforeLines[beforeEnd - 1] === afterLines[afterEnd - 1]) {
+            beforeEnd--;
+            afterEnd--;
+        }
+        const diff = beforeLines.slice(0, first).map(line => ({ type: "same", line }));
+        if (beforeEnd > first && afterEnd > first && (beforeEnd - first) * (afterEnd - first) <= MAX_DIFF_CELLS) {
+            for (const entry of buildLineDiff(beforeLines.slice(first, beforeEnd), afterLines.slice(first, afterEnd)))
+                diff.push(entry);
+        }
+        else {
+            // Isolate the fallback to the remaining changed region.
+            for (let i = first; i < beforeEnd; i++)
+                diff.push({ type: "del", line: beforeLines[i] });
+            for (let j = first; j < afterEnd; j++)
+                diff.push({ type: "add", line: afterLines[j] });
+        }
+        for (let i = beforeEnd; i < rows; i++)
+            diff.push({ type: "same", line: beforeLines[i] });
         return diff;
     }
     const table = Array.from({ length: rows + 1 }, () => Array(cols + 1).fill(0));

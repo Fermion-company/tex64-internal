@@ -15,6 +15,7 @@ type EditorGroupKey = "primary" | "secondary";
 type FileTreeRenderDeps = {
   contextMenu: ContextMenuApi;
   getWorkspaceName: () => string;
+  getWorkspaceRootKey: () => string | null;
   getWorkspaceFiles: () => string[];
   getWorkspaceFolders: () => string[];
   getActiveFilePath: () => string | null;
@@ -97,7 +98,7 @@ export const createFileTreeRenderer = ({
         });
         summary.addEventListener("dragstart", (event) => {
           const dragEvent = event as DragEvent;
-          const payload: DragPayload = { path: node.path, kind: "dir" };
+          const payload: DragPayload = { path: node.path, kind: "dir", workspaceRoot: deps.getWorkspaceRootKey() };
           setDragData(dragEvent, payload);
           actions.setDragPayload(payload);
           summary.classList.add("is-dragging");
@@ -109,9 +110,10 @@ export const createFileTreeRenderer = ({
         });
         summary.addEventListener("dragover", (event) => {
           const dragEvent = event as DragEvent;
-          dragEvent.stopPropagation();
           const payload = actions.getDragPayload() ?? getDragData(dragEvent);
-          if (!payload || !canDropOnFolder(payload, node.path)) {
+          if (!payload) return;
+          dragEvent.stopPropagation();
+          if (!canDropOnFolder(payload, node.path)) {
             return;
           }
           dragEvent.preventDefault();
@@ -124,12 +126,10 @@ export const createFileTreeRenderer = ({
         summary.addEventListener("drop", (event) => {
           const dragEvent = event as DragEvent;
           const payload = actions.getDragPayload() ?? getDragData(dragEvent);
+          if (!payload) return;
           dragEvent.stopPropagation();
           dragEvent.preventDefault();
           summary.classList.remove("is-drop-target");
-          if (!payload) {
-            return;
-          }
           actions.requestMoveItem(payload, node.path);
         });
         const children = document.createElement("div");
@@ -169,7 +169,7 @@ export const createFileTreeRenderer = ({
         });
         button.addEventListener("dragstart", (event) => {
           const dragEvent = event as DragEvent;
-          const payload: DragPayload = { path: node.path, kind: "file" };
+          const payload: DragPayload = { path: node.path, kind: "file", workspaceRoot: deps.getWorkspaceRootKey() };
           setDragData(dragEvent, payload);
           actions.setDragPayload(payload);
           button.classList.add("is-dragging");
@@ -181,10 +181,11 @@ export const createFileTreeRenderer = ({
         });
         button.addEventListener("dragover", (event) => {
           const dragEvent = event as DragEvent;
-          dragEvent.stopPropagation();
           const payload = actions.getDragPayload() ?? getDragData(dragEvent);
+          if (!payload) return;
+          dragEvent.stopPropagation();
           const targetFolder = getParentPath(node.path);
-          if (!payload || !canDropOnFolder(payload, targetFolder)) {
+          if (!canDropOnFolder(payload, targetFolder)) {
             return;
           }
           const dropContainer =
@@ -207,6 +208,7 @@ export const createFileTreeRenderer = ({
         button.addEventListener("drop", (event) => {
           const dragEvent = event as DragEvent;
           const payload = actions.getDragPayload() ?? getDragData(dragEvent);
+          if (!payload) return;
           const targetFolder = getParentPath(node.path);
           dragEvent.stopPropagation();
           dragEvent.preventDefault();
@@ -216,9 +218,6 @@ export const createFileTreeRenderer = ({
             dropContainer.classList.remove("is-drop-target");
           }
           button.classList.remove("is-drop-target");
-          if (!payload) {
-            return;
-          }
           actions.requestMoveItem(payload, targetFolder);
         });
         container.appendChild(button);

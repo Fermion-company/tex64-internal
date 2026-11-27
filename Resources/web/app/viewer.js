@@ -93,8 +93,8 @@ export const createViewer = (deps) => {
     let viewerMode = "hidden";
     let pdfViewerReady = false;
     let pdfViewerPath = null;
+    let savedPdfRemoved = false;
     let pdfWorkspaceRoot = null;
-    let pendingPdfOpen = null;
     let pendingPdfSync = null;
     let pdfBuildPreview = null;
     // Real-time preview: when set, the pdf viewer swaps its page canvas for the
@@ -110,6 +110,25 @@ export const createViewer = (deps) => {
         livePdfPath(pdfViewerPath, livePreview.target.workspaceRoot) ===
             livePdfPath(livePreview.target.pdfPath, livePreview.target.workspaceRoot)
         ? livePreview : null;
+    let fallbackPaper = null;
+    let sentFallbackPaper = null;
+    const matchingFallbackPaper = () => {
+        if (!pdfViewerPath || !fallbackPaper)
+            return null;
+        const { target } = fallbackPaper;
+        const root = target.workspaceRoot ? normalizedPdfPath(target.workspaceRoot) : null;
+        return root === pdfWorkspaceRoot &&
+            livePdfPath(target.pdfPath, target.workspaceRoot) === livePdfPath(pdfViewerPath, pdfWorkspaceRoot) ? fallbackPaper : null;
+    };
+    const sendFallbackPaper = () => {
+        const paper = matchingFallbackPaper();
+        if (!pdfViewerReady || !paper || sentFallbackPaper === paper)
+            return;
+        if (postPdfMessage({ type: "preview-open", payload: {
+                path: pdfViewerPath, data: paper.data, url: paper.url, generation: paper.generation,
+            } }))
+            sentFallbackPaper = paper;
+    };
     const matchingBuildPreview = () => {
         var _a;
         if (!(pdfBuildPreview === null || pdfBuildPreview === void 0 ? void 0 : pdfBuildPreview.pdfPath) || !pdfViewerPath)
@@ -144,8 +163,13 @@ export const createViewer = (deps) => {
         if (!target) {
             return false;
         }
-        if (payload.type === "open")
-            payload = { ...payload, payload: { ...payload.payload, needsRebuild: needsPdfRebuild() } };
+        if (payload.type === "open") {
+            const paper = matchingFallbackPaper();
+            if (!paper)
+                sentFallbackPaper = null;
+            payload = { ...payload, payload: { ...payload.payload,
+                    previewGeneration: paper === null || paper === void 0 ? void 0 : paper.generation, needsRebuild: needsPdfRebuild() } };
+        }
         target.postMessage({ source: "tex64-pdf", payload }, "*");
         return true;
     };
@@ -167,6 +191,12 @@ export const createViewer = (deps) => {
                 postPdfMessage({ type: "build-state", payload: { state: "idle" } });
         }
     });
+    const fallbackMath = (request) => {
+        var _a, _b, _c;
+        return (_b = (_a = window.tex64Tdom) === null || _a === void 0 ? void 0 : _a.fallbackMath) === null || _b === void 0 ? void 0 : _b.call(_a, {
+            ...request, secondary: ((_c = deps.editorViewerPdf) === null || _c === void 0 ? void 0 : _c.id) === "editor-viewer-pdf-secondary",
+        });
+    };
     const ensurePdfFrame = () => {
         if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
             return;
@@ -178,11 +208,11 @@ export const createViewer = (deps) => {
         }
     };
     window.addEventListener("message", (event) => {
-        var _a, _b, _c, _d, _e, _f, _g;
+        var _a, _b, _c, _d, _e, _f, _g, _h;
         if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
             return;
         }
-        if (event.source !== deps.editorViewerPdf.contentWindow) {
+        if (!deps.editorViewerPdf.src || event.source !== deps.editorViewerPdf.contentWindow) {
             return;
         }
         const data = event.data;
@@ -193,11 +223,22 @@ export const createViewer = (deps) => {
         if (!payload || typeof payload.type !== "string") {
             return;
         }
+        if (payload.type === "fallback-math") {
+            const port = event.ports[0];
+            if (port) {
+                const request = payload.payload;
+                void Promise.resolve(request && typeof request === "object" ? fallbackMath(request) : null).then(result => port.postMessage(result), () => port.postMessage({ ok: false })).finally(() => port.close());
+            }
+            return;
+        }
         if (payload.type === "ready") {
+            sentFallbackPaper = null;
             pdfViewerReady = true;
-            if (pendingPdfOpen) {
-                postPdfMessage({ type: "open", payload: pendingPdfOpen });
-                pendingPdfOpen = null;
+            if (pdfViewerPath) {
+                // A reloaded frame has lost both its saved PDF and its live generation.
+                postPdfMessage({ type: "open", payload: { path: pdfViewerPath,
+                        url: savedPdfRemoved ? undefined : viewerBlobUrl !== null && viewerBlobUrl !== void 0 ? viewerBlobUrl : undefined } });
+                sendFallbackPaper();
             }
             postPdfMessage({ type: "live", payload: matchingLivePreview() });
             const buildPreview = matchingBuildPreview();
@@ -222,7 +263,8 @@ export const createViewer = (deps) => {
             const context = rawContext && text(rawContext.word)
                 ? { word: text(rawContext.word), prev: text(rawContext.prev), next: text(rawContext.next) }
                 : undefined;
-            (_a = deps.onPdfReverseRequest) === null || _a === void 0 ? void 0 : _a.call(deps, { page, x, y, pdfPath, ...(context ? { context } : {}) });
+            const fallbackGeneration = typeof (detail === null || detail === void 0 ? void 0 : detail.fallbackGeneration) === "number" ? detail.fallbackGeneration : undefined;
+            (_a = deps.onPdfReverseRequest) === null || _a === void 0 ? void 0 : _a.call(deps, { page, x, y, pdfPath, fallbackGeneration, ...(context ? { context } : {}) });
             return;
         }
         if (payload.type === "ask-axiom") {
@@ -250,15 +292,21 @@ export const createViewer = (deps) => {
             (_c = deps.onPdfClose) === null || _c === void 0 ? void 0 : _c.call(deps);
             return;
         }
+        if (payload.type === "live-empty-error") {
+            const preview = matchingLivePreview();
+            if (preview && !preview.hold)
+                (_d = deps.onEmptyLiveError) === null || _d === void 0 ? void 0 : _d.call(deps, payload.payload);
+            return;
+        }
         if (payload.type === "live-runtime-error") {
             if (!matchingLivePreview())
                 return;
             const error = payload.payload;
             if (error == null)
-                (_d = deps.onLiveRuntimeError) === null || _d === void 0 ? void 0 : _d.call(deps, null);
-            else if ((error.code === "TDOM_SHIM_UNAVAILABLE" || error.code === "TDOM_STRUCTURED_BOOT_FAILED") &&
+                (_e = deps.onLiveRuntimeError) === null || _e === void 0 ? void 0 : _e.call(deps, null);
+            else if ((error.code === "TDOM_SHIM_UNAVAILABLE" || error.code === "TDOM_STRUCTURED_BOOT_FAILED" || error.code === "TDOM_TEX_ERROR") &&
                 typeof error.message === "string" && error.message.trim()) {
-                (_e = deps.onLiveRuntimeError) === null || _e === void 0 ? void 0 : _e.call(deps, error.message);
+                (_f = deps.onLiveRuntimeError) === null || _f === void 0 ? void 0 : _f.call(deps, error.message);
             }
             return;
         }
@@ -267,7 +315,7 @@ export const createViewer = (deps) => {
                 return;
             const request = parseLiveSourceRequest(payload.payload);
             if (request)
-                (_f = deps.onLiveSourceRequest) === null || _f === void 0 ? void 0 : _f.call(deps, request);
+                (_g = deps.onLiveSourceRequest) === null || _g === void 0 ? void 0 : _g.call(deps, request);
             return;
         }
         if (payload.type === "live-edit-anchor") {
@@ -301,7 +349,7 @@ export const createViewer = (deps) => {
                 return;
             const request = parseLiveEditRequest(payload.payload);
             if (request)
-                (_g = deps.onLiveEditRequest) === null || _g === void 0 ? void 0 : _g.call(deps, request);
+                (_h = deps.onLiveEditRequest) === null || _h === void 0 ? void 0 : _h.call(deps, request);
         }
     });
     const clearViewerUrl = () => {
@@ -341,32 +389,31 @@ export const createViewer = (deps) => {
         viewerBlobUrl = URL.createObjectURL(blob);
         return viewerBlobUrl;
     };
-    const hideViewer = () => {
+    const clearPdfFrame = () => {
+        var _a;
+        if (deps.editorViewerPdf instanceof HTMLIFrameElement && deps.editorViewerPdf.src) {
+            void ((_a = fallbackMath({ action: "view", displayed: null, loading: null })) === null || _a === void 0 ? void 0 : _a.catch(() => { }));
+            deps.editorViewerPdf.removeAttribute("src");
+        }
+        pdfViewerReady = false;
+        sentFallbackPaper = null;
+        pendingPdfSync = null;
+        pdfViewerPath = null;
+        pdfWorkspaceRoot = null;
+    };
+    const clearViewerContent = () => {
         clearViewerUrl();
         if (deps.editorViewerImage instanceof HTMLImageElement) {
             deps.editorViewerImage.removeAttribute("src");
         }
-        if (deps.editorViewerPdf instanceof HTMLIFrameElement) {
-            deps.editorViewerPdf.removeAttribute("src");
-        }
-        pdfViewerReady = false;
-        pendingPdfOpen = null;
-        pendingPdfSync = null;
-        pdfViewerPath = null;
+        clearPdfFrame();
+    };
+    const hideViewer = () => {
+        clearViewerContent();
         setViewerMode("hidden");
     };
     const showUnsupportedViewer = (hint) => {
-        clearViewerUrl();
-        if (deps.editorViewerImage instanceof HTMLImageElement) {
-            deps.editorViewerImage.removeAttribute("src");
-        }
-        if (deps.editorViewerPdf instanceof HTMLIFrameElement) {
-            deps.editorViewerPdf.removeAttribute("src");
-        }
-        pdfViewerReady = false;
-        pendingPdfOpen = null;
-        pendingPdfSync = null;
-        pdfViewerPath = null;
+        clearViewerContent();
         if (deps.editorViewer instanceof HTMLElement) {
             const message = deps.editorViewer.querySelector(".editor-viewer-message");
             const existingHint = message === null || message === void 0 ? void 0 : message.querySelector(".editor-viewer-hint");
@@ -394,6 +441,7 @@ export const createViewer = (deps) => {
         const resolvedMime = (_a = mimeType !== null && mimeType !== void 0 ? mimeType : IMAGE_MIME_TYPES.get(getFileExtension(path))) !== null && _a !== void 0 ? _a : "image/*";
         try {
             const url = buildViewerBlobUrl(data, resolvedMime);
+            clearPdfFrame();
             deps.editorViewerImage.src = url;
             setViewerMode("image");
             blurActiveElement();
@@ -402,13 +450,14 @@ export const createViewer = (deps) => {
             showUnsupportedViewer();
         }
     };
-    const showPdfViewer = (path, data, mimeType) => {
+    const showPdfViewer = (path, data, mimeType, preserveFocus = false) => {
         if (!data || !(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
             showUnsupportedViewer();
             return;
         }
         try {
             const url = buildViewerBlobUrl(data, mimeType !== null && mimeType !== void 0 ? mimeType : "application/pdf");
+            savedPdfRemoved = false;
             pdfViewerPath = path;
             pdfWorkspaceRoot = activePdfWorkspace;
             ensurePdfFrame();
@@ -418,6 +467,7 @@ export const createViewer = (deps) => {
                 // send direct edits through it, even before the next preview poll.
                 postPdfMessage({ type: "live", payload: matchingLivePreview() });
                 postPdfMessage({ type: "open", payload });
+                sendFallbackPaper();
                 const buildPreview = matchingBuildPreview();
                 postPdfMessage({ type: "build-state", payload: buildPreview !== null && buildPreview !== void 0 ? buildPreview : { state: "idle" } });
                 if (!(pendingPdfSync === null || pendingPdfSync === void 0 ? void 0 : pendingPdfSync.pdfPath) || pendingPdfSync.pdfPath === path) {
@@ -427,14 +477,31 @@ export const createViewer = (deps) => {
                     }
                 }
             }
-            else {
-                pendingPdfOpen = payload;
-            }
             setViewerMode("pdf");
-            blurActiveElement();
+            if (!preserveFocus)
+                blurActiveElement();
         }
         catch {
             showUnsupportedViewer();
+        }
+    };
+    // First paper of a manuscript. Its PDF name identifies the tab, but
+    // nothing on disk exists to open. Keep keyboard focus in the source.
+    const showUnbuiltPdf = (path) => {
+        clearViewerContent();
+        pdfViewerPath = path;
+        pdfWorkspaceRoot = activePdfWorkspace;
+        ensurePdfFrame();
+        setViewerMode("pdf");
+    };
+    const showFallbackPreview = (target, data, generation, url) => {
+        fallbackPaper = target && (data || url) ? { target, data, generation, url } : null;
+        if (fallbackPaper)
+            sendFallbackPaper();
+        else {
+            sentFallbackPaper = null;
+            if (pdfViewerReady && pdfViewerPath)
+                postPdfMessage({ type: "preview-open", payload: null });
         }
     };
     const syncPdf = (payload) => {
@@ -477,6 +544,10 @@ export const createViewer = (deps) => {
         hideViewer,
         showImageViewer,
         showPdfViewer,
+        showUnbuiltPdf,
+        markSavedPdfRemoved: () => { savedPdfRemoved = true; },
+        getUnbuiltPdfPath: () => viewerMode === "pdf" && (!viewerBlobUrl || savedPdfRemoved) ? pdfViewerPath : null,
+        showFallbackPreview,
         showUnsupportedViewer,
         setViewerMode,
         getViewerMode: () => viewerMode,

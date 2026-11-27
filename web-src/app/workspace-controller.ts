@@ -78,6 +78,7 @@ type WorkspaceControllerDeps = {
     render: () => void;
   };
   setLastBuildMainFile: (path: string | null) => void;
+  resetBuildFeedback: () => void;
 };
 
 export type WorkspaceControllerApi = {
@@ -321,6 +322,9 @@ export const initWorkspaceController = (
     workspaceFolders = Array.isArray(payload.folders) ? payload.folders : [];
     workspaceRootKey = payload.rootPath;
     deps.setWorkspaceRootKey(workspaceRootKey);
+    // Folder names are user data; a folder named "Other" keeps that name in every language.
+    workspaceLabel?.toggleAttribute("data-no-i18n", Boolean(payload.rootPath));
+    settingsWorkspace?.toggleAttribute("data-no-i18n", Boolean(payload.rootPath));
     setWorkspaceLabel(payload.rootName);
     setText(settingsWorkspace, payload.rootName ?? payload.rootPath);
     // Settings names the folder; the full path is in the tooltip, like other paths.
@@ -349,9 +353,11 @@ export const initWorkspaceController = (
       // the root. Saving here is already too late: the native write would land
       // in the newly selected workspace and can overwrite an unrelated file.
       deps.setLastBuildMainFile(null);
+      deps.resetBuildFeedback();
+      handleIndexUpdate({});
     }
     deps.editorSession.syncWorkspaceFiles({ workspaceFiles, rootChanged });
-    deps.searchUi.reset();
+    if (previousRoot !== payload.rootPath) deps.searchUi.reset();
 
     // A custom apply may be awaiting this same-root synchronization. Keep its
     // context until its completion handler closes the modal.

@@ -73,7 +73,7 @@ export const createBlockInsertKeyOps = (runtime) => {
                 const readFn = mathField.getValue;
                 let selectedLatex = null;
                 try {
-                    const val = readFn(selectionOffset.start, selectionOffset.end, "latex");
+                    const val = readFn.call(mathField, selectionOffset.start, selectionOffset.end, "latex");
                     if (typeof val === "string")
                         selectedLatex = val;
                 }
@@ -123,7 +123,7 @@ export const createBlockInsertKeyOps = (runtime) => {
             if (selectionOffset.start !== selectionOffset.end) {
                 try {
                     const readFn = mathField.getValue;
-                    const val = readFn(selectionOffset.start, selectionOffset.end, "latex");
+                    const val = readFn.call(mathField, selectionOffset.start, selectionOffset.end, "latex");
                     if (typeof val === "string")
                         selectedLatex = val;
                 }

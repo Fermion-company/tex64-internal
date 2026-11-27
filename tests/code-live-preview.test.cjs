@@ -42,12 +42,14 @@ const createClock = () => {
   };
 };
 
-const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) => {
+const setup = async ({ ready = true, initialPath = "/project/main.tex", fallbackOnRestart = false, documentResolution = {} } = {}) => {
   const clock = createClock();
+  const pdfCompiles = [], pdfPapers = [], commandChecks = [], errors = [];
+  let unavailable = null, pdfError = null, pdfWarning = null;
   const pushes = [], focuses = [], polls = new Map(), listeners = new Map();
-  let text = "initial", enabled = true, changeSettings, contentChanged, cursorChanged;
+  let text = "initial", enabled = true, changeSettings, contentChanged, cursorChanged, compositionEnded;
   let holdNextPush = false, acceptPush;
-  let limited = false, starts = 0;
+  let limited = false, starts = 0, compileEngine = "lualatex";
   const shown = [], status = { running: true, state: "ready", pageLimited: false };
   const model = { path: initialPath };
   const editor = {
@@ -55,17 +57,33 @@ const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) =
     getModel: () => model,
     getPosition: () => ({ lineNumber: 1, column: 1 }),
     onDidChangeModelContent(fn) { contentChanged = fn; return { dispose() { contentChanged = null; } }; },
+    onDidCompositionEnd(fn) { compositionEnded = fn; return { dispose() { compositionEnded = null; } }; },
     onDidChangeCursorPosition(fn) { cursorChanged = fn; return { dispose() { cursorChanged = null; } }; },
   };
   model.getOffsetAt = () => 0;
   const group = {
     editor, currentFilePath: model.path, isDirty: true, isComposing: false,
-    viewer: { setLivePreview(url) { if (shown.at(-1) !== url) shown.push(url); }, getViewerMode: () => "editor" },
+    viewer: {
+      showFallbackPreview(target, data) { pdfPapers.push({ target, data, previousLiveUrl: shown.at(-1) }); },
+      setLivePreview(url) { if (shown.at(-1) !== url) shown.push(url); },
+      getViewerMode: () => "editor",
+    },
   };
   const window = {
     tex64Tdom: {
-      start: async () => { starts += 1; return { ok: true, url: "http://preview" }; },
+      start: async (engine) => {
+        if (engine !== "lualatex") return { ok: true, fallback: true };
+        starts += 1;
+        return fallbackOnRestart && starts > 1 ? { ok: true, fallback: true } : { ok: true, url: "http://preview" };
+      },
       stop() {},
+      async commandAvailable(name) { commandChecks.push(name); return name !== unavailable; },
+      async compilePdf(payload) {
+        pdfCompiles.push(payload);
+        if (pdfError) return { ok: false, error: pdfError };
+        if (unavailable) return { ok: false, code: "TDOM_TEX_COMMAND_MISSING", command: unavailable };
+        return { ok: true, generation: pdfCompiles.length, data: "PDF " + pdfCompiles.length, warning: pdfWarning };
+      },
       status: async () => status,
       push(payload) {
         pushes.push({ at: clock.now(), payload });
@@ -91,6 +109,7 @@ const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) =
         isEnabled: () => enabled,
         subscribe: fn => { changeSettings = fn; },
       } };
+      if (name === "./i18n.js") return { uiText: english => english };
       if (name.endsWith("model-path.js")) return { getEditorModelPath: model => model.path };
       throw new Error(`Unexpected import: ${name}`);
     },
@@ -103,6 +122,11 @@ const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) =
     getWorkspaceRoot: () => "/project",
     getRootFile: () => group.currentFilePath,
     getDirtyFileSnapshots: () => [],
+    getCompileEngine: () => compileEngine,
+    showFirstPaper() {},
+    closeFirstPaper() {},
+    onRuntimeError(value) { errors.push(value); },
+    ...documentResolution,
   });
   if (ready) {
     await clock.advance(160);
@@ -110,15 +134,21 @@ const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) =
     pushes.length = focuses.length = clock.firedAt.length = 0;
   }
   return {
-    clock, pushes, focuses, group, api,
+    clock, pushes, focuses, group, api, pdfCompiles, pdfPapers,
     edit(value) { text = value; contentChanged(); },
     type(value, change) { text = value; contentChanged({ changes: [{ text: change }], isFlush: false }); },
     cursor: () => cursorChanged(),
+    endComposition: () => compositionEnded(),
     poll: () => polls.get(200)(),
     switchFile(path, value) { model.path = group.currentFilePath = path; text = value; },
     setEnabled(value) { enabled = value; changeSettings({ kind: "flag", id: "preview.realtime" }); },
     holdNextPush() { holdNextPush = true; },
     setLimited(value) { limited = value; },
+    setEngine(value) { compileEngine = value; },
+    setMissing(value) { unavailable = value; },
+    setPdfError(value) { pdfError = value; },
+    setPdfWarning(value) { pdfWarning = value; },
+    commandChecks, errors,
     starts: () => starts,
     shown, status,
     health: () => polls.get(2000)(),
@@ -130,6 +160,104 @@ const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) =
 };
 
 const pushedText = push => push.payload.buffers[0].text;
+
+test("first paper opens on the first accepted revision while a newer edit is still in flight", async () => {
+  const offered = [];
+  const h = await setup({ ready: false, documentResolution: { showFirstPaper: target => offered.push(target.pdfPath) } });
+  h.holdNextPush();
+  await h.clock.advance(16);
+  h.edit("still typing");
+  await h.clock.advance(16);
+  h.holdNextPush();
+  h.acceptPush();
+  await h.clock.advance(0);
+  assert.equal(h.pushes.length, 2);
+  assert.equal(h.shown.at(-1), "http://preview");
+  assert.equal(offered.length, 1);
+  h.acceptPush();
+  await h.clock.advance(0);
+  assert.equal(offered.length, 1);
+});
+
+test("a late first revision from before a document switch cannot reopen the previous session", async () => {
+  const h = await setup({ ready: false });
+  h.holdNextPush();
+  await h.clock.advance(16);
+  h.switchFile("/project/other.tex", "other");
+  h.poll();
+  await h.clock.advance(16);
+  h.switchFile("/project/main.tex", "reopened");
+  h.poll();
+  await h.clock.advance(16);
+  h.holdNextPush();
+  h.acceptPush();
+  await h.clock.advance(0);
+  assert.ok(!h.shown.includes("http://preview"));
+  assert.equal(pushedText(h.pushes.at(-1)), "reopened");
+  h.acceptPush();
+  await h.clock.advance(0);
+  assert.equal(h.shown.at(-1), "http://preview");
+});
+
+test("the fallback PDF arrives while the viewer can still capture the live reading position", async () => {
+  const h = await setup({ fallbackOnRestart: true });
+  Object.assign(h.status, { running: false, state: "stopped" });
+  await h.health();
+  await h.clock.advance(2000);
+  assert.equal(h.pdfPapers.at(-1)?.data, "PDF 1");
+  assert.equal(h.pdfPapers.at(-1).previousLiveUrl, "http://preview");
+  assert.equal(h.shown.at(-1), null);
+});
+
+test("changing the active TeX engine recompiles unchanged source while preserving the last paper", async () => {
+  const h = await setup();
+  for (const engine of ["xelatex", "pdflatex", "uplatex"]) {
+    h.setEngine(engine);
+    h.poll();
+    await h.clock.advance(2000);
+    const payload = h.pdfCompiles.at(-1);
+    assert.equal(payload.engine, engine);
+    assert.equal(payload.buffers[0].text, "initial");
+    assert.equal(h.pdfPapers.at(-1).data, "PDF " + h.pdfCompiles.length);
+  }
+  assert.equal(h.pdfPapers[0].previousLiveUrl, "http://preview");
+  assert.equal(h.pdfCompiles.length, 3);
+});
+
+test("installing the missing converter resumes the same paper without edits or failed recompiles", async () => {
+  const h = await setup();
+  h.setEngine("uplatex");
+  h.setMissing("dvipdfmx");
+  h.poll();
+  await h.clock.advance(2500);
+  assert.match(h.errors.at(-1), /dvipdfmx/);
+  await h.clock.advance(5000);
+  await h.health();
+  assert.deepEqual(h.commandChecks, ["dvipdfmx"]);
+  assert.equal(h.pdfCompiles.length, 1);
+  h.setMissing(null);
+  await h.clock.advance(5000);
+  await h.health();
+  await h.clock.advance(2000);
+  assert.equal(h.pdfPapers.at(-1).data, "PDF 2");
+  assert.equal(h.errors.at(-1), null);
+});
+
+test("losing the resident engine keeps the last paper until the replacement accepts the current manuscript", async () => {
+  const h = await setup();
+  const shownBeforeCrash = h.shown.slice();
+  const startsBeforeCrash = h.starts();
+  h.holdNextPush();
+  Object.assign(h.status, { running: false, state: "stopped" });
+  await h.health();
+  await h.clock.advance(500);
+  assert.equal(h.starts(), startsBeforeCrash + 1);
+  assert.equal(h.pushes.at(-1).payload.fresh, true);
+  assert.deepEqual(h.shown, shownBeforeCrash);
+  h.acceptPush();
+  await h.clock.advance(50);
+  assert.equal(h.shown.at(-1), "http://preview");
+});
 
 test("an empty project sends no preview source and starts previewing its first document without a reload", async () => {
   const h = await setup({ ready: false, initialPath: null });
@@ -220,18 +348,63 @@ test("plain typed characters go out inside the editor's own call; a brace or a c
   assert.equal(h.pushes.length, 4);
 });
 
-test("long IME composition retries every 80ms and eventually pushes the committed buffer", async () => {
+test("long IME composition sends only the committed buffer when the composition ends", async () => {
   const h = await setup();
   h.group.isComposing = true;
   h.edit("composition");
   const start = h.clock.now();
   await h.clock.advance(239);
   assert.equal(h.pushes.length, 0);
-  assert.deepEqual(h.clock.firedAt.map(at => at - start), [80, 160]);
-  h.group.isComposing = false; // Also recover if no final content event arrives.
-  await h.clock.advance(1);
-  assert.equal(h.pushes[0].at - start, 240);
+  assert.deepEqual(h.clock.firedAt, []);
+  h.group.isComposing = false; // No final content change follows this commit.
+  h.endComposition();
+  await h.clock.advance(0);
+  assert.equal(h.pushes[0].at - start, 239);
   assert.equal(pushedText(h.pushes[0]), "composition");
+});
+
+test("a chapter being composed in another pane keeps its last committed overlay while the root updates", async () => {
+  for (const dirty of [true, false]) {
+    const groups = [];
+    const path = "/project/chapter.tex";
+    const model = { getValue() { assert.fail("the transient IME buffer must not be read"); } };
+    const h = await setup({ ready: false, documentResolution: {
+      getEditorGroups: () => groups,
+      getDirtyFileSnapshots: read => groups.length ? [{ path, content: read(model), isDirty: true, truncated: false }] : [],
+    } });
+    groups.push(h.group, {
+      editor: { getModel: () => model }, viewer: h.group.viewer, currentFilePath: path,
+      isComposing: true, composingFilePath: path, compositionBaseline: { model, text: "確定済み", dirty },
+    });
+    await h.clock.advance(16);
+    h.edit("root edit");
+    await h.clock.advance(16);
+    assert.equal(h.pushes.length, 2);
+    for (const { payload } of h.pushes) {
+      assert.deepEqual(payload.buffers.filter(entry => entry.path === path), dirty ? [{ path, text: "確定済み" }] : []);
+    }
+    assert.equal(h.pushes[1].payload.buffers.find(entry => entry.path === h.group.currentFilePath).text, "root edit");
+  }
+});
+
+test("a second view of the same Monaco model cannot enqueue another pane's candidate", async () => {
+  const groups = [];
+  const h = await setup({ ready: false, documentResolution: { getEditorGroups: () => groups } });
+  groups.push(h.group);
+  await h.clock.advance(16);
+  const path = h.group.currentFilePath;
+  groups.push({
+    ...h.group, isComposing: true, composingFilePath: path,
+    compositionBaseline: { model: h.group.editor.getModel(), text: "initial", dirty: true },
+  });
+  h.type("initial候補", "候補");
+  h.poll();
+  await h.clock.advance(210);
+  assert.deepEqual(h.pushes.map(pushedText), ["initial"]);
+  groups.pop();
+  h.edit("initial確定");
+  await h.clock.advance(16);
+  assert.deepEqual(h.pushes.map(pushedText), ["initial", "initial確定"]);
 });
 
 test("IME commit uses the fast typing path and cancels its obsolete retry", async () => {
@@ -308,6 +481,28 @@ test("rebind, truth poll, source refresh and build completion still schedule or 
   assert.deepEqual(h.pushes.map(pushedText), ["other file", "other file", "edited during build"]);
 });
 
+test("a shared chapter and style update the selected manuscript while an explicit root switches papers", async () => {
+  const main = "main.tex", letter = "letter.tex", chapter = "shared.tex";
+  let including = [main, letter];
+  const h = await setup({ initialPath: letter, documentResolution: {
+    getRootFile: () => main,
+    getDocumentFor: path => path === chapter ? main : path,
+    getDocumentsIncluding: path => path === chapter ? including : [],
+  } });
+  for (const path of ["layout.sty", chapter]) {
+    h.switchFile(path, "changed " + path);
+    h.poll();
+    await h.clock.advance(16);
+    assert.equal(h.pushes.at(-1).payload.rootFile, letter);
+    assert.equal(h.pushes.at(-1).payload.fresh, false);
+  }
+  including = []; // main supplied a binding root for the chapter
+  h.poll();
+  await h.clock.advance(16);
+  assert.equal(h.pushes.at(-1).payload.rootFile, main);
+  assert.equal(h.pushes.at(-1).payload.fresh, true);
+});
+
 test("cursor focus retains its 160ms debounce", async () => {
   const h = await setup();
   const start = h.clock.now();
@@ -318,7 +513,7 @@ test("cursor focus retains its 160ms debounce", async () => {
   assert.equal(h.focuses[0].at - start, 160);
 });
 
-test("a document past the length limit keeps its Build paper: no Live frame, no engine restart, no pushes while typing", async () => {
+test("a document past the resident length limit still prints edits without restarting the engine", async () => {
   const h = await setup({ ready: false });
   h.setLimited(true);
   await h.clock.advance(160);
@@ -333,6 +528,8 @@ test("a document past the length limit keeps its Build paper: no Live frame, no 
   await h.clock.advance(500);
   assert.equal(h.pushes.length, 1);
   assert.equal(h.starts(), 1);
+  assert.equal(h.pdfCompiles.at(-1).buffers[0].text, "typed while limited");
+  assert.equal(h.pdfPapers.at(-1).data, "PDF 1");
 });
 
 test("while main is preparing the chapter of a long document the push is asked again, and Live starts when it is ready", async () => {
@@ -384,7 +581,7 @@ test("another document leaves the length limit behind", async () => {
   assert.equal(h.shown.at(-1), "http://preview");
 });
 
-test("main stopping the engine for a document that grew past the limit ends Live without a restart", async () => {
+test("a document that grows past the resident limit switches to an updated PDF without restarting", async () => {
   const h = await setup();
   assert.equal(h.shown.at(-1), "http://preview");
   const startsBefore = h.starts();
@@ -396,4 +593,63 @@ test("main stopping the engine for a document that grew past the limit ends Live
   assert.equal(h.shown.at(-1), null);
   assert.equal(h.starts(), startsBefore);
   assert.equal(h.pushes.length, 0);
+  await h.clock.advance(900);
+  assert.equal(h.pdfCompiles.at(-1).buffers[0].text, "initial");
+  assert.equal(h.pdfPapers.at(-1).data, "PDF 1");
+});
+
+test("PDF preview retries a transient launcher failure once without another keystroke", async () => {
+  const h = await setup();
+  h.setEngine("pdflatex");
+  h.setPdfError("working directory temporarily unavailable");
+  h.poll();
+  await h.clock.advance(2500);
+  assert.match(h.errors.at(-1), /working directory/);
+  h.setPdfError(null);
+  await h.health();
+  await h.clock.advance(2500);
+  assert.equal(h.pdfPapers.at(-1).data, "PDF 2");
+  h.setPdfError("permission denied");
+  h.edit("next version");
+  await h.clock.advance(3000);
+  await h.health();
+  await h.clock.advance(2500);
+  const attempts = h.pdfCompiles.length;
+  await h.health();
+  await h.clock.advance(5000);
+  await h.health();
+  assert.equal(h.pdfCompiles.length, attempts);
+  assert.equal(h.pdfPapers.at(-1).data, "PDF 2");
+});
+
+test("a current TeX error on a blank first paper uses one draft and resumes native updates after repair", async () => {
+  const h = await setup({ ready: false });
+  let activation;
+  const setLive = h.group.viewer.setLivePreview;
+  h.group.viewer.setLivePreview = (url, generation) => {
+    activation = { url, generation };
+    setLive(url);
+  };
+  await h.clock.advance(160);
+  const failure = { ...activation, srcRev: 1 };
+  h.api.recoverEmptyPaper({ ...failure, generation: failure.generation - 1 });
+  h.api.recoverEmptyPaper({ ...failure, srcRev: 0 });
+  assert.equal(h.pdfCompiles.length, 0);
+  h.setPdfWarning("Undefined control sequence");
+  h.api.recoverEmptyPaper(failure);
+  h.api.recoverEmptyPaper(failure);
+  await h.clock.advance(0);
+  assert.equal(h.pdfCompiles.length, 1);
+  assert.equal(h.pdfPapers.at(-1).data, "PDF 1");
+  h.poll();
+  await h.clock.advance(2600);
+  assert.equal(h.pdfCompiles.length, 1);
+  h.setPdfWarning(null);
+  h.edit("fixed source");
+  await h.clock.advance(2600);
+  assert.equal(h.pdfCompiles.length, 2);
+  assert.equal(pushedText(h.pushes.at(-1)), "fixed source");
+  assert.equal(h.shown.at(-1), "http://preview");
+  h.api.recoverEmptyPaper(failure);
+  assert.equal(h.pdfCompiles.length, 2);
 });

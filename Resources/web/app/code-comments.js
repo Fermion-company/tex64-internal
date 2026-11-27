@@ -151,7 +151,7 @@ const createHoverMessage = (comment) => {
     }
     return { value: lines.join("\n") };
 };
-const createCodeCommentDialog = (options) => new Promise((resolve) => {
+const createCodeCommentDialog = (options, signal) => new Promise((resolve) => {
     var _a;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const modal = document.createElement("div");
@@ -198,10 +198,13 @@ const createCodeCommentDialog = (options) => new Promise((resolve) => {
         }
         settled = true;
         window.removeEventListener("keydown", onKeyDown, true);
+        signal.removeEventListener("abort", cancel);
         modal.remove();
         (_a = previousFocus === null || previousFocus === void 0 ? void 0 : previousFocus.focus) === null || _a === void 0 ? void 0 : _a.call(previousFocus);
         resolve(value);
     };
+    const cancel = () => close(null);
+    signal.addEventListener("abort", cancel, { once: true });
     const submit = () => {
         const text = normalizeCommentText(textarea.value);
         if (!text) {
@@ -213,6 +216,8 @@ const createCodeCommentDialog = (options) => new Promise((resolve) => {
         close(text.slice(0, MAX_COMMENT_CHARS));
     };
     function onKeyDown(event) {
+        if (event.isComposing)
+            return;
         if (event.key === "Escape") {
             event.preventDefault();
             event.stopPropagation();
@@ -247,6 +252,8 @@ export const createCodeCommentManager = (monaco, deps) => {
     let loadedRoot = null;
     let cachedComments = [];
     let loadGeneration = 0;
+    let workspaceLoad = null;
+    let loadFailed = false;
     let saveTimer = null;
     // The save waiting for its timer, bound to the folder it belongs to, and
     // the chain of saves already sent (one at a time, in order).
@@ -254,7 +261,6 @@ export const createCodeCommentManager = (monaco, deps) => {
     let saving = Promise.resolve();
     const groupStates = new Map();
     const contextSyncers = new Map();
-    const legacyStorageKey = () => { var _a; return `${STORAGE_PREFIX}${(_a = deps.getWorkspaceRoot()) !== null && _a !== void 0 ? _a : "global"}`; };
     const sessionMap = () => { var _a, _b, _c; return (_c = (_b = (_a = deps.collab) === null || _a === void 0 ? void 0 : _a.sessionDoc()) === null || _b === void 0 ? void 0 : _b.getMap("comments")) !== null && _c !== void 0 ? _c : null; };
     const inSession = () => Boolean(sessionMap());
     const authorName = () => { var _a, _b; return ((_a = collabSession.selfParticipant()) === null || _a === void 0 ? void 0 : _a.name) || ((_b = deps.getAuthorName) === null || _b === void 0 ? void 0 : _b.call(deps)) || ""; };
@@ -266,24 +272,34 @@ export const createCodeCommentManager = (monaco, deps) => {
     const loadFromWorkspace = async () => {
         var _a;
         const root = deps.getWorkspaceRoot();
+        const legacyKey = `${STORAGE_PREFIX}${root !== null && root !== void 0 ? root : "global"}`;
         const generation = ++loadGeneration;
         let comments = [];
         let missing = false;
         if (root && collabSession.available) {
             try {
-                const result = await collabSession.call("comments:load");
-                comments = result.comments.map(sanitizeComment).filter((comment) => Boolean(comment));
+                if ((pendingSave === null || pendingSave === void 0 ? void 0 : pendingSave.root) === root)
+                    await flushPendingSave();
+                const result = await collabSession.call("comments:load", { root });
+                for (const entry of result.comments) {
+                    const comment = sanitizeComment(entry);
+                    if (!comment)
+                        throw new Error("Invalid stored comment.");
+                    comments.push(comment);
+                }
                 missing = result.missing === true;
             }
             catch {
-                comments = [];
+                if (generation === loadGeneration && deps.getWorkspaceRoot() === root)
+                    loadFailed = true;
+                return false;
             }
         }
-        if (generation !== loadGeneration || deps.getWorkspaceRoot() !== root)
-            return;
+        if (generation !== loadGeneration || deps.getWorkspaceRoot() !== root || inSession())
+            return false;
         let migrated = [];
         try {
-            const legacy = JSON.parse((_a = localStorage.getItem(legacyStorageKey())) !== null && _a !== void 0 ? _a : "[]");
+            const legacy = JSON.parse((_a = localStorage.getItem(legacyKey)) !== null && _a !== void 0 ? _a : "[]");
             if (Array.isArray(legacy))
                 migrated = legacy.map(sanitizeComment).filter((comment) => Boolean(comment));
         }
@@ -292,16 +308,19 @@ export const createCodeCommentManager = (monaco, deps) => {
         loadedRoot = root;
         if (migrated.length && (missing || comments.length === 0) && root) {
             cachedComments = migrated;
-            void persistWorkspace(cachedComments, root).then((ok) => {
+            const migration = saving.then(() => persistWorkspace(migrated, root));
+            saving = migration.then(() => { });
+            void migration.then((ok) => {
                 if (ok) {
                     try {
-                        localStorage.removeItem(legacyStorageKey());
+                        localStorage.removeItem(legacyKey);
                     }
                     catch { }
                 }
             });
         }
         refreshAllGroups();
+        return true;
     };
     const persistWorkspace = async (comments, root) => {
         if (!collabSession.available || !root)
@@ -314,15 +333,16 @@ export const createCodeCommentManager = (monaco, deps) => {
             return false;
         }
     };
-    const loadComments = () => {
+    const loadComments = (retryFailure = false) => {
         const map = sessionMap();
         if (map)
             return readSessionComments(map);
         const root = deps.getWorkspaceRoot();
-        if (root !== loadedRoot) {
+        if (root !== loadedRoot || (retryFailure && loadFailed)) {
             loadedRoot = root;
             cachedComments = [];
-            void loadFromWorkspace();
+            loadFailed = false;
+            workspaceLoad = loadFromWorkspace();
         }
         return cachedComments;
     };
@@ -337,7 +357,7 @@ export const createCodeCommentManager = (monaco, deps) => {
             if (!pending)
                 return;
             if (!(await persistWorkspace(pending.comments, pending.root))) {
-                throw new Error(uiText("The comments could not be saved, so the session was not started.", "コメントを保存できなかったため、セッションを開始しませんでした。"));
+                throw new Error(uiText("Comments could not be saved.", "コメントを保存できませんでした。"));
             }
             if (pendingSave === pending)
                 pendingSave = null;
@@ -584,6 +604,7 @@ export const createCodeCommentManager = (monaco, deps) => {
         const path = group.currentFilePath;
         state.path = path;
         state.model = model;
+        (_c = contextSyncers.get(group.key)) === null || _c === void 0 ? void 0 : _c();
         if (!editor || !model || !path) {
             return;
         }
@@ -591,7 +612,7 @@ export const createCodeCommentManager = (monaco, deps) => {
         if (comments.length === 0 || !monaco.Range || !editor.deltaDecorations) {
             return;
         }
-        const stickiness = (_d = (_c = monaco.editor) === null || _c === void 0 ? void 0 : _c.TrackedRangeStickiness) === null || _d === void 0 ? void 0 : _d.NeverGrowsWhenTypingAtEdges;
+        const stickiness = (_e = (_d = monaco.editor) === null || _d === void 0 ? void 0 : _d.TrackedRangeStickiness) === null || _e === void 0 ? void 0 : _e.NeverGrowsWhenTypingAtEdges;
         const decorations = comments.map((comment) => {
             const range = clampRangeToModel(comment, model);
             const hoverMessage = createHoverMessage(comment);
@@ -612,7 +633,6 @@ export const createCodeCommentManager = (monaco, deps) => {
             decorationId,
             commentId: comments[index].id,
         }));
-        (_e = contextSyncers.get(group.key)) === null || _e === void 0 ? void 0 : _e();
     };
     const scheduleRefreshGroup = (group) => {
         const state = getState(group);
@@ -628,33 +648,53 @@ export const createCodeCommentManager = (monaco, deps) => {
             }
         });
     };
+    const findCommentAtRange = (path, selection, position) => {
+        var _a;
+        return (_a = loadComments().find((comment) => comment.filePath === path && ((selection && rangesIntersect(comment, selection)) ||
+            (position && rangeContainsPosition(comment, position))))) !== null && _a !== void 0 ? _a : null;
+    };
     const findCommentAtCurrentContext = (group) => {
         var _a, _b, _c, _d;
         const editor = group.editor;
-        const model = (_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== null && _b !== void 0 ? _b : null;
         const path = group.currentFilePath;
-        if (!editor || !path) {
+        if (!editor || !path)
             return null;
-        }
-        const selectionRange = getSelectionRange(editor, model);
-        const position = (_c = editor.getPosition) === null || _c === void 0 ? void 0 : _c.call(editor);
-        return ((_d = loadComments().find((comment) => {
-            if (comment.filePath !== path) {
-                return false;
-            }
-            if (selectionRange && rangesIntersect(comment, selectionRange)) {
-                return true;
-            }
-            return Boolean(position && rangeContainsPosition(comment, position));
-        })) !== null && _d !== void 0 ? _d : null);
+        return findCommentAtRange(path, getSelectionRange(editor, (_b = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== null && _b !== void 0 ? _b : null), (_d = (_c = editor.getPosition) === null || _c === void 0 ? void 0 : _c.call(editor)) !== null && _d !== void 0 ? _d : null);
     };
     // A view-only guest reads the comments but changes none of them.
     const viewOnly = () => collabSession.isViewer();
+    const promptForComment = async (group, options) => {
+        var _a, _b, _c, _d;
+        const editor = group.editor;
+        const model = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor);
+        const root = deps.getWorkspaceRoot();
+        const session = (_b = deps.collab) === null || _b === void 0 ? void 0 : _b.sessionDoc();
+        const filePath = group.currentFilePath;
+        const current = () => {
+            var _a, _b;
+            return deps.getWorkspaceRoot() === root && group.currentFilePath === filePath && ((_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) === model
+                && ((_b = deps.collab) === null || _b === void 0 ? void 0 : _b.sessionDoc()) === session && !viewOnly();
+        };
+        const abort = new AbortController();
+        const cancelIfChanged = () => { if (!current())
+            abort.abort(); };
+        const modelListener = (_c = editor.onDidChangeModel) === null || _c === void 0 ? void 0 : _c.call(editor, cancelIfChanged);
+        const offSession = collabSession.onChange(cancelIfChanged);
+        try {
+            const text = await createCodeCommentDialog(options, abort.signal);
+            return current() ? text : null;
+        }
+        finally {
+            if (modelListener)
+                (_d = modelListener.dispose) === null || _d === void 0 ? void 0 : _d.call(modelListener);
+            offSession();
+        }
+    };
     const editComment = async (group, comment) => {
         var _a, _b, _c, _d;
         if (viewOnly())
             return;
-        const nextText = await createCodeCommentDialog({
+        const nextText = await promptForComment(group, {
             title: uiText("Edit comment", "コメントを編集"),
             initialText: comment.text,
             submitLabel: uiText("Save", "保存"),
@@ -683,7 +723,7 @@ export const createCodeCommentManager = (monaco, deps) => {
         var _a, _b;
         if (viewOnly())
             return;
-        const text = await createCodeCommentDialog({
+        const text = await promptForComment(group, {
             title: uiText("Reply to comment", "コメントに返信"),
             initialText: "",
             submitLabel: uiText("Reply", "返信"),
@@ -728,7 +768,7 @@ export const createCodeCommentManager = (monaco, deps) => {
         (_b = (_a = group.editor) === null || _a === void 0 ? void 0 : _a.focus) === null || _b === void 0 ? void 0 : _b.call(_a);
     };
     const addOrEditComment = async (group) => {
-        var _a, _b, _c;
+        var _a, _b, _c, _d, _e, _f;
         if (viewOnly())
             return;
         const editor = group.editor;
@@ -737,16 +777,31 @@ export const createCodeCommentManager = (monaco, deps) => {
         if (!editor || !model || !filePath) {
             return;
         }
-        const existing = findCommentAtCurrentContext(group);
+        const range = getSelectionRange(editor, model);
+        if (!range)
+            return;
+        const position = (_d = (_c = editor.getPosition) === null || _c === void 0 ? void 0 : _c.call(editor)) !== null && _d !== void 0 ? _d : null;
+        const root = deps.getWorkspaceRoot();
+        if (!inSession()) {
+            if (!root)
+                return;
+            loadComments(true);
+            const pending = workspaceLoad;
+            const ready = await pending;
+            if (pending !== workspaceLoad || root !== deps.getWorkspaceRoot() || filePath !== group.currentFilePath ||
+                model !== ((_e = editor.getModel) === null || _e === void 0 ? void 0 : _e.call(editor)) || inSession() || viewOnly())
+                return;
+            if (!ready) {
+                window.alert(uiText("Could not read .tex64/comments.json. Check the file and try adding the comment again.", ".tex64/comments.json を読み込めませんでした。ファイルを確認してからもう一度コメントを追加してください。"));
+                return;
+            }
+        }
+        const existing = findCommentAtRange(filePath, range, position);
         if (existing) {
             await editComment(group, existing);
             return;
         }
-        const range = getSelectionRange(editor, model);
-        if (!range) {
-            return;
-        }
-        const text = await createCodeCommentDialog({
+        const text = await promptForComment(group, {
             title: uiText("Add comment", "コメントを追加"),
             initialText: "",
             submitLabel: uiText("Add", "追加"),
@@ -775,7 +830,7 @@ export const createCodeCommentManager = (monaco, deps) => {
             saveComments(comments);
         }
         refreshGroupsForPath(filePath);
-        (_c = editor.focus) === null || _c === void 0 ? void 0 : _c.call(editor);
+        (_f = editor.focus) === null || _f === void 0 ? void 0 : _f.call(editor);
     };
     const deleteCommentAtCursor = (group) => {
         var _a, _b;
@@ -920,5 +975,9 @@ export const createCodeCommentManager = (monaco, deps) => {
         });
         scheduleRefreshGroup(group);
     };
-    return { attachToEditor, refreshGroup, listComments: () => loadComments().map(toStoredComment) };
+    return {
+        attachToEditor, refreshGroup, flushPendingSave,
+        hasPendingSave: () => pendingSave !== null,
+        listComments: () => loadComments().map(toStoredComment),
+    };
 };

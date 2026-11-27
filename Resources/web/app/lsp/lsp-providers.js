@@ -2,11 +2,12 @@
 // client. Each provider translates monaco's (model, position) call into an LSP
 // request and converts the result back. Registration is gated on the server's
 // advertised capabilities so we don't register no-op providers.
+import { uiText } from "../i18n.js";
 import { editorSettings } from "../editor-settings/editor-settings-store.js";
 import { toLspPosition, toMonacoTextEdit, toMonacoCompletionItem, toMarkdownString, toMonacoLocations, toMonacoDocumentSymbols, toMonacoWorkspaceEdit, toMonacoMarkerSeverity, toMonacoFoldingRanges, toMonacoDocumentHighlights, toMonacoInlayHints, toMonacoLinks, } from "./lsp-conversions.js";
 const DEFAULT_TRIGGER_CHARACTERS = ["\\", "{", "}", "[", "(", ",", "/", "@", " ", "="];
 const uriOf = (model) => model.uri.toString();
-export const registerLspProviders = (monaco, client, languages = ["latex", "bibtex"]) => {
+export const registerLspProviders = (monaco, client, languages = ["latex", "bibtex"], loadResource) => {
     var _a;
     const caps = ((_a = client.capabilities) !== null && _a !== void 0 ? _a : {});
     const disposables = [];
@@ -21,6 +22,13 @@ export const registerLspProviders = (monaco, client, languages = ["latex", "bibt
     // toggle UI can enable/disable a feature live, without a reload. Providers
     // register based on server capability; each invocation re-checks the flag.
     const gate = (flag) => client.isReady() && editorSettings.isEnabled(flag);
+    const loadTargets = async (resources) => {
+        if (!loadResource)
+            return true;
+        const unique = new Map(resources.map((uri) => [uri.toString(), uri]));
+        const loaded = await Promise.all(Array.from(unique.values(), loadResource));
+        return loaded.every(Boolean);
+    };
     languages.forEach((languageId) => {
         var _a, _b, _c;
         // Completion
@@ -105,7 +113,7 @@ export const registerLspProviders = (monaco, client, languages = ["latex", "bibt
         if (caps.referencesProvider) {
             register(() => langs.registerReferenceProvider(languageId, {
                 provideReferences: async (model, position, context) => {
-                    var _a;
+                    var _a, _b;
                     if (!gate("lsp.references")) {
                         return null;
                     }
@@ -116,7 +124,9 @@ export const registerLspProviders = (monaco, client, languages = ["latex", "bibt
                         context: { includeDeclaration: (_a = context === null || context === void 0 ? void 0 : context.includeDeclaration) !== null && _a !== void 0 ? _a : true },
                     })
                         .catch(() => null);
-                    return toMonacoLocations(monaco, result);
+                    const locations = toMonacoLocations(monaco, result);
+                    await loadTargets((_b = locations === null || locations === void 0 ? void 0 : locations.map((location) => location.uri)) !== null && _b !== void 0 ? _b : []);
+                    return locations;
                 },
             }));
         }
@@ -140,9 +150,11 @@ export const registerLspProviders = (monaco, client, languages = ["latex", "bibt
         if (caps.renameProvider) {
             register(() => langs.registerRenameProvider(languageId, {
                 provideRenameEdits: async (model, position, newName) => {
+                    var _a, _b, _c, _d;
                     if (!gate("lsp.rename")) {
                         return { edits: [] };
                     }
+                    const versions = new Map(((_c = (_b = (_a = monaco.editor).getModels) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : []).map((model) => [model.uri.toString(), model.getVersionId()]));
                     const result = await client
                         .request("textDocument/rename", {
                         textDocument: { uri: uriOf(model) },
@@ -150,7 +162,15 @@ export const registerLspProviders = (monaco, client, languages = ["latex", "bibt
                         newName,
                     })
                         .catch(() => null);
-                    return toMonacoWorkspaceEdit(monaco, result);
+                    const edit = toMonacoWorkspaceEdit(monaco, result);
+                    if (!await loadTargets(edit.edits.map((item) => item.resource))) {
+                        return { edits: [], rejectReason: uiText("A file needed for this rename could not be opened.", "名前の変更に必要なファイルを開けませんでした。") };
+                    }
+                    for (const item of edit.edits) {
+                        const current = monaco.editor.getModel(item.resource);
+                        item.versionId = (_d = versions.get(item.resource.toString())) !== null && _d !== void 0 ? _d : current === null || current === void 0 ? void 0 : current.getVersionId();
+                    }
+                    return edit;
                 },
             }));
         }

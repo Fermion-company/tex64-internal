@@ -10,13 +10,11 @@ export const createEditorSessionNavigationOps = (runtime, coreOps, issueOps, dep
     };
     const jumpToFileLine = (path, line, groupKey, options = {}) => {
         const forceOpen = options.force === true;
-        const focus = options.focus;
-        const className = options.className;
-        const column = options.column;
+        const { focus, className, column, issueMessage } = options;
         const targetGroupKey = forceOpen ? groupKey : coreOps.resolveOpenTargetGroupKey(path, groupKey);
         const targetGroup = coreOps.getEditorGroup(targetGroupKey);
         if (targetGroup.currentFilePath === path) {
-            issueOps.revealLine(targetGroup, line, { focus, className, column });
+            issueOps.revealLine(targetGroup, line, { focus, className, column, issueMessage });
             return;
         }
         const requested = deps.requestOpenFile(path, targetGroupKey, forceOpen);
@@ -25,6 +23,7 @@ export const createEditorSessionNavigationOps = (runtime, coreOps, issueOps, dep
                 path,
                 line,
                 column,
+                issueMessage,
                 group: targetGroupKey,
                 focus,
                 className,

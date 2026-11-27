@@ -320,21 +320,39 @@ export async function sendMessage(
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    let buffer = "";
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let newline = buffer.indexOf("\n");
-      while (newline !== -1) {
-        const line = buffer.slice(0, newline).trim();
-        buffer = buffer.slice(newline + 1);
-        if (line) {
-          const parsed: unknown = JSON.parse(line);
-          if (isTurnFrame(parsed)) onFrame(parsed);
-        }
-        newline = buffer.indexOf("\n");
+    let receivedDone = false;
+    const readLine = (line: string) => {
+      if (!line.trim()) return;
+      let frame: unknown;
+      try {
+        frame = JSON.parse(line);
+      } catch {
+        throw new InvalidResponseError();
       }
+      if (!isTurnFrame(frame)) return;
+      if (frame.type === "done") receivedDone = true;
+      onFrame(frame);
+    };
+    let buffer = "";
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let newline = buffer.indexOf("\n");
+        while (newline !== -1) {
+          readLine(buffer.slice(0, newline));
+          buffer = buffer.slice(newline + 1);
+          newline = buffer.indexOf("\n");
+        }
+      }
+      readLine(buffer + decoder.decode());
+      if (!receivedDone) throw new InvalidResponseError();
+    } catch {
+      await reader.cancel().catch(() => undefined);
+      throw new InvalidResponseError();
+    } finally {
+      reader.releaseLock();
     }
     return { data: null, source: "remote", ok: true };
   } catch (error) {

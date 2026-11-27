@@ -9,6 +9,7 @@
 
 const fsp = require("node:fs/promises");
 const path = require("node:path");
+const { readWorkspaceComments } = require("../services/collab/comments.cjs");
 const { parseInviteLink } = require("../services/collab/invite.cjs");
 
 const MAX_COMMENT_BYTES = 4 * 1024 * 1024;
@@ -22,18 +23,14 @@ const createCollabHandlers = ({ ipcMain, hub, state, workspace, sendCollab, getL
   const knownRoots = new Set();
   const commentsPath = (root = workspace.getRootPath()) => (root ? path.join(root, ".tex64", "comments.json") : null);
 
-  const loadComments = async () => {
+  const loadComments = async (request) => {
     const root = workspace.getRootPath();
-    if (root) knownRoots.add(root);
+    if (request.root && request.root !== root) throw Object.assign(new Error("The workspace changed."), { code: "WORKSPACE_CHANGED" });
     const target = commentsPath(root);
     if (!target) return { comments: [] };
-    try {
-      const parsed = JSON.parse(await fsp.readFile(target, "utf8"));
-      return { comments: Array.isArray(parsed?.comments) ? parsed.comments : [] };
-    } catch (error) {
-      if (error.code === "ENOENT") return { comments: [], missing: true };
-      throw error;
-    }
+    const result = await readWorkspaceComments(target);
+    knownRoots.add(root);
+    return result;
   };
 
   const saveComments = async (payload) => {
@@ -71,7 +68,7 @@ const createCollabHandlers = ({ ipcMain, hub, state, workspace, sendCollab, getL
         case "flush":
           return { ok: true, flushed: await hub.flush() };
         case "comments:load":
-          return { ok: true, ...(await loadComments()) };
+          return { ok: true, ...(await loadComments(request)) };
         case "comments:save":
           return { ok: true, ...(await saveComments(request)) };
         default:

@@ -1,3 +1,5 @@
+import type { FormatTarget } from "./editor-session/types.js";
+import { isTexFilePath } from "./files.js";
 import type { AppContext } from "./context.js";
 import { uiText } from "./i18n.js";
 import { countMarkedLines, renderBuildLog, segmentBuildLog } from "./build-log-view.js";
@@ -79,7 +81,7 @@ type BuildOpsDeps = {
   setLastBuildMainFile: (path: string | null) => void;
   getStoredCursorPosition: (path: string) => { line: number; column: number } | null;
   cacheCurrentBuffer: (group: EditorGroupState) => void;
-  saveCurrentFile: () => Promise<boolean>;
+  captureFormatTarget: () => FormatTarget | null;
   saveDirtyFiles?: () => Promise<boolean>;
   postToNative: (
     payload: { type: string; [key: string]: unknown },
@@ -92,14 +94,7 @@ type BuildOpsDeps = {
     issues: IssueItem[]
   ) => void;
   setPendingBuildIssuesFocus: (value: boolean) => void;
-  applyFormattedContent: (
-    group: EditorGroupState,
-    path: string,
-    content: string,
-    options?: { updateSaved?: boolean }
-  ) => void;
   getEditorGroups: () => EditorGroupState[];
-  renderEditorTabs: (group: EditorGroupState) => void;
   requestOpenFile: (
     path: string,
     groupKey: EditorGroupKey,
@@ -135,6 +130,7 @@ export type BuildOpsApi = {
     content?: string;
     error?: string;
     source?: string;
+    requestId?: string;
     stale?: boolean;
   }) => void;
   handleSaveFormatError: (formatError?: string) => void;
@@ -177,10 +173,16 @@ export const initBuildOpsUi = (
     issuesLogContent,
   } = context.dom;
 
-  let formatInFlight = false;
-  let formatPending = false;
+  type FormatRequest = {
+    id: string;
+    root: string | null | undefined;
+    target: FormatTarget;
+    source: string;
+    settings: FormatSettingsPayload;
+  };
+  let formatInFlight: FormatRequest | null = null;
+  const formatQueue = new Map<string, FormatRequest>();
   let formatWarningShown = false;
-  let formatInFlightSnapshot: { path: string; content: string } | null = null;
   let currentBuildLog: string | null = null;
   let currentBuildState: BuildState = "idle";
   let preparingBuild = false;
@@ -616,10 +618,10 @@ export const initBuildOpsUi = (
         // main file when the active tab isn't a .tex (e.g. the PDF or a .bib).
         const activePath = deps.getActiveFilePath();
         const targetPath =
-          activePath && activePath.endsWith(".tex")
+          isTexFilePath(activePath)
             ? activePath
             : deps.getLastBuildMainFile() ?? deps.getRootFilePath() ?? null;
-        if (targetPath && targetPath.endsWith(".tex")) {
+        if (isTexFilePath(targetPath)) {
           requestSynctexForward(targetPath, {
             fallbackToTop: false,
             source: "auto-build",
@@ -783,7 +785,7 @@ export const initBuildOpsUi = (
       // required tools are missing. Previously this path returned early,
       // which prevented the spinner from ever appearing ("stops midway").
       deps.settings.checkEnvironmentStatus();
-    } else if (!runtimeSummary.runtimeReady) {
+    } else if (runtimeSummary.requiredChecksComplete && !runtimeSummary.runtimeReady) {
       const missing = runtimeSummary.missingRequired.map((item) =>
         resolveRuntimeMissingLabel(item)
       );
@@ -876,42 +878,29 @@ export const initBuildOpsUi = (
     }
   };
 
+  const dispatchNextFormat = () => {
+    if (formatInFlight) return;
+    for (const [path, request] of formatQueue) {
+      formatQueue.delete(path);
+      if (request.root !== deps.getWorkspaceRootKey?.() || !request.target.isCurrent()) continue;
+      formatInFlight = request;
+      if (deps.postToNative({
+        type: "formatFile", path, content: request.target.content, source: request.source,
+        formatSettings: request.settings, requestId: request.id, expectedWorkspaceRoot: request.root,
+      })) return;
+      formatInFlight = null;
+      handleSaveFormatError(uiText("Failed to request formatting.", "整形を開始できませんでした。"));
+    }
+  };
+
   const requestFormatCurrentFile = (source: string) => {
-    const activeGroup = deps.getActiveGroup();
-    const activePath = activeGroup.currentFilePath;
-    if (!activePath || !activePath.toLowerCase().endsWith(".tex")) {
-      return;
-    }
-    if (!activeGroup.editor) {
-      return;
-    }
-    if (formatInFlight) {
-      formatPending = true;
-      return;
-    }
-    const editor = activeGroup.editor as { getValue: () => string };
-    const content = editor.getValue();
-    formatInFlight = true;
-    formatInFlightSnapshot = { path: activePath, content };
-    const ok = deps.postToNative({
-      type: "formatFile",
-      path: activePath,
-      content,
-      source,
-      formatSettings: deps.settings.buildFormatSettingsPayload(),
+    const target = deps.captureFormatTarget();
+    if (!target) return;
+    formatQueue.set(target.path, {
+      id: crypto.randomUUID(), root: deps.getWorkspaceRootKey?.(), target, source,
+      settings: deps.settings.buildFormatSettingsPayload(),
     });
-    if (!ok) {
-      formatInFlight = false;
-      formatPending = false;
-      formatInFlightSnapshot = null;
-      if (!formatWarningShown) {
-        formatWarningShown = true;
-        const message = uiText("Failed to request formatting.", "The formatting request failed.");
-        deps.updateIssues(1, message, "info", [
-          { severity: "warning", message },
-        ]);
-      }
-    }
+    dispatchNextFormat();
   };
 
   const handleSaveFormatError = (formatError?: string) => {
@@ -929,56 +918,23 @@ export const initBuildOpsUi = (
     content?: string;
     error?: string;
     source?: string;
+    requestId?: string;
     stale?: boolean;
   }) => {
-    const inFlightSnapshot = formatInFlightSnapshot;
-    formatInFlight = false;
-    formatInFlightSnapshot = null;
-    if (payload.stale === true) {
-      formatPending = false;
-      return;
-    }
-    if (!payload.ok) {
-      if (!formatWarningShown) {
-        formatWarningShown = true;
-        const message = payload.error ?? uiText("Formatting failed.", "整形できませんでした。");
-        deps.updateIssues(1, message, "info", [
-          { severity: "warning", message },
-        ]);
-      }
-    } else if (typeof payload.content === "string") {
-      const groupsWithFile = deps
-        .getEditorGroups()
-        .filter((group) => group.currentFilePath === payload.path);
-      const currentValue =
-        groupsWithFile.length > 0
-          ? (groupsWithFile[0].editor as { getValue?: () => string })?.getValue?.()
-          : null;
-      const isStale =
-        inFlightSnapshot?.path === payload.path &&
-        typeof currentValue === "string" &&
-        currentValue !== inFlightSnapshot.content;
-      if (!isStale) {
-        if (groupsWithFile.length > 0) {
-          groupsWithFile.forEach((group) => {
-            deps.applyFormattedContent(group, payload.path, payload.content as string, {
-              updateSaved: false,
-            });
-            deps.renderEditorTabs(group);
-          });
-        }
-        const activeGroup = deps.getActiveGroup();
-        if (activeGroup.currentFilePath === payload.path && activeGroup.isDirty) {
-          deps.saveCurrentFile().catch((message: string) => {
-            deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
-          });
-        }
+    const request = formatInFlight;
+    if (!request || request.id !== payload.requestId || request.target.path !== payload.path) return;
+    formatInFlight = null;
+    if (!payload.stale && request.root === deps.getWorkspaceRootKey?.() && request.target.isCurrent()) {
+      if (!payload.ok) {
+        handleSaveFormatError(payload.error ?? uiText("Formatting failed.", "整形できませんでした。"));
+      } else if (typeof payload.content === "string") {
+        void request.target.apply(payload.content).catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+        });
       }
     }
-    if (formatPending) {
-      formatPending = false;
-      requestFormatCurrentFile(payload.source ?? "auto");
-    }
+    dispatchNextFormat();
   };
 
   const handleSynctexForwardResult = (payload: {

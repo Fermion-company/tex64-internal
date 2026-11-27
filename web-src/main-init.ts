@@ -75,7 +75,8 @@ import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
 import { initCodeLivePreview } from "./app/code-live-preview.js";
 import { resolveLivePreviewWorkspacePath } from "./app/live-preview-path.js";
 import { prepareRendererForQuit } from "./app/quit-preparation.js";
-import { setupSaveStatusUi } from "./app/save-status-ui.js";
+import { describeSaveFailure, setupSaveStatusUi } from "./app/save-status-ui.js";
+import { showEditorNotice } from "./app/editor-notice.js";
 import type {
   BlockContext,
   DetectedBlockSnapshot,
@@ -179,16 +180,18 @@ export const initMain = () => {
           y: payload.y,
           pdfPath: payload.pdfPath,
           context: payload.context,
+          fallbackGeneration: payload.fallbackGeneration,
         },
         true
       );
     },
+    onEmptyLiveError: detail => codeLivePreview?.recoverEmptyPaper(detail),
     onLiveRuntimeError: (message) => issuesProxy.setLiveRuntimeError("primary", message),
     onLiveSourceRequest: (payload) => requestLiveSource(payload),
     onLiveEditRequest: (payload) => requestLiveEdit(payload),
     onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
     onPdfAskAxiom: (payload) => {
-      setActiveTab("ai");
+      openAxiomPanel();
       aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
     },
     onPdfClose: () => closePdfIn("primary"),
@@ -210,16 +213,18 @@ export const initMain = () => {
           y: payload.y,
           pdfPath: payload.pdfPath,
           context: payload.context,
+          fallbackGeneration: payload.fallbackGeneration,
         },
         true
       );
     },
+    onEmptyLiveError: detail => codeLivePreview?.recoverEmptyPaper(detail),
     onLiveRuntimeError: (message) => issuesProxy.setLiveRuntimeError("secondary", message),
     onLiveSourceRequest: (payload) => requestLiveSource(payload),
     onLiveEditRequest: (payload) => requestLiveEdit(payload),
     onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
     onPdfAskAxiom: (payload) => {
-      setActiveTab("ai");
+      openAxiomPanel();
       aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
     },
     onPdfClose: () => closePdfIn("secondary"),
@@ -253,6 +258,10 @@ export const initMain = () => {
   ): boolean => {
     if (workspaceSwitchInFlight) return false;
     workspaceSwitchInFlight = true;
+    const reportSwitchFailure = (message: string) => {
+      launcherUi.setStatus({ isBusy: false, message });
+      updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+    };
     void (async () => {
       try {
         // A root switch changes what every relative path means. Save Code's
@@ -274,10 +283,14 @@ export const initMain = () => {
                   "The current operation has not stopped yet. Try changing projects again.",
                   "実行中の処理がまだ停止していません。もう一度プロジェクトを切り替えてください。",
                 ));
-          updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+          reportSwitchFailure(message);
           return;
         }
-        postToNative(payload);
+        if (!postToNative(payload)) {
+          reportSwitchFailure(uiText("Native integration is not available.", "ネイティブ連携が利用できません。"));
+        }
+      } catch (error) {
+        reportSwitchFailure(error instanceof Error ? error.message : uiText("Could not open the project.", "プロジェクトを開けませんでした。"));
       } finally {
         workspaceSwitchInFlight = false;
       }
@@ -319,7 +332,14 @@ export const initMain = () => {
   // Outline and History are sections of the file panel now, and Project is
   // the first group of Settings > Build: anything that asks for those panels
   // lands there.
+  let previousSettingsTab: TabKey = "files";
+  let settingsOpener: HTMLElement | null = null;
   const setActiveTab = (tabKey: TabKey) => {
+    const currentTab = tabController.getActiveTab();
+    if ((tabKey === "settings" || tabKey === "project") && currentTab !== "settings" && currentTab !== "project") {
+      previousSettingsTab = currentTab;
+      settingsOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
     if (tabKey === "outline" || tabKey === "history") {
       if (!bottomPanelUi.isSidebarVisible()) bottomPanelUi.toggleSidebar();
       tabController.setActiveTab("files");
@@ -335,11 +355,18 @@ export const initMain = () => {
   };
   // The full-screen settings overlay covers the sidebar rail, so closing it
   // needs its own affordances: the top-right close button and Escape.
+  const closeSettings = () => {
+    setActiveTab(previousSettingsTab);
+    if (settingsOpener?.isConnected) settingsOpener.focus({ preventScroll: true });
+    settingsOpener = null;
+  };
+  const openAxiomPanel = () => {
+    if (!bottomPanelUi.isSidebarVisible()) bottomPanelUi.toggleSidebar();
+    setActiveTab("ai");
+  };
   const settingsCloseButton = document.getElementById("settings-close");
   if (settingsCloseButton instanceof HTMLElement) {
-    settingsCloseButton.addEventListener("click", () => {
-      setActiveTab("files");
-    });
+    settingsCloseButton.addEventListener("click", closeSettings);
   }
   window.addEventListener("keydown", (event) => {
     if (
@@ -348,7 +375,7 @@ export const initMain = () => {
       tabController.getActiveTab() === "settings"
     ) {
       event.preventDefault();
-      setActiveTab("files");
+      closeSettings();
     }
   });
   const envRegistry = initEnvRegistry(appContext, {
@@ -357,6 +384,7 @@ export const initMain = () => {
       blockEditSession?.refreshDetectedBlock(allowTabSwitch);
     },
   });
+  let codeLivePreview: ReturnType<typeof initCodeLivePreview> | undefined;
   const settingsUi = initSettingsUi(appContext, {
     envRegistry,
     getWorkspaceRootKey: appActions.getWorkspaceRootKey,
@@ -371,18 +399,7 @@ export const initMain = () => {
       void mode;
     },
     saveDirtyFiles: () => editorSession.saveDirtyFiles(),
-    onRuntimeSetupNeeded: () => {
-      if (onboardingUi.isVisible()) {
-        return;
-      }
-      setActiveTab("settings");
-      settingsUi.openSettingsPage("build");
-    },
-    onRuntimeDetection: (report, summary) => {
-      // Trust the per-command sweep when it has finished, and the detection
-      // report on its own before that — right after an install the sweep is
-      // momentarily empty, and the gate must not flash back to the choice.
-      const ready = summary?.hasAnyResult ? summary.runtimeReady : Boolean(report?.ready);
+    onRuntimeDetection: (ready) => {
       if (ready) {
         if (onboardingUi.isVisible()) {
           onboardingUi.finish();
@@ -395,6 +412,7 @@ export const initMain = () => {
       onboardingUi.showChoice();
     },
     onRuntimeInstallEvent: (event) => {
+      if (event.kind === "result" && event.success) codeLivePreview?.environmentInstalled();
       const variant: TexInstallVariant = event.variant === "full" ? "full" : "light";
       if (!onboardingUi.isVisible()) {
         return;
@@ -432,11 +450,10 @@ export const initMain = () => {
     onFeedbackStatus: settingsUi.onFeedbackStatus,
   });
   const announcementsUi = initAnnouncementsUi({
+    submitFeedback: settingsUi.submitFeedback,
     postToNative: (payload, silent) => postToNative(payload, silent),
     openAxiom: () => {
-      // The chat lives in the sidebar, which may be collapsed.
-      if (!bottomPanelUi.isSidebarVisible()) bottomPanelUi.toggleSidebar();
-      setActiveTab("ai");
+      openAxiomPanel();
       window.requestAnimationFrame(() => document.getElementById("ai-input")?.focus());
     },
   });
@@ -506,7 +523,7 @@ export const initMain = () => {
       editorSession.requestOpenFile(path, groupKey, force),
     updateIssues: updateIssuesProxy,
     isAnyGroupComposing: () => editorSession.isAnyGroupComposing(),
-    postToNative: (payload) => postToNative(payload),
+    postToNative: (payload) => postToNative({ ...payload, expectedWorkspaceRoot: getWorkspaceRootKey() }),
     getDirtyPaths: () => editorSession.getDirtyPaths(),
     openTerminal: (directory) => openIntegratedTerminal(directory),
   });
@@ -534,12 +551,13 @@ export const initMain = () => {
   // what main resolves (asked once per fragment, forgotten after each build
   // since includes may have changed). Ambiguous fragments stay unresolved.
   // null: asked, no answer yet. false: main has no single document for it.
-  const documentOwners = new Map<string, { document: string; including: string[] } | null | false>();
+  type DocumentOwnership = { document: string | null; including: string[] };
+  const documentOwners = new Map<string, DocumentOwnership | null | false>();
   // The last answer for each file. A Build forgets the answers (includes may
   // have changed) and asks again; until main has answered, the previous one
   // stands. Without it every Build left a moment in which a chapter, or the
   // book itself, had no known document and Live chose another.
-  const lastDocumentOwners = new Map<string, { document: string; including: string[] } | false>();
+  const lastDocumentOwners = new Map<string, DocumentOwnership | false>();
   const documentOwnerOf = (path: string): string | null | undefined => {
     const chosen = buildOps?.documentFor(path);
     if (chosen) return chosen;
@@ -547,12 +565,16 @@ export const initMain = () => {
     if (!documentOwners.has(key)) {
       documentOwners.set(key, null);
       const bridge = (window as unknown as { tex64WordCount?: { documentFor: (path: string) => Promise<{ ok: boolean; document?: string | null; including?: string[] }> } }).tex64WordCount;
-      void bridge?.documentFor(path).then((result) => {
+      if (!bridge) {
+        documentOwners.set(key, false);
+        return null;
+      }
+      void bridge.documentFor(path).then((result) => {
         if (documentOwners.get(key) !== null) return;
-        if (result?.ok && typeof result.document === "string") {
+        if (result?.ok && (typeof result.document === "string" || result.document === null)) {
           documentOwners.set(key, { document: result.document, including: Array.isArray(result.including) ? result.including.filter((entry) => typeof entry === "string") : [] });
         } else documentOwners.set(key, false);
-        lastDocumentOwners.set(key, documentOwners.get(key) as { document: string; including: string[] } | false);
+        lastDocumentOwners.set(key, documentOwners.get(key) as DocumentOwnership | false);
       }, () => { if (documentOwners.get(key) === null) documentOwners.set(key, false); });
     }
     const answered = documentOwners.get(key);
@@ -580,9 +602,14 @@ export const initMain = () => {
   let updateFallback = (message: string) => {};
 
   editorSession = initEditorSession(appContext, {
+    isLivePaper: path => codeLivePreview?.isLivePaper(path) ?? false,
+    getWorkspaceRoot: getWorkspaceRootKey,
     getWorkspaceFiles,
     getRootFilePath,
-    postToNative: (payload, silent) => postToNative(payload, silent),
+    postToNative: (payload, silent) => postToNative(
+      payload.type === "openFile" ? { ...payload, expectedWorkspaceRoot: getWorkspaceRootKey() } : payload,
+      silent,
+    ),
     updateIssues: updateIssuesProxy,
     getRecentIssuesSnapshot: () => issuesProxy.getLastIssueSnapshot(),
     setAutoDetectedUi,
@@ -621,7 +648,7 @@ export const initMain = () => {
     collab: collabFileBridge,
   });
   collabBinding = initCollabBinding({ editorSession, getMonacoApi: appActions.getMonacoApi });
-  collabUi = initCollabUi();
+  collabUi = initCollabUi(getWorkspaceRootKey);
   const reportInvalidLivePreviewPath = () => {
     const message = uiText(
       "The PDF edit is outside this workspace.",
@@ -719,14 +746,24 @@ export const initMain = () => {
       typeof payload.requestId === "string" ? payload.requestId : "";
     if (!requestId) return;
     if (!quitPreparation) {
+      const stopWriters = async () => (await bridgeWindow.tex64Ai?.quiesce?.()) ?? {
+        ok: false, error: "Native integration is not available.",
+      };
       quitPreparation = prepareRendererForQuit({
-        quiesce: async () =>
-          (await bridgeWindow.tex64Ai?.quiesce?.()) ?? {
-            ok: false,
-            error: "Native integration is not available.",
-          },
-        saveDirtyFiles: () => editorSession.saveDirtyFiles(),
-        getDirtyFileCount: () => editorSession.getDirtyPaths().size,
+        getCompositionError: () => editorSession.isAnyGroupComposing()
+          ? uiText("Finish text conversion before closing the window.", "文字の変換を確定してからウィンドウを閉じてください。")
+          : null,
+        quiesce: stopWriters,
+        finishWorkspace: async () => {
+          const quiet = await stopWriters();
+          if (!quiet.ok) throw new Error(quiet.error || "Could not stop active work.");
+          await collabSession.leave();
+        },
+        saveDirtyFiles: async () => {
+          await monacoSetup.flushComments();
+          return editorSession.saveDirtyFiles();
+        },
+        getDirtyFileCount: () => editorSession.getDirtyPaths().size + Number(monacoSetup.hasPendingComments()),
         freeze: () => {
           document.documentElement.dataset.quitPrepared = "true";
           document.body.inert = true;
@@ -745,8 +782,14 @@ export const initMain = () => {
                 "The current operation could not be stopped. Quit was canceled.",
                 "実行中の処理を停止できなかったため、終了を中止しました。",
               );
-        const error = result.error || fallback;
+        const status = editorSession.getSaveStatus();
+        const error = result.error === "Saving failed."
+          ? (status.kind === "error" ? describeSaveFailure(status.message) : fallback)
+          : result.error || fallback;
         updateIssuesProxy(1, error, "error", [{ severity: "error", message: error }]);
+        if (status.kind !== "error" || !document.querySelector(".editor-notice.is-error")) {
+          showEditorNotice(appContext.dom.buildIssueCount, error, { tone: "error", owner: "quit" });
+        }
         quitPreparation = null;
       }
       postToNative(
@@ -764,6 +807,7 @@ export const initMain = () => {
   // switcher stays hidden and the app stays in Code.
   const aiModeEnabled = bridgeWindow.tex64Bridge?.aiModeEnabled !== false;
   document.getElementById("mode-switcher")?.toggleAttribute("hidden", !aiModeEnabled);
+
   let appModeApi: ReturnType<typeof initAppModeUi>;
   appModeApi = initAppModeUi({
     initialMode: aiModeEnabled ? resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY)) : "code",
@@ -789,24 +833,48 @@ export const initMain = () => {
       })();
     },
     onModeChange: (mode) => {
-      if (mode === "ai") aiModeApi.activate();
+      codeLivePreview?.refreshMode();
+      if (mode === "ai") {
+        fileTreeUi.cancelDialogs();
+        aiModeApi.activate();
+      } else aiModeApi.deactivate();
     },
   });
-  const codeLivePreview = initCodeLivePreview({
+  codeLivePreview = initCodeLivePreview({
+    getCompileEngine: () => getBuildProfiles().find(p => p.id === getBuildProfileId())?.engine ||
+      localStorage.getItem("tex64.compileEngine") || "lualatex",
     getActiveGroup: editorSession.getActiveGroup,
     getEditorGroups: editorSession.getEditorGroups,
     getAppMode: () => appModeApi.getMode(),
     getWorkspaceRoot: getWorkspaceRootKey,
+    getWorkspaceFiles,
     getRootFile: getRootFilePath,
     getRootSource,
+    hasSavedPaper: target => target.workspaceRoot === getWorkspaceRootKey() && getWorkspaceFiles().includes(target.pdfPath),
+    showFirstPaper: (target) => {
+      if (!target?.workspaceRoot || target.workspaceRoot !== getWorkspaceRootKey()) return;
+      if (settingsUi.getPdfViewerMode() === "window") return "window";
+      editorSession.openFirstPreview(target.pdfPath, getWorkspaceFiles().includes(target.pdfPath));
+    },
+    closeFirstPaper: (switchingDocument) => {
+      editorSession.cancelPendingFirstPreview();
+      const right = editorSession.getEditorGroup("secondary");
+      const path = right.viewer.getUnbuiltPdfPath();
+      if (!path || right.currentFilePath !== path) return;
+      if (!switchingDocument && getWorkspaceFiles().includes(path)) editorSession.requestOpenFile(path, "secondary", true);
+      else editorSession.closeTab(right, path);
+    },
     getLastBuildTarget: () => lastBuildMainFile,
     getDocumentFor: (path) => documentOwnerOf(path),
     getDocumentsIncluding: (path) => {
+      if (buildOps?.documentFor(path)) return [];
       const key = `${getWorkspaceRootKey() ?? ""}\0${path}`;
       const known = documentOwners.get(key) ?? lastDocumentOwners.get(key);
       return known ? known.including : null;
     },
-    getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
+    onRuntimeError: (message) => issuesProxy.setLiveRuntimeError("preview-startup", message),
+    getDirtyFileSnapshots: (readModelText) => editorSession.getOpenFileSnapshots({
+      readModelText,
       maxFiles: Number.POSITIVE_INFINITY,
       maxChars: Number.POSITIVE_INFINITY,
       onlyDirty: true,
@@ -814,17 +882,6 @@ export const initMain = () => {
   });
   refreshCodeLivePreview = codeLivePreview.refreshSource;
   onFilesTabActive = () => editorSession.updateMiniOutline();
-
-  const openInCodeEditor = (path: string, line?: number) => {
-    if (typeof line === "number") {
-      editorSession.jumpToFileLine(path, line, "primary", {
-        force: true,
-        focus: false,
-      });
-      return;
-    }
-    editorSession.requestOpenFile(path, "primary", true);
-  };
 
   const mathCaptureHandler = createMathCaptureHandler({
     recognizeMath,
@@ -858,6 +915,21 @@ export const initMain = () => {
   });
 
   aiChatUi = initAiChatUi(appContext, {
+    openProjectFile: path => editorSession.requestOpenFile(path, editorSession.getActiveEditorGroupKey()),
+    prepareEditorForAgent: async () => {
+      const root = getWorkspaceRootKey();
+      const assertCompositionFinished = () => {
+        if (editorSession.isAnyGroupComposing()) throw new Error(uiText(
+          "Finish text conversion before sending this edit.", "文字の変換を確定してから編集を依頼してください。"));
+      };
+      assertCompositionFinished();
+      const saved = await editorSession.saveDirtyFiles();
+      if (root !== getWorkspaceRootKey()) throw new Error(uiText("The project changed.", "プロジェクトが切り替わりました。"));
+      const state = editorSession.getSaveStatus();
+      if (!saved || state.kind !== "saved") throw new Error(state.kind === "error"
+        ? state.message : uiText("Save your changes and send this edit again.", "原稿を保存してから編集を依頼してください。"));
+      assertCompositionFinished();
+    },
     postToNative: (payload, silent) => postToNative(payload, silent),
     getActiveFilePath: () => editorSession.getActiveFilePath(),
     getActiveFileSnapshot: () => editorSession.getActiveFileSnapshot(),
@@ -942,7 +1014,7 @@ export const initMain = () => {
     requestFormatCurrentFile: (source) => {
       buildOps.requestFormatCurrentFile(source);
     },
-    postToNative: (payload, silent) => postToNative(payload, silent),
+    postToNative: (payload, silent) => postToNative({ ...payload, expectedWorkspaceRoot: getWorkspaceRootKey() }, silent),
     getBlockMode: () => blockEditSession?.getMode() ?? "insert",
     resetBlockSession: (options) => resetBlockSession(options),
     getPendingBlockApply: () => pendingBlockApply,
@@ -965,11 +1037,13 @@ export const initMain = () => {
 
   const searchUi = initSearchUi(appContext, {
     getWorkspaceRootKey: appActions.getWorkspaceRootKey,
+    getSearchDrafts: () => editorSession.getOpenFileSnapshots({ onlyDirty: true, maxFiles: 0, maxChars: 0 })
+      .snapshots.map(({ path, content }) => ({ path, content })),
     postToNative: (message) => {
       postToNative(message);
     },
     openAiPanel: () => {
-      setActiveTab("ai");
+      openAxiomPanel();
     },
     buildRenameContext: () => {
       const context: {
@@ -998,6 +1072,8 @@ export const initMain = () => {
       const openSnapshots = editorSession.getOpenFileSnapshots({
         maxFiles: 0,
         maxChars: 0,
+        onlyDirty: true,
+        excludePath: activeSnapshot?.path,
       });
       if (openSnapshots) {
         const dirtySnapshots = openSnapshots.snapshots.filter((snapshot) => snapshot.isDirty);
@@ -1009,7 +1085,9 @@ export const initMain = () => {
       return context;
     },
     openSearchResult: (result) => {
-      openInCodeEditor(result.path, result.line);
+      editorSession.jumpToFileLine(result.path, result.line, editorSession.getActiveEditorGroupKey(), {
+        column: result.column,
+      });
     },
   });
 
@@ -1069,10 +1147,8 @@ export const initMain = () => {
       postToNative({ type: "auth:google:start" });
     },
   });
-  // Settings > Account > Plans & Usage: close the full-screen settings first,
-  // then open the same in-app Plans modal used everywhere else.
+  // Keep the account page underneath so dismissing Plans returns focus to its opener.
   document.getElementById("settings-plan-open")?.addEventListener("click", () => {
-    document.getElementById("settings-close")?.click();
     window.dispatchEvent(new CustomEvent("tex64:open-plans"));
   });
   window.addEventListener("focus", () => aiChatUi?.refreshPlan(false));
@@ -1103,14 +1179,12 @@ export const initMain = () => {
     setLastBuildMainFile: (path) => noteBuildTarget(path),
     getStoredCursorPosition: (path) => editorSession.getStoredCursorPosition(path),
     cacheCurrentBuffer: editorSession.cacheCurrentBuffer,
-    saveCurrentFile: () => editorSession.saveCurrentFile(),
+    captureFormatTarget: editorSession.captureFormatTarget,
     saveDirtyFiles: () => editorSession.saveDirtyFiles(),
     postToNative: (payload, silent) => postToNative(payload, silent),
     updateIssues: updateIssuesProxy,
     setPendingBuildIssuesFocus: (value) => setPendingBuildIssuesFocus(value),
-    applyFormattedContent: editorSession.applyFormattedContent,
     getEditorGroups: () => editorSession.getEditorGroups(),
-    renderEditorTabs: (group) => editorTabsUi.render(group),
     requestOpenFile: editorSession.requestOpenFile,
     getSplitViewEnabled: () => editorSession.getSplitViewEnabled(),
     setSplitViewEnabled: (enabled) => editorSession.setSplitViewEnabled(enabled),
@@ -1152,20 +1226,18 @@ export const initMain = () => {
     },
   });
   outlineUi = initOutlineUi(appContext, {
+    getWorkspaceFiles,
     getActiveFilePath: () => editorSession.getActiveFilePath(),
     getWorkspaceRootKey,
     getIndexLabels,
     getIndexCitations,
     getIndexSections,
     getIndexTodos,
-    onJumpToLocation: (entry) => {
-      if (!entry.path || !entry.line) {
-        return;
-      }
-      openInCodeEditor(entry.path, entry.line);
-    },
+    onJumpToLocation: editorSession.jumpToLocation,
     onJumpToSection: (entry) => {
-      openInCodeEditor(entry.path, entry.line);
+      editorSession.jumpToFileLine(entry.path, entry.line, editorSession.getActiveEditorGroupKey(), {
+        focus: false,
+      });
     },
   });
   issuesUi = initIssuesUi(appContext, {
@@ -1203,6 +1275,11 @@ export const initMain = () => {
     },
     envRegistry,
     rootSelectorUi,
+    resetBuildFeedback: () => {
+      buildOps.handleBuildLog(null);
+      buildOps.setBuildState("idle");
+      issuesProxy.resetWorkspace();
+    },
     setLastBuildMainFile: (path) => noteBuildTarget(path),
   });
   updateIssues = workspaceController.updateIssues;
@@ -1223,8 +1300,8 @@ export const initMain = () => {
   const storedTab = tabController.normalizeTabKey(
     storedActiveTab ?? tabs.find((tab) => tab.classList.contains("is-active"))?.dataset.tab
   );
-  // Project now lives in Settings, which should not open by itself at startup.
-  const initialTab: TabKey = storedTab === "project" ? "files" : storedTab;
+  // Settings covers the whole editor. Restore a work panel on launch.
+  const initialTab: TabKey = storedTab === "project" || storedTab === "settings" ? "files" : storedTab;
   setActiveTab(initialTab);
   sidebarUi.loadVisibility();
   sidebarUi.applyVisibility();
@@ -1265,7 +1342,10 @@ export const initMain = () => {
   // Keep the main process in sync with the in-app language so native surfaces
   // (permission dialogs, menu, notifications) match the UI, not the OS locale.
   postToNative({ type: "uiLocale", locale: getUiLocale() });
-  onUiLocaleChange((locale) => postToNative({ type: "uiLocale", locale }));
+  onUiLocaleChange((locale) => {
+    postToNative({ type: "uiLocale", locale });
+    issuesUi.render(getCurrentIssues());
+  });
   const uiEvents = initUiEvents(appContext, {
     setActiveTab,
     normalizeTabKey: tabController.normalizeTabKey,
@@ -1375,6 +1455,24 @@ export const initMain = () => {
   };
 
   initBridgeHandlers({
+    onEmptyLiveError: detail => codeLivePreview?.recoverEmptyPaper(detail),
+    onPdfWindowIssue: message => issuesProxy.setLiveRuntimeError("pdf-window", message),
+    onBlockHistorySaveError: (invalid) => {
+      const message = invalid
+        ? uiText("The formula was applied. Its insertion history could not be read. Check .tex64/blocks.json.",
+          "数式を原稿に反映しました。履歴ファイル（.tex64/blocks.json）の形式を確認してください。")
+        : uiText("The formula was applied. Its insertion history could not be saved.",
+          "数式を原稿に反映しました。挿入履歴を保存できませんでした。");
+      showEditorNotice(appContext.dom.blockInsertButton, message, { tone: "error", owner: "block-history" });
+    },
+    checkEditorPaths: (root, paths) => {
+      if (root !== getWorkspaceRootKey()) return false;
+      const dirty = editorSession.getDirtyPaths();
+      if (paths.some(path => dirty.has(path))) return false;
+      return !editorSession.getEditorGroups().some(group =>
+        group.currentFilePath && paths.includes(group.currentFilePath)
+        && (group.isComposing || (group.editor as { inComposition?: boolean } | null)?.inComposition));
+    },
     bridgeWindow,
     postToNative: (payload, silent) => postToNative(payload, silent),
     updateIssues: updateIssuesProxy,
@@ -1384,7 +1482,9 @@ export const initMain = () => {
       // produce many of those). Everything else about a chat arrives as
       // events while it happens.
       const rootChanged = aiChatUi?.handleWorkspaceChanged(payload.rootPath) === true;
+      if (getWorkspaceRootKey() !== payload.rootPath) fileTreeUi.resetWorkspace();
       workspaceController.handleWorkspaceUpdate(payload);
+      terminalUi.setWorkspace(payload.rootPath);
       if (rootChanged) postToNative({ type: "agent:state:get" }, true);
       // A voice edit belongs to the project it started in.
       if (rootChanged) voiceEdit.cancel();
@@ -1394,7 +1494,19 @@ export const initMain = () => {
     handleRecentProjects: (projects) => launcherUi.updateRecentProjects(projects),
     app: {
       handleCommand: (command) => {
-        if (command === "snippets:open") { openSnippets(); return; }
+        if (command === "math:capture") {
+          appModeApi.setMode("code");
+          if (!bottomPanelUi.isSidebarVisible()) bottomPanelUi.toggleSidebar();
+          setActiveTab("blocks");
+          void mathCapture?.openCapture();
+          return;
+        }
+        if (command === "snippets:open") {
+          // The paper has no source cursor. A hidden Code tab may belong to
+          // another file, so expose only the library while the paper is open.
+          openSnippets(appModeApi.getMode() === "ai" ? null : undefined);
+          return;
+        }
         if (command === "file:new") {
           setActiveTab("files");
           fileTreeUi.requestCreate("file");
@@ -1433,6 +1545,8 @@ export const initMain = () => {
         }
         if (command === "settings:open") {
           setActiveTab("settings");
+          settingsCloseButton?.focus();
+          return;
         }
         if (command === "collab:open") {
           void collabUi?.openDialog();
@@ -1520,7 +1634,7 @@ export const initMain = () => {
       handleTitle: (payload) => aiChatUi?.handleTitle(payload),
       handleMessageReset: (payload) => aiChatUi?.handleMessageReset(payload),
       askFromPdf: (payload) => {
-        setActiveTab("ai");
+        openAxiomPanel();
         aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
       },
       handlePdfReverseResult: (payload) => aiChatUi?.handlePdfReverseResult(payload),
@@ -1602,18 +1716,14 @@ export const initMain = () => {
     postToNative: (payload, silent) => postToNative(payload, silent),
     holdSelection: (selection) => aiChatUi?.holdVoiceSelection(selection),
     sendInstruction: (text) => {
-      setActiveTab("ai");
+      openAxiomPanel();
       aiChatUi?.sendVoiceInstruction(text);
     },
   });
 
   const monacoSetup = initMonacoSetup(appContext, {
     editorSession,
-    editorTabs: {
-      render: (group) => editorTabsUi.render(group),
-    },
     fileTree: {
-      render: () => fileTreeUi.render(),
       setTreeFocus: (focus) => fileTreeUi.setTreeFocus(focus),
     },
     updateFallback,
@@ -1621,12 +1731,13 @@ export const initMain = () => {
     getIndexLabels,
     getIndexCitations,
     getWorkspaceFiles,
+    getRootFilePath,
     getWorkspaceRoot: getWorkspaceRootKey,
     onCursorPositionChange: handleCursorPositionChange,
     onCursorSelectionChange: handleCursorPositionChange,
     voiceEdit,
     openAiWithSelection: () => {
-      setActiveTab("ai");
+      openAxiomPanel();
       // The selection chip in the composer reflects what was selected.
       aiChatUi?.refreshContextBar();
       const input = document.getElementById("ai-input");

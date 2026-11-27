@@ -21,7 +21,7 @@ export type EditorSessionNavigationOps = {
     path: string,
     line: number,
     groupKey: EditorGroupKey,
-    options?: { force?: boolean; focus?: boolean; className?: string; column?: number }
+    options?: { force?: boolean; focus?: boolean; className?: string; column?: number; issueMessage?: string }
   ) => void;
   jumpToLocation: (entry: IndexEntry) => void;
 };
@@ -72,16 +72,14 @@ export const createEditorSessionNavigationOps = (
     path: string,
     line: number,
     groupKey: EditorGroupKey,
-    options: { force?: boolean; focus?: boolean; className?: string; column?: number } = {}
+    options: { force?: boolean; focus?: boolean; className?: string; column?: number; issueMessage?: string } = {}
   ) => {
     const forceOpen = options.force === true;
-    const focus = options.focus;
-    const className = options.className;
-    const column = options.column;
+    const { focus, className, column, issueMessage } = options;
     const targetGroupKey = forceOpen ? groupKey : coreOps.resolveOpenTargetGroupKey(path, groupKey);
     const targetGroup = coreOps.getEditorGroup(targetGroupKey);
     if (targetGroup.currentFilePath === path) {
-      issueOps.revealLine(targetGroup, line, { focus, className, column });
+      issueOps.revealLine(targetGroup, line, { focus, className, column, issueMessage });
       return;
     }
     const requested = deps.requestOpenFile(path, targetGroupKey, forceOpen);
@@ -90,6 +88,7 @@ export const createEditorSessionNavigationOps = (
         path,
         line,
         column,
+        issueMessage,
         group: targetGroupKey,
         focus,
         className,

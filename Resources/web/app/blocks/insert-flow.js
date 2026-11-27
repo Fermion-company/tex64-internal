@@ -1,7 +1,9 @@
+import { uiText } from "../i18n.js";
+import { showEditorNotice } from "../editor-notice.js";
+import { isTexFilePath } from "../files.js";
 import { formatSnippetForInsert } from "./format.js";
 export const initBlockInsertFlow = (context, deps) => {
     const { blockInsertButton } = context.dom;
-    let triggerInsertSeq = 0;
     const countLines = (text) => {
         if (!text)
             return 1;
@@ -109,7 +111,7 @@ export const initBlockInsertFlow = (context, deps) => {
         return normalized;
     };
     const applyBlockInsert = (payload) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
         const applyPayload = payload !== null && payload !== void 0 ? payload : deps.getPendingBlockApply();
         if (!applyPayload && !deps.getBlockPreviewActive()) {
             return;
@@ -123,7 +125,7 @@ export const initBlockInsertFlow = (context, deps) => {
             deps.updateFallback("Editor is not ready.");
             return;
         }
-        if (!activeGroup.currentFilePath || !activeGroup.currentFilePath.endsWith(".tex")) {
+        if (!isTexFilePath(activeGroup.currentFilePath)) {
             deps.updateIssues(1, "Math can only be inserted in .tex files.", "error", [
                 { severity: "error", message: "Math can only be inserted in .tex files." },
             ]);
@@ -133,13 +135,18 @@ export const initBlockInsertFlow = (context, deps) => {
         const monacoApiAny = deps.getMonacoApi();
         let range;
         const model = (_b = editor.getModel) === null || _b === void 0 ? void 0 : _b.call(editor);
-        const blockMode = (_d = (_c = deps.getBlockMode) === null || _c === void 0 ? void 0 : _c.call(deps)) !== null && _d !== void 0 ? _d : "insert";
-        const mode = (_e = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.mode) !== null && _e !== void 0 ? _e : (blockMode === "edit" ? "detected" : "new");
-        let snippet = (_f = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.replaceSnippet) !== null && _f !== void 0 ? _f : draft.snippet;
-        const preferredRange = (_g = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.replaceRange) !== null && _g !== void 0 ? _g : null;
+        if (applyPayload && (applyPayload.sourceModel !== model ||
+            (applyPayload.mode === "new" && applyPayload.sourceVersion !== ((_c = model === null || model === void 0 ? void 0 : model.getVersionId) === null || _c === void 0 ? void 0 : _c.call(model))))) {
+            showEditorNotice(blockInsertButton, uiText("The source changed. Review the formula again.", "原稿が変わりました。数式をもう一度確認してください。"));
+            return;
+        }
+        const blockMode = (_e = (_d = deps.getBlockMode) === null || _d === void 0 ? void 0 : _d.call(deps)) !== null && _e !== void 0 ? _e : "insert";
+        const mode = (_f = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.mode) !== null && _f !== void 0 ? _f : (blockMode === "edit" ? "detected" : "new");
+        let snippet = (_g = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.replaceSnippet) !== null && _g !== void 0 ? _g : draft.snippet;
+        const preferredRange = (_h = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.replaceRange) !== null && _h !== void 0 ? _h : null;
         let insertPosition = null;
         let insertRange = applyPayload
-            ? (_h = applyPayload.insertRange) !== null && _h !== void 0 ? _h : null
+            ? (_j = applyPayload.insertRange) !== null && _j !== void 0 ? _j : null
             : mode === "new"
                 ? resolveEmptyLineInsertRange(editor)
                 : null;
@@ -147,13 +154,14 @@ export const initBlockInsertFlow = (context, deps) => {
             range = new monacoApiAny.Range(preferredRange.startLineNumber, preferredRange.startColumn, preferredRange.endLineNumber, preferredRange.endColumn);
         }
         else if (mode === "detected") {
-            const snapshot = (_j = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.detectedSnapshot) !== null && _j !== void 0 ? _j : deps.getDetectedBlockSnapshot();
+            const snapshot = (_k = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.detectedSnapshot) !== null && _k !== void 0 ? _k : deps.getDetectedBlockSnapshot();
             if (!snapshot || !(model === null || model === void 0 ? void 0 : model.getPositionAt)) {
                 return;
             }
             const content = model.getValue();
             const slice = content.slice(snapshot.start, snapshot.end);
             if (slice !== snapshot.snippet) {
+                showEditorNotice(blockInsertButton, uiText("The formula changed. Review it again.", "原稿の数式が変わりました。もう一度確認してください。"));
                 return;
             }
             const startPos = model.getPositionAt(snapshot.start);
@@ -169,7 +177,7 @@ export const initBlockInsertFlow = (context, deps) => {
                 range = new monacoApiAny.Range(insertRange.startLineNumber, insertRange.startColumn, insertRange.endLineNumber, insertRange.endColumn);
             }
             else {
-                insertPosition = (_m = (_k = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.insertPosition) !== null && _k !== void 0 ? _k : (_l = editor.getPosition) === null || _l === void 0 ? void 0 : _l.call(editor)) !== null && _m !== void 0 ? _m : null;
+                insertPosition = (_o = (_l = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.insertPosition) !== null && _l !== void 0 ? _l : (_m = editor.getPosition) === null || _m === void 0 ? void 0 : _m.call(editor)) !== null && _o !== void 0 ? _o : null;
                 const insertAt = insertPosition !== null && insertPosition !== void 0 ? insertPosition : { lineNumber: 1, column: 1 };
                 range = new monacoApiAny.Range(insertAt.lineNumber, insertAt.column, insertAt.lineNumber, insertAt.column);
             }
@@ -179,21 +187,21 @@ export const initBlockInsertFlow = (context, deps) => {
                 });
             }
         }
-        (_o = editor.executeEdits) === null || _o === void 0 ? void 0 : _o.call(editor, "block-insert", [
+        (_p = editor.executeEdits) === null || _p === void 0 ? void 0 : _p.call(editor, "block-insert", [
             {
                 range,
                 text: snippet,
                 forceMoveMarkers: true,
             },
         ]);
-        (_p = editor.focus) === null || _p === void 0 ? void 0 : _p.call(editor);
+        (_q = editor.focus) === null || _q === void 0 ? void 0 : _q.call(editor);
         if (typeof deps.postToNative === "function") {
             deps.postToNative({
                 type: "blocks:save",
                 entry: {
-                    file: (_q = activeGroup.currentFilePath) !== null && _q !== void 0 ? _q : null,
+                    file: (_r = activeGroup.currentFilePath) !== null && _r !== void 0 ? _r : null,
                     snippet,
-                    content: (_r = draft.content) !== null && _r !== void 0 ? _r : null,
+                    content: (_s = draft.content) !== null && _s !== void 0 ? _s : null,
                     mode,
                     createdAt: new Date().toISOString(),
                 },
@@ -202,15 +210,15 @@ export const initBlockInsertFlow = (context, deps) => {
         deps.setPendingBlockApply(null);
         deps.setCurrentBlockDraft(null);
         deps.resetBlockSession({ applyMode: mode });
+        deps.requestFormatCurrentFile("blockInsert");
     };
     const triggerInsert = async () => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
-        const triggerSeq = ++triggerInsertSeq;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
         const activeGroup = deps.getActiveGroup();
         if (!activeGroup.editor) {
             return;
         }
-        if (!activeGroup.currentFilePath || !activeGroup.currentFilePath.endsWith(".tex")) {
+        if (!isTexFilePath(activeGroup.currentFilePath)) {
             deps.updateIssues(1, "Math can only be inserted in .tex files.", "error", [
                 { severity: "error", message: "Math can only be inserted in .tex files." },
             ]);
@@ -259,14 +267,21 @@ export const initBlockInsertFlow = (context, deps) => {
                 column: insertRange.startColumn,
             };
         }
-        let formattedSnippet = mode === "new"
+        const formattedSnippet = mode === "new"
             ? formatSnippetForInsert(draft.snippet, (_h = editorForDetect.getModel) === null || _h === void 0 ? void 0 : _h.call(editorForDetect), insertPosition, {
                 alignEnv: deps.getEditorAlignEnvEnabled(),
             })
             : draft.snippet;
-        let resolvedDraft = { ...draft, snippet: formattedSnippet };
+        const resolvedDraft = { ...draft, snippet: formattedSnippet };
         const editorModel = (_j = editorForDetect.getModel) === null || _j === void 0 ? void 0 : _j.call(editorForDetect);
         const hasPositionAt = (model) => typeof model.getValue === "function" && typeof model.getPositionAt === "function";
+        const applyPayload = {
+            sourceModel: editorModel !== null && editorModel !== void 0 ? editorModel : null, sourceVersion: (_k = editorModel === null || editorModel === void 0 ? void 0 : editorModel.getVersionId) === null || _k === void 0 ? void 0 : _k.call(editorModel),
+            mode, draft: resolvedDraft, detectedSnapshot: mode === "detected" ? detectedSnapshot : null,
+            insertPosition, insertRange,
+        };
+        deps.setPendingBlockApply(applyPayload);
+        deps.setCurrentBlockDraft(resolvedDraft);
         if (editorModel && hasPositionAt(editorModel)) {
             const model = editorModel;
             let startOffset = 0;
@@ -290,38 +305,11 @@ export const initBlockInsertFlow = (context, deps) => {
                 startOffset = offset;
                 endOffset = offset;
             }
-            let replaceRange = null;
-            let replaceSnippet = null;
-            let diffStartOffset = startOffset;
-            let diffEndOffset = endOffset;
-            if (triggerSeq !== triggerInsertSeq) {
-                return;
-            }
-            const applyPayload = {
-                mode,
-                draft: resolvedDraft,
-                detectedSnapshot: mode === "detected" ? detectedSnapshot : null,
-                insertPosition,
-                insertRange,
-                replaceRange,
-                replaceSnippet,
-            };
-            deps.setPendingBlockApply(applyPayload);
-            deps.setCurrentBlockDraft(resolvedDraft);
-            const diffContext = buildDiffPreviewContext(model, diffStartOffset, diffEndOffset, resolvedDraft.snippet);
+            const diffContext = buildDiffPreviewContext(model, startOffset, endOffset, resolvedDraft.snippet);
             deps.showDiffModal(diffContext.original, diffContext.modified, diffContext.lineOffset);
             return;
         }
-        const applyPayload = {
-            mode,
-            draft: resolvedDraft,
-            detectedSnapshot: mode === "detected" ? detectedSnapshot : null,
-            insertPosition,
-            insertRange,
-        };
-        deps.setPendingBlockApply(applyPayload);
-        deps.setCurrentBlockDraft(resolvedDraft);
-        const originalSnippet = mode === "detected" ? (_k = detectedSnapshot === null || detectedSnapshot === void 0 ? void 0 : detectedSnapshot.snippet) !== null && _k !== void 0 ? _k : "" : "";
+        const originalSnippet = mode === "detected" ? (_l = detectedSnapshot === null || detectedSnapshot === void 0 ? void 0 : detectedSnapshot.snippet) !== null && _l !== void 0 ? _l : "" : "";
         const fallbackOffset = insertRange
             ? Math.max(0, insertRange.startLineNumber - 1)
             : insertPosition
@@ -330,13 +318,14 @@ export const initBlockInsertFlow = (context, deps) => {
         deps.showDiffModal(originalSnippet, resolvedDraft.snippet, fallbackOffset);
     };
     const applyPendingFromDiffModal = () => {
-        var _a;
+        const pending = deps.getPendingBlockApply();
+        if (!pending)
+            return;
         deps.setBlockPreviewActive(true);
-        applyBlockInsert((_a = deps.getPendingBlockApply()) !== null && _a !== void 0 ? _a : undefined);
+        applyBlockInsert(pending);
         deps.setBlockPreviewActive(false);
         deps.setPendingBlockApply(null);
         deps.setCurrentBlockDraft(null);
-        deps.requestFormatCurrentFile("blockInsert");
     };
     const clearPending = () => {
         deps.setPendingBlockApply(null);

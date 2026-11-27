@@ -28,15 +28,33 @@ function createEducationService({app,BrowserWindow,dialog,getMainWindow,getRoot,
         const timer=setTimeout(()=>reject(Error('採点サービスの起動がタイムアウトしました。')),15000);
         child.once('error',e=>{clearTimeout(timer);reject(e);});
         child.once('exit',()=>{clearTimeout(timer);reject(Error(errorLog||'採点サービスが終了しました。'));});
-        child.stdout.on('data',b=>{
-          buffer+=b.toString();
-          if(!buffer.includes('\n'))return;
-          try {const first=JSON.parse(buffer.split('\n')[0]);if(Number.isInteger(first.port)&&first.port>0){clearTimeout(timer);resolve('http://127.0.0.1:'+first.port);}}catch{}
-        });
+        const readPort = chunk => {
+          buffer += chunk.toString();
+          let newline;
+          while ((newline = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, newline);
+            buffer = buffer.slice(newline + 1);
+            let port;
+            try { port = JSON.parse(line).port; } catch { continue; }
+            if (!Number.isInteger(port) || port < 1 || port > 65535) continue;
+            clearTimeout(timer);
+            running.stdout.off('data', readPort);
+            running.stdout.resume();
+            resolve('http://127.0.0.1:' + port);
+            return;
+          }
+        };
+        running.stdout.on('data', readPort);
       });
-      for(let i=0;i<100;i++){
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
         if(running.exitCode!==null)throw Error(errorLog||'採点サービスが終了しました。');
-        try {const res=await fetch(base+'/api/v1/health');const health=await res.json();if(health.instance===instance)return base;}catch{}
+        try {
+          const signal = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
+          const res = await fetch(base + '/api/v1/health', { signal });
+          const health = await res.json();
+          if (health.instance === instance) return base;
+        } catch {}
         await new Promise(r=>setTimeout(r,100));
       }
       throw Error('採点サービスに接続できませんでした。');

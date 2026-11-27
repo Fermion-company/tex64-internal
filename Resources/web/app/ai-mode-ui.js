@@ -1,3 +1,4 @@
+import { DARK_PDF_PAGES_EVENT, getDarkPdfPages } from "./appearance.js";
 import { uiText } from "./i18n.js";
 // AI mode hosts the tex64-ai document agent (services/tex64-ai) in a
 // <webview>. The guest is the exact app that ships as the standalone web
@@ -21,8 +22,10 @@ export const resolveAiEmbedUrl = (base) => {
  */
 const GUEST_REQUESTS = new Set([
     "workspace:state:get",
+    "workspace:chooseRoot",
     "openWorkspace",
     "createProject",
+    "paper:outline:get",
     "file:excerpt",
     "file:bytes",
     "file:exportPdf",
@@ -40,6 +43,7 @@ const GUEST_REQUESTS = new Set([
     "agent:run",
     "agent:steer",
     "agent:abort",
+    "agent:review:accept",
     "agent:undoLastRunApply",
     "agent:clear",
     "platform:state:get",
@@ -52,6 +56,8 @@ const GUEST_REQUESTS = new Set([
 const GUEST_EVENTS = new Set([
     "paper:command",
     "updateWorkspace",
+    "workspace:chooseRootResult",
+    "paper:outline:result",
     "file:excerptResult",
     "file:bytesResult",
     "file:exportPdfResult",
@@ -72,6 +78,7 @@ const GUEST_EVENTS = new Set([
     "agent:thought",
     "agent:error",
     "agent:undoAvailability",
+    "agent:reviewAccepted",
     "agent:undoResult",
     "platform:auth",
     "platform:aiAccess",
@@ -80,6 +87,8 @@ const GUEST_EVENTS = new Set([
 const GUEST_CHANNEL = "tex64-ai-host";
 const AI_MODE_CONVERSATION_PREFIX = "tex64-ai-mode:";
 const REQUEST_SCOPED_GUEST_EVENTS = new Set([
+    "workspace:chooseRootResult",
+    "paper:outline:result",
     "file:excerptResult",
     "file:bytesResult",
     "file:exportPdfResult",
@@ -89,10 +98,13 @@ const REQUEST_SCOPED_GUEST_EVENTS = new Set([
     "synctex:forwardResult",
     "synctex:forwardBatchResult",
     "agent:state",
+    "agent:reviewAccepted",
     "agent:undoResult",
     "agent:steerResult",
 ]);
 const WORKSPACE_SCOPED_GUEST_EVENTS = new Set([
+    "workspace:chooseRootResult",
+    "paper:outline:result",
     "file:excerptResult",
     "file:bytesResult",
     "file:exportPdfResult",
@@ -117,6 +129,8 @@ const isAiModeConversation = (value, expectedWorkspace) => {
 };
 const isAiModeRequestId = (value) => typeof value === "string" && value.startsWith("ai-");
 const WORKSPACE_SCOPED_REQUESTS = new Set([
+    "workspace:chooseRoot",
+    "paper:outline:get",
     "file:excerpt",
     "file:bytes",
     "file:exportPdf",
@@ -130,6 +144,7 @@ const WORKSPACE_SCOPED_REQUESTS = new Set([
     "synctex:forwardBatch",
 ]);
 const DOCUMENT_SCOPED_REQUESTS = new Set([
+    "paper:outline:get",
     "file:excerpt",
     "file:bytes",
     "file:exportPdf",
@@ -156,6 +171,7 @@ const isScopedAgentRequest = (type) => type === "agent:state:get" ||
     type === "agent:run" ||
     type === "agent:steer" ||
     type === "agent:abort" ||
+    type === "agent:review:accept" ||
     type === "agent:undoLastRunApply" ||
     type === "agent:clear";
 /** Keep the guest inside its own conversations and current workspace turn. */
@@ -172,6 +188,10 @@ export const isAllowedAiGuestRequest = (type, payload, expectedWorkspace) => {
             (typeof body.documentMainFile !== "string" || !body.documentMainFile.trim())) {
             return false;
         }
+    }
+    if (type === "workspace:chooseRoot") {
+        return typeof body.path === "string" && /\.tex$/i.test(body.path) &&
+            !/^(?:[a-z]:|[/\\])/i.test(body.path) && !body.path.split(/[/\\]/).some((part) => !part || part === "." || part === "..");
     }
     if (type === "source:reveal") {
         return typeof body.path === "string" && !body.path.split(/[\\/]/).some((part) => part === "..") && !/^(?:[a-z]:|[/\\])/i.test(body.path) && Number.isSafeInteger(body.line) && Number(body.line) > 0;
@@ -262,9 +282,17 @@ export const initAiModeUi = (deps) => {
     let currentWorkspaceScope = {};
     let currentUrl = "";
     let creating = false;
-    const showFallback = (message) => {
+    let active = false;
+    let developmentServer = false;
+    const showFallback = (message, state) => {
         if (status)
             status.textContent = message;
+        if (fallback)
+            fallback.dataset.state = state;
+        if (retryButton)
+            retryButton.hidden = state === "connecting";
+        if (devHint)
+            devHint.hidden = state !== "error" || !developmentServer;
         fallback === null || fallback === void 0 ? void 0 : fallback.classList.remove("is-hidden");
     };
     const hideFallback = () => fallback === null || fallback === void 0 ? void 0 : fallback.classList.add("is-hidden");
@@ -280,15 +308,16 @@ export const initAiModeUi = (deps) => {
         if (webview || creating || !host)
             return;
         creating = true;
-        showFallback(uiText("Connecting to the AI workspace…", "AIワークスペースに接続中…"));
+        showFallback(uiText("Connecting to the AI workspace…", "AIワークスペースに接続中…"), "connecting");
         const config = await ((_a = bridge === null || bridge === void 0 ? void 0 : bridge.getConfig) === null || _a === void 0 ? void 0 : _a.call(bridge).catch(() => null));
         creating = false;
+        if (!active)
+            return;
         if (!(config === null || config === void 0 ? void 0 : config.ok) || !config.url) {
-            showFallback(uiText("Could not load the AI workspace settings.", "AIワークスペースの設定を取得できませんでした。"));
+            showFallback(uiText("Could not load the AI workspace settings.", "AIワークスペースの設定を取得できませんでした。"), "error");
             return;
         }
-        if (devHint)
-            devHint.hidden = config.packaged !== false;
+        developmentServer = config.packaged === false;
         currentUrl = config.url;
         const element = document.createElement("webview");
         element.setAttribute("src", resolveAiEmbedUrl(config.url));
@@ -306,6 +335,7 @@ export const initAiModeUi = (deps) => {
         element.addEventListener("dom-ready", () => {
             if (webview !== element)
                 return;
+            sendPaperVisibility();
             for (const message of sticky.values()) {
                 const safeMessage = sanitizeAiGuestEvent(message, currentWorkspaceScope);
                 if (safeMessage)
@@ -332,7 +362,7 @@ export const initAiModeUi = (deps) => {
             if (event.isMainFrame === false || event.errorCode === -3)
                 return;
             lastLoadFailed = true;
-            showFallback(uiText("Could not connect to the AI workspace.", "AIワークスペースに接続できませんでした。"));
+            showFallback(uiText("Could not connect to the AI workspace.", "AIワークスペースに接続できませんでした。"), "error");
         });
         element.addEventListener("did-finish-load", () => {
             if (webview !== element)
@@ -343,7 +373,7 @@ export const initAiModeUi = (deps) => {
         element.addEventListener("render-process-gone", () => {
             if (webview !== element)
                 return;
-            showFallback(uiText("The AI workspace stopped.", "AIワークスペースが停止しました。"));
+            showFallback(uiText("The AI workspace stopped.", "AIワークスペースが停止しました。"), "error");
         });
         element.addEventListener("ipc-message", (event) => {
             var _a, _b, _c, _d;
@@ -359,6 +389,33 @@ export const initAiModeUi = (deps) => {
             if ((payload === null || payload === void 0 ? void 0 : payload.type) === "host-request") {
                 const requestType = (_c = payload.request) === null || _c === void 0 ? void 0 : _c.type;
                 const body = (_d = payload.request) === null || _d === void 0 ? void 0 : _d.payload;
+                if (requestType === "paper:visibility:get") {
+                    sendPaperVisibility();
+                    return;
+                }
+                if (requestType === "paper:appearance:get") {
+                    sendPaperAppearance();
+                    return;
+                }
+                if (requestType === "paper:layout:get" || requestType === "paper:layout:set") {
+                    const key = "tex64.aiPaperLayout.v1";
+                    try {
+                        if (requestType === "paper:layout:get") {
+                            const saved = localStorage.getItem(key);
+                            if (saved)
+                                sendToGuest(element, { type: "paper:layout", payload: JSON.parse(saved) });
+                        }
+                        else {
+                            const { stacked, reversed, share } = recordPayload(body);
+                            if (typeof stacked === "boolean" && typeof reversed === "boolean" &&
+                                typeof share === "number" && Number.isFinite(share) && share > 0 && share < 100) {
+                                localStorage.setItem(key, JSON.stringify({ stacked, reversed, share }));
+                            }
+                        }
+                    }
+                    catch { /* The window can continue using its in-memory layout. */ }
+                    return;
+                }
                 if (requestType === "billing:open-plans") {
                     const request = recordPayload(body);
                     deps.openPlans(request.plan === "basic" || request.plan === "pro"
@@ -380,8 +437,8 @@ export const initAiModeUi = (deps) => {
                 }
                 console.debug("[ai-mode] host request:", requestType);
                 deps.postToNative({
-                    type: requestType,
                     ...(body && typeof body === "object" ? body : {}),
+                    type: requestType,
                 });
             }
         });
@@ -394,7 +451,6 @@ export const initAiModeUi = (deps) => {
         // discard the guest so getConfig starts the server again and returns its
         // new port/token.
         discardWebview();
-        showFallback(uiText("Reconnecting to the AI workspace…", "AIワークスペースに再接続中…"));
         void createWebview();
     });
     /**
@@ -416,6 +472,13 @@ export const initAiModeUi = (deps) => {
             return false;
         }
     };
+    const sendPaperVisibility = () => sendToGuest(webview, {
+        type: "paper:visibility", payload: { visible: active },
+    });
+    const sendPaperAppearance = () => sendToGuest(webview, {
+        type: "paper:appearance", payload: { darkPdfPages: getDarkPdfPages() },
+    });
+    window.addEventListener(DARK_PDF_PAGES_EVENT, sendPaperAppearance);
     const deliver = (message) => {
         const safeMessage = sanitizeAiGuestEvent(message, currentWorkspaceScope);
         if (!safeMessage)
@@ -455,7 +518,13 @@ export const initAiModeUi = (deps) => {
     return {
         deliver,
         activate: () => {
+            active = true;
+            sendPaperVisibility();
             void createWebview();
+        },
+        deactivate: () => {
+            active = false;
+            sendPaperVisibility();
         },
     };
 };

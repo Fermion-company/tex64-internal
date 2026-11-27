@@ -20,6 +20,7 @@ import {
   anchorFromLiveEditSnapshot,
   captureLiveEditAnchor,
   rebaseLiveEditAnchor,
+  trackLiveEditModel,
   type LiveEditAnchor,
 } from "./live-edit-history.js";
 
@@ -29,13 +30,22 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
   const coreOps = createEditorSessionCoreOps(runtime);
   const splitViewOps = createEditorSessionSplitViewOps(runtime, coreOps);
   const issueOps = createEditorSessionIssueOps(runtime, coreOps);
-  const bufferOps = createEditorSessionBufferOps(runtime, coreOps);
+  const bufferOps = createEditorSessionBufferOps(runtime, coreOps, (path, dirty) => {
+    const match = `[data-path="${CSS.escape(path)}"]`;
+    context.dom.fileTree?.querySelector(`.file-item${match}`)?.classList.toggle("is-dirty", dirty);
+    runtime.dom.editorGroupsRootEl?.querySelectorAll(`.editor-tab${match}`).forEach(tab => {
+      tab.classList.toggle("is-dirty", dirty);
+    });
+  });
   const tabStateOps = createEditorSessionTabStateOps(runtime);
 
   const {
     applyFormattedContent,
+    cancelPendingFirstPreview,
+    openFirstPreview,
     requestOpenFile,
     requestOpenFileInBackground,
+    captureFormatTarget,
     saveCurrentFile,
     saveDirtyFiles,
     scheduleAutoSave,
@@ -66,7 +76,6 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     updateBreadcrumbs: splitViewOps.updateBreadcrumbs,
     updateMiniOutline: splitViewOps.updateMiniOutline,
     revealLine: issueOps.revealLine,
-    forEachEditorGroup: coreOps.forEachEditorGroup,
     scheduleAfterComposition: bufferOps.scheduleAfterComposition,
     getLanguageIdForPath: bufferOps.getLanguageIdForPath,
   });
@@ -163,9 +172,9 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
   ) => {
     const entry = runtime.monacoModels.get(path);
     if (!entry) return false;
-    const current = entry.model.getValue();
-    const start = positionAt(current, startOffset);
-    const end = positionAt(current, endOffset);
+    const current = trackLiveEditModel(entry.model).text;
+    const start = entry.model.getPositionAt?.(startOffset) ?? positionAt(current, startOffset);
+    const end = entry.model.getPositionAt?.(endOffset) ?? positionAt(current, endOffset);
     const range = {
       startLineNumber: start.lineNumber,
       startColumn: start.column,
@@ -196,7 +205,7 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
         entry.model.setValue(current.slice(0, startOffset) + replacement + current.slice(endOffset));
       }
     }
-    bufferOps.updateDirtyState(path, entry.model.getValue(), entry.savedContent);
+    bufferOps.updateDirtyState(path, trackLiveEditModel(entry.model).text, entry.savedContent);
     deps.onLivePreviewSourceChanged?.();
     scheduleAutoSave();
     return true;
@@ -207,7 +216,7 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     if (!entry) return false;
     const existing = liveEditSessions.get(payload.sessionId);
     if (existing && existing.path !== payload.path) return false;
-    const current = entry.model.getValue();
+    const current = trackLiveEditModel(entry.model).text;
     const expected = existing?.lastReplacement ?? payload.baseValue;
     let anchor: LiveEditAnchor | null;
     if (existing) {
@@ -269,7 +278,7 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
         previous.end.line !== payload.end.line || previous.end.column !== payload.end.column)) return null;
     const existing = liveEditSessions.get(payload.sessionId) ?? previous;
     if (existing && existing.path !== payload.path) return null;
-    const current = entry.model.getValue();
+    const current = trackLiveEditModel(entry.model).text;
     const expected = existing?.lastReplacement ?? payload.baseValue;
     let anchor: LiveEditAnchor | null;
     if (existing) {
@@ -284,8 +293,8 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
       anchor = anchorFromLiveEditSnapshot(entry.model, payload.sourceText, start, end);
     }
     if (!anchor || current.slice(anchor.startOffset, anchor.endOffset) !== expected) return null;
-    const start = positionAt(current, anchor.startOffset);
-    const end = positionAt(current, anchor.endOffset);
+    const start = entry.model.getPositionAt?.(anchor.startOffset) ?? positionAt(current, anchor.startOffset);
+    const end = entry.model.getPositionAt?.(anchor.endOffset) ?? positionAt(current, anchor.endOffset);
     // Read-only: returning this immutable pair neither creates an edit
     // session nor alters the model or its undo boundaries.
     return { sourceText: current, baseValue: expected,
@@ -333,6 +342,8 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
 
   const applyLivePreviewEdit = (payload: LivePreviewEditPayload) => {
     if (!payload?.sessionId || !payload.path || !payload.start || !payload.end) return false;
+    const queuedSource = pendingLiveEdits.get(payload.sessionId)?.sourceText;
+    if (payload.sourceText === undefined && queuedSource !== undefined) payload = { ...payload, sourceText: queuedSource };
     if (applyLoadedLiveEdit(payload)) {
       pendingLiveEdits.delete(payload.sessionId);
       return true;
@@ -358,10 +369,31 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     return true;
   };
 
+  const modelLoads = new Map<string, Array<(loaded: boolean) => void>>();
+  const loadWorkspaceTextModel = (path: string): Promise<boolean> => {
+    if (runtime.monacoModels.has(path)) return Promise.resolve(true);
+    if (!deps.getWorkspaceFiles().includes(path)) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const waiting = modelLoads.get(path);
+      if (waiting) {
+        waiting.push(resolve);
+        return;
+      }
+      modelLoads.set(path, [resolve]);
+      if (!requestOpenFileInBackground(path, "primary", false)) {
+        modelLoads.delete(path);
+        resolve(false);
+      }
+    });
+  };
+
   const handleOpenFileResultWithLiveEdit = (
     payload: Parameters<typeof handleOpenFileResult>[0]
   ) => {
-    handleOpenFileResult(payload);
+    if (handleOpenFileResult(payload) === false) return;
+    const waiting = modelLoads.get(payload.path);
+    modelLoads.delete(payload.path);
+    waiting?.forEach((resolve) => resolve(!payload.error && runtime.monacoModels.has(payload.path)));
     if (payload.error) {
       openingLivePaths.delete(payload.path);
       for (const [sessionId, pending] of pendingLiveEdits) {
@@ -495,6 +527,9 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     clearJumpHighlight: issueOps.clearJumpHighlight,
     scheduleAutoSave,
     getSaveStatus,
+    loadWorkspaceTextModel,
+    cancelPendingFirstPreview,
+    openFirstPreview,
     requestOpenFile,
     jumpToFileLine: navigationOps.jumpToFileLine,
     jumpToLocation: navigationOps.jumpToLocation,
@@ -503,6 +538,7 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     applyLivePreviewEdit,
     getLivePreviewSourceAnchor,
     handleExternalFileChange,
+    captureFormatTarget,
     saveCurrentFile,
     saveDirtyFiles,
     requestInitialOpen: initialOpenOps.requestInitialOpen,
@@ -516,6 +552,8 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     handleRenameResult: workspaceOps.handleRenameResult,
     syncWorkspaceFiles: (payload) => {
       if (payload.rootChanged) {
+        for (const waiting of modelLoads.values()) waiting.forEach((resolve) => resolve(false));
+        modelLoads.clear();
         clearContentConflicts();
         clearLivePreviewEdits();
         pendingExternalChanges.clear();

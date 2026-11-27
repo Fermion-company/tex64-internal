@@ -1,3 +1,4 @@
+import { isTexFilePath } from "./files.js";
 import { uiText } from "./i18n.js";
 import { countMarkedLines, renderBuildLog, segmentBuildLog } from "./build-log-view.js";
 import { hideEditorNotice, showEditorNotice } from "./editor-notice.js";
@@ -21,10 +22,9 @@ export const resolveSynctexForwardPdfPath = (lastBuildMainFile, rootPath) => {
 };
 export const initBuildOpsUi = (context, deps) => {
     const { buildButton, formatButton, synctexButton, issuesLog, issuesLogContent, } = context.dom;
-    let formatInFlight = false;
-    let formatPending = false;
+    let formatInFlight = null;
+    const formatQueue = new Map();
     let formatWarningShown = false;
-    let formatInFlightSnapshot = null;
     let currentBuildLog = null;
     let currentBuildState = "idle";
     let preparingBuild = false;
@@ -416,10 +416,10 @@ export const initBuildOpsUi = (context, deps) => {
                 // sub-file) so SyncTeX jumps to the live cursor; fall back to the built
                 // main file when the active tab isn't a .tex (e.g. the PDF or a .bib).
                 const activePath = deps.getActiveFilePath();
-                const targetPath = activePath && activePath.endsWith(".tex")
+                const targetPath = isTexFilePath(activePath)
                     ? activePath
                     : (_b = (_a = deps.getLastBuildMainFile()) !== null && _a !== void 0 ? _a : deps.getRootFilePath()) !== null && _b !== void 0 ? _b : null;
-                if (targetPath && targetPath.endsWith(".tex")) {
+                if (isTexFilePath(targetPath)) {
                     requestSynctexForward(targetPath, {
                         fallbackToTop: false,
                         source: "auto-build",
@@ -589,7 +589,7 @@ export const initBuildOpsUi = (context, deps) => {
             // which prevented the spinner from ever appearing ("stops midway").
             deps.settings.checkEnvironmentStatus();
         }
-        else if (!runtimeSummary.runtimeReady) {
+        else if (runtimeSummary.requiredChecksComplete && !runtimeSummary.runtimeReady) {
             const missing = runtimeSummary.missingRequired.map((item) => resolveRuntimeMissingLabel(item));
             const summaryText = missing.length > 0
                 ? uiText(`Missing runtime environment: ${missing.join(", ")}`, `Runtime Environmentが不足しています: ${missing.join(", ")}`)
@@ -668,42 +668,34 @@ export const initBuildOpsUi = (context, deps) => {
             deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
         }
     };
+    const dispatchNextFormat = () => {
+        var _a;
+        if (formatInFlight)
+            return;
+        for (const [path, request] of formatQueue) {
+            formatQueue.delete(path);
+            if (request.root !== ((_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps)) || !request.target.isCurrent())
+                continue;
+            formatInFlight = request;
+            if (deps.postToNative({
+                type: "formatFile", path, content: request.target.content, source: request.source,
+                formatSettings: request.settings, requestId: request.id, expectedWorkspaceRoot: request.root,
+            }))
+                return;
+            formatInFlight = null;
+            handleSaveFormatError(uiText("Failed to request formatting.", "整形を開始できませんでした。"));
+        }
+    };
     const requestFormatCurrentFile = (source) => {
-        const activeGroup = deps.getActiveGroup();
-        const activePath = activeGroup.currentFilePath;
-        if (!activePath || !activePath.toLowerCase().endsWith(".tex")) {
+        var _a;
+        const target = deps.captureFormatTarget();
+        if (!target)
             return;
-        }
-        if (!activeGroup.editor) {
-            return;
-        }
-        if (formatInFlight) {
-            formatPending = true;
-            return;
-        }
-        const editor = activeGroup.editor;
-        const content = editor.getValue();
-        formatInFlight = true;
-        formatInFlightSnapshot = { path: activePath, content };
-        const ok = deps.postToNative({
-            type: "formatFile",
-            path: activePath,
-            content,
-            source,
-            formatSettings: deps.settings.buildFormatSettingsPayload(),
+        formatQueue.set(target.path, {
+            id: crypto.randomUUID(), root: (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps), target, source,
+            settings: deps.settings.buildFormatSettingsPayload(),
         });
-        if (!ok) {
-            formatInFlight = false;
-            formatPending = false;
-            formatInFlightSnapshot = null;
-            if (!formatWarningShown) {
-                formatWarningShown = true;
-                const message = uiText("Failed to request formatting.", "The formatting request failed.");
-                deps.updateIssues(1, message, "info", [
-                    { severity: "warning", message },
-                ]);
-            }
-        }
+        dispatchNextFormat();
     };
     const handleSaveFormatError = (formatError) => {
         if (formatError && !formatWarningShown) {
@@ -714,54 +706,23 @@ export const initBuildOpsUi = (context, deps) => {
         }
     };
     const handleFormatResult = (payload) => {
-        var _a, _b, _c, _d;
-        const inFlightSnapshot = formatInFlightSnapshot;
-        formatInFlight = false;
-        formatInFlightSnapshot = null;
-        if (payload.stale === true) {
-            formatPending = false;
+        var _a, _b;
+        const request = formatInFlight;
+        if (!request || request.id !== payload.requestId || request.target.path !== payload.path)
             return;
-        }
-        if (!payload.ok) {
-            if (!formatWarningShown) {
-                formatWarningShown = true;
-                const message = (_a = payload.error) !== null && _a !== void 0 ? _a : uiText("Formatting failed.", "整形できませんでした。");
-                deps.updateIssues(1, message, "info", [
-                    { severity: "warning", message },
-                ]);
+        formatInFlight = null;
+        if (!payload.stale && request.root === ((_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps)) && request.target.isCurrent()) {
+            if (!payload.ok) {
+                handleSaveFormatError((_b = payload.error) !== null && _b !== void 0 ? _b : uiText("Formatting failed.", "整形できませんでした。"));
+            }
+            else if (typeof payload.content === "string") {
+                void request.target.apply(payload.content).catch((error) => {
+                    const message = error instanceof Error ? error.message : String(error);
+                    deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+                });
             }
         }
-        else if (typeof payload.content === "string") {
-            const groupsWithFile = deps
-                .getEditorGroups()
-                .filter((group) => group.currentFilePath === payload.path);
-            const currentValue = groupsWithFile.length > 0
-                ? (_c = (_b = groupsWithFile[0].editor) === null || _b === void 0 ? void 0 : _b.getValue) === null || _c === void 0 ? void 0 : _c.call(_b)
-                : null;
-            const isStale = (inFlightSnapshot === null || inFlightSnapshot === void 0 ? void 0 : inFlightSnapshot.path) === payload.path &&
-                typeof currentValue === "string" &&
-                currentValue !== inFlightSnapshot.content;
-            if (!isStale) {
-                if (groupsWithFile.length > 0) {
-                    groupsWithFile.forEach((group) => {
-                        deps.applyFormattedContent(group, payload.path, payload.content, {
-                            updateSaved: false,
-                        });
-                        deps.renderEditorTabs(group);
-                    });
-                }
-                const activeGroup = deps.getActiveGroup();
-                if (activeGroup.currentFilePath === payload.path && activeGroup.isDirty) {
-                    deps.saveCurrentFile().catch((message) => {
-                        deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
-                    });
-                }
-            }
-        }
-        if (formatPending) {
-            formatPending = false;
-            requestFormatCurrentFile((_d = payload.source) !== null && _d !== void 0 ? _d : "auto");
-        }
+        dispatchNextFormat();
     };
     const handleSynctexForwardResult = (payload) => {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;

@@ -18,6 +18,7 @@ const fsp = require("node:fs/promises");
 const { BIB_RESOURCE_PATTERN, stripComment } = require("./agent-document-map.cjs");
 const { parseTexIncludes } = require("./tex-build-target.cjs");
 const {
+  readOptionalFile,
   resolveCitationDocument,
   parseBibEntries,
   entryIdentity,
@@ -52,17 +53,11 @@ const hasBibKey = (content, key) => {
   return new RegExp(`^\\s*@[A-Za-z]+\\s*[{(]\\s*${escaped}\\s*,`, "m").test(String(content || ""));
 };
 
-const readOrNull = (workspace, relativePath) => workspace.readFile(relativePath).catch(() => null);
-
 const stripComments = (content) => String(content || "").split(/\r?\n/).map(stripComment).join("\n");
 
 const listBibFiles = async (workspace) => {
-  try {
-    const files = await workspace.listFiles();
-    return files.filter((file) => typeof file === "string" && /\.bib$/i.test(file)).map(normalizeRelative);
-  } catch {
-    return [];
-  }
+  const files = await workspace.listFiles();
+  return files.filter((file) => typeof file === "string" && /\.bib$/i.test(file)).map(normalizeRelative);
 };
 
 /**
@@ -96,7 +91,7 @@ const bibTargetFor = async (workspace, mainFile) => {
   const mainDir = path.posix.dirname(mainFile);
   const inMainDir = (file) => (mainDir === "." ? file : path.posix.join(mainDir, file));
   const sources = [mainFile];
-  const mainContent = await readOrNull(workspace, mainFile);
+  const mainContent = await readOptionalFile(workspace, mainFile);
   if (mainContent !== null) {
     for (const include of parseTexIncludes(mainContent)) {
       if (include.directory !== undefined) continue;
@@ -106,14 +101,14 @@ const bibTargetFor = async (workspace, mainFile) => {
     }
   }
   for (const source of sources.slice(0, 20)) {
-    const content = source === mainFile ? mainContent : await readOrNull(workspace, source);
+    const content = source === mainFile ? mainContent : await readOptionalFile(workspace, source);
     if (content === null) continue;
     for (const name of bibResourcesOf(content)) {
       const file = withBibExt(name);
       // BibTeX/biber resolve relative to the build directory (the main file's).
       const candidates = [inMainDir(file), file];
       for (const candidate of candidates) {
-        if ((await readOrNull(workspace, candidate)) !== null) return { bibPath: candidate, exists: true, mainFile, referenced: true };
+        if ((await readOptionalFile(workspace, candidate)) !== null) return { bibPath: candidate, exists: true, mainFile, referenced: true };
       }
       return { bibPath: candidates[0], exists: false, mainFile, referenced: true };
     }
@@ -124,7 +119,7 @@ const bibTargetFor = async (workspace, mainFile) => {
   const existing = await listBibFiles(workspace);
   const target = existing.length === 1 ? existing[0] : inMainDir(DEFAULT_BIB);
   const biblatex = /\\usepackage\s*(?:\[[^\]]*\])?\s*\{[^}]*\bbiblatex\b/.test(stripComments(mainContent));
-  const name = path.posix.basename(target);
+  const name = path.posix.relative(mainDir, target);
   return {
     bibPath: target,
     exists: existing.includes(target),
@@ -150,7 +145,7 @@ const appendBibEntry = async (workspace, { activeFilePath, documentMainFile, tar
   const target = decided || (await resolveBibTarget(workspace, activeFilePath, { documentMainFile }));
   const incoming = entryIdentity({ body: bibtex });
   return workspace.withFileMutation(target.bibPath, async () => {
-    const existing = await readOrNull(workspace, target.bibPath);
+    const existing = await readOptionalFile(workspace, target.bibPath, { requireUtf8: true });
     const created = existing === null;
     const placed = placeEntry(parseBibEntries(existing ?? ""), key, incoming);
     if (placed.entry) {

@@ -52,6 +52,10 @@ export const createIssuesProxy = (onUpdate) => {
     };
     return {
         updateIssuesProxy,
+        resetWorkspace: () => {
+            liveErrors.clear();
+            updateIssuesProxy(0, "", "info", []);
+        },
         setLiveRuntimeError,
         getLastIssueSnapshot: () => lastIssueSnapshot,
     };

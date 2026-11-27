@@ -65,27 +65,32 @@ const createPdfDocumentOptions = (source) => ({
 });
 // Rasterize a PDF's pages to PNG/JPEG attachments so they flow through the
 // existing image pipeline. Respects the caller's remaining count/byte budget.
-const renderPdfToImageAttachments = async (file, budget) => {
-    var _a, _b;
+const renderPdfToImageAttachments = async (file, budget, isCurrent) => {
     const attachments = [];
     if (budget.remainingCount <= 0 || budget.remainingBytes <= 0) {
         return { attachments, truncatedPages: true };
     }
     const pdfjsLib = await loadPdfjs();
+    if (!isCurrent())
+        return { attachments, truncatedPages: false };
     const buffer = await file.arrayBuffer();
+    if (!isCurrent())
+        return { attachments, truncatedPages: false };
     const doc = await pdfjsLib.getDocument(createPdfDocumentOptions({ data: new Uint8Array(buffer) })).promise;
     const baseName = (file.name || "pdf").replace(/\.pdf$/i, "");
     const maxPages = Math.min(doc.numPages, budget.remainingCount);
     let truncatedPages = doc.numPages > maxPages;
     let usedBytes = 0;
+    const canvas = document.createElement("canvas");
     try {
         for (let pageNum = 1; pageNum <= maxPages; pageNum += 1) {
+            if (!isCurrent())
+                break;
             const page = await doc.getPage(pageNum);
             const base = page.getViewport({ scale: 1 });
             const maxSide = Math.max(base.width, base.height) || PDF_RENDER_TARGET_MAX_SIDE;
-            const scale = Math.min(2, Math.max(0.75, PDF_RENDER_TARGET_MAX_SIDE / maxSide));
+            const scale = Math.min(2, PDF_RENDER_TARGET_MAX_SIDE / maxSide);
             const viewport = page.getViewport({ scale });
-            const canvas = document.createElement("canvas");
             canvas.width = Math.max(1, Math.ceil(viewport.width));
             canvas.height = Math.max(1, Math.ceil(viewport.height));
             const ctx = canvas.getContext("2d");
@@ -116,9 +121,9 @@ const renderPdfToImageAttachments = async (file, budget) => {
         }
     }
     finally {
+        canvas.width = canvas.height = 0;
         try {
-            await ((_a = doc.cleanup) === null || _a === void 0 ? void 0 : _a.call(doc));
-            (_b = doc.destroy) === null || _b === void 0 ? void 0 : _b.call(doc);
+            await doc.destroy();
         }
         catch {
             // ignore cleanup errors
@@ -129,6 +134,9 @@ const renderPdfToImageAttachments = async (file, budget) => {
 export const createAiChatAttachmentsController = (options) => {
     const { aiAttachments, aiAttachInput, aiStatus, getActiveChatId, getChat, appendMessage, } = options;
     let pendingAttachments = [];
+    let batchGeneration = 0;
+    let pendingRead = Promise.resolve();
+    let readsInCurrentBatch = 0;
     const renderAttachmentBar = () => {
         if (!(aiAttachments instanceof HTMLElement))
             return;
@@ -172,24 +180,26 @@ export const createAiChatAttachmentsController = (options) => {
         });
     };
     const clearPendingAttachments = (resetInput = true) => {
+        batchGeneration++;
+        readsInCurrentBatch = 0;
         pendingAttachments = [];
         renderAttachmentBar();
         if (resetInput && aiAttachInput instanceof HTMLInputElement) {
             aiAttachInput.value = "";
         }
     };
-    const addImageFiles = async (fileList) => {
-        if (!fileList || fileList.length === 0)
-            return;
-        const files = Array.from(fileList);
+    const readFiles = async (files, generation) => {
+        const isCurrent = () => generation === batchGeneration;
         let rejectedUnsupported = 0;
         let rejectedTooLarge = 0;
         let rejectedByCount = 0;
         let rejectedByTotal = 0;
         let rejectedUnreadable = 0;
         let truncatedPages = false;
-        let totalBytes = pendingAttachments.reduce((sum, item) => sum + item.size, 0);
         for (const file of files) {
+            if (!isCurrent())
+                return;
+            let totalBytes = pendingAttachments.reduce((sum, item) => sum + item.size, 0);
             const isImage = file.type.startsWith("image/");
             const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
             if (!isImage && !isPdf) {
@@ -210,12 +220,13 @@ export const createAiChatAttachmentsController = (options) => {
                     continue;
                 }
                 const attachment = await readImageAttachment(file);
+                if (!isCurrent())
+                    return;
                 if (!attachment) {
                     rejectedUnreadable += 1;
                     continue;
                 }
                 pendingAttachments.push(attachment);
-                totalBytes += attachment.size;
                 continue;
             }
             // PDF → rasterize pages to images via pdfjs, then attach as images.
@@ -228,12 +239,14 @@ export const createAiChatAttachmentsController = (options) => {
                 rendered = await renderPdfToImageAttachments(file, {
                     remainingCount: MAX_IMAGE_ATTACHMENTS - pendingAttachments.length,
                     remainingBytes: MAX_IMAGE_ATTACHMENT_TOTAL_BYTES - totalBytes,
-                });
+                }, isCurrent);
             }
             catch {
                 rejectedUnreadable += 1;
                 continue;
             }
+            if (!isCurrent())
+                return;
             if (rendered.truncatedPages)
                 truncatedPages = true;
             if (rendered.attachments.length === 0) {
@@ -253,6 +266,8 @@ export const createAiChatAttachmentsController = (options) => {
                 totalBytes += att.size;
             }
         }
+        if (!isCurrent())
+            return;
         renderAttachmentBar();
         const notices = [];
         if (rejectedTooLarge > 0) {
@@ -283,12 +298,28 @@ export const createAiChatAttachmentsController = (options) => {
             }
         }
     };
+    const addImageFiles = (fileList) => {
+        if (!(fileList === null || fileList === void 0 ? void 0 : fileList.length))
+            return Promise.resolve();
+        const files = Array.from(fileList);
+        const generation = batchGeneration;
+        readsInCurrentBatch++;
+        const read = pendingRead.then(() => readFiles(files, generation)).finally(() => {
+            if (generation === batchGeneration)
+                readsInCurrentBatch--;
+        });
+        pendingRead = read.catch(() => { });
+        return read;
+    };
     const setPendingAttachments = (attachments) => {
+        batchGeneration++;
+        readsInCurrentBatch = 0;
         pendingAttachments = attachments.slice(0, MAX_IMAGE_ATTACHMENTS);
         renderAttachmentBar();
     };
     return {
         getPendingAttachments: () => pendingAttachments,
+        hasPendingReads: () => readsInCurrentBatch > 0,
         renderAttachmentBar,
         clearPendingAttachments,
         addImageFiles,

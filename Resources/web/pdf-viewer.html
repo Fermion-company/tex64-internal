@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' blob: https:; worker-src 'self' blob:; frame-src 'self' data: blob: http://127.0.0.1:*;"
+      content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' blob: https: tex64-pdf:; worker-src 'self' blob:; frame-src 'self' data: blob: http://127.0.0.1:*;"
     >
     <title>PDF</title>
     <link rel="stylesheet" href="./pdfjs/pdf_viewer.css">
@@ -31,6 +31,7 @@
           <button class="pdf-btn ghost" id="pdf-zoom-in" type="button" title="Zoom in">＋</button>
           <button class="pdf-btn ghost pdf-fit-control" id="pdf-fit-width" type="button" title="Fit width" aria-label="Fit width">↔<span>Width</span></button>
           <button class="pdf-btn ghost pdf-fit-control" id="pdf-fit-page" type="button" title="Fit page" aria-label="Fit page">▣<span>Page</span></button>
+          <button class="pdf-btn ghost" id="pdf-more" type="button" aria-label="More PDF actions" title="More PDF actions" popovertarget="pdf-more-actions" hidden>•••</button>
           <button class="pdf-btn ghost pdf-toolbar-secondary" id="pdf-rotate-left" type="button" title="Rotate left">⟲</button>
           <button class="pdf-btn ghost pdf-toolbar-secondary" id="pdf-rotate-right" type="button" title="Rotate right">⟳</button>
           <button class="pdf-btn ghost pdf-toolbar-secondary" id="pdf-search-open" type="button" title="Find in PDF">Search</button>
@@ -44,6 +45,7 @@
         </div>
         <button class="pdf-btn ghost pdf-close" id="pdf-close" type="button" title="Close PDF" aria-label="Close PDF" hidden>×</button>
       </header>
+      <div id="pdf-more-actions" popover="auto"></div>
       <div class="pdf-body" id="pdf-body">
         <aside class="pdf-sidebar is-hidden" id="pdf-sidebar" aria-label="PDF Sidebar">
           <div class="pdf-sidebar-tabs">

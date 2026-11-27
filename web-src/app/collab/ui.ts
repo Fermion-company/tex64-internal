@@ -9,7 +9,7 @@ import { collabSession, type CollabState } from "./session.js";
 
 const MAX_DOTS = 5;
 
-export const initCollabUi = () => {
+export const initCollabUi = (getWorkspaceRoot: () => string | null) => {
   const dots = document.getElementById("collab-participants") as HTMLButtonElement | null;
   let dialog: HTMLDialogElement | null = null;
   // Which ▾ are open while the dialog stays open; updates rebuild the dialog.
@@ -182,6 +182,11 @@ export const initCollabUi = () => {
       nameRow.append(nameField);
       const start = button(uiText("Start", "開始"), () => void run(() => collabSession.start(nameField.value.trim())));
       start.dataset.focusKey = "start-session";
+      start.disabled = !getWorkspaceRoot();
+      const folderHint = start.disabled ? el("p", "tool-dialog-note", uiText(
+        "To start a session, open a project folder. You can join with an invite link now.",
+        "セッションを開始するにはプロジェクトフォルダを開いてください。招待リンクがあればここから参加できます。",
+      )) : null;
       const startExplain = createExplain(idleRoute === "relay"
         ? uiText("People can join over the internet. Everything is encrypted between the computers; the relay in between cannot read it.", "インターネット越しに参加できます。内容は参加者の間で暗号化され、間の中継サーバーには読めません。",
         )
@@ -219,6 +224,7 @@ export const initCollabUi = () => {
         const hasLink = joinOpen && linkField.value.trim().length > 0;
         start.hidden = hasLink;
         join.hidden = !hasLink;
+        if (folderHint) folderHint.hidden = hasLink;
       };
       linkField.addEventListener("keydown", (event) => {
         if (event.key === "Enter" && !event.isComposing && linkField.value.trim()) join.click();
@@ -240,6 +246,7 @@ export const initCollabUi = () => {
       linkField.addEventListener("input", () => { pendingLink = linkField.value; syncPrimary(); });
       syncJoin();
       content.append(nameRow, joinSection);
+      if (folderHint) content.append(folderHint);
       firstFocus = pendingLink ? linkField : nameField;
       primary = start;
       primaryAlt = join;
@@ -397,6 +404,8 @@ export const initCollabUi = () => {
         dialog?.remove();
         dialog = null;
         explainOpen.clear();
+        pendingLink = "";
+        errorText = "";
         joinOpen = false;
         copied = null;
         if (copiedTimer !== null) window.clearTimeout(copiedTimer);

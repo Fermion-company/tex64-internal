@@ -21,6 +21,7 @@ export const attachMathfieldController = (
   api: MathWysiwygApi,
   insertMathKey: (key: MathKey) => void,
   onEscape?: () => void,
+  onCommit?: () => void,
 ) => {
   configureMathfield(mathfield);
   const controller = new AbortController();
@@ -89,7 +90,9 @@ export const attachMathfieldController = (
     readMathFieldLatex,
   });
   const handleMathFieldKeydown = (event: KeyboardEvent) => {
-    if (event.isComposing) {
+    const target = event.composedPath()[0];
+    if (target instanceof Element && target.closest('[part="ui-menu-container"]')) return;
+    if (event.isComposing || (mathfield as { mode?: string }).mode === "latex") {
       return;
     }
     const isEnter =
@@ -123,6 +126,13 @@ export const attachMathfieldController = (
       return;
     }
     if (isEnter && !event.metaKey && !event.shiftKey && !event.altKey) {
+      const field = mathfield as { getEnvironmentContext?: () => { nearestArray: unknown } };
+      if (onCommit && !event.ctrlKey && !field.getEnvironmentContext?.().nearestArray) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        onCommit();
+        return;
+      }
       if (!event.metaKey && !event.ctrlKey) {
         const handled = matrixOps.tryInsertMatrixRow();
         if (handled) {
@@ -144,6 +154,7 @@ export const attachMathfieldController = (
         // Column insertion failed — do nothing rather than falling back to submit,
         // which would be surprising when the user intended to add a column.
       }
+      if (!event.ctrlKey) onCommit?.();
       // Outside an array, Enter has no structural meaning in a math field.
       // In an AI paragraph it must not insert a line break into the editable
       // prose surrounding the field.

@@ -1,6 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
+const { matchSourcePathBySuffix } = require("./source-path.cjs");
+const { isUtf8 } = require("node:buffer");
 
 // SyncTeX stores positions in scaled points; `synctex view` reports them in
 // PDF points. 65536 sp per TeX point times 72.27 / 72 gives this factor.
@@ -11,7 +13,7 @@ const MAX_NEAREST_LINE_DISTANCE = 80;
 
 // `(tag,line:h,v:W,H,D` — box openers, glyphs, kerns, glue, math, rules,
 // void boxes and forms all share this shape; only the leading letter differs.
-const RECORD_PATTERN = /^([[(xkg$vhrf])(\d+),(\d+):(-?\d+),(-?\d+)(?::(-?\d+)(?:,(-?\d+)(?:,(-?\d+))?)?)?/;
+const RECORD_PATTERN = /^([[(xkg$vhrf])(\d+),(\d+)(?:,-?\d+)?:(-?\d+),(-?\d+)(?::(-?\d+)(?:,(-?\d+)(?:,(-?\d+))?)?)?/;
 
 // Lower is better: a glyph sitting in a line box marks the text itself,
 // math and rules come next, glue and kerns only mark the neighbourhood, and
@@ -20,6 +22,7 @@ const RANK_GLYPH = 0;
 const RANK_INK = 1;
 const RANK_SPACING = 2;
 const RANK_BOX = 3;
+const PAGE_SHIPOUT_LINE = /^\s*\\(?:newpage|clearpage|cleardoublepage|pagebreak(?:\[\d\])?|end\s*\{document\})\s*(?:%.*)?$/;
 
 const realPathOrNull = (value) => {
   try {
@@ -59,8 +62,8 @@ const isBetterPage = (next, current) => {
  * topmost place on the page where that line put ink. Later lookups are
  * memory reads: no process, no re-parse.
  */
-const parseForwardIndex = (text, baseDir) => {
-  const inputs = new Map();
+const parseForwardIndex = (text, baseDir, sheet = null, sheetPage = 0) => {
+  const inputs = sheet?.inputs ?? new Map();
   const byTag = new Map();
   // Per page, every leaf record and every line box with its size, so a
   // point on the page can be turned back into a source line without a
@@ -79,11 +82,11 @@ const parseForwardIndex = (text, baseDir) => {
   };
   let magnification = 1000;
   let unit = 1;
-  let xOffset = 0;
-  let yOffset = 0;
-  let inContent = false;
-  let page = 0;
-  let pageCount = 0;
+  let xOffset = sheet?.originX ?? 0;
+  let yOffset = sheet?.originY ?? 0;
+  let inContent = Boolean(sheet);
+  let page = sheetPage;
+  let pageCount = sheetPage;
   // Open boxes on the current page; the innermost hbox owns the glyphs.
   const openBoxes = [];
   const enclosingLineIndex = () => {
@@ -132,7 +135,11 @@ const parseForwardIndex = (text, baseDir) => {
     const separator = record.indexOf(":", 6);
     if (separator <= 6) return;
     const tag = Number.parseInt(record.slice(6, separator), 10);
-    const inputPath = record.slice(separator + 1).trim();
+    const rawPath = record.slice(separator + 1).trim();
+    // The surrounding stream is scanned byte-for-byte. Input records from
+    // modern TeX engines carry UTF-8 filenames, including Japanese paths.
+    const pathBytes = Buffer.from(rawPath, "latin1");
+    const inputPath = isUtf8(pathBytes) ? pathBytes.toString("utf8") : rawPath;
     if (Number.isFinite(tag) && inputPath) {
       inputs.set(
         tag,
@@ -142,12 +149,16 @@ const parseForwardIndex = (text, baseDir) => {
   };
 
   let start = 0;
-  const length = text.length;
+  const length = sheet ? sheet.lines.length : text.length;
   while (start < length) {
-    let end = text.indexOf("\n", start);
-    if (end === -1) end = length;
-    const record = text.charCodeAt(end - 1) === 13 ? text.slice(start, end - 1) : text.slice(start, end);
-    start = end + 1;
+    let record;
+    if (sheet) record = sheet.lines[start++];
+    else {
+      let end = text.indexOf("\n", start);
+      if (end === -1) end = length;
+      record = text.charCodeAt(end - 1) === 13 ? text.slice(start, end - 1) : text.slice(start, end);
+      start = end + 1;
+    }
     if (!record) continue;
 
     if (!inContent) {
@@ -173,7 +184,7 @@ const parseForwardIndex = (text, baseDir) => {
 
     const first = record.charCodeAt(0);
     if (first === 73 && record.startsWith("Input:")) {
-      readInput(record);
+      if (!sheet) readInput(record);
       continue;
     }
     if (first === 123) {
@@ -356,13 +367,20 @@ const reverseOnIndex = (index, { page, x, y }) => {
       const distance = Math.abs(glyph.h - h);
       const candidate = { tag: glyph.tag, line: glyph.line, distance, rank: glyph.rank };
       if (preferAuthor(glyph.tag)) {
-        if (!best || distance < best.distance || (distance === best.distance && glyph.rank < best.rank)) best = candidate;
+        // amsmath can place a node from the parent document at exactly the
+        // same point as one from the included equation. For equal hits, the
+        // tag of the innermost box identifies the source that owns the ink.
+        if (!best || distance < best.distance ||
+            (distance === best.distance && (glyph.rank < best.rank ||
+              (glyph.rank === best.rank && glyph.tag === box.tag && best.tag !== box.tag)))) {
+          best = candidate;
+        }
       } else if (!fallback || distance < fallback.distance) {
         fallback = candidate;
       }
     }
     const hit = best ?? (preferAuthor(box.tag) ? { tag: box.tag, line: box.line, distance: 0 } : fallback ?? { tag: box.tag, line: box.line, distance: 0 });
-    return { tag: hit.tag, line: hit.line, distance: scaleToPoints(hit.distance), exact: true };
+    return { tag: hit.tag, line: hit.line, baseline: box.v, distance: scaleToPoints(hit.distance), exact: true };
   }
   let nearest = null;
   let nearestAny = null;
@@ -370,7 +388,7 @@ const reverseOnIndex = (index, { page, x, y }) => {
     const dv = Math.abs(glyph.v - v);
     const dh = Math.abs(glyph.h - h);
     const distance = dv * 4 + dh;
-    const candidate = { tag: glyph.tag, line: glyph.line, distance };
+    const candidate = { tag: glyph.tag, line: glyph.line, baseline: glyph.v, distance };
     if (preferAuthor(glyph.tag)) {
       if (!nearest || distance < nearest.distance) nearest = candidate;
     } else if (!nearestAny || distance < nearestAny.distance) {
@@ -379,7 +397,7 @@ const reverseOnIndex = (index, { page, x, y }) => {
   }
   const chosen = nearest ?? nearestAny;
   if (!chosen) return null;
-  return { tag: chosen.tag, line: chosen.line, distance: scaleToPoints(chosen.distance), exact: false };
+  return { ...chosen, distance: scaleToPoints(chosen.distance), exact: false };
 };
 
 module.exports = (SynctexService) => {
@@ -400,12 +418,32 @@ module.exports = (SynctexService) => {
     if (!index) return null;
     const hit = reverseOnIndex(index, { page: Math.floor(page), x, y });
     if (!hit) return null;
-    const sourcePath = index.inputs.get(hit.tag);
+    let sourcePath = index.inputs.get(hit.tag);
     if (!sourcePath) return null;
     // A blank or comment line under the point is where a paragraph ended:
     // the text it belongs to is above it, so look upward first.
     let line = hit.line;
     const sourceLine = this.getSourceLine?.(sourcePath, line);
+    // Some engines stamp characters with the command that shipped their
+    // page. Only replace such a structural target when nearby ink on the
+    // same printed baseline is attributed to actual manuscript text.
+    if (PAGE_SHIPOUT_LINE.test(sourceLine ?? "")) {
+      const clickH = index.toUnits(x, index.xOffset);
+      const maxGap = index.toUnits(40, 0);
+      const nearby = index.pages.get(Math.floor(page)).glyphs.filter(glyph =>
+        glyph.v === hit.baseline && glyph.rank === RANK_GLYPH &&
+        Math.abs(glyph.h - clickH) <= maxGap &&
+        (glyph.tag !== hit.tag || glyph.line !== hit.line) && isAuthorInput(index, glyph.tag));
+      nearby.sort((a, b) => Math.abs(a.h - clickH) - Math.abs(b.h - clickH));
+      for (const glyph of nearby) {
+        const candidatePath = index.inputs.get(glyph.tag);
+        const text = this.getSourceLine(candidatePath, glyph.line);
+        if (!text?.trim() || PAGE_SHIPOUT_LINE.test(text) || this.isLowSignalTexLine(text)) continue;
+        sourcePath = candidatePath;
+        line = glyph.line;
+        break;
+      }
+    }
     if (typeof sourceLine === "string" && /^\s*(?:%.*)?$/.test(sourceLine)) {
       const order = [];
       for (let delta = 1; delta <= 3; delta += 1) order.push(line - delta);
@@ -532,7 +570,7 @@ module.exports = (SynctexService) => {
     const sourceReal = realPathOrNull(sourcePath) || path.normalize(sourcePath);
     const sourceNormalized = path.normalize(sourcePath);
     const exact = [];
-    const byName = [];
+    const byName = new Map();
     for (const [tag, inputPath] of index.inputs) {
       if (inputPath === sourceNormalized || inputPath === sourceReal) {
         exact.push(tag);
@@ -544,10 +582,14 @@ module.exports = (SynctexService) => {
         continue;
       }
       if (path.basename(inputPath) === path.basename(sourcePath)) {
-        byName.push(tag);
+        const tags = byName.get(inputPath) ?? [];
+        tags.push(tag);
+        byName.set(inputPath, tags);
       }
     }
-    return exact.length > 0 ? exact : byName;
+    if (exact.length) return exact;
+    const matchingPath = matchSourcePathBySuffix(sourceNormalized, byName.keys());
+    return byName.get(matchingPath) ?? [];
   };
 
   /**
@@ -711,4 +753,14 @@ module.exports = (SynctexService) => {
     const rootTag = Math.min(...index.inputs.keys());
     return { ok: true, results, pageCount: index.pageCount, isRootFile: tags.includes(rootTag) };
   };
+};
+
+
+// The fallback viewer has already validated the units, origins and UTF-8
+// input names for this sheet. Use the same hit testing as the saved PDF.
+module.exports.reverseOnSheet = (sheet, point) => {
+  const index = parseForwardIndex(null, null, sheet, point.page);
+  const hit = reverseOnIndex(index, point);
+  const file = hit?.exact && sheet.inputs.get(hit.tag);
+  return file ? { path: file, line: hit.line, column: 1 } : null;
 };

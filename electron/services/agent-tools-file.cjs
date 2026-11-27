@@ -35,6 +35,12 @@ const {
   formatChangeSummary,
 } = require("./agent-tools-safety.cjs");
 
+// Keep only digests on the active turn. A delayed edit must address the same
+// bytes as its earlier read, even if another editor has since saved the file.
+const rememberRead = (service, conversationId, resolved, hash) => {
+  service.runningControllers?.get(conversationId)?.sourceReadHashes?.set(resolved, hash);
+};
+
 const handleReadFile = async (service, args, policy, conversationId) => {
   const targetPath = normalizePath(args.path);
   if (!targetPath) {
@@ -51,10 +57,11 @@ const handleReadFile = async (service, args, policy, conversationId) => {
     };
   }
   const snapshot = service.getContextSnapshot(conversationId, targetPath);
-  if (snapshot && snapshot.content) {
-    if (snapshot.contentLength > policy.maxFileBytes) {
+  if (snapshot?.isDirty && typeof snapshot.content === "string") {
+    if (snapshot.contentLength > policy.maxFileBytes || Buffer.byteLength(snapshot.content, "utf8") > policy.maxFileBytes) {
       return { error: "File is too large." };
     }
+    if (!snapshot.truncated) rememberRead(service, conversationId, service.workspace.resolvePath(targetPath), hashUtf8Text(snapshot.content));
     if (useBase64) {
       return {
         content: Buffer.from(snapshot.content, "utf8").toString("base64"),
@@ -79,6 +86,7 @@ const handleReadFile = async (service, args, policy, conversationId) => {
     return { error: "File is too large." };
   }
   const result = await readFileFromDisk(resolved, { forceBase64: useBase64 });
+  rememberRead(service, conversationId, resolved, result.contentHash);
   const response = { content: result.content };
   if (result.binary) {
     response.encoding = "base64";
@@ -114,10 +122,11 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
     }
     try {
       const snapshot = service.getContextSnapshot(conversationId, targetPath);
-      if (snapshot && snapshot.content) {
-        if (snapshot.contentLength > policy.maxFileBytes) {
+      if (snapshot?.isDirty && typeof snapshot.content === "string") {
+        if (snapshot.contentLength > policy.maxFileBytes || Buffer.byteLength(snapshot.content, "utf8") > policy.maxFileBytes) {
           results[p] = { error: "File is too large." };
         } else {
+          if (!snapshot.truncated) rememberRead(service, conversationId, service.workspace.resolvePath(targetPath), hashUtf8Text(snapshot.content));
           if (useBase64) {
             results[p] = {
               content: Buffer.from(snapshot.content, "utf8").toString("base64"),
@@ -143,6 +152,7 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
         continue;
       }
       const result = await readFileFromDisk(resolved, { forceBase64: useBase64 });
+      rememberRead(service, conversationId, resolved, result.contentHash);
       results[p] = { content: result.content };
       if (result.binary) {
         results[p].encoding = "base64";
@@ -1113,31 +1123,9 @@ const handleProposeDelete = async (service, args, policy, conversationId) => {
   if (!stat || !stat.isFile()) {
     return { error: "file not found." };
   }
-  let originalContent = "";
-  let isBinary = false;
-  let baseContentHash = null;
-  let baseSource = null;
   const snapshot = service.getContextSnapshot(conversationId, targetPath);
-  if (snapshot && snapshot.content) {
-    if (snapshot.contentLength > policy.maxFileBytes) {
-      return { error: "File is too large." };
-    }
-    originalContent = snapshot.content;
-    if (!snapshot.isDirty && !snapshot.truncated) {
-      baseContentHash = hashUtf8Text(snapshot.content);
-      baseSource = "snapshot";
-    }
-  } else {
-    try {
-      const result = await readFileFromDisk(resolved);
-      originalContent = result.content;
-      isBinary = result.binary;
-      baseContentHash = result.contentHash;
-      baseSource = "disk";
-    } catch {
-      originalContent = "";
-    }
-  }
+  if (snapshot?.content && snapshot.contentLength > policy.maxFileBytes) return { error: "File is too large." };
+  const original = await readFileFromDisk(resolved);
   const id =
     typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
@@ -1147,15 +1135,15 @@ const handleProposeDelete = async (service, args, policy, conversationId) => {
     type: "delete",
     path: targetPath,
     content: "",
-    originalContent,
-    isBinary,
+    originalContent: original.content,
+    isBinary: original.binary,
     summary,
     isNewFile: false,
     conversationId,
     workspaceRootPath: service.workspace.getRootPath() || undefined,
-    baseContentHash: typeof baseContentHash === "string" ? baseContentHash : undefined,
+    baseContentHash: original.contentHash,
     baseExists: true,
-    baseSource: baseSource || undefined,
+    baseSource: "disk",
     createdAt: Date.now(),
   };
   const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
@@ -1184,34 +1172,12 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
   if (!stat || !stat.isFile()) {
     return { error: "file not found." };
   }
-  let originalContent = "";
-  let isBinary = false;
-  let baseContentHash = null;
-  let baseSource = null;
   const snapshot = service.getContextSnapshot(conversationId, oldPath);
+  if (snapshot?.content && snapshot.contentLength > policy.maxFileBytes) return { error: "File is too large." };
   if (snapshot?.isDirty) {
     return { error: "Cannot rename a file with unsaved editor changes. Save it and try again." };
   }
-  if (snapshot && snapshot.content) {
-    if (snapshot.contentLength > policy.maxFileBytes) {
-      return { error: "File is too large." };
-    }
-    originalContent = snapshot.content;
-    if (!snapshot.isDirty && !snapshot.truncated) {
-      baseContentHash = hashUtf8Text(snapshot.content);
-      baseSource = "snapshot";
-    }
-  } else {
-    try {
-      const result = await readFileFromDisk(resolved);
-      originalContent = result.content;
-      isBinary = result.binary;
-      baseContentHash = result.contentHash;
-      baseSource = "disk";
-    } catch {
-      originalContent = "";
-    }
-  }
+  const original = await readFileFromDisk(resolved);
   const id =
     typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
@@ -1221,16 +1187,16 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
     type: "rename",
     path: newPath,
     oldPath,
-    content: originalContent,
-    originalContent,
-    isBinary,
+    content: original.content,
+    originalContent: original.content,
+    isBinary: original.binary,
     summary,
     isNewFile: false,
     conversationId,
     workspaceRootPath: service.workspace.getRootPath() || undefined,
-    baseContentHash: typeof baseContentHash === "string" ? baseContentHash : undefined,
+    baseContentHash: original.contentHash,
     baseExists: true,
-    baseSource: baseSource || undefined,
+    baseSource: "disk",
     createdAt: Date.now(),
   };
   const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });

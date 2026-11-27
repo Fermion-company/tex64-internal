@@ -8,7 +8,7 @@ export type SpellBridge = {
 };
 
 export type CreateKind = "file" | "folder";
-export type DragPayload = { path: string; kind: "file" | "dir" };
+export type DragPayload = { path: string; kind: "file" | "dir"; workspaceRoot?: string | null };
 
 export type BuildState = "idle" | "building" | "success" | "failed";
 export type IssuesStatus = "success" | "error" | "info";
@@ -21,7 +21,7 @@ export type IssueItem = {
   path?: string;
   action?: IssueAction;
 };
-export type IndexEntry = { key: string; path: string; line: number };
+export type IndexEntry = { key: string; path: string; line: number; definition?: boolean };
 export type SectionEntry = { title: string; path: string; line: number; level: number };
 export type BlockType = "math";
 export type BlockMode = "insert" | "edit";
@@ -61,6 +61,7 @@ export type MathKey = {
 export type SearchResult = {
   path: string;
   line: number;
+  column?: number;
   preview: string;
   matchStart?: number;
   matchLength?: number;
@@ -249,6 +250,7 @@ export type PlatformUpdateStatusSnapshot = {
 export type AppSettingsSnapshot = {
   compileEngine: string;
   appearanceTheme: AppearanceThemePreference;
+  darkPdfPages: boolean;
   wordWrapEnabled: boolean;
   autoSynctexOnBuild: boolean;
   reverseSynctexEnabled: boolean;
@@ -381,7 +383,7 @@ export type TexizeBridge = {
   status?: () => Promise<unknown>;
 };
 export type TdomBridge = {
-  start?: () => Promise<{ ok: boolean; url?: string; error?: string }>;
+  start?: (engine?: string) => Promise<{ ok: boolean; url?: string; fallback?: boolean; error?: string }>;
   status?: () => Promise<unknown>;
   stop?: () => Promise<{ ok: boolean; error?: string }>;
   push?: (payload: {
@@ -394,6 +396,16 @@ export type TdomBridge = {
     activePath?: string;
     clientEditAtEpochMs?: number;
   }) => Promise<{ ok: boolean; url?: string; srcRev?: number; error?: string; limited?: boolean; pending?: boolean; pages?: number }>;
+  fallbackMath?: (payload: unknown) => Promise<unknown>;
+  supersedePdf?: (id: string, abandon: boolean) => Promise<void>;
+  onPaperEditing?: (handler: (state: { workspaceRoot: string; rootFile: string; editingPaper: boolean; editEpoch: number }) => void) => () => void;
+  onInputsChanged?: (handler: (target: { workspaceRoot: string; rootFile: string }) => void) => () => void;
+  commandAvailable?: (command: string) => Promise<boolean>;
+  compilePdf?: (payload: { engine?: string; recoverIncompleteMath?: boolean; requestId?: string; workspaceRoot?: string; rootFile?: string; buffers?: Array<{ path: string; text: string }> }) => Promise<{
+    ok: boolean; data?: string; url?: string; generation?: number; code?: string; command?: string; error?: string; warning?: string; pendingBibliography?: boolean; missingDocumentEnd?: boolean; pendingMathCloser?: string; pendingMathFile?: string; emptyDocument?: boolean; editingPaper?: boolean; editEpoch?: number;
+  }>;
+  setUnbuiltWindow?: (target: { workspaceRoot: string | null; pdfPath: string } | null) => Promise<{ ok: boolean }>;
+  showWindowPdf?: (generation: number | null) => Promise<{ ok: boolean }>;
   focus?: (payload: { offset: number; filePath?: string }) => Promise<{ ok: boolean; scheduled?: boolean; error?: string }>;
   snapshot?: (payload: { afterDocumentEpoch?: number; afterGeneration?: number }) => Promise<{
     ok: boolean;
@@ -498,6 +510,7 @@ export type BridgeWindow = Window &
       content?: string;
       error?: string;
       source?: string;
+      requestId?: string;
       stale?: boolean;
     }) => void;
     tex64SynctexForwardResult?: (payload: {

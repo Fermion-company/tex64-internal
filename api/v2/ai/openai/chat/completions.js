@@ -1,3 +1,4 @@
+import { createChatEventReader } from "../../../_lib/chat-stream.js";
 import {
   loadAuthorizedAiContext,
   assertAiFeatureEnabled,
@@ -173,58 +174,28 @@ const handler = async (req, res) => {
         "Connection": "keep-alive",
       });
       const reader = upstream.body.getReader();
-      const decoder = new TextDecoder();
-      let sseBuffer = "";
       let capturedUsage = null;
       let sawDone = false;
+      const events = createChatEventReader((payload) => {
+        if (payload === "[DONE]") {
+          sawDone = true;
+          return;
+        }
+        let chunk;
+        try { chunk = JSON.parse(payload); } catch { return; }
+        if (!chunk || typeof chunk !== "object" || Array.isArray(chunk)) return;
+        if (chunk.usage) capturedUsage = chunk.usage;
+        res.write(`data: ${JSON.stringify(maskAxiomResponseModel(chunk, publicModel))}\n\n`);
+      }, () => res.write(": keep-alive\n\n"));
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          // Parse complete SSE lines so the provider model id can never leak
-          // through a chunk. This still streams one event at a time.
-          sseBuffer += decoder.decode(value, { stream: true });
-          const lines = sseBuffer.split("\n");
-          sseBuffer = lines.pop() ?? "";
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data: ")) {
-              res.write(`${line}\n`);
-              continue;
-            }
-            const payload = trimmed.slice(6);
-            if (payload === "[DONE]") {
-              sawDone = true;
-              continue;
-            }
-            try {
-              const chunk = JSON.parse(payload);
-              if (chunk && typeof chunk === "object" && chunk.usage) {
-                capturedUsage = chunk.usage;
-              }
-              res.write(`data: ${JSON.stringify(maskAxiomResponseModel(chunk, publicModel))}\n`);
-            } catch {
-              // Do not forward malformed provider payloads because they could
-              // contain an unmasked provider identifier.
-            }
-          }
+          events.push(value);
         }
+        events.finish();
       } catch { /* stream interrupted */ }
-      sseBuffer += decoder.decode();
-      if (sseBuffer.trim()) {
-        const trimmed = sseBuffer.trim();
-        if (trimmed === "data: [DONE]") {
-          sawDone = true;
-        } else if (trimmed.startsWith("data: ")) {
-          try {
-            const chunk = JSON.parse(trimmed.slice(6));
-            if (chunk && typeof chunk === "object" && chunk.usage) {
-              capturedUsage = chunk.usage;
-            }
-            res.write(`data: ${JSON.stringify(maskAxiomResponseModel(chunk, publicModel))}\n`);
-          } catch { /* malformed final provider event */ }
-        }
-      }
+
       // Commit cost-normalized usage. Missing provider usage is charged at
       // the preflight reservation so an unmetered stream can never be free.
       const measuredUsage = hasCompleteProviderUsage(capturedUsage)
@@ -258,7 +229,7 @@ const handler = async (req, res) => {
         // that advances on [DONE] (without waiting for EOF) therefore cannot
         // race a subsequent admission check against this completed turn.
         if (sawDone) {
-          res.write("data: [DONE]\n");
+          res.write("data: [DONE]\n\n");
         }
         res.end();
       }

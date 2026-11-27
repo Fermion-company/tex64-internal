@@ -28,7 +28,7 @@ const http = require("node:http");
 const net = require("node:net");
 const { spawn } = require("node:child_process");
 const { NO_FILE_ACCESS } = require("./engine-dir.cjs");
-const { getPreferredTexliveBinDirs } = require("./texlive-paths.cjs");
+const { extendTexlivePath, findCommandInDirs } = require("./texlive-paths.cjs");
 const { loadPersistedCanonicalBuild } = require("./build/canonical-build-candidate.cjs");
 const { loadPreviewCacheCandidate } = require("./build/preview-cache.cjs");
 const { LivePreviewPageLimit } = require("./live-preview-page-limit.cjs");
@@ -68,7 +68,7 @@ const isPortAvailable = (port) => new Promise((resolve) => {
 });
 
 const findAvailablePort = async (preferred = DEFAULT_PORT) => {
-  if (await isPortAvailable(preferred)) return preferred;
+  if (preferred !== 0 && await isPortAvailable(preferred)) return preferred;
   return new Promise((resolve, reject) => {
     const server = net.createServer();
     server.unref();
@@ -131,6 +131,7 @@ const requestBuffer = (url, { timeoutMs = 5_000, maxBytes = 32 * 1024 * 1024 } =
       }
       const chunks = [];
       let size = 0;
+      res.on("error", reject);
       res.on("data", (chunk) => {
         size += chunk.length;
         if (size > maxBytes) {
@@ -160,17 +161,6 @@ const diffEdit = (previous, next) => {
     endNext -= 1;
   }
   return { start, end: endPrevious, text: next.slice(start, endNext) };
-};
-
-const uniquePaths = (items) => {
-  const seen = new Set();
-  const result = [];
-  for (const item of items) {
-    if (typeof item !== "string" || !item || seen.has(item)) continue;
-    seen.add(item);
-    result.push(item);
-  }
-  return result;
 };
 
 const isWithin = (root, candidate) => {
@@ -256,7 +246,7 @@ class TdomEngineService {
     this.lastProjectRoot = null;
     this.lastSessionKey = null;
     this.lastOverlays = new Map();
-    this.lastRootMtimeMs = null;
+    this.diskRoot = null;
     this.lastAcceptedSrcRev = null;
     // Exact queued snapshot objects only. A source/hash key could outlive its
     // original push and incorrectly acknowledge a later identical root after
@@ -273,6 +263,7 @@ class TdomEngineService {
     this.liveWindow = options.liveWindow || new LivePreviewWindow({
       env: () => ({ ...process.env, PATH: this.buildSpawnEnv().PATH }),
     });
+    this.probeRoot = null;
     this.windowedPath = null;
     // The Build paper's sheets the engine's viewer shows around the chapter,
     // and the ones it was last told of.
@@ -297,7 +288,7 @@ class TdomEngineService {
   }
 
   isAvailable() {
-    if (!this.engineDir) return false;
+    if (process.platform === "win32" || !this.engineDir) return false;
     return this.fileAccess.probeIfAllowed(this.engineDir,
       () => this.existsSync(path.join(this.engineDir, MARKER))) === true;
   }
@@ -333,14 +324,16 @@ class TdomEngineService {
   // The chapter of a document past the limit that Live can still follow: the
   // other chapter files are handed to the engine empty, as overlays, and the
   // user's own unsaved buffers of those files are left out with them.
-  async applyLiveWindow(snapshot, payload) {
+  async applyLiveWindow(snapshot, payload, generation) {
     const rootPath = snapshot.filePath;
     if (!rootPath || !snapshot.projectRoot || !/\.tex$/i.test(rootPath)) return null;
     // the window is cut to the paper beside the root: its auxiliary files are what the probe reads
     const paper = await this.pageLimit.paperPages(rootPath.replace(/\.tex$/i, ".pdf"));
+    this.assertLifecycle(generation);
     if (!paper || paper.pages <= this.pageLimit.limit) return null;
     const activePath = typeof payload.activePath === "string" && payload.activePath
       ? path.resolve(snapshot.projectRoot, payload.activePath) : null;
+    this.probeRoot = rootPath;
     const plan = await this.liveWindow.plan({
       rootPath, rootText: snapshot.source, projectRoot: snapshot.projectRoot, activePath, paper,
       // one whole-document TeX run at a time
@@ -442,12 +435,19 @@ class TdomEngineService {
     return pending;
   }
 
-  async runOutsideBuildLease(action) {
+  async runOutsideBuildLease(action, generation = this.lifecycleGeneration) {
     // Keep the final lease check and the request/start call in one JavaScript
     // turn. A Build cannot slip between them and launch a cold canonical job.
     while (this.activeBuildLease && !this.activeBuildLease.released) {
-      await this.activeBuildLease.releasePromise;
+      const lease = this.activeBuildLease;
+      lease.previewWait ??= Promise.race([
+        lease.releasePromise,
+        new Promise(resolve => { lease.wakePreview = resolve; }),
+      ]);
+      await lease.previewWait;
+      this.assertLifecycle(generation);
     }
+    this.assertLifecycle(generation);
     return action();
   }
 
@@ -668,7 +668,6 @@ class TdomEngineService {
     this.lastProjectRoot = snapshot.projectRoot;
     this.lastSessionKey = snapshot.sessionKey;
     this.lastOverlays = new Map(snapshot.overlays);
-    this.lastRootMtimeMs = snapshot.rootMtimeMs;
     this.lastAcceptedSrcRev = Number.isInteger(acceptedSrcRev) ? acceptedSrcRev : null;
   }
 
@@ -692,6 +691,7 @@ class TdomEngineService {
   }
 
   async adoptCanonicalBuild(lease, candidate) {
+    const generation = this.lifecycleGeneration;
     const key = this.rememberCanonicalBuild(lease, candidate);
     if (!key || lease?.released || this.activeBuildLease !== lease) {
       return { adopted: false, reason: "build-lease-unavailable" };
@@ -706,20 +706,22 @@ class TdomEngineService {
       return { adopted: false, reason: "build-lease-unavailable" };
     }
     this.extendLocalBuildLeaseForAdoption(lease);
-    const openingSnapshot = lease.bootstrapOpen?.snapshot;
+    const bootstrapOpen = lease.bootstrapOpen;
+    const openingSnapshot = bootstrapOpen?.snapshot;
     const matchingOpen = openingSnapshot?.projectRoot === lease.projectRoot &&
       openingSnapshot?.filePath === path.resolve(lease.projectRoot, lease.mainFile);
     const snapshot = lease.pendingSnapshot ?? (matchingOpen ? openingSnapshot : null);
+    this.assertLifecycle(generation);
     const liveRequested = snapshot || (this.lastProjectRoot === lease.projectRoot &&
       this.lastPath === path.resolve(lease.projectRoot, lease.mainFile));
     if (!liveRequested) return { adopted: false, deferred: true, reason: "live-preview-not-requested" };
-    if (lease.bootstrapOpen) {
+    if (bootstrapOpen) {
       // This /open started before Build's local gate. Let it finish once;
       // reopening here would repeat the entire book bootstrap.
       // It may still be waiting at the server's lease gate if acquire won
       // the HTTP race. Keep our local gate but free that remote bootstrap.
       await this.releaseRemoteBuildLease(lease);
-      await Promise.race([lease.bootstrapOpen.promise.catch(() => {}), lease.releasePromise]);
+      await Promise.race([bootstrapOpen.promise.catch(() => {}), lease.releasePromise]);
       if (lease.released) return { adopted: false, reason: "build-lease-unavailable" };
     }
     if (lease.compatibility) {
@@ -751,6 +753,7 @@ class TdomEngineService {
     // Realtime is off when there is neither a resident document nor a queued
     // cold open. Keep the immutable candidate for a later push without
     // starting TeX merely because manual Build completed.
+    this.assertLifecycle(generation);
     if (!sameActiveDocument && !snapshot) {
       return { adopted: false, deferred: true, reason: "live-preview-not-requested" };
     }
@@ -806,6 +809,7 @@ class TdomEngineService {
     } else {
       try {
         const opened = await this.openDocument(snapshot, { canonicalBuild });
+        this.assertLifecycle(generation);
         const acceptedSrcRev = Number.isInteger(opened?.report?.srcRev)
           ? opened.report.srcRev
           : Number.isInteger(opened?.canonicalBuild?.rev) ? opened.canonicalBuild.rev : null;
@@ -919,7 +923,7 @@ class TdomEngineService {
     this.startPromise = pending;
     try { return await pending; }
     catch (error) {
-      if (!this.isRunning() && this.state === "starting") {
+      if (this.lifecycleGeneration === generation && !this.isRunning() && this.state === "starting") {
         this.state = "stopped";
         this.lastError = error?.message || String(error);
       }
@@ -951,19 +955,21 @@ class TdomEngineService {
     return "demo-lua.tex";
   }
 
+  needsPdfFallback() {
+    if (process.platform === "win32") return true;
+    const dirs = this.buildSpawnEnv().PATH.split(path.delimiter);
+    return ["lualatex", "pdftocairo", "pdftotext", "pdfinfo"].some(name => !findCommandInDirs(name, dirs));
+  }
+
   buildSpawnEnv() {
-    const pathParts = uniquePaths([
-      ...getPreferredTexliveBinDirs(),
-      ...(process.env.PATH || "").split(path.delimiter),
-      // poppler (pdftocairo/pdftotext/pdfinfo) and cc live outside the TeX
-      // tree; a Finder-launched Electron app has a minimal PATH.
-      "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin",
-    ]);
+    // A Finder-launched app may inherit only the system PATH.
+    const inherited = [process.env.PATH, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+      .filter(Boolean).join(path.delimiter);
     const env = {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
       PORT: String(this.port),
-      PATH: pathParts.join(path.delimiter),
+      PATH: extendTexlivePath(inherited),
       // Boot on the small demo sample (the same one the engine's own tests
       // boot); the real document arrives via POST /open right after.
       TDOM_SAMPLE: process.env.TDOM_SAMPLE || this.pickBootSample(),
@@ -1015,9 +1021,12 @@ class TdomEngineService {
     this.stderrTail = [];
     let proc;
     try {
-      proc = this.spawnImpl(process.execPath, [path.join(this.engineDir, MARKER)], {
+      const preload = path.join(__dirname, "tdom-host-lifetime.cjs").replace(
+        `${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`,
+      );
+      proc = this.spawnImpl(process.execPath, ["--require", preload, path.join(this.engineDir, MARKER)], {
         cwd: this.engineDir,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
         env: this.buildSpawnEnv(),
       });
       this.proc = proc;
@@ -1048,7 +1057,7 @@ class TdomEngineService {
         this.lastProjectRoot = null;
         this.lastSessionKey = null;
         this.lastOverlays.clear();
-        this.lastRootMtimeMs = null;
+        this.diskRoot = null;
         // A Build may have begun while the child was starting. Apply its
         // resource lease before start() lets any pending /open proceed.
         await this.applyActiveBuildLease();
@@ -1079,7 +1088,7 @@ class TdomEngineService {
     this.lastProjectRoot = null;
     this.lastSessionKey = null;
     this.lastOverlays.clear();
-    this.lastRootMtimeMs = null;
+    this.diskRoot = null;
     this.lastAcceptedSrcRev = null;
     this.fulfilledBuildOpenAcks = new WeakMap();
     this.pendingCanonicalBuilds.clear();
@@ -1146,7 +1155,6 @@ class TdomEngineService {
         sessionKey: filePath || "legacy",
         overlays: new Map(),
         fresh: Boolean(payload.fresh),
-        rootMtimeMs: null,
       };
     }
 
@@ -1161,14 +1169,18 @@ class TdomEngineService {
       if (!isWithin(workspaceRoot, absolute)) continue;
       buffers.set(absolute, text);
     }
-    let rootMtimeMs = null;
-    try { rootMtimeMs = fs.statSync(rootPath).mtimeMs; } catch {}
+    if (this.diskRoot && this.diskRoot.path !== rootPath) this.diskRoot = null;
     let source = buffers.get(rootPath);
-    if (source === undefined && this.lastPath === rootPath && this.lastSource !== null
-      && this.lastRootMtimeMs === rootMtimeMs) {
-      source = this.lastSource;
+    if (source === undefined) {
+      // Only disk reads can establish which bytes this file version contains.
+      // An editor overlay may be discarded without ever reaching the disk.
+      const stat = fs.statSync(rootPath, { bigint: true });
+      const version = [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
+      if (this.diskRoot?.version !== version) {
+        this.diskRoot = { path: rootPath, version, source: fs.readFileSync(rootPath, "utf8") };
+      }
+      source = this.diskRoot.source;
     }
-    if (source === undefined) source = fs.readFileSync(rootPath, "utf8");
     buffers.delete(rootPath);
     return {
       source,
@@ -1177,7 +1189,6 @@ class TdomEngineService {
       sessionKey: `${workspaceRoot}\0${rootPath}`,
       overlays: buffers,
       fresh: Boolean(payload.fresh),
-      rootMtimeMs,
     };
   }
 
@@ -1185,6 +1196,7 @@ class TdomEngineService {
     // TEX64_TRACE_PUSH=1: where a keystroke's time goes on its way to the engine
     const trace = process.env.TEX64_TRACE_PUSH && Number.isFinite(Number(payload.clientEditAtEpochMs))
       ? { at: Number(payload.clientEditAtEpochMs), marks: [["ipc", Date.now()]] } : null;
+    const generation = this.lifecycleGeneration;
     const snapshot = this.resolvePushSnapshot(payload);
     trace?.marks.push(["snapshot", Date.now()]);
     const normalizedPath = snapshot.filePath;
@@ -1205,6 +1217,11 @@ class TdomEngineService {
       activeLease.pendingSnapshot ??= snapshot;
     }
     const run = async () => {
+      this.assertLifecycle(generation);
+      if (this.probeRoot && this.probeRoot !== normalizedPath) {
+        this.liveWindow.stop();
+        this.probeRoot = null;
+      }
       trace?.marks.push(["queue", Date.now()]);
       // Asked when the engine would have to open the document; while it
       // holds it, the page watch follows its length.
@@ -1213,10 +1230,12 @@ class TdomEngineService {
         this.pendingOpenRequest !== null;
       const length = opens ? await this.checkPageLimit(snapshot.filePath, snapshot.projectRoot)
         : { limited: false };
+      this.assertLifecycle(generation);
       const windowed = length.limited || (!opens && this.windowedPath === normalizedPath);
-      const window = windowed ? await this.applyLiveWindow(snapshot, payload) : null;
+      const window = windowed ? await this.applyLiveWindow(snapshot, payload, generation) : null;
+      this.assertLifecycle(generation);
       if (windowed && !window?.overlays) {
-        if (this.proc || this.state !== "stopped") this.stop();
+        if (this.proc || this.state !== "stopped") this.stop({ keepLiveWindow: true });
         this.pageLimited = true;
         return { ok: true, limited: true, ...(length.pages ? { pages: length.pages } : {}),
           ...(window?.pending ? { pending: true } : {}) };
@@ -1237,6 +1256,7 @@ class TdomEngineService {
         ? this.loadRememberedCanonicalBuild(snapshot.projectRoot, mainFile) ??
           await this.loadPersistedCanonicalBuild(snapshot.projectRoot, mainFile)
         : null;
+      this.assertLifecycle(generation);
       if (remembered && (!this.activeBuildLease || this.activeBuildLease.released)) {
         let importLease = null;
         try {
@@ -1245,8 +1265,10 @@ class TdomEngineService {
             mainFile,
             deferredImport: true,
           });
+          this.assertLifecycle(generation);
           if (this.activeBuildLease && !this.activeBuildLease.released) this.activeBuildLease.deferredImport = true;
           const imported = await importLease.adopt(remembered, snapshot);
+          this.assertLifecycle(generation);
           if (imported?.adopted !== true) {
             console.info("[tdom] Build import not adopted:", imported?.reason ?? "unknown");
           }
@@ -1263,11 +1285,13 @@ class TdomEngineService {
       // Cold start can create resident and canonical TeX work. Keep it behind
       // Build, while an already-ready resident remains available for fast,
       // same-document keystroke updates.
+      this.assertLifecycle(generation);
       if (!this.isRunning() || this.state !== "ready") {
-        await this.runOutsideBuildLease(() => this.start());
+        await this.runOutsideBuildLease(() => this.start(), generation);
       } else {
         await this.start();
       }
+      this.assertLifecycle(generation);
       // start()/lease waiting can take long enough for Build adoption to
       // update the resident bookkeeping. Re-evaluate every decision which
       // controls /open only after that wait has finished.
@@ -1290,6 +1314,7 @@ class TdomEngineService {
         // live during Build; the engine lease suppresses only its heavy
         // canonical fallback work.
         const opened = await this.openAfterBuildLease(snapshot);
+        this.assertLifecycle(generation);
         acceptedSrcRev = opened?.srcRev;
         if (opened?.fulfilled) {
           return { ok: true, url: this.url,
@@ -1304,7 +1329,6 @@ class TdomEngineService {
         const removeOverlays = [...this.lastOverlays.keys()].filter((filePath) => !snapshot.overlays.has(filePath));
         const sourceChanged = snapshot.source !== this.lastSource;
         if (!sourceChanged && !overlays.length && !removeOverlays.length) {
-          this.lastRootMtimeMs = snapshot.rootMtimeMs;
           return { ok: true, url: this.url };
         }
         const edit = sourceChanged ? diffEdit(this.lastSource, snapshot.source) : { start: 0, end: 0, text: "" };
@@ -1324,9 +1348,9 @@ class TdomEngineService {
             },
             timeoutMs: editTimeout,
           }))?.srcRev;
+          this.assertLifecycle(generation);
           this.lastSource = snapshot.source;
           this.lastOverlays = new Map(snapshot.overlays);
-          this.lastRootMtimeMs = snapshot.rootMtimeMs;
           this.lastAcceptedSrcRev = Number.isInteger(acceptedSrcRev) ? acceptedSrcRev : null;
           if (trace) {
             trace.marks.push(["answered", Date.now()]);
@@ -1337,8 +1361,10 @@ class TdomEngineService {
           // change) — resync with a fresh open rather than compounding.
           // The edit outcome is not trusted, so this is a deliberate resync,
           // distinct from retrying any earlier timed-out open.
+          this.assertLifecycle(generation);
           this.pendingOpenRequest = null;
           const opened = await this.openAfterBuildLease(snapshot);
+          this.assertLifecycle(generation);
           acceptedSrcRev = opened?.srcRev;
           if (opened?.fulfilled) {
             return { ok: true, url: this.url,
@@ -1352,6 +1378,7 @@ class TdomEngineService {
     const watched = () => run().then(async (answer) => {
       if (answer?.ok && !answer.limited) {
         await this.syncOuterPaper();
+        this.assertLifecycle(generation);
         this.schedulePageWatch();
       }
       return answer;
@@ -1379,14 +1406,16 @@ class TdomEngineService {
     if (!this.isRunning() || this.state !== "ready" || !this.url) {
       return { ok: false, error: "live preview engine is not ready" };
     }
-    const status = await requestJson(`${this.url}/status`, { timeoutMs: 2_000 });
+    const { url, lifecycleGeneration, lastPath, lastProjectRoot } = this;
+    const documentChanged = () => lifecycleGeneration !== this.lifecycleGeneration || url !== this.url ||
+      lastPath !== this.lastPath || lastProjectRoot !== this.lastProjectRoot;
+    const status = await requestJson(`${url}/status`, { timeoutMs: 2_000 });
+    if (documentChanged()) return { ok: false, error: "live preview document changed during snapshot" };
     const documentEpoch = Number(status?.documentEpoch) || 0;
     const generation = Number(status?.canonical?.id) || 0;
     const afterGeneration = Number(payload.afterGeneration) || 0;
-    // documentEpoch advances as soon as a source edit lands, while the
-    // canonical PDF may still be the last-good generation. Only transfer
-    // bytes when the PDF generation itself advances.
-    const unchanged = generation === afterGeneration;
+    const unchanged = generation === afterGeneration &&
+      (payload.afterDocumentEpoch == null || Number(payload.afterDocumentEpoch) === documentEpoch);
     if (!generation || unchanged) {
       return {
         ok: true,
@@ -1397,7 +1426,8 @@ class TdomEngineService {
         error: status?.canonical?.error || null,
       };
     }
-    const pdf = await requestBuffer(`${this.url}/canonical.pdf`, { timeoutMs: 10_000 });
+    const pdf = await requestBuffer(`${url}/canonical.pdf?c=${generation}&documentEpoch=${documentEpoch}`, { timeoutMs: 10_000 });
+    if (documentChanged()) return { ok: false, error: "live preview document changed during snapshot" };
     if (!pdf.length || !pdf.subarray(0, 1024).includes(Buffer.from("%PDF-"))) {
       throw new Error("tdom returned an invalid PDF snapshot");
     }
@@ -1421,7 +1451,18 @@ class TdomEngineService {
     };
   }
 
-  stop() {
+  stop({ keepLiveWindow = false } = {}) {
+    if (!keepLiveWindow) {
+      this.liveWindow.stop();
+      this.probeRoot = null;
+    }
+    if (this.activeBuildLease) {
+      this.activeBuildLease.wakePreview?.();
+      this.activeBuildLease.wakePreview = null;
+      this.activeBuildLease.previewWait = null;
+      this.activeBuildLease.pendingSnapshot = null;
+      this.activeBuildLease.bootstrapOpen = null;
+    }
     // Invalidate startup even before a child exists (permission / port awaits).
     this.lifecycleGeneration += 1;
     this.startPromise = null;
@@ -1434,7 +1475,7 @@ class TdomEngineService {
     this.lastProjectRoot = null;
     this.lastSessionKey = null;
     this.lastOverlays.clear();
-    this.lastRootMtimeMs = null;
+    this.diskRoot = null;
     this.lastAcceptedSrcRev = null;
     this.fulfilledBuildOpenAcks = new WeakMap();
     this.pendingCanonicalBuilds.clear();
@@ -1450,7 +1491,6 @@ class TdomEngineService {
   }
 
   shutdown() {
-    this.liveWindow.stop();
     return this.stop();
   }
 }

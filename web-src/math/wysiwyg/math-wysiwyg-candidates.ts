@@ -198,9 +198,10 @@ export const TIER_PREFIX = 2;
 export const TIER_CONTAINS = 3;
 
 const CASE_MATCH_BONUS = 60;
-const commandMatchesTokenCase = (candidate: Candidate, originalToken: string) => {
-  const command = extractCommand(candidate.key.latex);
-  return !!command && command === originalToken;
+export const commandMatchesTokenCase = (candidate: Candidate, originalToken: string) => {
+  const latex = candidate.key.latex.trim();
+  const name = /^\\begin\{([A-Za-z]+\*?)\}/.exec(latex)?.[1] ?? extractCommand(latex);
+  return name === originalToken;
 };
 
 export type ScoredCandidate = { candidate: Candidate; score: number; tier: number };
@@ -229,7 +230,7 @@ export const buildRankedWordCandidates = (
     group.candidates.forEach((candidate) => {
       const caseMatch = commandMatchesTokenCase(candidate, token);
       const tier = isExact ? (caseMatch ? TIER_EXACT_CASE : TIER_EXACT) : TIER_PREFIX;
-      const exactHintBoost = candidate.hint === normalized ? 120 : 0;
+      const exactHintBoost = candidate.hint.toLowerCase() === normalized ? 120 : 0;
       const score =
         baseScore +
         candidate.priority +

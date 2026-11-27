@@ -257,8 +257,8 @@ export const createMathWysiwygRefreshOps = (
         return;
       }
       const mode = typeof mathfieldApi.mode === "string" ? (mathfieldApi.mode as "math" | "text" | "latex") : null;
-      if (mode === "text" && !options.explicit) {
-        // Avoid noisy suggestions while typing inside \\text{...} and similar text-mode segments.
+      if (mode === "latex" || (mode === "text" && !options.explicit)) {
+        // MathLive handles raw LaTeX command completion in its own popover.
         candidateOps.updateCandidates(null, options);
         return;
       }

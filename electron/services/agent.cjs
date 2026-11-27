@@ -1,6 +1,7 @@
 const { AgentsSessionStore, resolveAgentsApiConfig, maintainManagedSessions } = require("./openprism/agents-api.cjs");
 const crypto = require("crypto");
 const path = require("path");
+const { canonicalWorkspacePath } = require("./workspace.cjs");
 const {
   DEFAULT_MAX_ITERATIONS,
   buildAgentPolicy,
@@ -80,8 +81,12 @@ class AgentService {
     synctexService,
     isRendererWorkspaceMutationActive,
     getHistoryBoundary,
+    getLastBuild,
+    checkEditorPaths,
   }) {
     this.workspace = workspace;
+    this.getLastBuild = getLastBuild;
+    this.checkEditorPaths = checkEditorPaths;
     this.getHistoryBoundary = typeof getHistoryBoundary === "function" ? getHistoryBoundary : () => null;
     this.searchService = searchService;
     this.ensureUserSettings = ensureUserSettings;
@@ -139,7 +144,7 @@ class AgentService {
     };
     this.autoBuildQueue = Promise.resolve();
     this.activeAgentBuildConversationId = null;
-    this.pendingSettingsRequests = new Map();
+    this.pendingRendererRequests = new Map();
     this.applyUndoStack = [];
     this.managedSessionStore = this.sessionsService?.dirPath
       ? new AgentsSessionStore(`${this.sessionsService.dirPath}-managed`) : null;
@@ -444,6 +449,7 @@ class AgentService {
         ? proposal.conversationId.trim()
         : "default";
     this.proposals.delete(id);
+    this.releaseFinishedFileSnapshots(conversationId);
     this.markSessionDirty(conversationId);
   }
 
@@ -531,7 +537,7 @@ class AgentService {
     if (
       workspaceRoot &&
       boundWorkspaceRoot &&
-      path.resolve(boundWorkspaceRoot) !== path.resolve(workspaceRoot)
+      canonicalWorkspacePath(boundWorkspaceRoot) !== canonicalWorkspacePath(workspaceRoot)
     ) {
       const error = new Error(
         "This Axiom chat belongs to another workspace. Start a new chat here.",
@@ -570,6 +576,7 @@ class AgentService {
       controller,
       token,
       workspaceRoot,
+      sourceReadHashes: new Map(),
     });
     if (workspaceRoot) {
       this.runningWorkspaceRoots.set(workspaceRoot, {
@@ -597,6 +604,18 @@ class AgentService {
         this.runningWorkspaceRoots.delete(current.workspaceRoot);
       }
     }
+    this.releaseFinishedFileSnapshots(conversationId);
+  }
+
+  releaseFinishedFileSnapshots(conversationId) {
+    if (this.runningControllers.has(conversationId)) return;
+    for (const proposal of this.proposals.values()) {
+      if ((proposal.conversationId || "default") === conversationId) return;
+    }
+    const context = this.contextByConversation.get(conversationId);
+    if (!context) return;
+    delete context.activeFileContent;
+    delete context.openFileSnapshots;
   }
 
   resolveAgentPolicy(settings) {
@@ -627,31 +646,39 @@ class AgentService {
   }
 
   requestAppSettings(action, payload) {
+    return this.requestRenderer("settings:request", { action, ...payload }, "Failed to get settings.");
+  }
+
+  requestRenderer(type, payload, timeoutError) {
     const requestId =
       typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
-        this.pendingSettingsRequests.delete(requestId);
-        resolve({ error: "Failed to get settings." });
+        this.pendingRendererRequests.delete(requestId);
+        resolve({ error: timeoutError });
       }, 3000);
-      this.pendingSettingsRequests.set(requestId, { resolve, timer });
-      this.sendToRenderer("settings:request", {
+      this.pendingRendererRequests.set(requestId, { resolve, timer, type });
+      this.sendToRenderer(type, {
         requestId,
-        action,
         ...payload,
       });
     });
   }
 
   handleSettingsResponse(payload) {
+    this.handleRendererResponse("settings:request", payload);
+  }
+
+  handleRendererResponse(type, payload) {
     const requestId = payload?.requestId;
-    if (!requestId || !this.pendingSettingsRequests.has(requestId)) {
+    if (!requestId || !this.pendingRendererRequests.has(requestId)) {
       return;
     }
-    const entry = this.pendingSettingsRequests.get(requestId);
-    this.pendingSettingsRequests.delete(requestId);
+    const entry = this.pendingRendererRequests.get(requestId);
+    if (entry.type !== type) return;
+    this.pendingRendererRequests.delete(requestId);
     if (entry?.timer) {
       clearTimeout(entry.timer);
     }
@@ -781,11 +808,8 @@ class AgentService {
       return result;
     }
     const context = this.contextByConversation.get(conversationId) ?? {};
-    let mainFile = [context.documentMainFile, context.activeFilePath]
-      .find(
-        (value) =>
-          typeof value === "string" && path.extname(value).toLowerCase() === ".tex",
-      );
+    let mainFile = typeof context.documentMainFile === "string" && /\.tex$/i.test(context.documentMainFile)
+      ? context.documentMainFile : null;
     if (!mainFile && conversationId.startsWith("tex64-ai-mode:")) {
       const suffix = conversationId.slice("tex64-ai-mode:".length);
       const separator = suffix.indexOf(":");

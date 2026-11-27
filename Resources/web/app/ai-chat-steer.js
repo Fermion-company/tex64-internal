@@ -3,9 +3,15 @@ export const steerTurnShape = (contextPayload) => {
     const mode = payload.axiomMode === "ask" || payload.axiomMode === "plan" ? payload.axiomMode : "agent";
     const range = payload.activeSelection;
     const selection = range && typeof range === "object"
-        ? [range.path, range.startLine, range.startColumn, range.endLine, range.endColumn, range.textLength].join(":")
+        ? JSON.stringify([range.path, range.startLine, range.startColumn, range.endLine, range.endColumn, range.textLength, range.text])
         : "";
-    return { mode, selection };
+    const file = typeof payload.activeFilePath === "string" ? payload.activeFilePath : "";
+    const revision = typeof payload.activeFileRevision === "string"
+        ? payload.activeFileRevision
+        : JSON.stringify([payload.activeFileContentLength, payload.activeFileContent]);
+    const tabs = JSON.stringify(Array.isArray(payload.openFiles) ? payload.openFiles.map(tab => [tab === null || tab === void 0 ? void 0 : tab.path, tab === null || tab === void 0 ? void 0 : tab.isActive, tab === null || tab === void 0 ? void 0 : tab.isDirty]) : null);
+    const drafts = Array.isArray(payload.openFileSnapshots) ? JSON.stringify(payload.openFileSnapshots.filter(entry => entry === null || entry === void 0 ? void 0 : entry.isDirty).map(entry => { var _a; return [entry.path, (_a = entry.modelRevision) !== null && _a !== void 0 ? _a : [entry.contentLength, entry.content]]; })) : "[]";
+    return { mode, file, revision, tabs, drafts, selection };
 };
 export const canSteer = (candidate) => {
     const { parts, contextPayload, runningShape } = candidate;
@@ -24,7 +30,8 @@ export const canSteer = (candidate) => {
     if ((contextPayload === null || contextPayload === void 0 ? void 0 : contextPayload.turnOrigin) !== undefined)
         return false;
     const shape = steerTurnShape(contextPayload);
-    return shape.mode === runningShape.mode && shape.selection === runningShape.selection;
+    return shape.mode === runningShape.mode && shape.file === runningShape.file &&
+        shape.revision === runningShape.revision && shape.tabs === runningShape.tabs && shape.drafts === runningShape.drafts && shape.selection === runningShape.selection;
 };
 const STEER_TIMEOUT_MS = 15000;
 export const createAiChatSteering = (deps) => {

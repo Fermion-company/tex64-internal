@@ -28,6 +28,7 @@ const {
   renameLatexInText,
 } = require("./agent-latex.cjs");
 const { readFileFromDisk } = require("./agent-tools-file.cjs");
+const { isBuildEngine, selectedBuildProfile } = require("./agent-build-context.cjs");
 const { clipText } = require("./agent-core-utils.cjs");
 
 const WORKSPACE_CHANGED_ERROR =
@@ -152,32 +153,22 @@ const executeToolCall = async (service, toolCall, conversationId) => {
         typeof args.mainFile === "string" && args.mainFile.trim()
           ? args.mainFile.trim()
           : "";
-      const implicitTexCandidate = [context.activeFilePath, context.documentMainFile]
-        .map((value) => (typeof value === "string" ? value.trim() : ""))
-        .find((value) => path.extname(value).toLowerCase() === ".tex") ?? "";
+      const declaredDocument = context.documentMainFile;
+      const activeTex = /\.tex$/i.test(context.activeFilePath || "") ? context.activeFilePath : null;
+      const requested = normalizeBuildTarget(capturedRootPath, explicitMain || declaredDocument || activeTex);
       const requestedEngine = typeof args.engine === "string" ? args.engine.trim() : "";
-      // An explicit tool argument is user/model intent and must fail closed when
-      // it is not a TeX document. The renderer's active file is only a hint:
-      // editing a .bib/.sty/config file must still compile the current document.
-      const requestedFile = normalizeBuildTarget(
-        capturedRootPath,
-        explicitMain || implicitTexCandidate,
-      );
-      let targetFile = requestedFile;
-      if (requestedFile) {
-        const magicRoot = await service.workspace
-          .resolveTexRootFromMagic(requestedFile)
-          .catch(() => null);
-        assertCapturedWorkspace();
-        // A per-file % !TEX root directive is explicit user intent and wins.
-        // Otherwise the requested/active nested document is the exact target;
-        // the workspace-wide root file must not override it.
-        targetFile = normalizeBuildTarget(capturedRootPath, magicRoot || requestedFile);
+      if (requestedEngine && !isBuildEngine(requestedEngine)) return { error: "Unsupported TeX engine." };
+      let targetFile;
+      if (explicitMain || declaredDocument) {
+        targetFile = requested;
       } else {
-        const rootInfo = await service.workspace.rootInfo().catch(() => null);
-        assertCapturedWorkspace();
-        targetFile = normalizeBuildTarget(capturedRootPath, rootInfo?.path || "main.tex");
+        try {
+          targetFile = await service.workspace.resolveBuildTarget(requested);
+        } catch (error) {
+          return { error: error.message, ...(Array.isArray(error.candidates) ? { candidates: error.candidates } : {}) };
+        }
       }
+      assertCapturedWorkspace();
       if (!targetFile) {
         return { error: "No LaTeX document is available to compile." };
       }
@@ -203,30 +194,13 @@ const executeToolCall = async (service, toolCall, conversationId) => {
           ? { workspaceGeneration: context.workspaceGeneration }
           : {}),
       };
+      const settings = await service.workspace.loadSettings();
+      assertCapturedWorkspace();
+      const buildProfile = selectedBuildProfile(settings);
+      const engine = requestedEngine || buildProfile?.engine || (isBuildEngine(context.appBuildEngine) ? context.appBuildEngine : "lualatex");
+      buildEventContext.engine = engine;
       service.sendBuildState?.("building", "Building...", buildEventContext);
       service.sendIssues?.(0, "Building...", "info", []);
-      const settings = await service.workspace.loadSettings().catch(() => null);
-      assertCapturedWorkspace();
-      const activeId =
-        typeof settings?.buildProfileId === "string" ? settings.buildProfileId.trim() : "";
-      const profiles = Array.isArray(settings?.buildProfiles) ? settings.buildProfiles : [];
-      const selected = activeId
-        ? profiles.find(
-            (profile) => profile && typeof profile === "object" && profile.id === activeId
-          )
-        : null;
-      const buildProfile = selected
-        ? {
-            outDir:
-              typeof selected.outDir === "string" && selected.outDir.trim()
-                ? selected.outDir.trim()
-                : null,
-            extraArgs:
-              typeof selected.extraArgs === "string" && selected.extraArgs.trim()
-                ? selected.extraArgs.trim()
-                : null,
-          }
-        : null;
       const markBuildStarted = () => {
         service.activeAgentBuildConversationId = conversationId;
       };
@@ -254,7 +228,7 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       let result = await runBuild(
         capturedRootPath,
         targetFile,
-        requestedEngine || "lualatex",
+        engine,
         buildProfile
       );
       assertCapturedWorkspace();
@@ -304,7 +278,7 @@ const executeToolCall = async (service, toolCall, conversationId) => {
         result = await runBuild(
           capturedRootPath,
           targetFile,
-          requestedEngine || "lualatex",
+          engine,
           buildProfile
         );
         assertCapturedWorkspace();
@@ -350,11 +324,11 @@ const executeToolCall = async (service, toolCall, conversationId) => {
         const errorIssues = result.issues.filter((issue) => issue.severity === "error");
         if (errorIssues.length > 0) {
           const summaryText = errorIssues[0]?.message ?? result.summary;
-          service.sendBuildState?.("failed", summaryText, buildEventContext);
+          service.sendBuildState?.("failed", summaryText, buildEventContext, result);
           service.sendIssues?.(errorIssues.length, summaryText, "error", errorIssues);
           return {
             status: "failure",
-            targetFile,
+            targetFile, engine,
             summary: `The PDF was produced but has ${errorIssues.length} error(s): ${summaryText}`,
             issues: errorIssues,
             pdfPath: result.pdfPath ?? null,
@@ -387,10 +361,10 @@ const executeToolCall = async (service, toolCall, conversationId) => {
         service.sendBuildState?.("success", result.summary, {
           ...buildEventContext,
           pdfPath: relativePdfPath,
-        });
+        }, result);
         return {
           status: "success",
-          targetFile,
+          targetFile, engine,
           summary: result.summary,
           issues: result.issues,
           pdfPath: result.pdfPath ?? null,
@@ -402,11 +376,11 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       if (result.kind === "failure") {
         const count = Math.max(result.issues.length, 1);
         const summaryText = result.issues[0]?.message ?? result.summary;
-        service.sendBuildState?.("failed", result.summary, buildEventContext);
+        service.sendBuildState?.("failed", result.summary, buildEventContext, result);
         service.sendIssues?.(count, summaryText, "error", result.issues);
         return {
           status: "failure",
-          targetFile,
+          targetFile, engine,
           summary: result.summary,
           issues: result.issues,
           logExcerpt: compileLogExcerpt(result.log),
@@ -472,7 +446,7 @@ const executeToolCall = async (service, toolCall, conversationId) => {
           continue;
         }
 
-        let originalContent = "";
+        let originalContent = null;
         const snapshot = service.getContextSnapshot(conversationId, targetPath);
         if (snapshot && typeof snapshot.content === "string") {
           if (snapshot.truncated && snapshot.isDirty) {
@@ -487,7 +461,7 @@ const executeToolCall = async (service, toolCall, conversationId) => {
           }
         }
 
-        if (!originalContent) {
+        if (originalContent === null) {
           let resolved = "";
           try {
             resolved = service.workspace.resolvePath(targetPath);

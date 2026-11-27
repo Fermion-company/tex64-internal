@@ -1,9 +1,12 @@
+import { isTexFilePath } from "./files.js";
+import { resolveLivePreviewWorkspacePath } from "./live-preview-path.js";
 import { attachSnippetEditor } from "./snippets-ui.js";
 import { attachCitationEditor } from "./zotero-ui.js";
 import { installEditorContextMenu } from "./editor-context-menu.js";
 import { uiText } from "./i18n.js";
 import { aiText } from "./ai-i18n.js";
 import { registerHoverProvider, } from "./monaco-hover.js";
+import { scrollFormulaHover } from "./monaco-hover/math-preview.js";
 import { registerTexLanguages } from "./monaco-language.js";
 import { applyMonacoTheme } from "./monaco-theme.js";
 import { getCurrentAppearanceTheme, onAppearanceThemeChange } from "./appearance.js";
@@ -51,6 +54,8 @@ export const initMonacoSetup = (context, deps) => {
     };
     const api = {
         setWordWrapEnabled,
+        flushComments: async () => { },
+        hasPendingComments: () => false,
     };
     if (!(editorHost instanceof HTMLElement)) {
         deps.updateFallback(uiText("Editor area not found.", "エディタ領域が見つかりません。"));
@@ -75,19 +80,34 @@ export const initMonacoSetup = (context, deps) => {
     }
     monacoWindow.require.config({ paths: { vs: requireBase } });
     monacoWindow.require(["vs/editor/editor.main"], () => {
-        var _a, _b, _c, _d, _e;
+        var _a, _b, _c, _d, _e, _f, _g;
         if (!monacoWindow.monaco || !monacoWindow.monaco.editor) {
             deps.updateFallback(uiText("Monaco initialization failed.", "Monacoを初期化できませんでした。"));
             return;
         }
         deps.setMonacoApi(monacoWindow.monaco);
         registerTexLanguages(monacoWindow.monaco);
+        (_b = (_a = monacoWindow.monaco.editor).registerEditorOpener) === null || _b === void 0 ? void 0 : _b.call(_a, {
+            openCodeEditor: (editor, resource, target) => {
+                var _a, _b, _c, _d, _e, _f, _g, _h;
+                if (resource.scheme !== "file" || ((_c = (_b = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) === null || _b === void 0 ? void 0 : _b.uri) === null || _c === void 0 ? void 0 : _c.toString()) === resource.toString())
+                    return false;
+                const path = resolveLivePreviewWorkspacePath(resource.fsPath, deps.getWorkspaceRoot());
+                if (!path || !deps.getWorkspaceFiles().includes(path))
+                    return false;
+                const group = deps.editorSession.getEditorGroups().find((group) => group.editor === editor);
+                deps.editorSession.jumpToFileLine(path, (_e = (_d = target === null || target === void 0 ? void 0 : target.startLineNumber) !== null && _d !== void 0 ? _d : target === null || target === void 0 ? void 0 : target.lineNumber) !== null && _e !== void 0 ? _e : 1, (_f = group === null || group === void 0 ? void 0 : group.key) !== null && _f !== void 0 ? _f : deps.editorSession.getActiveEditorGroupKey(), { column: (_h = (_g = target === null || target === void 0 ? void 0 : target.startColumn) !== null && _g !== void 0 ? _g : target === null || target === void 0 ? void 0 : target.column) !== null && _h !== void 0 ? _h : 1, focus: true });
+                return true;
+            },
+        });
         // Completion is provided by texlab (see setupLsp below). The previous
         // hand-rolled \ref/\cite/path/\begin completion was removed to avoid
         // duplicate suggestions.
         registerHoverProvider(monacoWindow.monaco, {
             getActiveFilePath: deps.editorSession.getActiveFilePath,
             getWorkspaceFiles: deps.getWorkspaceFiles,
+            getRootFilePath: deps.getRootFilePath,
+            getWorkspaceRoot: deps.getWorkspaceRoot,
             getIndexLabels: deps.getIndexLabels,
             getIndexCitations: deps.getIndexCitations,
             requestFilePreview: deps.requestFilePreview,
@@ -95,15 +115,23 @@ export const initMonacoSetup = (context, deps) => {
         }, hoverState);
         startLspOnFirstTexModel(monacoWindow.monaco, () => void setupLsp(monacoWindow.monaco, {
             getWorkspaceRoot: deps.getWorkspaceRoot,
+            loadResource: (resource) => {
+                const path = resolveLivePreviewWorkspacePath(resource.fsPath, deps.getWorkspaceRoot());
+                return resource.scheme === "file" && path
+                    ? deps.editorSession.loadWorkspaceTextModel(path)
+                    : Promise.resolve(false);
+            },
         }));
         const spellBridge = window.tex64Spell;
         const spellChecker = spellBridge ? new SpellChecker(monacoWindow.monaco, spellBridge) : null;
         spellChecker === null || spellChecker === void 0 ? void 0 : spellChecker.start();
         const codeCommentManager = createCodeCommentManager(monacoWindow.monaco, {
             getWorkspaceRoot: deps.getWorkspaceRoot,
-            collab: (_a = deps.collab) === null || _a === void 0 ? void 0 : _a.comments,
+            collab: (_c = deps.collab) === null || _c === void 0 ? void 0 : _c.comments,
         });
         window.__tex64CodeComments = codeCommentManager;
+        api.flushComments = codeCommentManager.flushPendingSave;
+        api.hasPendingComments = codeCommentManager.hasPendingSave;
         const themeName = applyMonacoTheme(monacoWindow.monaco, getCurrentAppearanceTheme());
         onAppearanceThemeChange((theme) => {
             if (monacoWindow.monaco) {
@@ -119,8 +147,8 @@ export const initMonacoSetup = (context, deps) => {
         // again whenever any later font load finishes (a font-family change
         // in settings, a lazily-loaded face).
         const remeasureFonts = () => { var _a, _b, _c; return (_c = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.remeasureFonts) === null || _c === void 0 ? void 0 : _c.call(_b); };
-        (_c = (_b = document.fonts) === null || _b === void 0 ? void 0 : _b.ready) === null || _c === void 0 ? void 0 : _c.then(() => remeasureFonts()).catch(() => { });
-        (_e = (_d = document.fonts) === null || _d === void 0 ? void 0 : _d.addEventListener) === null || _e === void 0 ? void 0 : _e.call(_d, "loadingdone", () => remeasureFonts());
+        (_e = (_d = document.fonts) === null || _d === void 0 ? void 0 : _d.ready) === null || _e === void 0 ? void 0 : _e.then(() => remeasureFonts()).catch(() => { });
+        (_g = (_f = document.fonts) === null || _f === void 0 ? void 0 : _f.addEventListener) === null || _g === void 0 ? void 0 : _g.call(_f, "loadingdone", () => remeasureFonts());
         const editorOptions = {
             value: "",
             language: "latex",
@@ -152,66 +180,44 @@ export const initMonacoSetup = (context, deps) => {
                 // Prefer above by default (Monaco may fallback below if space is insufficient).
                 above: true,
             },
-            occurrencesHighlight: false,
+            occurrencesHighlight: editorSettings.isEnabled("lsp.documentHighlight") ? "singleFile" : "off",
             selectionHighlight: false,
         };
         const createEditorForGroup = (group, host) => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1;
             const editor = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.create(host, editorOptions);
             const editorAny = editor;
             group.editor = editor;
+            const sizeFormulaPreview = ({ width }) => {
+                host.style.setProperty("--tex64-editor-width", width + "px");
+            };
+            host.addEventListener("wheel", scrollFormulaHover, { capture: true, passive: false });
+            sizeFormulaPreview(editor.getLayoutInfo());
+            editor.onDidLayoutChange(sizeFormulaPreview);
             attachEditorErgonomics(monacoWindow.monaco, editor, group);
             attachSelectionDragAutoScroll(monacoWindow.monaco, editor, host);
             codeCommentManager.attachToEditor(group);
-            host.addEventListener("keydown", (event) => {
+            // Chromium EditContext delivers IME events directly to Monaco.
+            editor.onDidCompositionStart(() => {
                 var _a;
-                if (event.key !== "Tab") {
-                    return;
-                }
-                if (!document.querySelector(".suggest-widget.visible")) {
-                    return;
-                }
-                event.preventDefault();
-                event.stopPropagation();
-                const command = event.shiftKey ? "selectPrevSuggestion" : "selectNextSuggestion";
-                (_a = editorAny.trigger) === null || _a === void 0 ? void 0 : _a.call(editorAny, "tex64", command, {});
-            }, true);
-            let hoverAnchorRafId = null;
-            const updateHoverFixedAnchor = () => {
-                var _a;
-                const editorForHover = editor;
-                const editorDomNode = (_a = editorForHover.getDomNode) === null || _a === void 0 ? void 0 : _a.call(editorForHover);
-                if (!editorDomNode) {
-                    return;
-                }
-                const hostRect = editorDomNode.getBoundingClientRect();
-                const top = Math.max(8, Math.round(hostRect.top + 10));
-                const right = Math.max(8, Math.round(window.innerWidth - hostRect.right + 14));
-                document.documentElement.style.setProperty("--tex64-hover-fixed-top", `${top}px`);
-                document.documentElement.style.setProperty("--tex64-hover-fixed-right", `${right}px`);
-            };
-            const scheduleHoverFixedAnchor = () => {
-                if (hoverAnchorRafId !== null) {
-                    window.cancelAnimationFrame(hoverAnchorRafId);
-                }
-                hoverAnchorRafId = window.requestAnimationFrame(() => {
-                    hoverAnchorRafId = null;
-                    updateHoverFixedAnchor();
-                });
-            };
-            window.addEventListener("resize", scheduleHoverFixedAnchor);
-            updateHoverFixedAnchor();
-            host.addEventListener("compositionstart", () => {
                 group.isComposing = true;
                 group.compositionText = "";
                 group.composingFilePath = group.currentFilePath;
+                const model = editor.getModel();
+                if (model && group.currentFilePath) {
+                    group.compositionBaseline = {
+                        model,
+                        text: group.isDirty ? model.getValue() : (_a = group.currentFileSavedContent) !== null && _a !== void 0 ? _a : model.getValue(),
+                        dirty: group.isDirty,
+                    };
+                }
             });
             host.addEventListener("compositionupdate", (e) => {
                 group.compositionText = e.data || "";
             });
             host.addEventListener("compositionend", (e) => {
                 const data = e.data;
-                if (!data && group.compositionText) {
+                if (!data && group.pendingCompositionAction && group.compositionText) {
                     if (group.composingFilePath === group.currentFilePath) {
                         const selection = editorAny.getSelection();
                         if (selection) {
@@ -225,26 +231,24 @@ export const initMonacoSetup = (context, deps) => {
                         }
                     }
                 }
-                group.compositionText = "";
-                group.isComposing = false;
-                group.composingFilePath = null;
-                deps.editorSession.handleCompositionEnd(group);
+            });
+            editor.onDidCompositionEnd(() => {
+                // Let textarea compositionend finish any pending file-switch recovery.
+                queueMicrotask(() => {
+                    if (editor.inComposition)
+                        return;
+                    group.compositionText = "";
+                    group.isComposing = false;
+                    group.composingFilePath = null;
+                    delete group.compositionBaseline;
+                    deps.editorSession.handleCompositionEnd(group);
+                    if (group.isDirty)
+                        deps.editorSession.scheduleAutoSave();
+                });
             });
             (_c = editor.onDidFocusEditorWidget) === null || _c === void 0 ? void 0 : _c.call(editor, () => {
                 deps.editorSession.setActiveGroup(group.key, { focusEditor: false });
                 deps.fileTree.setTreeFocus(false);
-            });
-            (_d = editorAny.onDidBlurEditorWidget) === null || _d === void 0 ? void 0 : _d.call(editorAny, () => {
-                if (hoverAnchorRafId !== null) {
-                    window.cancelAnimationFrame(hoverAnchorRafId);
-                    hoverAnchorRafId = null;
-                }
-            });
-            (_e = editor.onDidFocusEditorWidget) === null || _e === void 0 ? void 0 : _e.call(editor, () => {
-                scheduleHoverFixedAnchor();
-            });
-            (_f = editorAny.onDidScrollChange) === null || _f === void 0 ? void 0 : _f.call(editorAny, () => {
-                scheduleHoverFixedAnchor();
             });
             editor.onDidChangeModelContent((e) => {
                 var _a;
@@ -256,11 +260,8 @@ export const initMonacoSetup = (context, deps) => {
                     return;
                 const currentValue = editor.getValue();
                 deps.editorSession.updateDirtyState(group.currentFilePath, currentValue);
-                deps.editorTabs.render(group);
                 if (deps.editorSession.isActiveGroup(group)) {
                     deps.editorSession.clearJumpHighlight(group);
-                    deps.editorSession.updateBreadcrumbs();
-                    deps.fileTree.render();
                     // Undo and redo change the file too. Autosave never reformats,
                     // so saving them leaves the undo stack alone. A file shared in a
                     // collaboration session is written by the session layer instead.
@@ -268,17 +269,15 @@ export const initMonacoSetup = (context, deps) => {
                         deps.editorSession.scheduleAutoSave();
                 }
             });
-            (_g = editor.onDidChangeCursorPosition) === null || _g === void 0 ? void 0 : _g.call(editor, (e) => {
-                if (group.currentFilePath &&
-                    group.currentFilePath.endsWith(".tex") &&
+            (_d = editor.onDidChangeCursorPosition) === null || _d === void 0 ? void 0 : _d.call(editor, (e) => {
+                if (isTexFilePath(group.currentFilePath) &&
                     deps.editorSession.isActiveGroup(group)) {
                     deps.onCursorPositionChange(e.position);
                 }
             });
-            (_h = editor.onDidChangeCursorSelection) === null || _h === void 0 ? void 0 : _h.call(editor, (e) => {
+            (_e = editor.onDidChangeCursorSelection) === null || _e === void 0 ? void 0 : _e.call(editor, (e) => {
                 var _a;
-                if (group.currentFilePath &&
-                    group.currentFilePath.endsWith(".tex") &&
+                if (isTexFilePath(group.currentFilePath) &&
                     deps.editorSession.isActiveGroup(group)) {
                     (_a = deps.onCursorSelectionChange) === null || _a === void 0 ? void 0 : _a.call(deps, {
                         lineNumber: e.selection.positionLineNumber,
@@ -294,11 +293,11 @@ export const initMonacoSetup = (context, deps) => {
             let askButton = null;
             let voicePillShown = false;
             if (deps.openAiWithSelection) {
-                const KeyMod = (_j = monacoWindow.monaco) === null || _j === void 0 ? void 0 : _j.KeyMod;
-                const KeyCode = (_k = monacoWindow.monaco) === null || _k === void 0 ? void 0 : _k.KeyCode;
+                const KeyMod = (_f = monacoWindow.monaco) === null || _f === void 0 ? void 0 : _f.KeyMod;
+                const KeyCode = (_g = monacoWindow.monaco) === null || _g === void 0 ? void 0 : _g.KeyCode;
                 const openAi = deps.openAiWithSelection;
                 if (KeyMod && KeyCode) {
-                    (_m = (_l = editor).addAction) === null || _m === void 0 ? void 0 : _m.call(_l, {
+                    (_j = (_h = editor).addAction) === null || _j === void 0 ? void 0 : _j.call(_h, {
                         id: "tex64.ai-edit-selection",
                         label: aiText("ask_axiom"),
                         keybindings: [KeyMod.CtrlCmd | KeyCode.KeyK],
@@ -308,7 +307,7 @@ export const initMonacoSetup = (context, deps) => {
                         run: () => { openAi(); },
                     });
                 }
-                const preference = (_p = (_o = monacoWindow.monaco) === null || _o === void 0 ? void 0 : _o.editor) === null || _p === void 0 ? void 0 : _p.ContentWidgetPositionPreference;
+                const preference = (_l = (_k = monacoWindow.monaco) === null || _k === void 0 ? void 0 : _k.editor) === null || _l === void 0 ? void 0 : _l.ContentWidgetPositionPreference;
                 const askNode = document.createElement("button");
                 askNode.type = "button";
                 askNode.className = "ai-selection-ask";
@@ -345,7 +344,7 @@ export const initMonacoSetup = (context, deps) => {
                 const syncAsk = () => {
                     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
                     const selection = (_b = (_a = editor).getSelection) === null || _b === void 0 ? void 0 : _b.call(_a);
-                    const isTex = Boolean(group.currentFilePath && group.currentFilePath.endsWith(".tex"));
+                    const isTex = isTexFilePath(group.currentFilePath);
                     const empty = !selection || (typeof selection.isEmpty === "function" ? selection.isEmpty() : true);
                     const snippetActive = (_f = (_e = (_d = (_c = editor).getContribution) === null || _d === void 0 ? void 0 : _d.call(_c, "snippetController2")) === null || _e === void 0 ? void 0 : _e.isInSnippet) === null || _f === void 0 ? void 0 : _f.call(_e);
                     if (!isTex || empty || snippetActive || voicePillShown) {
@@ -362,14 +361,14 @@ export const initMonacoSetup = (context, deps) => {
                         (_k = (_j = editor).layoutContentWidget) === null || _k === void 0 ? void 0 : _k.call(_j, askWidget);
                     }
                 };
-                (_q = editor.onDidChangeCursorSelection) === null || _q === void 0 ? void 0 : _q.call(editor, () => queueMicrotask(syncAsk));
-                (_r = editor.onDidChangeModelContent) === null || _r === void 0 ? void 0 : _r.call(editor, () => hideAsk());
-                (_t = (_s = editor).onDidChangeModel) === null || _t === void 0 ? void 0 : _t.call(_s, () => hideAsk());
+                (_m = editor.onDidChangeCursorSelection) === null || _m === void 0 ? void 0 : _m.call(editor, () => queueMicrotask(syncAsk));
+                (_o = editor.onDidChangeModelContent) === null || _o === void 0 ? void 0 : _o.call(editor, () => hideAsk());
+                (_q = (_p = editor).onDidChangeModel) === null || _q === void 0 ? void 0 : _q.call(_p, () => hideAsk());
                 askButton = { hide: hideAsk, sync: syncAsk };
             }
             // Voice edit (⌥⌘V): speak the instruction; it goes to Axiom with the
             // selection as context. Its pill stands where the Ask button was.
-            (_u = deps.voiceEdit) === null || _u === void 0 ? void 0 : _u.attachEditor(monacoWindow.monaco, editor, {
+            (_r = deps.voiceEdit) === null || _r === void 0 ? void 0 : _r.attachEditor(monacoWindow.monaco, editor, {
                 getFilePath: () => group.currentFilePath,
                 isDirty: () => Boolean(group.isDirty),
                 onPillChange: (state) => {
@@ -382,7 +381,7 @@ export const initMonacoSetup = (context, deps) => {
                         askButton === null || askButton === void 0 ? void 0 : askButton.sync();
                 },
             });
-            (_w = (_v = editor).addAction) === null || _w === void 0 ? void 0 : _w.call(_v, {
+            (_t = (_s = editor).addAction) === null || _t === void 0 ? void 0 : _t.call(_s, {
                 id: "tex64.pro-canvas-edit",
                 label: uiText("Edit in canvas", "キャンバスで編集"),
                 contextMenuGroupId: "9_ai",
@@ -408,17 +407,17 @@ export const initMonacoSetup = (context, deps) => {
             // Shared documents undo only this user's edits (Y.UndoManager); the
             // precondition keeps Monaco's own undo for everything else.
             if (deps.collab) {
-                const KeyMod = (_x = monacoWindow.monaco) === null || _x === void 0 ? void 0 : _x.KeyMod;
-                const KeyCode = (_y = monacoWindow.monaco) === null || _y === void 0 ? void 0 : _y.KeyCode;
+                const KeyMod = (_u = monacoWindow.monaco) === null || _u === void 0 ? void 0 : _u.KeyMod;
+                const KeyCode = (_v = monacoWindow.monaco) === null || _v === void 0 ? void 0 : _v.KeyCode;
                 const collab = deps.collab;
-                (_0 = (_z = editor).addAction) === null || _0 === void 0 ? void 0 : _0.call(_z, {
+                (_x = (_w = editor).addAction) === null || _x === void 0 ? void 0 : _x.call(_w, {
                     id: "tex64.collab.undo",
                     label: uiText("Undo", "取り消す"),
                     keybindings: KeyMod && KeyCode ? [KeyMod.CtrlCmd | KeyCode.KeyZ] : undefined,
                     precondition: "tex64CollabBound && !editorReadonly",
                     run: () => { collab.undo(editor); },
                 });
-                (_2 = (_1 = editor).addAction) === null || _2 === void 0 ? void 0 : _2.call(_1, {
+                (_z = (_y = editor).addAction) === null || _z === void 0 ? void 0 : _z.call(_y, {
                     id: "tex64.collab.redo",
                     label: uiText("Redo", "やり直す"),
                     keybindings: KeyMod && KeyCode ? [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyZ, KeyMod.CtrlCmd | KeyCode.KeyY] : undefined,
@@ -431,7 +430,7 @@ export const initMonacoSetup = (context, deps) => {
             // / command palette). Done as an editor action because this Monaco build
             // has no editor.registerCommand for code-action commands.
             if (spellChecker) {
-                (_4 = (_3 = editor).addAction) === null || _4 === void 0 ? void 0 : _4.call(_3, {
+                (_1 = (_0 = editor).addAction) === null || _1 === void 0 ? void 0 : _1.call(_0, {
                     id: "tex64.spell.addWordToDictionary",
                     label: uiText("Add to dictionary", "辞書に追加"),
                     contextMenuGroupId: "9_spell",
@@ -473,18 +472,25 @@ export const initMonacoSetup = (context, deps) => {
         if (editorHostSecondary instanceof HTMLElement) {
             createEditorForGroup(deps.editorSession.getEditorGroup("secondary"), editorHostSecondary);
         }
-        // Apply font-family/size changes live across all editor groups.
         editorSettings.subscribe((change) => {
-            if (change.kind !== "font") {
+            let options;
+            if (change.kind === "font") {
+                options = {
+                    fontFamily: editorSettings.getFontFamily(),
+                    fontSize: editorSettings.getFontSize(),
+                    lineHeight: editorSettings.getLineHeight(),
+                };
+            }
+            else if (change.kind === "flag" && change.id === "lsp.documentHighlight") {
+                options = { occurrencesHighlight: change.value ? "singleFile" : "off" };
+            }
+            else {
                 return;
             }
-            const fontFamily = editorSettings.getFontFamily();
-            const fontSize = editorSettings.getFontSize();
-            const lineHeight = editorSettings.getLineHeight();
             deps.editorSession.forEachEditorGroup((group) => {
                 var _a;
-                const editorAny = group.editor;
-                (_a = editorAny === null || editorAny === void 0 ? void 0 : editorAny.updateOptions) === null || _a === void 0 ? void 0 : _a.call(editorAny, { fontFamily, fontSize, lineHeight });
+                const editor = group.editor;
+                (_a = editor === null || editor === void 0 ? void 0 : editor.updateOptions) === null || _a === void 0 ? void 0 : _a.call(editor, options);
             });
         });
         document.body.classList.add("has-editor");

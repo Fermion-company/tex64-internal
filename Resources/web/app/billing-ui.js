@@ -1,3 +1,4 @@
+import { markFocus, restoreFocus } from "./focus-key.js";
 import { getUiLocale } from "./i18n.js";
 import { aiText } from "./ai-i18n.js";
 const getBilling = () => {
@@ -545,6 +546,7 @@ export const initBillingUi = (context, deps) => {
         if (rank > currentRank) {
             const btn = document.createElement("button");
             btn.type = "button";
+            btn.dataset.focusKey = plan.key;
             btn.className =
                 "plan-cta" +
                     (plan.key === preferred || (plan.highlight && preferred === null)
@@ -586,17 +588,18 @@ export const initBillingUi = (context, deps) => {
         const line = document.createElement("div");
         line.className = "plans-usage-line";
         const label = document.createElement("span");
-        label.textContent = `${aiText("usage_title")}: ${formatter.format(used)} / ${formatter.format(limit)} ${aiText("usage_tokens")}`;
+        label.textContent = `${aiText("usage_month")}: ${formatter.format(used)} / ${formatter.format(limit)} ${aiText("usage_tokens")}`;
         line.appendChild(label);
         if (typeof summary.periodEnd === "string" && summary.periodEnd) {
             const resetAt = Date.parse(summary.periodEnd);
             if (Number.isFinite(resetAt)) {
                 const reset = document.createElement("span");
                 reset.className = "plans-usage-reset";
-                reset.textContent = `${aiText("usage_reset")}: ${new Intl.DateTimeFormat(locale, {
+                const date = new Intl.DateTimeFormat(locale, {
                     month: "short",
                     day: "numeric",
-                }).format(new Date(resetAt))}`;
+                }).format(new Date(resetAt));
+                reset.textContent = aiText("usage_resets").replace("{date}", date);
                 line.appendChild(reset);
             }
         }
@@ -623,6 +626,7 @@ export const initBillingUi = (context, deps) => {
         const current = (deps.getCurrentPlan() || "free").toLowerCase();
         const currentRank = (_a = PLAN_RANK[current]) !== null && _a !== void 0 ? _a : 0;
         const onPaidPlan = current === "basic" || current === "pro";
+        const focus = markFocus(plansList);
         plansList.innerHTML = "";
         const usageBanner = buildUsageBanner();
         if (usageBanner) {
@@ -638,10 +642,13 @@ export const initBillingUi = (context, deps) => {
             const manage = document.createElement("button");
             manage.type = "button";
             manage.className = "plans-manage";
+            manage.dataset.focusKey = "manage";
             manage.textContent = copy.manage;
             manage.addEventListener("click", () => openPortal());
             plansList.appendChild(manage);
         }
+        if (focus && !restoreFocus(plansList, focus))
+            focusWithoutScroll(plansModalClose);
     };
     const isVisible = () => Boolean(plansModal === null || plansModal === void 0 ? void 0 : plansModal.classList.contains("is-open"));
     // Native plan/usage messages are delivered only after the network refresh
@@ -723,7 +730,18 @@ export const initBillingUi = (context, deps) => {
     });
     // Capture phase so Escape reliably closes the modal over other global handlers.
     window.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && (plansModal === null || plansModal === void 0 ? void 0 : plansModal.classList.contains("is-open"))) {
+        if (!(plansModal === null || plansModal === void 0 ? void 0 : plansModal.classList.contains("is-open")))
+            return;
+        if (event.key === "Tab") {
+            const buttons = Array.from(plansModal.querySelectorAll("button:enabled"));
+            const first = buttons[0];
+            const last = buttons[buttons.length - 1];
+            if (first && (!plansModal.contains(document.activeElement) || document.activeElement === (event.shiftKey ? first : last))) {
+                event.preventDefault();
+                (event.shiftKey ? last : first).focus();
+            }
+        }
+        else if (event.key === "Escape") {
             event.stopPropagation();
             close();
         }

@@ -1,14 +1,11 @@
+const { matchSourcePathBySuffix } = require("../../services/synctex/source-path.cjs");
+
 const createBuildPathResolvers = ({ fs, path }) => {
-  let workspaceTexFileCache = [];
-  let workspaceTexCacheRoot = null;
   const workspaceTexIgnoreDirs = new Set([".git", "node_modules", ".tex64"]);
 
   const collectWorkspaceTexFiles = (rootPath) => {
     if (!rootPath || typeof rootPath !== "string") {
       return [];
-    }
-    if (workspaceTexCacheRoot === rootPath) {
-      return workspaceTexFileCache;
     }
     const files = [];
     const stack = [rootPath];
@@ -37,8 +34,6 @@ const createBuildPathResolvers = ({ fs, path }) => {
         files.push(path.join(current, entry.name));
       }
     }
-    workspaceTexCacheRoot = rootPath;
-    workspaceTexFileCache = files;
     return files;
   };
 
@@ -49,47 +44,9 @@ const createBuildPathResolvers = ({ fs, path }) => {
     if (!path.isAbsolute(targetPath) || !targetPath.toLowerCase().endsWith(".tex")) {
       return null;
     }
-    const normalizedTarget = path.normalize(targetPath);
-    const targetSegments = normalizedTarget.split(path.sep).filter(Boolean);
-    const targetBasename = path.basename(normalizedTarget);
-    const texFiles = collectWorkspaceTexFiles(rootPath);
-    const matches = texFiles.filter((candidatePath) => path.basename(candidatePath) === targetBasename);
-    if (matches.length === 0) {
-      return null;
-    }
-    if (matches.length === 1) {
-      return matches[0];
-    }
-    let best = null;
-    let bestScore = -1;
-    let isAmbiguous = false;
-    for (const candidate of matches) {
-      const candidateSegments = path.normalize(candidate).split(path.sep).filter(Boolean);
-      const maxLength = Math.min(candidateSegments.length, targetSegments.length);
-      let score = 0;
-      for (let index = 1; index <= maxLength; index += 1) {
-        if (
-          candidateSegments[candidateSegments.length - index] !==
-          targetSegments[targetSegments.length - index]
-        ) {
-          break;
-        }
-        score += 1;
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        best = candidate;
-        isAmbiguous = false;
-        continue;
-      }
-      if (score === bestScore) {
-        isAmbiguous = true;
-      }
-    }
-    if (!best || isAmbiguous) {
-      return null;
-    }
-    return best;
+    const targetBasename = path.basename(targetPath);
+    const matches = collectWorkspaceTexFiles(rootPath).filter((file) => path.basename(file) === targetBasename);
+    return matchSourcePathBySuffix(targetPath, matches);
   };
 
   const resolveWorkspacePathFromRoot = (rootPath, targetPath) => {
@@ -120,7 +77,11 @@ const createBuildPathResolvers = ({ fs, path }) => {
     const absolutePath = path.isAbsolute(targetPath) ? targetPath : path.join(rootPath, targetPath);
     const workspaceRelative = resolveWorkspaceRelativePath(rootPath, absolutePath);
     if (workspaceRelative) {
-      return path.resolve(rootPath, workspaceRelative);
+      try {
+        if (fs.statSync(absolutePath).isFile()) return path.resolve(rootPath, workspaceRelative);
+      } catch {
+        // The PDF may predate a move. Look for its source in the current tree.
+      }
     }
     const fallback = resolveSynctexExternalTexPath(rootPath, absolutePath);
     if (fallback) {

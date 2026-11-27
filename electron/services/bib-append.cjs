@@ -56,16 +56,21 @@ const detectBibStyle = (content) => {
   return "bibtex";
 };
 
-const listWorkspaceBibs = async (workspace) => {
+const readOptionalFile = async (workspace, relativePath, options) => {
   try {
-    const listed = await workspace.listFiles();
-    return listed
-      .filter((entry) => typeof entry === "string" && entry.toLowerCase().endsWith(".bib"))
-      .map(normalizeRelative)
-      .filter((entry) => !entry.split("/").some((part) => part.startsWith(".")));
-  } catch {
-    return [];
+    return await workspace.readFile(relativePath, options);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
   }
+};
+
+const listWorkspaceBibs = async (workspace) => {
+  const listed = await workspace.listFiles();
+  return listed
+    .filter((entry) => typeof entry === "string" && entry.toLowerCase().endsWith(".bib"))
+    .map(normalizeRelative)
+    .filter((entry) => !entry.split("/").some((part) => part.startsWith(".")));
 };
 
 /**
@@ -91,11 +96,9 @@ const resolveBibTarget = async ({ workspace, mainFile }) => {
     });
     relativePath = bibs[0] || normalizeRelative(mainDir ? path.posix.join(mainDir, DEFAULT_BIB_NAME) : DEFAULT_BIB_NAME);
   }
-  const exists = await workspace
-    .readFile(relativePath)
-    .then(() => true)
-    .catch(() => false);
-  return { relativePath, named: Boolean(named), exists, style };
+  const exists = (await readOptionalFile(workspace, relativePath)) !== null;
+  const resourcePath = path.posix.relative(mainDir || ".", relativePath);
+  return { relativePath, resourcePath, named: Boolean(named), exists, style };
 };
 
 const noMainFile = () => Object.assign(new Error("No main document."), { code: "NO_MAIN_FILE" });
@@ -112,7 +115,7 @@ const resolveCitationDocument = async (workspace, { documentMainFile, activeFile
   if (!workspace.getRootPath()) throw noMainFile();
   const isTex = (value) => /\.tex$/i.test(value);
   const chosen = normalizeRelative(documentMainFile);
-  if (isTex(chosen) && (await workspace.readFile(chosen).then(() => true, () => false))) return chosen;
+  if (isTex(chosen) && (await readOptionalFile(workspace, chosen)) !== null) return chosen;
   const active = normalizeRelative(activeFilePath);
   try {
     const owner = normalizeRelative(await resolveBuildTarget(workspace, isTex(active) ? active : ""));
@@ -419,12 +422,7 @@ const appendEntry = async ({ workspace, bibPath, bibtex, zoteroRef }) => {
   if (!wanted) throw Object.assign(new Error("The library returned no BibTeX entry."), { code: "NO_BIBTEX" });
   const incoming = entryIdentity({ body: String(bibtex).trim(), zoteroRef });
   return workspace.withFileMutation(bibPath, async () => {
-    let existing = null;
-    try {
-      existing = await workspace.readFile(bibPath);
-    } catch {
-      existing = null;
-    }
+    const existing = await readOptionalFile(workspace, bibPath, { requireUtf8: true });
     const created = existing === null;
     const content = existing ?? "";
     // The same Zotero item under another key (added through another
@@ -445,7 +443,7 @@ const appendEntry = async ({ workspace, bibPath, bibtex, zoteroRef }) => {
  */
 const replaceEntries = async ({ workspace, bibPath, fresh }) =>
   workspace.withFileMutation(bibPath, async () => {
-    const content = await workspace.readFile(bibPath);
+    const content = await workspace.readFile(bibPath, { requireUtf8: true });
     const entries = parseBibEntries(content);
     let updated = 0;
     let unchanged = 0;
@@ -472,6 +470,7 @@ const replaceEntries = async ({ workspace, bibPath, fresh }) =>
 
 module.exports = {
   DEFAULT_BIB_NAME,
+  readOptionalFile,
   resolveBibTarget,
   resolveCitationDocument,
   createWorkspaceGuard,

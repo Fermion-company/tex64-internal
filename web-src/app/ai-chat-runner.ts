@@ -1,5 +1,6 @@
+import type { ComposerDraft } from "./ai-chat-draft-restore.js";
 import type { AgentSettings } from "./types.js";
-import type { ChatState } from "./ai-chat-state.js";
+import type { ChatMessage, ChatState } from "./ai-chat-state.js";
 import { aiText } from "./ai-i18n.js";
 
 export type AiRequestPart = {
@@ -9,6 +10,8 @@ export type AiRequestPart = {
 
 export type PendingAiRequest = {
   message: string;
+  draft?: ComposerDraft;
+  optimisticRow?: ChatMessage;
   parts?: AiRequestPart[];
   contextPayload?: Record<string, unknown>;
 };
@@ -29,7 +32,6 @@ type CreateAiChatRunnerOptions = {
   updateSendState: () => void;
   postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
   clearThinkingMessage: (chatId?: string | null) => void;
-  restoreDraftFromPending: (chatId: string, request: PendingAiRequest | null) => void;
 };
 
 export const createAiChatRunner = (options: CreateAiChatRunnerOptions) => {
@@ -49,14 +51,14 @@ export const createAiChatRunner = (options: CreateAiChatRunnerOptions) => {
     updateSendState,
     postToNative,
     clearThinkingMessage,
-    restoreDraftFromPending,
   } = options;
 
   const requestAgentRun = (
     chatId: string,
     message: string,
     parts?: AiRequestPart[],
-    contextPayload?: Record<string, unknown>
+    contextPayload?: Record<string, unknown>,
+    draft?: ComposerDraft,
   ) => {
     if (isAiBlocked() || needsLogin()) {
       requestAiAccessCheck(true);
@@ -73,6 +75,8 @@ export const createAiChatRunner = (options: CreateAiChatRunnerOptions) => {
     const contextToSend = contextPayload ?? buildContextPayload(getAgentSettings());
     pendingAgentRequests.set(chat.id, {
       message,
+      draft,
+      optimisticRow: chat.messages[chat.messages.length - 1],
       parts: Array.isArray(parts) ? parts : undefined,
       contextPayload: contextToSend,
     });
@@ -93,9 +97,7 @@ export const createAiChatRunner = (options: CreateAiChatRunnerOptions) => {
       runningConversations.delete(chat.id);
       chat.statusMessage = "";
       clearThinkingMessage(chat.id);
-      const pending = pendingAgentRequests.get(chat.id) ?? null;
       pendingAgentRequests.delete(chat.id);
-      restoreDraftFromPending(chat.id, pending);
       renderHistoryList();
       updateSendState();
       updateStatusDisplay();

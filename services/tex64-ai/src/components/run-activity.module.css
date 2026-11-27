@@ -1,0 +1,13 @@
+.activity, .line { color: var(--ink-soft); font-size: 12px; flex-shrink: 0; }
+.activity { margin: 0 10px; }
+.line, .activity summary { display: flex; gap: 8px; align-items: baseline; padding: 5px 7px; }
+.line { margin-inline: 10px; }
+.activity summary { cursor: pointer; border-radius: 4px; }
+.activity summary::-webkit-details-marker { display: none; }
+.activity summary::before { content: ""; border: solid currentColor; border-width: 0 1px 1px 0; width: 5px; height: 5px; transform: rotate(-45deg); align-self: center; }
+.activity[open] summary::before { transform: rotate(45deg); }
+.activity summary:hover, .activity summary:focus-visible { outline: none; background: var(--hover); color: var(--ink); }
+.time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.activity > ol { margin: 0 7px 5px; padding: 4px 0 3px 10px; border-inline-start: 1px solid var(--line); max-height: 18dvh; overflow: auto; overscroll-behavior: contain; }
+.activity li { display: flex; gap: 10px; align-items: baseline; padding: 2px 0; }
+.activity li small { display: block; font: inherit; color: var(--ink); overflow-wrap: anywhere; }

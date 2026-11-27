@@ -63,17 +63,62 @@ const DISPLAY_MATH_ENVIRONMENTS = new Set([
   "flalign*",
 ]);
 
-const displayMathBoundary = (
-  line: string,
-): { edge: "begin" | "end"; environment: string } | null => {
-  if (/^\s*\\\[\s*(?:%.*)?$/.test(line)) return { edge: "begin", environment: "\\[" };
-  if (/^\s*\\\]\s*(?:%.*)?$/.test(line)) return { edge: "end", environment: "\\[" };
-  const match = line.match(/^\s*\\(begin|end)\{([^}]+)\}/);
-  if (!match || !DISPLAY_MATH_ENVIRONMENTS.has(match[2] ?? "")) return null;
-  return {
-    edge: match[1] === "begin" ? "begin" : "end",
-    environment: match[2] ?? "",
-  };
+/** Skip escaped control symbols and comments when looking for a closing fence. */
+const findFence = (source: string, from: number, fence: string): number => {
+  for (let i = from; i < source.length;) {
+    if (source.startsWith(fence, i)) return i;
+    if (source[i] === "%") {
+      const newline = source.indexOf("\n", i);
+      if (newline < 0) break;
+      i = newline + 1;
+    } else {
+      i += source[i] === "\\" ? 2 : 1;
+    }
+  }
+  return -1;
+};
+
+const displayOpening = (line: string) => {
+  const match = /^\s*(?:\\\[|\$\$|\\begin\{([^}]+)\})/u.exec(line);
+  if (!match) return null;
+  const env = match[1];
+  if (env && !DISPLAY_MATH_ENVIRONMENTS.has(env)) return null;
+  let length = match[0].length;
+  if (env?.startsWith("alignat")) {
+    const count = /^\s*\{\s*\d+\s*\}/u.exec(line.slice(length));
+    if (count) length += count[0].length;
+  }
+  return { length, close: env ? `\\end{${env}}` : match[0].trim() === "$$" ? "$$" : "\\]" };
+};
+
+type DisplayBlock = { begin: number; end: number; range: ParagraphRange };
+const displayBlocks = (lines: readonly string[], firstLineNumber: number): DisplayBlock[] => {
+  const blocks: DisplayBlock[] = [];
+  for (let begin = 0; begin < lines.length; begin += 1) {
+    const first = lines[begin]!;
+    const opening = displayOpening(first);
+    if (!opening) continue;
+    for (let end = begin; end < lines.length; end += 1) {
+      const last = lines[end]!;
+      const closing = findFence(last, end === begin ? opening.length : 0, opening.close);
+      if (closing < 0) {
+        if (end > begin && displayOpening(last)) break;
+        continue;
+      }
+      if (!/^\s*(?:%.*)?$/u.test(last.slice(closing + opening.close.length))) break;
+      const startLine = begin !== end && /^\s*(?:%.*)?$/u.test(first.slice(opening.length)) ? begin + 1 : begin;
+      const endLine = begin !== end && !last.slice(0, closing).trim() ? end - 1 : end;
+      if (endLine >= startLine) {
+        blocks.push({ begin, end, range: {
+          kind: "math", startLine: firstLineNumber + startLine, endLine: firstLineNumber + endLine,
+          text: lines.slice(startLine, endLine + 1).join("\n"),
+        } });
+      }
+      begin = end;
+      break;
+    }
+  }
+  return blocks;
 };
 
 const normalizedPaperText = (value: string): string =>
@@ -133,6 +178,7 @@ export const paperTextSimilarity = (source: string, paperText: string): number =
 const collectTextRanges = (
   lines: readonly string[],
   firstLineNumber: number,
+  blocks: readonly DisplayBlock[],
 ): ParagraphRange[] => {
   const ranges: ParagraphRange[] = [];
   let index = 0;
@@ -152,14 +198,9 @@ const collectTextRanges = (
       index += 1;
       continue;
     }
-    const boundary = displayMathBoundary(line);
-    if (boundary?.edge === "begin") {
-      index += 1;
-      while (index < lines.length) {
-        const closing = displayMathBoundary(lines[index] ?? "");
-        index += 1;
-        if (closing?.edge === "end" && closing.environment === boundary.environment) break;
-      }
+    const block = blocks.find((item) => item.begin === index);
+    if (block) {
+      index = block.end + 1;
       continue;
     }
     if (isStructuralLine(line)) {
@@ -241,10 +282,11 @@ const findTextByPaperText = (
   firstLineNumber: number,
   targetLine: number,
   selectedText: string,
+  blocks: readonly DisplayBlock[],
 ): ParagraphRange | null => {
   const paper = normalizedPaperText(selectedText);
   if (paper.length < 3) return null;
-  const ranked = collectTextRanges(lines, firstLineNumber)
+  const ranked = collectTextRanges(lines, firstLineNumber, blocks)
     .map((range) => ({
       range,
       score: paperTextSimilarity(range.text, selectedText),
@@ -284,33 +326,35 @@ const findMathByPaperText = (
   lines: readonly string[],
   firstLineNumber: number,
   selectedText: string,
+  blocks: readonly DisplayBlock[],
+  targetLine: number,
 ): ParagraphRange | null => {
   const visible = normalizedPaperText(selectedText);
   if (visible.length < 3) return null;
   const candidates: Array<{ range: ParagraphRange; math: string }> = [];
   for (let index = 0; index < lines.length; index += 1) {
-    const boundary = displayMathBoundary(lines[index] ?? "");
-    if (boundary?.edge === "begin") {
-      for (let end = index + 1; end < lines.length; end += 1) {
-        const closing = displayMathBoundary(lines[end] ?? "");
-        if (closing?.edge !== "end" || closing.environment !== boundary.environment) continue;
-        const contentStart = index + 1;
-        const contentEnd = end - 1;
-        if (contentStart <= contentEnd) {
-          const text = lines.slice(contentStart, contentEnd + 1).join("\n");
-          candidates.push({
-            math: text,
-            range: {
-              startLine: firstLineNumber + contentStart,
-              endLine: firstLineNumber + contentEnd,
-              text,
-              kind: "math",
-            },
-          });
+    const block = blocks.find((item) => item.begin === index);
+    if (block) {
+      const parts = segmentDisplayMath(block.range.text);
+      // A numbered align row prints its own tag at the far side of the page.
+      // The clicked PDF line contains that tag, even when SyncTeX points to
+      // the paragraph after the environment.
+      const math = parts.filter(s => s.kind === "math").map(s => s.latex).join(" ");
+      candidates.push({ range: block.range, math });
+      for (let j = 0; j < parts.length; j++) {
+        const part = parts[j]!;
+        if (part.kind !== "math") continue;
+        candidates.push({ range: block.range, math: part.latex });
+        const following = parts[j + 1];
+        if (following?.kind !== "syntax") continue;
+        const tag = /\\tag\*?\s*\{/u.exec(following.latex);
+        if (tag) {
+          const open = tag.index + tag[0].length - 1;
+          const value = following.latex.slice(open + 1, consumeGroup(following.latex, open) - 1);
+          candidates.push({ range: block.range, math: part.latex + value });
         }
-        index = end;
-        break;
       }
+      index = block.end;
       continue;
     }
     const sourceLine = lines[index] ?? "";
@@ -333,47 +377,12 @@ const findMathByPaperText = (
   let best: { range: ParagraphRange; score: number } | null = null;
   for (const candidate of candidates) {
     const score = bigramSimilarity(visible, normalizedMathSource(candidate.math));
-    if (!best || score > best.score) best = { range: candidate.range, score };
-  }
-  return best && best.score >= 0.42 ? best.range : null;
-};
-
-const findDisplayMathRange = (
-  lines: readonly string[],
-  firstLineNumber: number,
-  targetIndex: number,
-): ParagraphRange | null => {
-  const targetBoundary = displayMathBoundary(lines[targetIndex] ?? "");
-  const scanFrom = targetBoundary?.edge === "end" ? targetIndex - 1 : targetIndex;
-  let begin = -1;
-  let environment = "";
-  for (let index = scanFrom; index >= 0; index -= 1) {
-    const boundary = displayMathBoundary(lines[index] ?? "");
-    if (!boundary) continue;
-    if (boundary.edge === "end") return null;
-    begin = index;
-    environment = boundary.environment;
-    break;
-  }
-  if (begin < 0) return null;
-  let end = -1;
-  for (let index = Math.max(scanFrom, begin + 1); index < lines.length; index += 1) {
-    const boundary = displayMathBoundary(lines[index] ?? "");
-    if (boundary?.edge === "end" && boundary.environment === environment) {
-      end = index;
-      break;
+    if (!best || score > best.score || (score === best.score &&
+        Math.abs(candidate.range.startLine - targetLine) < Math.abs(best.range.startLine - targetLine))) {
+      best = { range: candidate.range, score };
     }
   }
-  if (end < 0 || targetIndex > end) return null;
-  const contentStart = begin + 1;
-  const contentEnd = end - 1;
-  if (contentStart > contentEnd) return null;
-  return {
-    startLine: firstLineNumber + contentStart,
-    endLine: firstLineNumber + contentEnd,
-    text: lines.slice(contentStart, contentEnd + 1).join("\n"),
-    kind: "math",
-  };
+  return best && best.score >= 0.42 ? best.range : null;
 };
 
 const isBlankLine = (line: string): boolean => line.trim() === "";
@@ -398,9 +407,19 @@ export function findParagraphRange(
   }
   const targetText = lines[index];
   if (targetText === undefined) return null;
-  const displayMath = findDisplayMathRange(lines, firstLineNumber, index);
+  const blocks = displayBlocks(lines, firstLineNumber);
+  const displayMath = blocks.find((block) => block.begin <= index && index <= block.end)?.range;
   if (displayMath) return displayMath;
-  const matchedMath = findMathByPaperText(lines, firstLineNumber, selectedText);
+  // A PDF line can be a short wrapped fragment of a much longer paragraph.
+  // An exact fragment on the SyncTeX line is stronger than a document-wide
+  // similarity match, including matches against other formulae.
+  const fragment = normalizedPaperText(selectedText);
+  if (fragment.length >= 4 && normalizedPaperText(sourcePaperText(targetText)).includes(fragment)) {
+    const local = collectTextRanges(lines, firstLineNumber, blocks)
+      .find(range => range.startLine <= targetLine && range.endLine >= targetLine);
+    if (local) return local;
+  }
+  const matchedMath = findMathByPaperText(lines, firstLineNumber, selectedText, blocks, targetLine);
   if (matchedMath) return matchedMath;
   const matchedTable = findTableByPaperText(lines, firstLineNumber, selectedText);
   if (matchedTable) return matchedTable;
@@ -430,6 +449,7 @@ export function findParagraphRange(
     firstLineNumber,
     targetLine,
     selectedText,
+    blocks,
   );
   if (matchedText) return matchedText;
   // PDF text is stronger evidence than a nearby SyncTeX line. If it does not
@@ -540,31 +560,6 @@ const collectArgumentGroups = (source: string, from: number): ArgumentGroup[] =>
   return groups;
 };
 
-/** Consumes an inline/display math span starting at `from`. */
-const consumeMath = (source: string, from: number): number => {
-  const isDisplay = source.startsWith("$$", from);
-  const fence = isDisplay ? "$$" : "$";
-  let index = from + fence.length;
-  while (index < source.length) {
-    if (source[index] === "\\") {
-      index += 2;
-      continue;
-    }
-    if (source.startsWith(fence, index)) {
-      return index + fence.length;
-    }
-    index += 1;
-  }
-  return source.length;
-};
-
-/** Consumes \( ... \) or \[ ... \]. */
-const consumeDelimitedMath = (source: string, from: number): number => {
-  const closer = source[from + 1] === "(" ? "\\)" : "\\]";
-  const found = source.indexOf(closer, from + 2);
-  return found === -1 ? source.length : found + 2;
-};
-
 /**
  * Splits a paragraph into editable text and opaque chips. Concatenating the
  * returned segments' `latex` reproduces the input exactly.
@@ -595,12 +590,8 @@ export function segmentParagraph(paragraph: string): ParagraphSegment[] {
   };
   const pushMath = (from: number, contentStart: number, contentEnd: number, to: number) => {
     flushText(from);
-    segments.push({
-      kind: "math",
-      prefix: paragraph.slice(from, contentStart),
-      latex: paragraph.slice(contentStart, contentEnd),
-      suffix: paragraph.slice(contentEnd, to),
-    });
+    segments.push(...mathSegments(paragraph.slice(contentStart, contentEnd),
+      paragraph.slice(from, contentStart), paragraph.slice(contentEnd, to)));
     textStart = to;
     index = to;
   };
@@ -623,15 +614,11 @@ export function segmentParagraph(paragraph: string): ParagraphSegment[] {
       continue;
     }
     if (char === "$") {
-      const to = consumeMath(paragraph, index);
-      const fenceLength = paragraph.startsWith("$$", index) ? 2 : 1;
-      const closed = paragraph.slice(to - fenceLength, to) === "$".repeat(fenceLength);
-      pushMath(
-        index,
-        index + fenceLength,
-        closed ? to - fenceLength : to,
-        to,
-      );
+      const fence = paragraph.startsWith("$$", index) ? "$$" : "$";
+      const start = index + fence.length;
+      const close = findFence(paragraph, start, fence);
+      pushMath(index, start, close < 0 ? paragraph.length : close,
+        close < 0 ? paragraph.length : close + fence.length);
       continue;
     }
     if (char === "{" ) {
@@ -658,10 +645,9 @@ export function segmentParagraph(paragraph: string): ParagraphSegment[] {
         continue;
       }
       if (next === "(" || next === "[") {
-        const to = consumeDelimitedMath(paragraph, index);
-        const closer = next === "(" ? "\\)" : "\\]";
-        const closed = paragraph.slice(to - 2, to) === closer;
-        pushMath(index, index + 2, closed ? to - 2 : to, to);
+        const close = findFence(paragraph, index + 2, next === "(" ? "\\)" : "\\]");
+        pushMath(index, index + 2, close < 0 ? paragraph.length : close,
+          close < 0 ? paragraph.length : close + 2);
         continue;
       }
       if (!/[A-Za-z]/.test(next)) {
@@ -728,31 +714,216 @@ export function segmentParagraph(paragraph: string): ParagraphSegment[] {
   return segments;
 }
 
-/** Keep equation metadata out of MathLive while preserving it byte-for-byte. */
-export function segmentDisplayMath(source: string): ParagraphSegment[] {
-  const segments: ParagraphSegment[] = [];
-  const lines = source.split("\n");
-  let mathSource = "";
-  const flushMath = () => {
-    if (!mathSource) return;
-    if (mathSource.trim()) {
-      segments.push({ kind: "math", latex: mathSource, prefix: "", suffix: "" });
-    } else {
-      segments.push({ kind: "syntax", latex: mathSource });
+function mathMetadataEnd(source: string, start: number): number {
+  if (source[start] === "%") {
+    const newline = source.indexOf("\n", start);
+    return newline < 0 ? source.length : newline + 1;
+  }
+  if (source[start] !== "\\") return start;
+  const match = /^\\(?:(?:label|tag\*?)\s*\{|(?:notag|nonumber)(?![A-Za-z]))/u.exec(source.slice(start));
+  if (!match) return start;
+  const end = start + match[0].length;
+  return match[0].endsWith("{") ? consumeGroup(source, end - 1) : end;
+}
+
+/** LaTeX keeps comments and labels even inside fractions and nested matrices. */
+export function mathFieldSource(latex: string) {
+  const metadata: { offset: number; text: string }[] = [];
+  let visible = "";
+  let start = 0;
+  for (let i = 0; i < latex.length;) {
+    const end = mathMetadataEnd(latex, i);
+    if (end === i) { i += latex[i] === "\\" ? 2 : 1; continue; }
+    visible += latex.slice(start, i);
+    metadata.push({ offset: visible.length, text: latex.slice(i, end) });
+    // A removed comment must not join a control word to following letters.
+    if (/\\[a-zA-Z]+$/u.test(visible) && /[a-zA-Z]/u.test(latex[end] ?? "")) visible += " ";
+    start = end;
+    i = end;
+  }
+  return { visible: visible + latex.slice(start), metadata };
+}
+
+type MathToken = { value: string; start: number; end: number };
+
+/** Keep source offsets even for a MathLive value that normalized TeX spacing. */
+function mathTokens(source: string, hideMetadata: boolean) {
+  const tokens: MathToken[] = [];
+  const hidden: { start: number; end: number }[] = [];
+  const textGroups = [false];
+  const token = /\\(?:begin|end)\s*\{[^{}\\%]*\}|\\(?:[A-Za-z@]+|[\s\S])|\s+|[\s\S]/guy;
+  let textArgument = false;
+  for (let at = 0; at < source.length;) {
+    const end = mathMetadataEnd(source, at);
+    if (end > at) {
+      if (hideMetadata) hidden.push({ start: at, end });
+      else tokens.push({ value: source.slice(at, end), start: at, end });
+      at = end;
+      continue;
     }
-    mathSource = "";
+    token.lastIndex = at;
+    const value = token.exec(source)![0];
+    const start = at;
+    at += value.length;
+    if (/^\s/u.test(value)) {
+      if (textGroups.at(-1)) tokens.push({ value: " ", start, end: at });
+      continue;
+    }
+    tokens.push({ value, start, end: at });
+    if (value === "{") textGroups.push(Boolean(textGroups.at(-1) || textArgument));
+    if (value === "}" && textGroups.length > 1) textGroups.pop();
+    textArgument = /^\\(?:text(?:normal|rm|sf|tt|bf|it|sl|sc|up)?|operatorname|begin|end)$/u.test(value);
+  }
+  return { tokens, hidden };
+}
+
+/** Visit each changed span. The usual single insertion/deletion is linear.
+ * Two edits in one field may enclose an unchanged fraction or matrix; match
+ * its tokens too, keeping the original whitespace and annotations in place. */
+function changedMathSpans(old: MathToken[], next: MathToken[],
+  change: (from: number, to: number, newFrom: number, newTo: number) => void) {
+  let head = 0, end = old.length, newEnd = next.length;
+  while (head < end && head < newEnd && old[head]!.value === next[head]!.value) head++;
+  while (end > head && newEnd > head && old[end - 1]!.value === next[newEnd - 1]!.value) { end--; newEnd--; }
+  if (head === end && head === newEnd) return;
+  const rows = end - head, cols = newEnd - head;
+  // Bound work on a wholesale paste. Normal keystrokes never allocate a grid.
+  if (!rows || !cols || rows * cols > 65536) { change(head, end, head, newEnd); return; }
+  const stride = cols + 1, lengths = new Uint16Array((rows + 1) * stride);
+  for (let i = rows - 1; i >= 0; i--) {
+    for (let j = cols - 1; j >= 0; j--) {
+      const k = i * stride + j;
+      lengths[k] = old[head + i]!.value === next[head + j]!.value
+        ? lengths[k + stride + 1]! + 1 : Math.max(lengths[k + 1]!, lengths[k + stride]!);
+    }
+  }
+  let i = head, j = head, from = i, newFrom = j;
+  while (i < end && j < newEnd) {
+    if (old[i]!.value === next[j]!.value) {
+      if (i !== from || j !== newFrom) change(from, i, newFrom, j);
+      from = ++i;
+      newFrom = ++j;
+    } else {
+      const k = (i - head) * stride + j - head;
+      if (lengths[k + stride]! >= lengths[k + 1]!) i++; else j++;
+    }
+  }
+  if (from !== end || newFrom !== newEnd) change(from, end, newFrom, newEnd);
+}
+
+export function preserveMathMetadata(original: string, replacement: string): string {
+  const { tokens: old, hidden } = mathTokens(original, true);
+  const { tokens: next } = mathTokens(replacement, false);
+  let result = "", cursor = 0;
+  const append = (part: string) => {
+    if (/^[A-Za-z@]/u.test(part) && /(?:^|[^\\])(?:\\\\)*\\[A-Za-z@]+$/u.test(result)) result += " ";
+    result += part;
   };
-  lines.forEach((line, index) => {
-    const newline = index < lines.length - 1 ? "\n" : "";
-    if (/^\s*(?:%|\\(?:label|tag)\*?\s*\{|\\(?:notag|nonumber)\b)/u.test(line)) {
-      flushMath();
-      segments.push({ kind: "syntax", latex: `${line}${newline}` });
-    } else {
-      mathSource += `${line}${newline}`;
-    }
+  changedMathSpans(old, next, (from, to, newFrom, newTo) => {
+    const start = from < to ? old[from]!.start : old[from - 1]?.end ?? old[0]?.start ?? 0;
+    const end = from < to ? old[to - 1]!.end : start;
+    append(original.slice(cursor, start));
+    const inserted = newFrom < newTo ? replacement.slice(next[newFrom]!.start, next[newTo - 1]!.end) : "";
+    const notes = hidden.filter(note => note.start >= start && note.end <= end);
+    const lastNote = notes.at(-1);
+    // A display fence or row separator can follow on its own line outside
+    // this field. Finish the replacement with math so a retained comment's
+    // newline cannot create an empty paragraph before that separator.
+    const notesFirst = inserted && to === old.length && lastNote &&
+      original[lastNote.start] === "%" && !original.slice(end).trim();
+    if (!notesFirst) append(inserted);
+    for (const note of notes) append(original.slice(note.start, note.end));
+    if (notesFirst) append(inserted);
+    cursor = end;
   });
-  flushMath();
-  return segments;
+  append(original.slice(cursor));
+  return result;
+}
+
+/** Keep structural TeX outside the MathLive value when rewriting a formula. */
+function mathSegments(source: string, prefix: string, suffix: string): ParagraphSegment[] {
+  const metadata: Array<{ start: number; end: number }> = [];
+  const rowBreaks: Array<{ start: number; end: number }> = [];
+  let groups = 0;
+  let environments = 0;
+  for (let i = 0; i < source.length;) {
+    const start = i;
+    const metadataEnd = mathMetadataEnd(source, i);
+    if (metadataEnd > i) {
+      i = metadataEnd;
+      if (!groups && !environments) metadata.push({ start, end: i });
+      continue;
+    }
+    if (source[i] !== "\\") {
+      if (source[i] === "{") groups++;
+      if (source[i] === "}") groups = Math.max(0, groups - 1);
+      i++;
+      continue;
+    }
+    const token = /^\\(?:[a-zA-Z]+|[\s\S])/u.exec(source.slice(i))?.[0] ?? "\\";
+    i += token.length;
+    if (token === "\\begin") environments++;
+    if (token === "\\end") environments = Math.max(0, environments - 1);
+    if (groups || environments) continue;
+    if (token === "\\\\") {
+      const spacing = /^\*?(?:[ \t]*\[[^\]\n]*\])?/u.exec(source.slice(i))![0];
+      i += spacing.length;
+      rowBreaks.push({ start, end: i });
+    }
+  }
+  if (!metadata.length) return [{ kind: "math", latex: source, prefix, suffix }];
+  const parts: ParagraphSegment[] = [];
+  let position = 0;
+  const syntax = (latex: string) => {
+    if (!latex) return;
+    const previous = parts.at(-1);
+    if (previous?.kind === "syntax") previous.latex += latex;
+    else parts.push({ kind: "syntax", latex });
+  };
+  const editable = (fragment: string) => {
+    const latex = fragment.trim();
+    if (!latex) { syntax(fragment); return; }
+    const left = fragment.indexOf(latex);
+    parts.push({ kind: "math", latex, prefix: fragment.slice(0, left), suffix: fragment.slice(left + latex.length) });
+  };
+  syntax(prefix);
+  // A comment inside a row is part of that field's source. Splitting the
+  // field there makes End stop halfway through the printed expression.
+  const ordered = [...metadata, ...rowBreaks].sort((a, b) => b.start - a.start);
+  let right = source.length, hasFollowingMath = false;
+  const boundaries = ordered.filter(span => {
+    hasFollowingMath ||= /\S/u.test(source.slice(span.end, right));
+    right = span.start;
+    if (source[span.start] === "%" && hasFollowingMath) return false;
+    hasFollowingMath = false;
+    return true;
+  }).reverse();
+  for (const span of boundaries) {
+    editable(source.slice(position, span.start));
+    syntax(source.slice(span.start, span.end));
+    position = span.end;
+  }
+  editable(source.slice(position));
+  syntax(suffix);
+  return parts;
+}
+
+export function segmentDisplayMath(source: string): ParagraphSegment[] {
+  const opening = displayOpening(source);
+  const start = opening?.length ?? 0;
+  // A line range can contain either fence independently when the author put
+  // formula content on the same line as that fence.
+  let end = source.length;
+  if (opening) {
+    const close = findFence(source, start, opening.close);
+    if (close >= 0) end = close;
+  }
+  if (end === source.length) {
+    const closing = /(?:\\end\{([^}]+)\}|\\\]|\$\$)[ \t]*(?:%[^\n]*)?$/u.exec(source);
+    if (closing && (!closing[1] || DISPLAY_MATH_ENVIRONMENTS.has(closing[1])) &&
+        closing.index >= start && findFence(source, start, closing[0]) === closing.index) end = closing.index;
+  }
+  return mathSegments(source.slice(start, end), source.slice(0, start), source.slice(end));
 }
 
 /**

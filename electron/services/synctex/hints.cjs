@@ -70,19 +70,16 @@ module.exports = (SynctexService) => {
     const maxDy = 14;
     const targetPage = Math.floor(page);
     const recentSamePage = this.forwardHints.filter((hint) => {
-      if (hint.page !== targetPage) {
+      if (hint.page !== targetPage || hint.pdfPath !== normalizedPdf) {
         return false;
       }
       const ageMs = now - hint.timestamp;
       return ageMs <= maxHintAgeMs;
     });
-    const pickBest = (hints, { allowAnyPdf = false, dxLimit = maxDx, dyLimit = maxDy } = {}) => {
+    const pickBest = (dxLimit, dyLimit) => {
       let best = null;
       let bestScore = Number.POSITIVE_INFINITY;
-      for (const hint of hints) {
-        if (!allowAnyPdf && hint.pdfPath !== normalizedPdf) {
-          continue;
-        }
+      for (const hint of recentSamePage) {
         const ageMs = now - hint.timestamp;
         const dx = Math.abs(hint.x - x);
         const dy = Math.abs(hint.y - y);
@@ -97,19 +94,7 @@ module.exports = (SynctexService) => {
       }
       return best;
     };
-    let best = pickBest(recentSamePage, {
-      allowAnyPdf: false,
-      dxLimit: maxDx,
-      dyLimit: maxDy,
-    });
-    if (!best) {
-      // Fallback for cases where viewer path normalization differs between windows.
-      best = pickBest(recentSamePage, {
-        allowAnyPdf: true,
-        dxLimit: 40,
-        dyLimit: 14,
-      });
-    }
+    const best = pickBest(maxDx, maxDy) ?? pickBest(40, 40);
     if (this.debugHints) {
       const sample = recentSamePage
         .slice(0, 5)
@@ -130,42 +115,4 @@ module.exports = (SynctexService) => {
     return best;
   };
 
-  SynctexService.prototype.findRecentPageHint = function ({
-    page,
-    x,
-    y,
-    maxAgeMs = 2500,
-    maxDx = 40,
-    maxDy = 40,
-  }) {
-    if (!Number.isFinite(page) || !Number.isFinite(x) || !Number.isFinite(y)) {
-      return null;
-    }
-    const now = Date.now();
-    this.cleanupForwardHints(now);
-    const targetPage = Math.floor(page);
-    let best = null;
-    let bestScore = Number.POSITIVE_INFINITY;
-    for (const hint of this.forwardHints) {
-      if (!hint || hint.page !== targetPage) {
-        continue;
-      }
-      const ageMs = now - hint.timestamp;
-      if (ageMs > maxAgeMs) {
-        continue;
-      }
-      const dx = Math.abs(hint.x - x);
-      const dy = Math.abs(hint.y - y);
-      if (dx > maxDx || dy > maxDy) {
-        continue;
-      }
-      const score = dy * 1000 + dx + ageMs * 0.01;
-      if (score < bestScore) {
-        best = hint;
-        bestScore = score;
-      }
-    }
-    return best;
-  };
 };
-

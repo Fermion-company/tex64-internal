@@ -1,0 +1,13 @@
+.section { min-width: 0; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.section summary { cursor: pointer; border-radius: 4px; color: var(--ink); }
+.section summary:hover, .section summary:focus-visible { outline: none; background: var(--hover); }
+.section > summary { padding: 7px; }
+.contents { inline-size: min(270px, 66vw); max-height: min(38dvh, 300px); overflow: auto; overscroll-behavior: contain; padding: 2px 7px 6px; }
+.target { display: grid; gap: 2px; margin: 0 0 6px; padding: 3px 0 7px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.target span, .empty { font-size: 12px; color: var(--ink-soft); }
+.target strong { font-weight: 600; }
+.items { display: grid; gap: 1px; list-style: none; padding: 0; margin: 0; font-size: 13px; text-align: left; }
+.items .items { margin-left: 6px; padding-left: 10px; border-inline-start: 1px solid var(--line); }
+.items summary, .file, .empty { padding-block: 3px; overflow-wrap: anywhere; }
+.file, .empty { padding-inline-start: 13px; }
+.file[aria-current="true"] { font-weight: 600; }

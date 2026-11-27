@@ -1,5 +1,5 @@
 import { getMathFieldSelectionRange } from "../../../app/blocks/math-input-utils.js";
-import { buildOperatorCandidates, buildRankedWordCandidates, TIER_EXACT, buildWordCandidates, } from "../math-wysiwyg-candidates.js";
+import { buildOperatorCandidates, buildRankedWordCandidates, TIER_EXACT, TIER_EXACT_CASE, commandMatchesTokenCase, buildWordCandidates, } from "../math-wysiwyg-candidates.js";
 import { getKeyByLatex } from "../math-wysiwyg-keymap.js";
 import { offsetToIndexInRange } from "../math-wysiwyg-selection.js";
 import { hasEnvironmentInContext, isCursorInsideEnvironmentBody, readNativeMathfieldEnvironmentContext, } from "../math-wysiwyg-environment-context.js";
@@ -162,8 +162,7 @@ export const createMathWysiwygCandidateOps = (runtime, deps) => {
         }
         let effectiveMatch = tokenMatch;
         let nextCandidates = [];
-        // Set for plain word matches so MRU can be applied tier-aware (exact > prefix
-        // > contains). Left null for operator/slash paths, which keep flat MRU.
+        // Explicitly named commands keep their match tier ahead of usage history.
         let scoredCandidates = null;
         if (tokenMatch.kind === "operator") {
             nextCandidates = buildOperatorCandidates(tokenMatch.token);
@@ -179,11 +178,16 @@ export const createMathWysiwygCandidateOps = (runtime, deps) => {
                     dedupeByLatex: !explicit,
                 });
                 const preferred = rawCandidates.filter((candidate) => SLASH_COMMAND_HINT_SET.has(candidate.hint.toLowerCase()));
-                const exact = rawCandidates.filter((candidate) => normalizeSlashCommandToken(candidate.hint) === slashToken);
+                const exact = rawCandidates.filter((candidate) => normalizeSlashCommandToken(candidate.hint).toLowerCase() === slashToken.toLowerCase());
                 const merged = preferred.length > 0 ? [...exact, ...preferred, ...rawCandidates] : [...exact, ...rawCandidates];
                 nextCandidates = dedupeCandidatesByLatex(merged)
                     .slice(0, SLASH_COMMAND_CANDIDATE_LIMIT)
                     .map(applySlashCommandHint);
+                scoredCandidates = nextCandidates.map((candidate) => ({
+                    candidate,
+                    tier: commandMatchesTokenCase(candidate, slashToken) ? TIER_EXACT_CASE : TIER_EXACT,
+                    score: 0,
+                }));
             }
         }
         else {

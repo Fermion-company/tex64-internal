@@ -1,5 +1,6 @@
 const { historyBoundary, checkHistoryBoundary } = require("./agent-history-boundary.cjs");
 const path = require("path");
+const { isUtf8 } = require("node:buffer");
 const fsp = require("fs/promises");
 const crypto = require("crypto");
 const {
@@ -7,6 +8,7 @@ const {
   clipText,
 } = require("./agent-core-utils.cjs");
 const { decodeBase64Strict } = require("./agent-message-parts.cjs");
+const { recordAppliedChange } = require("./agent-change-review.cjs");
 const { ensureSessionsRestored } = require("./agent-session-state.cjs");
 
 const refreshWorkspaceBestEffort = async (service, rootPath) => {
@@ -54,40 +56,9 @@ const maybeAutoBuild = async (service, proposal) => {
   }
 };
 
-const getContextSnapshot = (service, conversationId, targetPath) => {
-  if (!targetPath) {
-    return null;
-  }
-  const context = service.contextByConversation.get(conversationId);
-  if (!context || !targetPath) {
-    return null;
-  }
-  if (context.activeFilePath === targetPath && typeof context.activeFileContent === "string") {
-    return {
-      path: targetPath,
-      content: context.activeFileContent,
-      isDirty: Boolean(context.activeFileIsDirty),
-      truncated: Boolean(context.activeFileContentTruncated),
-      contentLength:
-        typeof context.activeFileContentLength === "number"
-          ? context.activeFileContentLength
-          : context.activeFileContent.length,
-    };
-  }
-  const snapshots = Array.isArray(context.openFileSnapshots) ? context.openFileSnapshots : [];
-  const match = snapshots.find((entry) => entry.path === targetPath);
-  if (!match || typeof match.content !== "string") {
-    return null;
-  }
-  return {
-    path: match.path,
-    content: match.content,
-    isDirty: Boolean(match.isDirty),
-    truncated: Boolean(match.truncated),
-    contentLength:
-      typeof match.contentLength === "number" ? match.contentLength : match.content.length,
-  };
-};
+const { snapshotFromContext } = require("./agent-file-snapshot.cjs");
+const getContextSnapshot = (service, conversationId, targetPath) =>
+  snapshotFromContext(service.contextByConversation.get(conversationId), targetPath);
 
 const hashBuffer = (_service, buffer) => {
   return crypto.createHash("sha256").update(buffer).digest("hex");
@@ -147,7 +118,31 @@ const validateProposalBeforeApply = async (service, proposal) => {
     return { ok: false, conflict: false, error: "Invalid proposal target path." };
   }
 
+  const root = service.workspace.getRootPath();
+  const editorPath = target => path.relative(root, service.workspace.resolvePath(target)).split(path.sep).join("/");
+  const paths = (type === "rename" ? [targetPath, proposal.path] : [targetPath]).map(editorPath);
+  if (service.checkEditorPaths && !await service.checkEditorPaths(root, paths)) {
+    return { ok: false, conflict: true, error: "The editor has newer changes or the project changed. Save the current draft and retry." };
+  }
+  if (root !== service.workspace.getRootPath()) {
+    return { ok: false, conflict: true, error: "The project changed before applying this edit." };
+  }
   const state = await readCurrentFileState(service, targetPath);
+  if ((type === "write" || type === "patch") && proposal.encoding !== "base64" &&
+      state.buffer && !isUtf8(state.buffer)) {
+    return { ok: false, error: "Text editing requires UTF-8. The original file was kept." };
+  }
+  const conversationId = proposal.conversationId || "default";
+  const run = service.runningControllers?.get(conversationId);
+  if (run?.controller?.signal.aborted) return { ok: false, error: "Axiom was stopped before applying this edit." };
+  const readHash = run?.sourceReadHashes?.get(state.resolved);
+  if (readHash && (!state.buffer || hashBuffer(service, state.buffer) !== readHash)) {
+    return { ok: false, conflict: true, error: "The file changed after Axiom read it. Read its current contents before editing it." };
+  }
+  const snapshot = service.getContextSnapshot?.(conversationId, paths[0]);
+  if (snapshot?.isDirty && (snapshot.truncated || !state.buffer?.equals(Buffer.from(snapshot.content, "utf8")))) {
+    return { ok: false, conflict: true, error: "The saved file differs from the draft used by Axiom. Save the current draft and retry." };
+  }
   if (proposal.isNewFile === true && (type === "write" || type === "patch")) {
     if (state.exists) {
       return {
@@ -634,17 +629,6 @@ const preflightUndoRun = async (service, entries, rootPath) => {
     return { ok: false, error: error?.message || "Cannot inspect files before undo." };
   }
 
-  const cloneStates = () =>
-    new Map(
-      [...states].map(([relativePath, state]) => [
-        relativePath,
-        state.kind === "file"
-          ? { kind: "file", buffer: Buffer.from(state.buffer) }
-          : state.kind === "directory"
-            ? { kind: "directory", children: new Set(state.children) }
-            : { ...state },
-      ]),
-    );
   const rollbackStates = new Map();
 
   const setVirtualState = (relativePath, nextState) => {
@@ -666,7 +650,9 @@ const preflightUndoRun = async (service, entries, rootPath) => {
     // Keep the exact virtual bytes immediately before this individual Undo.
     // A run may write the same path repeatedly (old -> mid -> new), so one
     // run-level snapshot is insufficient for compensating in reverse order.
-    rollbackStates.set(entry, cloneStates());
+    // Rollback only needs this path as it stood immediately before undoing
+    // this entry. File buffers are immutable throughout the virtual replay.
+    rollbackStates.set(entry, states.get(entry.path));
     if (entry.type === "write") {
       const current = states.get(entry.path) ?? { kind: "missing" };
       if (
@@ -736,7 +722,7 @@ const preflightUndoRun = async (service, entries, rootPath) => {
   return { ok: true, rollbackStates };
 };
 
-const rollbackUndoneEntry = async (service, entry, entryStates) => {
+const rollbackUndoneEntry = async (service, entry, original) => {
   if (entry.type === "write") {
     const current = await readCurrentFileState(service, entry.path);
     if (entry.existed) {
@@ -751,7 +737,6 @@ const rollbackUndoneEntry = async (service, entry, entryStates) => {
     } else if (current.exists) {
       throw new Error(`Rollback conflict in ${entry.path}.`);
     }
-    const original = entryStates?.get(entry.path);
     if (original?.kind !== "file") throw new Error(`Rollback snapshot missing for ${entry.path}.`);
     const resolved = service.workspace.resolvePath(entry.path);
     await fsp.mkdir(path.dirname(resolved), { recursive: true });
@@ -793,7 +778,6 @@ const rollbackUndoneEntry = async (service, entry, entryStates) => {
     return;
   }
   if (entry.type === "mkdir") {
-    const original = entryStates?.get(entry.path);
     if (original?.kind === "missing") return;
     const resolved = service.workspace.resolvePath(entry.path);
     const current = await fsp.stat(resolved).catch(() => null);
@@ -807,10 +791,16 @@ const rollbackUndoneEntry = async (service, entry, entryStates) => {
 const undoLastRunApply = async (
   service,
   conversationId,
-  { emitRenderer = true } = {}
+  { emitRenderer = true, expectedRunId } = {}
 ) => {
   await ensureSessionsRestored(service);
   const targetConversationId = resolveTargetConversationId(conversationId);
+  if (expectedRunId !== undefined) {
+    const latest = service.applyUndoStack[findLatestUndoIndex(service, targetConversationId)];
+    if (!expectedRunId || latest?.runId !== expectedRunId) {
+      return { ok: false, conversationId, error: "対象の変更が更新されました。最新の結果を確認してください。" };
+    }
+  }
   const anchorIndex = findLatestUndoIndex(service, targetConversationId, { requireRunId: true });
   if (anchorIndex < 0) {
     return undoLastApply(service, conversationId, { emitRenderer });
@@ -1272,13 +1262,32 @@ const applyProposal = async (service, proposalId, options = {}) => {
         const ctx = service.contextByConversation.get(proposal.conversationId || "default");
         if (ctx && ctx.activeFilePath === proposal.path) {
           ctx.activeFileContent = proposal.content;
+          ctx.activeFileContentLength = proposal.content.length;
+          delete ctx.activeFileRevision;
           ctx.activeFileIsDirty = false;
           ctx.activeFileContentTruncated = false;
         }
       }
     }
 
+    const readHashes = service.runningControllers.get(proposalConversationId)?.sourceReadHashes;
+    if (readHashes && validation.targetState?.resolved) {
+      const original = validation.targetState.resolved;
+      if (type === "delete" || type === "rename") readHashes.delete(original);
+      if (type === "rename") readHashes.set(service.workspace.resolvePath(proposal.path), undoEntry.appliedHash);
+      if (type === "write" || type === "patch") readHashes.set(original, undoEntry.appliedHash);
+    }
+    // Once this turn has written the source, reads use the bytes just applied.
+    const context = service.contextByConversation.get(proposalConversationId);
+    if (Array.isArray(context?.openFileSnapshots) && type !== "mkdir") {
+      context.openFileSnapshots = context.openFileSnapshots.filter(entry => entry.path !== mutationPath && entry.path !== proposal.path);
+    }
+    if (context?.activeFilePath === mutationPath && type === "delete") {
+      delete context.activeFileContent;
+      context.activeFileIsDirty = false;
+    }
     pushUndoEntry(service, undoEntry);
+    if (undoEntry) recordAppliedChange(service, proposalConversationId, undoEntry, proposal);
     await service.updateWorkspaceIfNeeded(rootPath, true);
     service.requestIndex(rootPath);
     if (type === "rename") {

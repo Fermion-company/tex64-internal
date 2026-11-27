@@ -17,7 +17,9 @@ async function prepareTdomShim({
     throw new Error("Pinned TDOM engine lacks buildPrebuiltShim; update TDOM_ENGINE_COMMIT before packaging.");
   }
   const output = await shim.buildPrebuiltShim({ sourceDir, platform, arch });
-  console.log(`Built TDOM prebuilt shim: ${output}`);
+  const batch = await import(pathToFileURL(path.join(sourceDir, "synctex-batch.js")).href);
+  const helper = await batch.buildPrebuiltSyncTeXHelper({ arch });
+  console.log(`Built TDOM native tools: ${output}, ${helper}`);
   return output;
 }
 

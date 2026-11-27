@@ -1,18 +1,26 @@
-export const findFirstUnescapedPercent = (line) => {
-    for (let i = 0; i < line.length; i += 1) {
-        if (line[i] !== "%") {
+import { isEscapedAt } from "../blocks/tex-utils.js";
+// Keep source columns intact around inline verbatim text. Percent signs
+// inside the literal are ordinary characters rather than comment markers.
+export const getHoverLine = (line, cursorIndex) => {
+    const token = /\\verb\*?(?![a-zA-Z])|%/g;
+    let result = "";
+    let start = 0;
+    for (let match = token.exec(line); match; match = token.exec(line)) {
+        if (isEscapedAt(line, match.index))
             continue;
-        }
-        if (i > 0 && line[i - 1] === "\\") {
+        if (match[0] === "%")
+            return result + line.slice(start, match.index);
+        const delimiter = line[token.lastIndex];
+        if (!delimiter || /\s/.test(delimiter))
             continue;
-        }
-        return i;
+        const close = line.indexOf(delimiter, token.lastIndex + 1);
+        const end = close < 0 ? line.length : close + 1;
+        if (cursorIndex !== undefined && cursorIndex >= match.index && cursorIndex < end)
+            return "";
+        result += line.slice(start, match.index) + " ".repeat(end - match.index);
+        start = token.lastIndex = end;
     }
-    return -1;
-};
-export const stripCommentTail = (line) => {
-    const commentIndex = findFirstUnescapedPercent(line);
-    return commentIndex >= 0 ? line.slice(0, commentIndex) : line;
+    return result + line.slice(start);
 };
 export const getCursorIndex = (position) => { var _a; return Math.max(0, ((_a = position.column) !== null && _a !== void 0 ? _a : 1) - 1); };
 export const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

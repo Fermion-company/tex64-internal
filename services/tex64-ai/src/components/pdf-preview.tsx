@@ -2,13 +2,15 @@
 
 import clsx from "clsx";
 import { getNativeHost } from "@/lib/client/native-host";
-import { CircleAlert, Minus, Plus, RotateCw, Search, ChevronLeft, ChevronRight, Pencil, Download, Printer, X } from "lucide-react";
+import { CircleAlert, Minus, Plus, RotateCw, Search, ChevronLeft, ChevronRight, Pencil, Download, Printer, Ellipsis, X } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import { loadPdfjs, type PdfJsModule } from "@/lib/client/pdfjs";
 import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useImperativeHandle,
+  type Ref,
   useMemo,
   useRef,
   useState,
@@ -37,9 +39,11 @@ import {
   hasSelectableText,
   type TextItemLike,
   type TextRect,
+  type PdfTextHit,
 } from "./pdf-text-blocks";
 import styles from "./pdf-preview.module.css";
 import { printPdfPages } from "@/lib/client/pdf-print";
+import { PdfSelectionAction, type PdfTextSelection } from "./pdf-selection-action";
 import { PdfTextLayer, readPageText, searchableText, type PdfSearchHit } from "./pdf-text-layer";
 
 /** Composes two 2-D affine transforms, as pdf.js stores them. */
@@ -80,7 +84,17 @@ export interface PdfAnchor {
   title: string;
 }
 
+export type RevealPaperLine = (url: string, page: number, y: number) => boolean;
+
+export type PdfOutlineEntry = { title: string; level: number; page: number; y: number };
+
+export type PdfReadingPosition = { page: number; offsetBp: number };
+
 export interface PdfPreviewProps {
+  manuscriptId?: string;
+  readingPositions?: Map<string, PdfReadingPosition>;
+  onOutline?: (url: string, entries: PdfOutlineEntry[]) => void;
+  revealLineRef?: Ref<RevealPaperLine>;
   /** Same-origin URL of the compiled PDF; null = nothing compiled yet. */
   pdfUrl: string | null;
   /** Proposed steps shown in the page margin at the place they touch. */
@@ -112,6 +126,7 @@ export interface PdfPreviewProps {
     text: string;
     /** The text item nearest the pointer, used to focus a table cell. */
     focusedText: string;
+    textHit?: PdfTextHit;
   }) => void;
   /** False removes a native point highlight after it proved non-editable. */
   pointSelectionActive?: boolean;
@@ -124,6 +139,7 @@ export interface PdfPreviewProps {
   /** Extra control at the toolbar's right end (e.g. the build button). */
   toolbarAction?: ReactNode;
   onExport?: () => void;
+  onAskSelection?: (selection: PdfTextSelection) => void;
 }
 
 /** Gap between pages inside the scroller (kept in JS so scroll math matches). */
@@ -138,6 +154,8 @@ const PINCH_COMMIT_DELAY_MS = 80;
 type PdfDocumentInitParameters = NonNullable<Parameters<PdfJsModule["getDocument"]>[0]>;
 
 interface LoadedDocument {
+  OutputScale: PdfJsModule["OutputScale"];
+  url: string;
   document: PDFDocumentProxy;
   /** Monotonic key: bumps once per successfully swapped-in document. */
   key: number;
@@ -146,7 +164,56 @@ interface LoadedDocument {
   baseSizes: { width: number; height: number }[];
 }
 
-type ZoomState = { mode: "fit" } | { mode: "manual"; percent: number };
+/** Resolve both PDF internal links and bookmarks against the document which owns them.
+ * Destination page numbers are zero-based; page references require PDF.js resolution.
+ */
+async function resolvePdfDestination(loaded: LoadedDocument, destination: unknown) {
+  const dest = typeof destination === "string" ? await loaded.document.getDestination(destination) : destination;
+  if (!Array.isArray(dest) || dest[0] == null) return null;
+  const index = typeof dest[0] === "number" ? dest[0] : await loaded.document.getPageIndex(dest[0]);
+  const page = loaded.pages[index];
+  if (!page) return null;
+  const mode = dest[1]?.name;
+  const top = mode === "XYZ" ? dest[3] : mode === "FitH" || mode === "FitBH" ? dest[2] : mode === "FitR" ? dest[5] : null;
+  let y = 0;
+  if (typeof top === "number" && Number.isFinite(top)) {
+    const viewport = page.getViewport({ scale: 1 });
+    const left = (mode === "XYZ" || mode === "FitR") && typeof dest[2] === "number" ? dest[2] : (page.view[0] ?? 0);
+    const point = viewport.convertToViewportPoint(left, top);
+    y = Math.max(0, Math.min(viewport.height, point[1]));
+  }
+  return { page: index + 1, y };
+}
+
+type PdfBookmark = { title: string; dest: unknown; items: PdfBookmark[] };
+
+async function readPdfBookmarks(loaded: LoadedDocument, current: () => boolean) {
+  const roots = await loaded.document.getOutline();
+  const entries: PdfOutlineEntry[] = [];
+  async function visit(nodes: PdfBookmark[], level: number) {
+    for (const item of nodes) {
+      if (!current()) return;
+      const title = item.title.trim();
+      const target = title && item.dest != null
+        ? await resolvePdfDestination(loaded, item.dest).catch(() => null)
+        : null;
+      if (!current()) return;
+      const start = entries.length;
+      if (target) entries.push({ title, level, ...target });
+      if (item.items?.length) await visit(item.items, level + 1);
+      // Some PDFs use a bookmark as a folder without a destination. Keep the
+      // named group in the outline and take readers to its first visible child.
+      const firstChild = entries[start];
+      if (!target && title && firstChild) {
+        entries.splice(start, 0, { title, level, page: firstChild.page, y: firstChild.y });
+      }
+    }
+  }
+  if (roots) await visit(roots, 0);
+  return entries;
+}
+
+type ZoomState = { mode: "auto" | "fit" } | { mode: "manual"; percent: number };
 
 type PendingZoomAnchor = {
   clientX: number;
@@ -174,6 +241,10 @@ const EMPTY_SIZES: { width: number; height: number }[] = [];
 
 export function PdfPreview({
   pdfUrl,
+  manuscriptId,
+  readingPositions,
+  revealLineRef,
+  onOutline,
   regions,
   selectedId,
   refreshing,
@@ -187,26 +258,32 @@ export function PdfPreview({
   selectionCard = null,
   toolbarAction = null,
   onExport,
+  onAskSelection,
   anchors = null,
   onAnchorSelect,
   activeAnchorId = null,
   onAnchorHover,
 }: PdfPreviewProps): JSX.Element {
   const anchorResizeRef = useRef<() => void>(() => {});
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [printError, setPrintError] = useState<string | null>(null);
+  const [darkPages, setDarkPages] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [searchResult, setSearchResult] = useState<{ key: string; hits: PdfSearchHit[] }>({ key: "", hits: [] });
   const [activeHit, setActiveHit] = useState<number | null>(null);
+  const previousSearch = useRef("");
+  const lastRevealedHit = useRef<{ query: string; id: number } | null>(null);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const pagesRef = useRef<HTMLDivElement | null>(null);
   /** Loading task backing the currently displayed document. */
   const committedTaskRef = useRef<PDFDocumentLoadingTask | null>(null);
   /** Scroll metrics captured just before a new document swaps in. */
+  const positionedDocument = useRef<LoadedDocument | null>(null);
   const scrollRestoreRef = useRef<ScrollMetrics | null>(null);
   const pendingZoomAnchorRef = useRef<PendingZoomAnchor | null>(null);
   const zoomPercentRef = useRef(100);
@@ -218,22 +295,53 @@ export function PdfPreview({
   const [loaded, setLoaded] = useState<LoadedDocument | null>(null);
   const searchKey = `${loaded?.key ?? 0}:${query}`;
   const searchHits = searchResult.key === searchKey ? searchResult.hits : EMPTY_SEARCH_HITS;
+  const hitsByPage = useMemo(() => {
+    const grouped = new Map<number, PdfSearchHit[]>();
+    for (const hit of searchHits) {
+      const existing = grouped.get(hit.page);
+      if (existing) existing.push(hit);
+      else grouped.set(hit.page, [hit]);
+    }
+    return grouped;
+  }, [searchHits]);
   const searching = Boolean(query.trim()) && searchResult.key !== searchKey;
   const [loading, setLoading] = useState(pdfUrl !== null);
   const [loadFailed, setLoadFailed] = useState(false);
   /** A page render failed while the canvas still shows the previous frame. */
   const [renderFailed, setRenderFailed] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
-  const [zoom, setZoom] = useState<ZoomState>({ mode: "fit" });
+  const [zoom, setZoom] = useState<ZoomState>({ mode: "auto" });
+  const desktop = Boolean(onAskSelection);
+  const moreRef = useRef<HTMLDetailsElement>(null);
   const [renderZoomPercent, setRenderZoomPercent] = useState(100);
   const [viewportWidth, setViewportWidth] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [paintRange, setPaintRange] = useState({ first: 1, last: 2 });
   const [dpr, setDpr] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  useEffect(() => {
+  const navigationOrder = useRef(0);
+  const requestedPdf = useRef(pdfUrl);
+  const outlineCallback = useRef(onOutline);
+  useLayoutEffect(() => { outlineCallback.current = onOutline; }, [onOutline]);
+  useLayoutEffect(() => {
     loadedRef.current = loaded;
-  }, [loaded]);
+    requestedPdf.current = pdfUrl;
+    // Invalidate outstanding links as soon as the requested PDF changes,
+    // even while its loading screen still displays the previous pages.
+    navigationOrder.current++;
+  }, [loaded, pdfUrl]);
+  const wantsOutline = Boolean(onOutline);
+  useEffect(() => {
+    if (!wantsOutline || !loaded || loaded.url !== pdfUrl) return;
+    let cancelled = false;
+    const current = () => !cancelled && loadedRef.current === loaded && requestedPdf.current === loaded.url;
+    void readPdfBookmarks(loaded, current).catch(() => []).then(entries => {
+      if (current()) outlineCallback.current?.(loaded.url, entries);
+    });
+    return () => { cancelled = true; };
+  }, [wantsOutline, loaded, pdfUrl]);
 
   // Adjust state during render when the URL prop changes (the react.dev
   // "adjusting some state when a prop changes" pattern — no effect needed).
@@ -300,7 +408,7 @@ export function PdfPreview({
         inFlight = null;
         if (stale) void stale.destroy().catch(() => undefined);
         docKeyRef.current += 1;
-        setLoaded({ key: docKeyRef.current, document: doc, pages, baseSizes });
+        setLoaded({ OutputScale: pdfjs.OutputScale, url: pdfUrl, key: docKeyRef.current, document: doc, pages, baseSizes });
         setLoading(false);
       } catch {
         if (!cancelled) {
@@ -344,6 +452,7 @@ export function PdfPreview({
       if (loadedRef.current && previousWidth !== scroller.clientWidth) anchorResizeRef.current();
       previousWidth = scroller.clientWidth;
       setViewportWidth(scroller.clientWidth);
+      setViewportHeight(scroller.clientHeight);
       setDpr(window.devicePixelRatio || 1);
     };
     measure();
@@ -358,7 +467,8 @@ export function PdfPreview({
     [baseSizes],
   );
   const fitPercent = fitToWidthPercent(viewportWidth - STAGE_PADDING_PX * 2, maxPageWidthBp);
-  const zoomPercent = zoom.mode === "fit" ? fitPercent : zoom.percent;
+  const fitActive = zoom.mode === "fit" || (!desktop && zoom.mode === "auto");
+  const zoomPercent = zoom.mode === "manual" ? zoom.percent : fitActive ? fitPercent : Math.min(100, fitPercent);
   const scale = zoomPercent / 100;
   const renderScale = renderZoomPercent / 100;
 
@@ -454,19 +564,40 @@ export function PdfPreview({
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;
     const previous = scrollRestoreRef.current;
-    if (!scroller || !previous) return;
+    if (!loaded) {
+      positionedDocument.current = null;
+      return;
+    }
+    if (!scroller || !viewportWidth || positionedDocument.current === loaded) return;
+    positionedDocument.current = loaded;
     scrollRestoreRef.current = null;
-    scroller.scrollTop = preservedScrollTop(previous, {
-      scrollHeight: scroller.scrollHeight,
-      clientHeight: scroller.clientHeight,
-    });
-  }, [loaded]);
+    const saved = manuscriptId && readingPositions?.get(manuscriptId);
+    if (previous) {
+      scroller.scrollTop = preservedScrollTop(previous, {
+        scrollHeight: scroller.scrollHeight,
+        clientHeight: scroller.clientHeight,
+      });
+    } else if (saved) {
+      const index = Math.min(saved.page, pageOffsets.length) - 1;
+      scroller.scrollTop = (pageOffsets[index] ?? 0) + saved.offsetBp * scale;
+    }
+  }, [loaded, manuscriptId, pageOffsets, readingPositions, scale, viewportWidth]);
 
   const handleScroll = useCallback(() => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
-    setCurrentPage(currentPageFromScroll(scroller.scrollTop, scroller.clientHeight, pageOffsets));
-  }, [pageOffsets]);
+    const { scrollTop, clientHeight } = scroller;
+    if (manuscriptId && readingPositions && loaded && loaded.url === pdfUrl &&
+        positionedDocument.current === loaded && clientHeight > 0) {
+      const page = currentPageFromScroll(scrollTop, 0, pageOffsets);
+      const offsetBp = (scrollTop - (pageOffsets[page - 1] ?? 0)) / scale;
+      readingPositions.set(manuscriptId, { page, offsetBp });
+    }
+    setCurrentPage(currentPageFromScroll(scrollTop, clientHeight, pageOffsets));
+    const first = Math.max(1, currentPageFromScroll(scrollTop, 0, pageOffsets) - 1);
+    const last = Math.min(pageOffsets.length, currentPageFromScroll(scrollTop + clientHeight, 0, pageOffsets) + 1);
+    setPaintRange((previous) => previous.first === first && previous.last === last ? previous : { first, last });
+  }, [loaded, manuscriptId, pageOffsets, pdfUrl, readingPositions, scale]);
 
   // Chromium represents a trackpad pinch as a cancelable ctrl+wheel stream.
   // Consume only that gesture: ordinary two-finger scrolling remains native.
@@ -589,9 +720,9 @@ export function PdfPreview({
   }, [loaded?.key]);
 
   // Keep the page indicator in sync when the layout (zoom, document) changes.
-  useEffect(() => {
+  useLayoutEffect(() => {
     handleScroll();
-  }, [handleScroll]);
+  }, [handleScroll, viewportHeight]);
 
   // A zoom from the toolbar has no fingers to follow; keep whatever sits at
   // the middle of the viewport in place instead of letting the page slide.
@@ -644,6 +775,21 @@ export function PdfPreview({
     if (!Number.isFinite(target)) return;
     scrollerRef.current?.scrollTo({ top: pageOffsets[target - 1] ?? 0 });
   }, [loaded?.pages.length, pageOffsets]);
+  const [revealedLine, setRevealedLine] = useState<{ key: number; page: number; y: number } | null>(null);
+  useImperativeHandle(revealLineRef, () => (url, page, y) => {
+    const scroller = scrollerRef.current;
+    const offset = pageOffsets[page - 1];
+    if (!scroller || !loaded || loaded.url !== url || offset === undefined ||
+        !loaded.pages[page - 1] || !Number.isFinite(y)) return false;
+    scroller.scrollTo({ top: Math.max(0, offset + y * scale - scroller.clientHeight / 3) });
+    setRevealedLine({ key: loaded.key, page, y });
+    return true;
+  }, [loaded, pageOffsets, scale]);
+  useEffect(() => {
+    if (!revealedLine) return;
+    const timer = window.setTimeout(() => setRevealedLine(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [revealedLine]);
   const navigate = useCallback(async (destination: unknown, url?: string) => {
     if (url && /^https?:\/\//iu.test(url)) {
       const native = (window as Window & { tex64Native?: { openExternal?: (url: string) => void } }).tex64Native;
@@ -651,20 +797,14 @@ export function PdfPreview({
       else window.open(url, "_blank", "noopener,noreferrer");
       return;
     }
-    if (!loaded) return;
+    if (!loaded || loaded.url !== pdfUrl) return;
+    const order = ++navigationOrder.current;
     try {
-      const dest = typeof destination === "string" ? await loaded.document.getDestination(destination) : destination;
-      if (!Array.isArray(dest) || !dest[0]) return;
-      const index = typeof dest[0] === "number" ? dest[0] : await loaded.document.getPageIndex(dest[0]);
-      goToPage(index + 1);
-      if (dest[1]?.name === "XYZ" && typeof dest[3] === "number") {
-        const page = loaded.pages[index];
-        if (!page) return;
-        const point = page.getViewport({ scale }).convertToViewportPoint(0, dest[3]);
-        scrollerRef.current?.scrollTo({ top: (pageOffsets[index] ?? 0) + point[1] });
-      }
+      const target = await resolvePdfDestination(loaded, destination);
+      if (!target || navigationOrder.current !== order || loadedRef.current !== loaded) return;
+      scrollerRef.current?.scrollTo({ top: (pageOffsets[target.page - 1] ?? 0) + target.y * scale });
     } catch { /* An invalid PDF destination must not navigate the app. */ }
-  }, [goToPage, loaded, pageOffsets, scale]);
+  }, [loaded, pdfUrl, pageOffsets, scale]);
   useEffect(() => {
     let cancelled = false;
     const needle = query.trim();
@@ -676,7 +816,10 @@ export function PdfPreview({
         for (const match of searchableText(text).matchAll(new RegExp(pattern, "giu")))
           hits.push({ id: hits.length, page: page + 1, start: match.index!, end: match.index! + match[0].length });
       });
-      setSearchResult({ key: searchKey, hits }); setActiveHit(hits[0]?.id ?? null);
+      const sameQuery = previousSearch.current === query;
+      previousSearch.current = query;
+      setSearchResult({ key: searchKey, hits });
+      setActiveHit((previous) => hits.length ? Math.min(sameQuery ? previous ?? 0 : 0, hits.length - 1) : null);
     }).catch(() => { if (!cancelled) setSearchResult({ key: searchKey, hits: [] }); });
     return () => { cancelled = true; };
   }, [loaded, query, searchKey]);
@@ -687,16 +830,31 @@ export function PdfPreview({
     catch { setPrintError("印刷用の紙面を準備できませんでした。"); }
     finally { setPrinting(false); }
   };
+  const scrollToHit = useCallback((hit: PdfSearchHit) => {
+    goToPage(hit.page);
+    const frame = requestAnimationFrame(() => scrollerRef.current?.querySelector<HTMLElement>("[data-active-pdf-hit]")?.scrollIntoView({ block: "center" }));
+    return () => cancelAnimationFrame(frame);
+  }, [goToPage]);
   const moveHit = (delta: number) => {
     if (!searchHits.length) return;
-    setActiveHit(((activeHit ?? 0) + delta + searchHits.length) % searchHits.length);
+    const next = ((activeHit ?? 0) + delta + searchHits.length) % searchHits.length;
+    if (next === activeHit && searchHits[next]) scrollToHit(searchHits[next]);
+    else setActiveHit(next);
   };
   useEffect(() => {
-    const hit = searchHits.find((hit) => hit.id === activeHit);
+    if (!query) lastRevealedHit.current = null;
+    const hit = activeHit === null ? null : searchHits[activeHit];
     if (!hit) return;
-    goToPage(hit.page);
-    requestAnimationFrame(() => scrollerRef.current?.querySelector<HTMLElement>("[data-active-pdf-hit]")?.scrollIntoView({ block: "center" }));
-  }, [activeHit, searchHits, goToPage]);
+    const previous = lastRevealedHit.current;
+    if (previous?.query === query && previous.id === hit.id) return;
+    lastRevealedHit.current = { query, id: hit.id };
+    return scrollToHit(hit);
+  }, [activeHit, query, searchHits, scrollToHit]);
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+    searchButtonRef.current?.focus();
+  };
   useEffect(() => {
     const handleFind = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
@@ -704,12 +862,15 @@ export function PdfPreview({
         requestAnimationFrame(() => { searchInputRef.current?.focus(); searchInputRef.current?.select(); });
       }
     };
-    const unsubscribe = getNativeHost()?.onMessage((message) => {
+    const host = getNativeHost();
+    const unsubscribe = host?.onMessage((message) => {
+      if (message.type === "paper:appearance") setDarkPages(message.payload?.darkPdfPages === true);
       if (message.type === "paper:command" && message.payload?.command === "find") {
         setSearchOpen(true);
         requestAnimationFrame(() => { searchInputRef.current?.focus(); searchInputRef.current?.select(); });
       }
     });
+    host?.send("paper:appearance:get", {});
     window.addEventListener("keydown", handleFind);
     return () => { window.removeEventListener("keydown", handleFind); unsubscribe?.(); };
   }, []);
@@ -731,44 +892,78 @@ export function PdfPreview({
     setRetryToken((token) => token + 1);
   };
   const failed = loadFailed || renderFailed;
+  useEffect(() => {
+    if (!desktop) return;
+    const closeOutside = (event: PointerEvent) => {
+      const more = moreRef.current;
+      if (more?.open && event.target instanceof Node && !more.contains(event.target)) more.open = false;
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, [desktop]);
+
+  const zoomControls = <>
+    <button
+      type="button"
+      className={styles.toolButton}
+      aria-label="縮小"
+      title="縮小"
+      disabled={!loaded || zoomPercent <= MIN_ZOOM_PERCENT}
+      onClick={() => adjustZoom(-ZOOM_STEP_PERCENT)}
+    >
+      <Minus aria-hidden="true" size={14} />
+    </button>
+    <label className={styles.zoomReadout}>
+      <input key={Math.round(zoomPercent)} aria-label="表示倍率" type="number" min={MIN_ZOOM_PERCENT} max={MAX_ZOOM_PERCENT} defaultValue={Math.round(zoomPercent)}
+        onBlur={(event) => { const value = Number(event.target.value); const percent = Number.isFinite(value) && value > 0 ? clampZoomPercent(value) : Math.round(zoomPercent); event.target.value = String(percent); if (percent !== Math.round(zoomPercent)) { anchorViewportCenter(); setZoom({ mode: "manual", percent }); } }}
+        onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />%
+    </label>
+    <button
+      type="button"
+      className={styles.toolButton}
+      aria-label="拡大"
+      title="拡大"
+      disabled={!loaded || zoomPercent >= MAX_ZOOM_PERCENT}
+      onClick={() => adjustZoom(ZOOM_STEP_PERCENT)}
+    >
+      <Plus aria-hidden="true" size={14} />
+    </button>
+    <button
+      type="button"
+      className={clsx(styles.fitButton, fitActive && styles.fitButtonActive)}
+      aria-pressed={fitActive}
+      disabled={!loaded}
+      onClick={fitZoom}
+    >
+      幅に合わせる
+    </button>
+  </>;
+  const closeMore = () => { if (moreRef.current) moreRef.current.open = false; };
+  const exportPdf = () => {
+    closeMore();
+    if (onExport) {
+      onExport();
+    } else if (pdfUrl) {
+      const link = document.createElement("a");
+      link.href = pdfUrl;
+      link.download = "document.pdf";
+      link.click();
+    }
+  };
+  const outputControls = <>
+    <button type="button" className={styles.toolButton} aria-label="PDFを保存" disabled={!loaded} onClick={exportPdf}>
+      <Download size={16} />{desktop && "PDFを保存"}
+    </button>
+    <button type="button" className={styles.toolButton} aria-label="PDFを印刷" disabled={!loaded || printing}
+      onClick={() => { closeMore(); void printPdf(); }}>
+      <Printer size={16} />{desktop && "PDFを印刷"}
+    </button>
+  </>;
 
   return (
-    <section className={styles.viewer} aria-label="紙面プレビュー">
-      <div className={styles.toolbar}>
-        <button
-          type="button"
-          className={styles.toolButton}
-          aria-label="縮小"
-          title="縮小"
-          disabled={!loaded || zoomPercent <= MIN_ZOOM_PERCENT}
-          onClick={() => adjustZoom(-ZOOM_STEP_PERCENT)}
-        >
-          <Minus aria-hidden="true" size={14} />
-        </button>
-        <label className={styles.zoomReadout}>
-          <input key={Math.round(zoomPercent)} aria-label="表示倍率" type="number" min={MIN_ZOOM_PERCENT} max={MAX_ZOOM_PERCENT} defaultValue={Math.round(zoomPercent)}
-            onBlur={(event) => { const value = Number(event.target.value); const percent = Number.isFinite(value) && value > 0 ? clampZoomPercent(value) : Math.round(zoomPercent); event.target.value = String(percent); if (percent !== Math.round(zoomPercent)) { anchorViewportCenter(); setZoom({ mode: "manual", percent }); } }}
-            onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />%
-        </label>
-        <button
-          type="button"
-          className={styles.toolButton}
-          aria-label="拡大"
-          title="拡大"
-          disabled={!loaded || zoomPercent >= MAX_ZOOM_PERCENT}
-          onClick={() => adjustZoom(ZOOM_STEP_PERCENT)}
-        >
-          <Plus aria-hidden="true" size={14} />
-        </button>
-        <button
-          type="button"
-          className={clsx(styles.fitButton, zoom.mode === "fit" && styles.fitButtonActive)}
-          aria-pressed={zoom.mode === "fit"}
-          disabled={!loaded}
-          onClick={fitZoom}
-        >
-          幅に合わせる
-        </button>
+    <section className={styles.viewer} data-dark-pdf-pages={darkPages} aria-label="紙面プレビュー">
+      <div className={clsx(styles.toolbar, desktop && styles.desktopToolbar)}>
+        {!desktop && zoomControls}
         <button className={styles.toolButton} aria-label="前のページ" disabled={!loaded || currentPage <= 1} onClick={() => goToPage(currentPage - 1)}><ChevronLeft size={16} /></button>
         <label className={styles.pageIndicator}>
           <input key={`${loaded?.key}-${currentPage}`} aria-label="ページ番号" type="number" min={1} max={loaded?.pages.length ?? 1} defaultValue={currentPage}
@@ -776,20 +971,40 @@ export function PdfPreview({
             onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /> / {loaded?.pages.length ?? "–"}
         </label>
         <button className={styles.toolButton} aria-label="次のページ" disabled={!loaded || currentPage >= loaded.pages.length} onClick={() => goToPage(currentPage + 1)}><ChevronRight size={16} /></button>
-        <button className={styles.toolButton} aria-label="PDF内を検索" aria-expanded={searchOpen} onClick={() => { setSearchOpen((value) => !value); requestAnimationFrame(() => searchInputRef.current?.focus()); }}><Search size={16} /></button>
+        {desktop && <span className={styles.toolbarSpace} />}
+        <button ref={searchButtonRef} className={styles.toolButton} aria-label="PDF内を検索" aria-expanded={searchOpen} onClick={() => {
+          if (searchOpen) closeSearch();
+          else {
+            setSearchOpen(true);
+            requestAnimationFrame(() => searchInputRef.current?.focus());
+          }
+        }}><Search size={16} /></button>
         {onPointSelect ? <button className={clsx(styles.fitButton, editing && styles.fitButtonActive)} aria-pressed={editing} onClick={() => setEditing((value) => !value)}><Pencil size={14} />編集</button> : null}
-        <button className={styles.toolButton} aria-label="PDFを保存" disabled={!loaded} onClick={() => { if (onExport) onExport(); else if (pdfUrl) { const link = document.createElement("a"); link.href = pdfUrl; link.download = "document.pdf"; link.click(); } }}><Download size={16} /></button>
-        <button className={styles.toolButton} aria-label="PDFを印刷" disabled={!loaded || printing} onClick={() => void printPdf()}><Printer size={16} /></button>
+        {desktop ? <details ref={moreRef} className={styles.more}
+          onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.stopPropagation();
+              event.currentTarget.open = false;
+              event.currentTarget.querySelector("summary")?.focus();
+            }
+          }}>
+          <summary className={styles.toolButton} aria-label="PDFのその他の操作" title="PDFのその他の操作"><Ellipsis size={17} /></summary>
+          <div className={styles.morePanel} role="group" aria-label="PDFの表示と出力">
+            <div className={styles.moreZoom}>{zoomControls}</div>
+            {outputControls}
+          </div>
+        </details> : outputControls}
         {toolbarAction}
       </div>
 
       {searchOpen ? <div className={styles.searchBar} role="search">
         <Search size={15} /><input ref={searchInputRef} aria-label="PDF内の検索語" value={query} onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); moveHit(event.shiftKey ? -1 : 1); } if (event.key === "Escape") { event.stopPropagation(); setSearchOpen(false); setQuery(""); } }} />
+          onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); moveHit(event.shiftKey ? -1 : 1); } if (event.key === "Escape") { event.stopPropagation(); closeSearch(); } }} />
         <span role="status">{searching ? "検索中…" : query ? `${activeHit === null ? 0 : activeHit + 1} / ${searchHits.length}` : ""}</span>
         <button aria-label="前の検索結果" disabled={!searchHits.length} onClick={() => moveHit(-1)}><ChevronLeft size={16} /></button>
         <button aria-label="次の検索結果" disabled={!searchHits.length} onClick={() => moveHit(1)}><ChevronRight size={16} /></button>
-        <button aria-label="検索を閉じる" onClick={() => { setSearchOpen(false); setQuery(""); }}><X size={16} /></button>
+        <button aria-label="検索を閉じる" onClick={closeSearch}><X size={16} /></button>
       </div> : null}
       {notice}
       {printError ? <div role="alert" className={styles.errorBanner}>{printError}</div> : null}
@@ -832,8 +1047,11 @@ export function PdfPreview({
                     // stays visible until the fresh render lands (no flash).
                     key={index}
                     page={page}
+                    OutputScale={loaded.OutputScale}
+                    paint={index + 1 >= paintRange.first && index + 1 <= paintRange.last}
+                    keyboardSelection={Boolean(onAskSelection)}
                     editing={editing}
-                    searchHits={searchHits.filter((hit) => hit.page === index + 1)}
+                    searchHits={hitsByPage.get(index + 1) ?? EMPTY_SEARCH_HITS}
                     activeHit={activeHit}
                     onNavigate={navigate}
                     cssWidth={size.width * scale}
@@ -864,14 +1082,13 @@ export function PdfPreview({
                         ? selectionCard
                         : null
                     }
+                    reviewY={revealedLine?.key === loaded.key && revealedLine.page === index + 1 ? revealedLine.y * scale : undefined}
                     index={index}
                     selectionCardTop={
                       !overlayActive && activePointAt?.page === index + 1
-                        ? (activePointAt.rects.at(-1)
-                            ? (activePointAt.rects.at(-1)!.top +
-                                activePointAt.rects.at(-1)!.height) *
-                              scale
-                            : activePointAt.y * scale)
+                        ? (activePointAt.rects.length
+                            ? Math.max(...activePointAt.rects.map((rect) => rect.top + rect.height))
+                            : activePointAt.y) * scale
                         : null
                     }
                     pointRects={
@@ -895,12 +1112,17 @@ export function PdfPreview({
             </div>
           )}
         </div>
+        {loaded && onAskSelection && <PdfSelectionAction key={loaded.key} scrollerRef={scrollerRef} onAsk={onAskSelection} />}
       </div>
     </section>
   );
 }
 
 interface PdfPageViewProps {
+  OutputScale: PdfJsModule["OutputScale"];
+  paint: boolean;
+  reviewY?: number;
+  keyboardSelection: boolean;
   editing: boolean;
   searchHits: PdfSearchHit[];
   activeHit: number | null;
@@ -925,6 +1147,7 @@ interface PdfPageViewProps {
     rects: TextRect[];
     text: string;
     focusedText: string;
+    textHit?: PdfTextHit;
   }) => void;
   /** Outline drawn around what a point selection picked. */
   pointRects?: TextRect[] | null;
@@ -956,6 +1179,10 @@ function isRenderingCancelled(error: unknown): boolean {
 }
 
 function PdfPageView({
+  OutputScale,
+  paint,
+  reviewY,
+  keyboardSelection,
   page,
   editing, searchHits, activeHit, onNavigate,
   cssWidth,
@@ -988,7 +1215,17 @@ function PdfPageView({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || renderScale <= 0) return;
-    const viewport = page.getViewport({ scale: renderScale * dpr });
+    if (!paint) {
+      canvas.width = 0;
+      canvas.height = 0;
+      return;
+    }
+    const display = page.getViewport({ scale: renderScale });
+    const output = new OutputScale();
+    output.sx = output.sy = dpr;
+    // Use the same area and dimension limits as the bundled PDF.js viewer.
+    output.limitCanvas(display.width, display.height, 2 ** 25, 32767, 200);
+    const viewport = display.clone({ scale: renderScale * output.sx });
     const width = Math.max(1, Math.floor(viewport.width));
     const height = Math.max(1, Math.floor(viewport.height));
     // Pinching does not reach this effect until the gesture settles, so the
@@ -1020,13 +1257,17 @@ function PdfPageView({
         if (superseded || isRenderingCancelled(error)) return;
         onRenderFailed(index);
       },
-    );
+    ).finally(() => {
+      target.width = 0;
+      target.height = 0;
+    });
     return () => {
       superseded = true;
       renderTask.cancel();
     };
-  }, [page, renderScale, dpr, index, onRendered, onRenderFailed]);
+  }, [OutputScale, page, paint, renderScale, dpr, index, onRendered, onRenderFailed]);
 
+  const pointBounds = pointRects ? enclosingRect(pointRects) : null;
   return (
     <div
       className={styles.page}
@@ -1039,6 +1280,7 @@ function PdfPageView({
         style={{ width: cssWidth, height: cssHeight }}
         aria-hidden="true"
       />
+      {reviewY !== undefined && <div aria-hidden="true" className={styles.reviewLine} style={{ top: reviewY }} />}
       {anchors && anchors.length > 0 ? (
         <div className={styles.anchorLayer}>
           {anchors.map((anchor) => (
@@ -1058,23 +1300,20 @@ function PdfPageView({
           ))}
         </div>
       ) : null}
-      {pointRects && pointRects.length > 0 ? (
+      {pointBounds && (
         <div className={styles.overlay} aria-hidden="true">
-          {pointRects.map((rect, rectIndex) => (
-            <div
-              key={`${rect.top}-${rectIndex}`}
-              className={clsx(styles.regionHighlight, styles.regionSelected)}
-              style={{
-                left: rect.left * scale,
-                top: rect.top * scale,
-                width: rect.width * scale,
-                height: rect.height * scale,
-              }}
-            />
-          ))}
+          <div
+            className={clsx(styles.regionHighlight, styles.regionSelected)}
+            style={{
+              left: pointBounds.left * scale - 2,
+              top: pointBounds.top * scale - 2,
+              width: pointBounds.width * scale + 4,
+              height: pointBounds.height * scale + 4,
+            }}
+          />
         </div>
-      ) : null}
-      <PdfTextLayer page={page} scale={scale} editing={editing && Boolean(onPointSelect)} hits={searchHits} activeHit={activeHit} onNavigate={onNavigate}
+      )}
+      <PdfTextLayer page={page} scale={scale} keyboardSelection={keyboardSelection} editing={editing && Boolean(onPointSelect)} hits={searchHits} activeHit={activeHit} onNavigate={onNavigate}
         onEdit={(clientX, clientY) => {
           const bounds = canvasRef.current?.getBoundingClientRect();
           if (!bounds || !onPointSelect) return;
@@ -1125,7 +1364,6 @@ function PdfPageView({
                 const px = enclosingRect(entries.map((entry) => bpRectToPx(entry.rect, scale)));
                 if (!px) return null;
                 const label = entries[0]?.label ?? "編集";
-                const isHovered = hoveredId === regionId;
                 const isSelected = selectedId === regionId;
                 return <button
                   key={regionId}

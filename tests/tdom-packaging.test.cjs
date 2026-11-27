@@ -33,6 +33,17 @@ const fixture = t => {
       return out;
     }
   `);
+  fs.writeFileSync(path.join(checkpoint, "synctex-batch.js"), `
+    import fs from 'node:fs'; import path from 'node:path'; import { fileURLToPath } from 'node:url';
+    export const syncTeXBatchSourceHash = () => 'fixture';
+    export function buildPrebuiltSyncTeXHelper({arch}) {
+      const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'prebuilt');
+      const out = path.join(dir, 'tdom-synctex-batch-darwin-' + arch);
+      fs.copyFileSync(path.join(dir, 'tdomfork-darwin-' + arch + '.so'), out);
+      fs.chmodSync(out, 0o755); fs.writeFileSync(out + '.sha256', syncTeXBatchSourceHash());
+      return out;
+    }
+  `);
   return { root, sourceDir };
 };
 
@@ -48,12 +59,17 @@ for (const [arch, id] of [["arm64", 3], ["x64", 1]]) {
     assert.equal(fs.readFileSync(so + ".sha256", "utf8").trim(), hash);
     verifyPackagedShim({ appOutDir: root, electronPlatformName: "darwin", arch: id });
     const { walkAsync } = require("../node_modules/@electron/osx-sign/dist/cjs/util.js");
-    assert.ok((await walkAsync(contents)).includes(so));
+    const signable = await walkAsync(contents);
+    const helper = path.join(checkpoint, `prebuilt/tdom-synctex-batch-darwin-${arch}`);
+    assert.ok(signable.includes(so));
+    assert.ok(signable.includes(helper));
     const config = require("../package.json");
     assert.ok(config.build.asarUnpack.includes("Resources/tdom-engine/**"));
     assert.ok(config.build.mac.files.includes("Resources/**"));
     assert.equal(config.build.afterPack, "scripts/verify-tdom-shim.cjs");
     assert.match(config.scripts["dist:prep"], /prepare-tdom-shim/);
+    fs.writeFileSync(helper + ".sha256", "stale");
+    assert.throws(() => verifyPackagedShim({ appOutDir: root, electronPlatformName: "darwin", arch: id }), /Stale packaged SyncTeX/);
     fs.writeFileSync(so + ".sha256", "stale");
     assert.throws(() => verifyPackagedShim({ appOutDir: root, electronPlatformName: "darwin", arch: id }), /Stale/);
     await prepareTdomShim({ engineDir: destinationDir, arch });

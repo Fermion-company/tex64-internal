@@ -3,6 +3,7 @@ import { uiText } from "./i18n.js";
 import { createExplain } from "./explain.js";
 let items = [];
 let revision = 0;
+let completionItems = null;
 let activeEditor;
 let registered = false;
 let modalOpen = false;
@@ -19,21 +20,30 @@ export const attachSnippetEditor = (editor, monaco) => {
     if (!bridge())
         return;
     activeEditor || (activeEditor = editor);
-    editor.onDidFocusEditorText(() => { activeEditor = editor; });
+    editor.onDidFocusEditorText(() => {
+        activeEditor = editor;
+        completionItems = null;
+    });
     editor.addAction({ id: "tex64.snippets", label: uiText("Snippets…", "スニペット…"), contextMenuGroupId: "9_snippets", contextMenuOrder: 1, run: () => openSnippets(editor) });
     if (registered)
         return;
     registered = true;
-    void call("list").catch(() => { });
+    window.addEventListener("focus", () => { completionItems = null; });
     for (const language of ["latex", "bibtex"])
         monaco.languages.registerCompletionItemProvider(language, {
-            provideCompletionItems: (model, position) => {
+            provideCompletionItems: async (model, position) => {
                 var _a;
                 const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
                 const prefix = ((_a = before.match(/\\?[A-Za-z0-9_-]+$/)) === null || _a === void 0 ? void 0 : _a[0]) || "";
                 if (!prefix)
                     return { suggestions: [] };
-                return { suggestions: items.filter((item) => item.prefix.startsWith(prefix)).map((item) => ({
+                // Other desktop windows share the library. Read it on the first request
+                // after focus returns, then reuse the result while the user is typing.
+                completionItems !== null && completionItems !== void 0 ? completionItems : (completionItems = bridge().call("list", {})
+                    .then((result) => result.ok ? result.items : [])
+                    .catch(() => []));
+                const available = await completionItems;
+                return { suggestions: (available !== null && available !== void 0 ? available : []).filter((item) => item.prefix.startsWith(prefix)).map((item) => ({
                         label: item.prefix, detail: item.name, kind: monaco.languages.CompletionItemKind.Snippet,
                         insertText: item.body, insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
                         range: { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: position.column - prefix.length, endColumn: position.column },
@@ -106,6 +116,7 @@ export const openSnippets = (editor = activeEditor) => {
     saveState.setAttribute("role", "status");
     form.prepend(saveState);
     let selected = "";
+    let original = null;
     let baseline = "";
     let busy = false;
     const draft = () => JSON.stringify([name.value, prefix.value, body.value]);
@@ -132,6 +143,7 @@ export const openSnippets = (editor = activeEditor) => {
         insert.disabled = busy || !model || !body.value.trim();
     };
     const load = (item) => {
+        original = item !== null && item !== void 0 ? item : null;
         selected = (item === null || item === void 0 ? void 0 : item.id) || "";
         name.value = (item === null || item === void 0 ? void 0 : item.name) || "";
         prefix.value = (item === null || item === void 0 ? void 0 : item.prefix) || "";
@@ -158,7 +170,7 @@ export const openSnippets = (editor = activeEditor) => {
     };
     const saveDraft = async () => {
         const item = { id: selected || undefined, name: name.value, prefix: prefix.value, body: body.value };
-        await call("save", { revision, item });
+        await call("save", { revision, item, original });
         const saved = items.find((entry) => entry.prefix === item.prefix.trim());
         if (!saved)
             throw new Error(uiText("The saved snippet could not be loaded.", "保存したスニペットを読み込めませんでした。"));
@@ -190,6 +202,7 @@ export const openSnippets = (editor = activeEditor) => {
         controller.insert(text);
     }));
     insert.classList.add("is-primary");
+    insert.hidden = editor === null;
     const close = button(uiText("Close", "閉じる"), () => { if (!busy && mayLeave())
         dialog.close(); });
     const actions = node("div");

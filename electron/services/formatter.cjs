@@ -11,13 +11,6 @@ const ensureDirectory = async (dirPath) => {
   await fsp.mkdir(dirPath, { recursive: true });
 };
 
-const safeUnlink = async (filePath) => {
-  if (!filePath) {
-    return;
-  }
-  await fsp.unlink(filePath).catch(() => null);
-};
-
 const safeRm = async (targetPath) => {
   if (!targetPath) {
     return;
@@ -379,56 +372,37 @@ const buildLatexindentOverride = (settings) => {
   return `${lines.join("\n")}\n`;
 };
 
-const findCommentStart = (line) => {
-  for (let i = 0; i < line.length; i += 1) {
-    if (line[i] !== "%") {
-      continue;
-    }
-    let backslashes = 0;
-    for (let j = i - 1; j >= 0 && line[j] === "\\"; j -= 1) {
-      backslashes += 1;
-    }
-    if (backslashes % 2 === 0) {
-      return i;
-    }
-  }
-  return -1;
-};
-
-const stripComments = (line) => {
-  const commentIndex = findCommentStart(line);
-  return commentIndex === -1 ? line : line.slice(0, commentIndex);
-};
-
-const extractTokens = (line) => {
+// Scan TeX control sequences as units. An escaped backslash or a literal
+// inside \verb must never become an environment boundary during formatting.
+const scanFormatLine = (line) => {
   const tokens = [];
-  const regex = /\\(begin|end)\{([^}]+)\}/g;
+  const control = /%|\\(?:verb(?![a-zA-Z])\*?|(?:begin|end)\{([^{}]+)\}|[a-zA-Z]+|.)/g;
   let match;
-  while ((match = regex.exec(line))) {
-    tokens.push({
-      type: match[1],
-      env: match[2]?.trim() ?? "",
-      index: match.index,
-    });
+  while ((match = control.exec(line))) {
+    if (match[0] === "%") return { tokens, commentIndex: match.index };
+    if (match[1]) {
+      tokens.push({
+        type: match[0].startsWith("\\begin") ? "begin" : "end",
+        env: match[1].trim(),
+        index: match.index,
+        text: match[0],
+      });
+    } else if (match[0] === "\\verb" || match[0] === "\\verb*") {
+      const start = control.lastIndex;
+      const delimiter = line[start];
+      if (!delimiter || /\s/.test(delimiter)) continue;
+      const end = line.indexOf(delimiter, start + 1);
+      control.lastIndex = end === -1 ? line.length : end + 1;
+    }
   }
-  return tokens;
+  return { tokens, commentIndex: -1 };
 };
 
 const shouldIndentEnv = (env, noIndentEnvs) => !noIndentEnvs.has(env);
 
-const splitLineByEnvTokens = (line) => {
-  const commentIndex = findCommentStart(line);
+const splitLineByEnvTokens = (line, { tokens, commentIndex }) => {
   const head = commentIndex === -1 ? line : line.slice(0, commentIndex);
   const comment = commentIndex === -1 ? "" : line.slice(commentIndex);
-  const regex = /\\(begin|end)\{[^}]+\}/g;
-  const tokens = [];
-  let match;
-  while ((match = regex.exec(head))) {
-    tokens.push({
-      index: match.index ?? 0,
-      text: match[0],
-    });
-  }
   if (tokens.length === 0) {
     return [line];
   }
@@ -455,20 +429,12 @@ const splitLineByEnvTokens = (line) => {
   return result;
 };
 
-const hasVerbatimBegin = (line, verbatimEnvs) => {
-  const parsed = stripComments(line);
-  const tokens = extractTokens(parsed);
-  return tokens.some(
-    (token) => token.type === "begin" && verbatimEnvs.has(token.env)
-  );
-};
-
 const simpleIndent = (content, settings) => {
   if (!content) {
     return content ?? "";
   }
   const { indentUnit, verbatimEnvs, noIndentEnvs } = buildSimpleIndentConfig(settings);
-  const endsWithNewline = content.endsWith("\n");
+  const newline = content.includes("\r\n") ? "\r\n" : "\n";
   const lines = content.split(/\r?\n/);
   const output = [];
   let indentLevel = 0;
@@ -478,8 +444,7 @@ const simpleIndent = (content, settings) => {
   for (const rawLine of lines) {
     if (inVerbatim) {
       output.push(rawLine);
-      const parsed = stripComments(rawLine);
-      const tokens = extractTokens(parsed);
+      const { tokens } = scanFormatLine(rawLine);
       if (verbatimEnv) {
         const hasEnd = tokens.some(
           (token) => token.type === "end" && token.env === verbatimEnv
@@ -493,9 +458,9 @@ const simpleIndent = (content, settings) => {
       continue;
     }
 
-    const expandedLines = hasVerbatimBegin(rawLine, verbatimEnvs)
-      ? [rawLine]
-      : splitLineByEnvTokens(rawLine);
+    const scanned = scanFormatLine(rawLine);
+    const hasVerbatim = scanned.tokens.some((token) => token.type === "begin" && verbatimEnvs.has(token.env));
+    const expandedLines = !settings.beginEndOnOwnLine || hasVerbatim ? [rawLine] : splitLineByEnvTokens(rawLine, scanned);
 
     for (const line of expandedLines) {
       const trimmed = line.trim();
@@ -504,10 +469,9 @@ const simpleIndent = (content, settings) => {
         continue;
       }
 
-      const parsed = stripComments(line);
-      const tokens = extractTokens(parsed);
+      const { tokens } = line === rawLine ? scanned : scanFormatLine(line);
 
-      let scan = parsed.replace(/^\s+/, "");
+      let scan = line.replace(/^\s+/, "");
       let dedentBefore = 0;
       const endPattern = /^\\end\{([^}]+)\}/;
       while (true) {
@@ -560,8 +524,7 @@ const simpleIndent = (content, settings) => {
     }
   }
 
-  const formatted = output.join("\n");
-  return endsWithNewline ? `${formatted}\n` : formatted;
+  return output.join(newline);
 };
 
 const stripBlankLinesInMathEnv = (content, settings) => {
@@ -579,22 +542,28 @@ const stripBlankLinesInMathEnv = (content, settings) => {
   const endsWithNewline = content.endsWith("\n");
   let changed = false;
 
-  const isInside = (set) => stack.some((env) => set.has(env));
+  let literalEnv = null;
 
   for (const line of lines) {
-    const parsed = stripComments(line);
-    const tokens = extractTokens(parsed);
+    const { tokens } = scanFormatLine(line);
 
-    const inMath = isInside(mathEnvs);
-    const inVerbatim = isInside(verbatimEnvs);
-    if (inMath && !inVerbatim && parsed.trim().length === 0) {
+    const inMath = stack.some((env) => mathEnvs.has(env));
+    if (inMath && !literalEnv && line.trim().length === 0) {
       changed = true;
     } else {
       output.push(line);
     }
 
     tokens.forEach((token) => {
+      if (literalEnv) {
+        if (token.type === "end" && token.env === literalEnv) literalEnv = null;
+        return;
+      }
       const name = normalizeEnvName(token.env);
+      if (token.type === "begin" && verbatimEnvs.has(name)) {
+        literalEnv = token.env;
+        return;
+      }
       if (!name) {
         return;
       }
@@ -611,9 +580,11 @@ const stripBlankLinesInMathEnv = (content, settings) => {
     });
   }
 
-  let result = output.join("\n");
+  if (!changed) return { content, changed };
+  const newline = content.includes("\r\n") ? "\r\n" : "\n";
+  let result = output.join(newline);
   if (endsWithNewline && output.length > 0 && !result.endsWith("\n")) {
-    result += "\n";
+    result += newline;
   }
   return { content: result, changed };
 };
@@ -724,7 +695,6 @@ class FormatterService {
       formatted = await fsp.readFile(tempPath, "utf8").catch(() => null);
     }
     await safeRm(runDir);
-    await safeUnlink(path.join(rootPath, "indent.log"));
     if (result.status === 0 && formatted !== null) {
       const cleaned = stripBlankLinesInMathEnv(formatted, normalizedSettings);
       return {

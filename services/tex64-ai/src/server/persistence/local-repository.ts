@@ -171,6 +171,12 @@ export class LocalDocumentRepository implements DocumentRepository {
     return stored ? clone(stored) : null;
   }
 
+  async getRevisionByCommitId(userId: string, documentId: string, commitId: string): Promise<StoredRevision | null> {
+    const data = await this.readAfterWrites();
+    const revision = findRevisionByCommitId(data, userId, documentId, commitId);
+    return revision ? clone(revision) : null;
+  }
+
   async listRevisions(
     userId: string,
     documentId: string,
@@ -194,12 +200,7 @@ export class LocalDocumentRepository implements DocumentRepository {
       const key = documentKey(input.userId, input.documentId);
       const current = data.documents[key];
       if (!current) throw new DocumentNotFoundError();
-      const priorCommit = Object.values(data.revisions).find(
-        (revision) =>
-          revision.userId === input.userId &&
-          revision.documentId === input.documentId &&
-          revision.commitId === input.commitId,
-      );
+      const priorCommit = findRevisionByCommitId(data, input.userId, input.documentId, input.commitId);
       if (priorCommit) {
         assertDocumentCommitReplayMatches(priorCommit, input);
         return clone(current);
@@ -789,6 +790,11 @@ function normalizeLegacyStore(data: LocalStoreData): void {
 
 function documentKey(userId: string, documentId: string): string {
   return `${userId}:${documentId}`;
+}
+
+function findRevisionByCommitId(data: LocalStoreData, userId: string, documentId: string, commitId: string) {
+  return Object.values(data.revisions).find((row) =>
+    row.userId === userId && row.documentId === documentId && row.commitId === commitId);
 }
 
 function revisionKey(userId: string, documentId: string, revision: number): string {

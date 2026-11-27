@@ -21,8 +21,9 @@ export const createEditorSessionInitialOpenOps = (runtime, coreOps, deps) => {
         const activeGroup = coreOps.getActiveGroup();
         const workspaceFiles = runtime.deps.getWorkspaceFiles();
         const hasValidCurrent = activeGroup.currentFilePath !== null &&
-            workspaceFiles.includes(activeGroup.currentFilePath);
-        if (hasValidCurrent) {
+            (workspaceFiles.includes(activeGroup.currentFilePath) ||
+                activeGroup.viewer.getUnbuiltPdfPath() === activeGroup.currentFilePath);
+        if (hasValidCurrent || runtime.fileOpsState.pendingOpenRequests.some(request => request.group === activeGroup.key && !request.background)) {
             return;
         }
         const path = pickInitialFilePath();
@@ -41,7 +42,7 @@ export const createEditorSessionInitialOpenOps = (runtime, coreOps, deps) => {
         if (!runtime.state.pendingAutoOpenPath || !activeGroup.editor) {
             return;
         }
-        if (activeGroup.currentFilePath) {
+        if (activeGroup.currentFilePath || runtime.fileOpsState.pendingOpenRequests.some(request => request.group === activeGroup.key && !request.background)) {
             runtime.state.pendingAutoOpenPath = null;
             return;
         }

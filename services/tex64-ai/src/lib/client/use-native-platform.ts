@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getNativeHost, hostMessageBody, type HostMessage } from "./native-host";
 
@@ -37,6 +37,7 @@ export type NativePlatformState = {
   canRun: boolean;
   isPro: boolean;
   blockedReason: string | null;
+  recoveryAction?: { label: string; run: () => void };
   setModel: (model: NativeAgentModel) => void;
   signIn: () => void;
   signOut: () => void;
@@ -118,7 +119,7 @@ export function useNativePlatform(): NativePlatformState {
     modelTimerRef.current = setTimeout(() => {
       modelTimerRef.current = null;
       setModelError(
-        "AIモデルを確認できませんでした。モードを切り替えて、もう一度お試しください。",
+        "AIモデルを確認できませんでした。",
       );
     }, 8_000);
   }, [clearModelTimer]);
@@ -240,32 +241,29 @@ export function useNativePlatform(): NativePlatformState {
     accessAllowed: access?.allowed === true,
     isPro,
   });
-  const blockedReason = useMemo(() => {
-    if (!modelReady) return modelError;
-    if (canRun) return null;
-    if (platformError) return platformError;
-    if (!access) return null;
-    if (access?.reason === "QUOTA_EXCEEDED") return "今月分のAIトークンを使い切りました。";
-    if (model === "Axiom1.0-pro" && !isPro) return "Axiom1.0-proはProプランで使えます。";
-    if (!auth.authenticated) return "Axiomを使うにはログインしてください。";
-    return "プランを確認してください。";
-  }, [
-    access,
-    auth.authenticated,
-    canRun,
-    isPro,
-    model,
-    modelError,
-    modelReady,
-    platformError,
-  ]);
-
   const setModel = useCallback((nextModel: NativeAgentModel) => {
     setModelReady(false);
     armModelTimer();
     getNativeHost()?.send("agent:model:set", { model: nextModel });
   }, [armModelTimer]);
 
+  const signIn = () => getNativeHost()?.send("auth:google:start", {});
+  const openPlans = (preferredPlan?: "basic" | "pro") =>
+    getNativeHost()?.send("billing:open-plans", preferredPlan ? { plan: preferredPlan } : {});
+  const getBlock = (): { reason: string; label: string; action: "retry" | "plans" | "standard" | "login" } | null => {
+    if (!modelReady) return modelError ? { reason: modelError, label: "再試行", action: "retry" } : null;
+    if (canRun) return null;
+    if (platformError) return { reason: platformError, label: "再試行", action: "retry" };
+    if (!access) return null;
+    if (access.reason === "QUOTA_EXCEEDED")
+      return { reason: "今月分のAIトークンを使い切りました。", label: "プランを確認", action: "plans" };
+    if (model === "Axiom1.0-pro" && !isPro)
+      return { reason: "Axiom1.0-proはProプランで使えます。", label: "標準モデルに戻す", action: "standard" };
+    if (!auth.authenticated)
+      return { reason: "Axiomを使うにはログインしてください。", label: "ログイン", action: "login" };
+    return { reason: "このプランではAxiomを利用できません。", label: "プランを確認", action: "plans" };
+  };
+  const block = getBlock();
   return {
     model,
     authenticated: auth.authenticated,
@@ -276,14 +274,19 @@ export function useNativePlatform(): NativePlatformState {
     modelReady,
     canRun,
     isPro,
-    blockedReason,
+    blockedReason: block?.reason ?? null,
+    recoveryAction: block ? { label: block.label, run: () => {
+      switch (block.action) {
+        case "retry": refresh(); break;
+        case "standard": setModel("Axiom1.0"); break;
+        case "plans": openPlans(); break;
+        case "login": signIn(); break;
+      }
+    } } : undefined,
     setModel,
-    signIn: () => getNativeHost()?.send("auth:google:start", {}),
+    signIn,
     signOut: () => getNativeHost()?.send("auth:signout", {}),
-    openPlans: (preferredPlan) =>
-      getNativeHost()?.send("billing:open-plans", {
-        ...(preferredPlan ? { plan: preferredPlan } : {}),
-      }),
+    openPlans,
     refresh,
   };
 }

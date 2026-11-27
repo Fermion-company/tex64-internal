@@ -1,6 +1,11 @@
-import { getAppearanceThemePreference, normalizeAppearanceThemePreference, setAppearanceThemePreference, } from "../appearance.js";
+import { getAppearanceThemePreference, getDarkPdfPages, setDarkPdfPages, DARK_PDF_PAGES_EVENT, normalizeAppearanceThemePreference, setAppearanceThemePreference, } from "../appearance.js";
 export const createSettingsAppearanceOps = (runtime) => {
-    const { settingsAppearanceThemeSelect } = runtime.context.dom;
+    const { settingsAppearanceThemeSelect, settingsDarkPdfPages } = runtime.context.dom;
+    if (settingsDarkPdfPages instanceof HTMLInputElement) {
+        settingsDarkPdfPages.checked = getDarkPdfPages();
+        settingsDarkPdfPages.addEventListener("change", () => setDarkPdfPages(settingsDarkPdfPages.checked));
+        window.addEventListener(DARK_PDF_PAGES_EVENT, () => { settingsDarkPdfPages.checked = getDarkPdfPages(); });
+    }
     const updateAppearanceThemeUi = () => {
         if (settingsAppearanceThemeSelect instanceof HTMLSelectElement) {
             settingsAppearanceThemeSelect.value = runtime.state.appearanceTheme;

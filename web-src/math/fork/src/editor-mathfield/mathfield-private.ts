@@ -198,6 +198,8 @@ export class _Mathfield implements Mathfield, KeyboardDelegateInterface {
   }[];
   inlineShortcutBufferFlushTimer: ReturnType<typeof setTimeout>;
   private blurred: boolean;
+  private compositionMode?: ParseMode;
+  private compositionSelection?: { original: ModelState; root: Atom; remaining: string };
 
   private _menu: Menu;
 
@@ -1870,54 +1872,52 @@ If you are using Vue, this may be because you are using the runtime-only build o
 
     render(this, { interactive: true });
 
-    setTimeout(() => {
-      if (!isValidMathfield(this)) return;
+    // Move keyboard focus in this event. Deferring it leaves the first
+    // keystrokes on the previously focused button or editor.
+    // Only suppress events when responding to a DOM focus event to avoid
+    // double-dispatching (fixes #2665). When focus() is called
+    // programmatically, we want the events to fire normally (fixes #2816).
+    const suppressEvents = options?.suppressEvents ?? false;
+    if (suppressEvents) {
+      //
+      // Capture the focus/blur events to avoid double-dispatching
+      // When responding to a DOM focus event, just focus the keyboard
+      // delegate without the blur/focus cycle
+      //
+      const abortController = new AbortController();
+      const signal = abortController.signal;
+      const captureEvent = (evt: Event) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+      };
 
-      // Only suppress events when responding to a DOM focus event to avoid
-      // double-dispatching (fixes #2665). When focus() is called
-      // programmatically, we want the events to fire normally (fixes #2816).
-      const suppressEvents = options?.suppressEvents ?? false;
-      if (suppressEvents) {
-        //
-        // Capture the focus/blur events to avoid double-dispatching
-        // When responding to a DOM focus event, just focus the keyboard
-        // delegate without the blur/focus cycle
-        //
-        const abortController = new AbortController();
-        const signal = abortController.signal;
-        const captureEvent = (evt: Event) => {
-          evt.preventDefault();
-          evt.stopPropagation();
-        };
-
-        // Add listeners that will capture focus/focusin events
-        for (const event of ['focus', 'focusin']) {
-          this.host?.addEventListener(event, captureEvent, {
-            capture: true,
-            signal,
-          });
-        }
-
-        this.focusBlurInProgress = false;
-        this.keyboardDelegate.focus();
-        this.connectToVirtualKeyboard();
-
-        // Abort the event listeners after a short delay to ensure all
-        // events from the focus have been captured
-        setTimeout(() => abortController.abort(), 0);
-      } else {
-        // Programmatic focus() call - just focus the keyboard delegate
-        // without blurring first (no need since we're not focused yet)
-        this.focusBlurInProgress = false;
-        this.keyboardDelegate.focus();
-        this.connectToVirtualKeyboard();
-
-        // Clear the flag after the DOM focus event has been processed
-        setTimeout(() => {
-          this.programmaticFocusInProgress = false;
-        }, 0);
+      // Add listeners that will capture focus/focusin events
+      for (const event of ['focus', 'focusin']) {
+        this.host?.addEventListener(event, captureEvent, {
+          capture: true,
+          signal,
+        });
       }
-    }, 60);
+
+      this.focusBlurInProgress = false;
+      this.keyboardDelegate.focus();
+      this.connectToVirtualKeyboard();
+
+      // Abort the event listeners after a short delay to ensure all
+      // events from the focus have been captured
+      setTimeout(() => abortController.abort(), 0);
+    } else {
+      // Programmatic focus() call - just focus the keyboard delegate
+      // without blurring first (no need since we're not focused yet)
+      this.focusBlurInProgress = false;
+      this.keyboardDelegate.focus();
+      this.connectToVirtualKeyboard();
+
+      // Clear the flag after the DOM focus event has been processed
+      setTimeout(() => {
+        this.programmaticFocusInProgress = false;
+      }, 0);
+    }
   }
 
   onBlur(options?: { dispatchEvents?: boolean }): void {
@@ -2020,8 +2020,14 @@ If you are using Vue, this may be because you are using the runtime-only build o
   }
 
   onCompositionStart(_composition: string): void {
-    // Clear the selection if there is one
-    deleteRange(this.model, range(this.model.selection), 'insertText');
+    if (!this.isSelectionEditable) return;
+    this.compositionMode = this.model.mode;
+    this.compositionSelection = undefined;
+    if (!this.model.selectionIsCollapsed) {
+      const original = this.model.getState();
+      deleteRange(this.model, range(this.model.selection), 'insertText');
+      this.compositionSelection = { original, root: this.model.root, remaining: this.model.getValue() };
+    }
     const caretPoint = getCaretPoint(this.field!);
     if (!caretPoint) return;
     requestAnimationFrame(() => {
@@ -2036,13 +2042,29 @@ If you are using Vue, this may be because you are using the runtime-only build o
   }
 
   onCompositionUpdate(composition: string): void {
-    updateComposition(this.model, composition);
+    if (this.compositionMode === undefined) return;
+    updateComposition(this.model, composition, this.compositionMode);
     requestUpdate(this);
   }
 
   onCompositionEnd(composition: string): void {
+    const mode = this.compositionMode;
+    if (mode === undefined) return;
+    const selected = this.compositionSelection;
+    this.compositionMode = undefined;
+    this.compositionSelection = undefined;
     removeComposition(this.model);
-    onInput(this, composition, { simulateKeystroke: true });
+    // Restore the original selection on IME cancellation. A replacement
+    // document or an intervening edit must keep its own content.
+    if (!composition && selected && this.model.root === selected.root &&
+        this.model.getValue() === selected.remaining) {
+      this.model.setState(selected.original, { silenceNotifications: false });
+      requestUpdate(this);
+      return;
+    }
+    this.model.mode = mode;
+    if (composition) onInput(this, composition, { simulateKeystroke: mode === 'math' });
+    else requestUpdate(this);
   }
 
   onCut(ev: ClipboardEvent): void {

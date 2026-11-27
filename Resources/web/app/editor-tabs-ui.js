@@ -44,6 +44,10 @@ export const initEditorTabsUi = (context, deps) => {
         if (!(tabsList instanceof HTMLElement)) {
             return;
         }
+        // Autosave can repaint the dirty marker while a tab is in flight. Replacing
+        // the drag source cancels the native operation before the destination sees it.
+        if ((tabDragPayload === null || tabDragPayload === void 0 ? void 0 : tabDragPayload.group) === group.key && tabsList.querySelector(".is-dragging"))
+            return;
         syncStripVisibility(group);
         tabsList.innerHTML = "";
         if (group.openTabs.length === 0) {
@@ -98,9 +102,7 @@ export const initEditorTabsUi = (context, deps) => {
             tab.append(label, closeButton);
             tab.addEventListener("click", () => {
                 deps.setActiveGroup(group.key, { focusEditor: false });
-                if (path !== group.currentFilePath) {
-                    deps.requestOpenFile(path, group.key);
-                }
+                deps.requestOpenFile(path, group.key);
             });
             tab.addEventListener("dragstart", (event) => {
                 const dragEvent = event;
@@ -112,6 +114,7 @@ export const initEditorTabsUi = (context, deps) => {
             tab.addEventListener("dragend", () => {
                 tabDragPayload = null;
                 tab.classList.remove("is-dragging");
+                render(group);
             });
             tabsList.appendChild(tab);
         });
@@ -159,9 +162,8 @@ export const initEditorTabsUi = (context, deps) => {
                 target.addEventListener("dragover", (event) => {
                     const dragEvent = event;
                     const payload = tabDragPayload !== null && tabDragPayload !== void 0 ? tabDragPayload : getTabDragData(dragEvent);
-                    if (!payload || payload.group === group.key) {
+                    if (!payload || (payload.group === group.key && target !== group.tabs))
                         return;
-                    }
                     dragEvent.preventDefault();
                     if (dragEvent.dataTransfer) {
                         dragEvent.dataTransfer.dropEffect = "move";
@@ -170,11 +172,32 @@ export const initEditorTabsUi = (context, deps) => {
                 target.addEventListener("drop", (event) => {
                     const dragEvent = event;
                     const payload = tabDragPayload !== null && tabDragPayload !== void 0 ? tabDragPayload : getTabDragData(dragEvent);
-                    if (!payload || payload.group === group.key) {
+                    if (!payload || (payload.group === group.key && target !== group.tabs))
+                        return;
+                    dragEvent.preventDefault();
+                    dragEvent.stopPropagation();
+                    tabDragPayload = null;
+                    if (payload.group === group.key) {
+                        if (!group.openTabs.includes(payload.path))
+                            return;
+                        const anchor = dragEvent.target instanceof Element
+                            ? dragEvent.target.closest(".editor-tab") : null;
+                        if ((anchor === null || anchor === void 0 ? void 0 : anchor.dataset.path) === payload.path)
+                            return;
+                        const reordered = group.openTabs.filter(path => path !== payload.path);
+                        let index = (anchor === null || anchor === void 0 ? void 0 : anchor.dataset.path) ? reordered.indexOf(anchor.dataset.path) : -1;
+                        if (index === -1)
+                            index = reordered.length;
+                        else if (anchor) {
+                            const bounds = anchor.getBoundingClientRect();
+                            if (dragEvent.clientX >= bounds.left + bounds.width / 2)
+                                index++;
+                        }
+                        reordered.splice(index, 0, payload.path);
+                        group.openTabs = reordered;
+                        render(group);
                         return;
                     }
-                    dragEvent.preventDefault();
-                    tabDragPayload = null;
                     deps.setActiveGroup(group.key, { focusEditor: false });
                     moveTabToGroup(payload.path, payload.group, group.key);
                 });

@@ -1,3 +1,4 @@
+const { canonicalWorkspacePath } = require("../../services/workspace.cjs");
 const {
   TEXT_FILE_EXTENSIONS,
   isExtendedTextFileName,
@@ -32,20 +33,6 @@ const createWorkspaceContext = (deps) => {
   if (typeof state.workspaceId !== "string") {
     state.workspaceId = null;
   }
-
-  const canonicalWorkspacePath = (rootPath) => {
-    let resolved = path.resolve(rootPath);
-    try {
-      resolved =
-        typeof fs.realpathSync?.native === "function"
-          ? fs.realpathSync.native(resolved)
-          : fs.realpathSync(resolved);
-    } catch {
-      // A just-created directory can briefly be unresolved; path.resolve is
-      // still deterministic for this session.
-    }
-    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
-  };
 
   const workspaceIdForRoot = (rootPath) =>
     crypto
@@ -162,9 +149,10 @@ const createWorkspaceContext = (deps) => {
     });
 
   const sendWorkspace = async (rootPath, expectedGeneration = state.workspaceGeneration) => {
-    await deps.prepareHistoryWorkspace?.(rootPath);
+    if (!workspaceSessionIsCurrent(rootPath, expectedGeneration)) return false;
     const requestSequence = ++latestWorkspaceSnapshotRequest;
-    if (!workspaceSessionIsCurrent(rootPath, expectedGeneration)) {
+    await deps.prepareHistoryWorkspace?.(rootPath);
+    if (requestSequence !== latestWorkspaceSnapshotRequest || !workspaceSessionIsCurrent(rootPath, expectedGeneration)) {
       return false;
     }
     let files = [];

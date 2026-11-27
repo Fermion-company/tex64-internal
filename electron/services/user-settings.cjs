@@ -1,5 +1,7 @@
 const path = require("path");
 const fsp = require("fs/promises");
+const lockfile = require("proper-lockfile");
+const { atomicWrite } = require("./history-files.cjs");
 const { migrateLegacyAxiomModel } = require("./openprism/llm-config.cjs");
 
 const MAX_RECENT_PROJECTS = 10;
@@ -30,15 +32,10 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 class UserSettingsService {
   constructor(userDataPath) {
     this.filePath = path.join(userDataPath, "tex64-user-settings.json");
-    this.state = null;
+    this.pending = Promise.resolve();
   }
 
-  async load() {
-    // Always re-read from disk: a long-lived in-memory copy plus the
-    // whole-state save() below used to clobber the file with stale data
-    // whenever two app instances overlapped, and a single failed read
-    // cached "defaults" (empty recents) for the rest of the session —
-    // the next save then wiped the user's real history (observed live).
+  async readSettings() {
     const stored = await fsp
       .readFile(this.filePath, "utf8")
       .then((content) => JSON.parse(content))
@@ -75,12 +72,19 @@ class UserSettingsService {
     const didDisableRunCommand = hadLegacyAgentKeys;
     const didClampMaxIterations = false;
 
-    this.state = {
+    const state = {
       ...clone(DEFAULT_SETTINGS),
       ...storedObject,
       agent: mergedAgent,
       recentProjects: Array.isArray(storedObject.recentProjects)
         ? storedObject.recentProjects
+            .filter((entry) => entry && typeof entry.path === "string" && entry.path.trim())
+            .map((entry) => ({
+              ...entry,
+              name: typeof entry.name === "string" && entry.name.trim()
+                ? entry.name
+                : path.basename(entry.path),
+            }))
         : clone(DEFAULT_SETTINGS.recentProjects),
       dismissedAnnouncementIds: Array.isArray(storedObject.dismissedAnnouncementIds)
         ? storedObject.dismissedAnnouncementIds.filter(
@@ -100,139 +104,100 @@ class UserSettingsService {
           : {}),
       },
     };
-    if (didMigrateModel || didDisableRunCommand || didClampMaxIterations) {
-      // Persist canonical, safe settings so every renderer and future launch
-      // sees the same model and a legacy toggle cannot resurrect shell access.
-      // Loading still succeeds if a transient disk error prevents this
-      // best-effort migration write.
-      await this.save().catch(() => {});
-    }
-    return clone(this.state);
+    return { state, needsMigration: didMigrateModel || didDisableRunCommand || didClampMaxIterations };
+  }
+
+  async load() {
+    await this.pending;
+    const { state, needsMigration } = await this.readSettings();
+    if (!needsMigration) return state;
+    return this.update(current => current).catch(() => state);
+  }
+
+  update(change) {
+    const operation = this.pending.then(async () => {
+      const release = await lockfile.lock(this.filePath, {
+        realpath: false,
+        retries: { retries: 12, minTimeout: 20, maxTimeout: 250, randomize: true },
+      });
+      try {
+        const { state } = await this.readSettings();
+        const result = change(state);
+        await atomicWrite(this.filePath, JSON.stringify(state, null, 2));
+        return clone(result);
+      } finally {
+        await release();
+      }
+    });
+    this.pending = operation.catch(() => {});
+    return operation;
   }
 
   async getAgentSettings() {
-    const state = await this.load();
-    return clone(state.agent ?? DEFAULT_SETTINGS.agent);
+    return (await this.load()).agent;
   }
 
-  async updateAgentSettings(partial) {
-    const state = await this.load();
-    const accepted =
-      partial && typeof partial === "object" && typeof partial.model === "string"
-        ? { model: partial.model }
-        : {};
-    state.agent = {
-      ...state.agent,
-      ...accepted,
-    };
-    state.agent.model = migrateLegacyAxiomModel(state.agent.model);
-    this.state = state;
-    await this.save();
-    return clone(state.agent);
-  }
-
-  async save() {
-    if (!this.state) {
-      return;
-    }
-    // Atomic replace: a torn write must never produce a half-written file
-    // that the next load treats as corrupt.
-    const payload = JSON.stringify(this.state, null, 2);
-    const tmpPath = `${this.filePath}.tmp-${process.pid}`;
-    await fsp.writeFile(tmpPath, payload, "utf8");
-    await fsp.rename(tmpPath, this.filePath);
+  updateAgentSettings(partial) {
+    return this.update(state => {
+      if (typeof partial?.model === "string") state.agent.model = migrateLegacyAxiomModel(partial.model);
+      return state.agent;
+    });
   }
 
   async getRecentProjects() {
-    const state = await this.load();
-    return clone(state.recentProjects ?? []);
+    return (await this.load()).recentProjects;
   }
 
   async addRecentProject(projectPath) {
-    if (!projectPath || typeof projectPath !== "string") {
-      return;
-    }
-    const state = await this.load();
-    const existing = state.recentProjects ?? [];
-    
-    // Remove if already exists (to move it to top)
-    const filtered = existing.filter((p) => p.path !== projectPath);
-    
-    // Get folder name from path
-    const name = path.basename(projectPath);
-    
-    // Add to the front
-    const updated = [
-      { path: projectPath, name, openedAt: Date.now() },
-      ...filtered,
-    ].slice(0, MAX_RECENT_PROJECTS);
-    
-    state.recentProjects = updated;
-    this.state = state;
-    await this.save();
-    return clone(updated);
+    if (!projectPath || typeof projectPath !== "string") return;
+    return this.update(state => {
+      const other = state.recentProjects.filter(project => project.path !== projectPath);
+      const project = { path: projectPath, name: path.basename(projectPath), openedAt: Date.now() };
+      state.recentProjects = [project, ...other].slice(0, MAX_RECENT_PROJECTS);
+      return state.recentProjects;
+    });
   }
 
-  async removeRecentProject(projectPath) {
-    const state = await this.load();
-    const existing = state.recentProjects ?? [];
-    const filtered = existing.filter((p) => p.path !== projectPath);
-    state.recentProjects = filtered;
-    this.state = state;
-    await this.save();
-    return clone(filtered);
+  removeRecentProject(projectPath) {
+    return this.update(state => {
+      state.recentProjects = state.recentProjects.filter(project => project.path !== projectPath);
+      return state.recentProjects;
+    });
   }
 
-  async clearRecentProjects() {
-    const state = await this.load();
-    state.recentProjects = [];
-    this.state = state;
-    await this.save();
-    return [];
+  clearRecentProjects() {
+    return this.update(state => {
+      state.recentProjects = [];
+      return state.recentProjects;
+    });
   }
 
   async getZoteroSettings() {
-    const state = await this.load();
-    return clone(state.zotero ?? DEFAULT_SETTINGS.zotero);
+    return (await this.load()).zotero;
   }
 
-  async updateZoteroSettings(partial) {
-    const state = await this.load();
-    const next = { ...(state.zotero ?? clone(DEFAULT_SETTINGS.zotero)) };
-    if (partial && typeof partial === "object") {
-      if (typeof partial.library === "string") next.library = partial.library;
-      if (typeof partial.libraryName === "string") next.libraryName = partial.libraryName;
-      if (typeof partial.libraryKind === "string") next.libraryKind = partial.libraryKind;
-      if (typeof partial.apiKeyEncrypted === "string") next.apiKeyEncrypted = partial.apiKeyEncrypted;
-    }
-    state.zotero = next;
-    this.state = state;
-    await this.save();
-    return clone(next);
+  updateZoteroSettings(partial) {
+    return this.update(state => {
+      for (const key of Object.keys(DEFAULT_SETTINGS.zotero)) {
+        if (typeof partial?.[key] === "string") state.zotero[key] = partial[key];
+      }
+      return state.zotero;
+    });
   }
 
   async getDismissedAnnouncementIds() {
-    const state = await this.load();
-    return clone(state.dismissedAnnouncementIds ?? []);
+    return (await this.load()).dismissedAnnouncementIds;
   }
 
   async addDismissedAnnouncementId(id) {
-    if (typeof id !== "string" || !id.trim()) {
-      return clone(this.state?.dismissedAnnouncementIds ?? []);
-    }
+    if (typeof id !== "string" || !id.trim()) return this.getDismissedAnnouncementIds();
     const trimmed = id.trim();
-    const state = await this.load();
-    const existing = Array.isArray(state.dismissedAnnouncementIds)
-      ? state.dismissedAnnouncementIds
-      : [];
-    if (existing.includes(trimmed)) {
-      return clone(existing);
-    }
-    const updated = [...existing, trimmed].slice(-MAX_DISMISSED_ANNOUNCEMENT_IDS);
-    state.dismissedAnnouncementIds = updated;
-    this.state = state;
-    await this.save();
-    return clone(updated);
+    return this.update(state => {
+      if (!state.dismissedAnnouncementIds.includes(trimmed)) {
+        state.dismissedAnnouncementIds = [...state.dismissedAnnouncementIds, trimmed].slice(-MAX_DISMISSED_ANNOUNCEMENT_IDS);
+      }
+      return state.dismissedAnnouncementIds;
+    });
   }
 }
 

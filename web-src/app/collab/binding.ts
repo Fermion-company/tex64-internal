@@ -16,7 +16,14 @@ import { contentDigest } from "./digest.js";
 import { getEditorOperationGuard } from "../editor-operation-guard.js";
 import { uiText } from "../i18n.js";
 
+type TextHunk = { start: number; end: number; text: string };
+
 type Vendor = {
+  textDelta: {
+    textHunks(from: string, to: string): TextHunk[];
+    applyHunks(text: any, changes: TextHunk[], origin: string): void;
+    applyTextDelta(text: any, from: string, to: string, origin: string): void;
+  };
   Y: any;
   MonacoBinding: new (ytext: any, model: any, editors: Set<any>, awareness: any) => { destroy: () => void };
   awarenessProtocol: any;
@@ -53,6 +60,40 @@ export type CollabBindingApi = {
   sessionText: (path: string) => any | null;
   onSessionDoc: (listener: (doc: any | null) => void) => () => void;
   getVendor: () => Vendor | null;
+};
+
+// Model edits made before the first sync and peer edits both descend from the
+// last saved buffer. Give both copies the same Yjs character identities so a
+// local deletion can never remove characters another participant just wrote.
+const mergeBeforeBinding = (lib: Vendor, sharedText: any, base: string, local: string, peer: string) => {
+  const { Y, textDelta } = lib;
+  if (base === peer) {
+    textDelta.applyTextDelta(sharedText, peer, local, "prebind");
+    return;
+  }
+  const peerDoc = new Y.Doc();
+  const localDoc = new Y.Doc();
+  try {
+    const peerText = peerDoc.getText("content");
+    peerText.insert(0, base);
+    Y.applyUpdate(localDoc, Y.encodeStateAsUpdate(peerDoc));
+    const baseVector = Y.encodeStateVector(peerDoc);
+    const peerEdits = textDelta.textHunks(base, peer);
+    const localEdits = textDelta.textHunks(base, local);
+    // An edit that already arrived from the host is only inserted once.
+    const byStart = new Map(peerEdits.map(edit => [edit.start, edit]));
+    const pending = localEdits.filter(edit => {
+      const existing = byStart.get(edit.start);
+      return !existing || existing.end !== edit.end || existing.text !== edit.text;
+    });
+    textDelta.applyHunks(peerText, peerEdits, "peer");
+    textDelta.applyHunks(localDoc.getText("content"), pending, "local");
+    Y.applyUpdate(peerDoc, Y.encodeStateAsUpdate(localDoc, baseVector));
+    textDelta.applyTextDelta(sharedText, peer, peerText.toString(), "prebind");
+  } finally {
+    localDoc.destroy();
+    peerDoc.destroy();
+  }
 };
 
 export const initCollabBinding = (deps: {
@@ -262,24 +303,10 @@ export const initCollabBinding = (deps: {
     if (!lib || !entry.model || entry.binding || !entry.ytext) return;
     const modelValue: string = entry.model.getValue();
     const shared: string = entry.ytext.toString();
-    if (modelValue !== shared) {
-      // Typed before the content arrived: keep those keystrokes by folding the
-      // buffer's difference into the shared text instead of discarding it.
-      let prefix = 0;
-      const max = Math.min(modelValue.length, shared.length);
-      while (prefix < max && modelValue.charCodeAt(prefix) === shared.charCodeAt(prefix)) prefix++;
-      let suffix = 0;
-      while (suffix < max - prefix && modelValue.charCodeAt(modelValue.length - 1 - suffix) === shared.charCodeAt(shared.length - 1 - suffix)) suffix++;
-      const savedContent = (deps.editorSession as any).getSavedContent?.(entry.docId);
-      // A view-only guest's buffer never goes into the shared text.
-      const hadLocalEdits = !collabSession.isViewer() && typeof savedContent === "string" && savedContent !== modelValue;
-      if (hadLocalEdits) {
-        entry.doc.transact(() => {
-          const deleteLength = shared.length - prefix - suffix;
-          if (deleteLength > 0) entry.ytext.delete(prefix, deleteLength);
-          const insert = modelValue.slice(prefix, modelValue.length - suffix);
-          if (insert) entry.ytext.insert(prefix, insert);
-        }, "prebind");
+    if (modelValue !== shared && !collabSession.isViewer()) {
+      const saved = deps.editorSession.getSavedContent(entry.docId);
+      if (typeof saved === "string" && saved !== modelValue) {
+        mergeBeforeBinding(lib, entry.ytext, saved, modelValue, shared);
       }
     }
     const groups = groupsShowing(entry.model);

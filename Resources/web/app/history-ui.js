@@ -13,6 +13,8 @@ export const initHistoryUi = (editor, diff) => {
     let versions = [];
     let selected = "";
     let workspace = "";
+    let workspaceId = "";
+    let projectSequence = 0;
     let phase = "idle";
     let busy = false;
     let poll = 0;
@@ -102,9 +104,18 @@ export const initHistoryUi = (editor, diff) => {
     ], { topic: uiText("history storage", "履歴の保存") });
     const usageRow = el("div", "has-explain");
     usageRow.append(usage, storageExplain.button);
-    storage.append(usageRow, storageExplain.panel, limit, button(uiText("Set limit (GiB)", "上限変更（GiB）"), () => void run(async () => { await call("limit", { gib: Number(limit.value) }); await refresh(); })));
+    limit.required = true;
+    limit.addEventListener("input", () => limit.setCustomValidity(""));
+    storage.append(usageRow, storageExplain.panel, limit, button(uiText("Set limit (GiB)", "上限変更（GiB）"), () => {
+        if (!limit.value || !limit.validity.valid) {
+            limit.setCustomValidity(uiText("Choose a whole number from 1 to 100.", "1から100の整数を入力してください。"));
+            limit.reportValidity();
+            return;
+        }
+        void run(async () => { await call("limit", { gib: Number(limit.value) }); await refresh(); });
+    }));
     function showDialog(title, content) {
-        const modal = el("dialog", "history-confirm");
+        const modal = el("dialog", "history-confirm history-dialog");
         const heading = el("h2", "", title);
         heading.id = "history-detail-title";
         modal.setAttribute("aria-labelledby", heading.id);
@@ -115,7 +126,7 @@ export const initHistoryUi = (editor, diff) => {
         document.body.append(modal);
         modal.showModal();
     }
-    function showStorage() { showDialog(uiText("Storage settings", "保存設定"), storage); }
+    function showStorage() { limit.setCustomValidity(""); showDialog(uiText("Storage settings", "保存設定"), storage); }
     async function showDetails() {
         const version = versions.find((v) => v.id === selected);
         if (!version)
@@ -173,7 +184,10 @@ export const initHistoryUi = (editor, diff) => {
     host.append(heading, name, renameSave, error, recovery, list, pinned, selection);
     collabSession.onChange((state) => applyCollabGuestLock(host, state.active && state.role === "guest"));
     const call = async (action, payload = {}) => {
+        const requestedProject = projectSequence;
         const result = await bridge.call(action, payload);
+        if (requestedProject !== projectSequence)
+            throw new Error(uiText("The project changed.", "プロジェクトが変わりました。"));
         if (!result.ok)
             throw Object.assign(new Error(result.error), { code: result.code });
         return result;
@@ -285,12 +299,14 @@ export const initHistoryUi = (editor, diff) => {
             scheduleComparison();
         }
         catch (reason) {
-            error.textContent = String(reason instanceof Error ? reason.message : reason);
+            if (generation === refreshGeneration)
+                error.textContent = reason instanceof Error ? reason.message : String(reason);
         }
     }
     async function run(action) {
         if (busy)
             return;
+        const requestedProject = projectSequence;
         busy = true;
         invalidateComparison();
         error.textContent = "";
@@ -299,7 +315,8 @@ export const initHistoryUi = (editor, diff) => {
             await action();
         }
         catch (reason) {
-            error.textContent = reason instanceof Error ? reason.message : String(reason);
+            if (requestedProject === projectSequence)
+                error.textContent = reason instanceof Error ? reason.message : String(reason);
         }
         finally {
             busy = false;
@@ -382,7 +399,7 @@ export const initHistoryUi = (editor, diff) => {
                     if (value.text)
                         diff.showDiffModal(value.original, value.modified, 0, { title: comparisonTitle, fileName: file.path, viewOnly: true, closeLabel: uiText("Close", "閉じる") });
                     else if (value.originalImage || value.modifiedImage) {
-                        const modal = el("dialog", "history-confirm history-image-compare");
+                        const modal = el("dialog", "history-confirm history-dialog history-image-compare");
                         modal.append(el("h2", "", file.path), el("p", "history-local", comparisonTitle));
                         const columns = el("div", "history-image-columns");
                         for (const [label, src, size] of [[uiText("Before", "変更前"), value.originalImage, value.originalSize], [uiText("After", "変更後"), value.modifiedImage, value.modifiedSize]]) {
@@ -420,7 +437,7 @@ export const initHistoryUi = (editor, diff) => {
             var _a;
             const data = await withSaved("restore", () => call("plan", { id }));
             const version = versions.find((v) => v.id === id);
-            const modal = el("dialog", "history-confirm");
+            const modal = el("dialog", "history-confirm history-dialog");
             const title = el("h2", "", (version === null || version === void 0 ? void 0 : version.kind) === "safety" ? uiText("Undo the restore", "復元の直前に戻す") : uiText("Restore", "復元"));
             title.id = "history-confirm-title";
             modal.setAttribute("aria-labelledby", title.id);
@@ -465,17 +482,31 @@ export const initHistoryUi = (editor, diff) => {
         });
     }
     bridge.onChange((message) => {
-        var _a;
-        if (message.type === "updateWorkspace") {
-            const next = `${message.payload.workspaceId}:${message.payload.workspaceGeneration}`;
+        var _a, _b;
+        const id = (_a = message.payload) === null || _a === void 0 ? void 0 : _a.workspaceId;
+        if (typeof id === "string" && (workspaceId !== id || message.type === "updateWorkspace")) {
+            const next = `${id}:${message.payload.workspaceGeneration}`;
             if (workspace !== next) {
+                if (workspaceId !== id)
+                    projectSequence++;
+                workspaceId = id;
+                workspace = next;
                 selected = "";
                 versions = [];
                 invalidateComparison();
                 refreshGeneration++;
+                name.value = "";
+                name.hidden = true;
+                renameSave.hidden = true;
+                error.textContent = "";
+                usage.textContent = "";
+                limit.value = "";
+                document.querySelectorAll("dialog.history-dialog[open]").forEach(modal => modal.close());
+                render();
             }
-            workspace = next;
-            phase = ((_a = message.payload.history) === null || _a === void 0 ? void 0 : _a.phase) || phase;
+        }
+        if (message.type === "updateWorkspace") {
+            phase = ((_b = message.payload.history) === null || _b === void 0 ? void 0 : _b.phase) || phase;
             freeze(phase !== "idle");
             window.clearTimeout(poll);
             poll = window.setTimeout(() => void refresh(), 80);

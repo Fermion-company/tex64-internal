@@ -197,6 +197,26 @@ const moveObject = (object, dx, dy) => {
         object.transform.ty += dy;
     }
 };
+// A rotated or scaled primitive already uses a one-child group in the scene
+// format. Keep that scope around the individual shape when splitting a group.
+const ungroupParts = (group) => {
+    const transforms = [group.transform];
+    let children = group.children;
+    while (children.length === 1 && children[0].type === "group") {
+        transforms.push(children[0].transform);
+        children = children[0].children;
+    }
+    const translated = (t) => t.rotate === 0 && t.sx === 1 && t.sy === 1;
+    if (children.length === 1 && transforms.some(t => !translated(t)))
+        return null;
+    return () => children.map(child => transforms.reduceRight((object, transform) => {
+        if (translated(transform)) {
+            moveObject(object, transform.tx, transform.ty);
+            return object;
+        }
+        return { id: newObjectId(), type: "group", children: [object], transform: { ...transform } };
+    }, child));
+};
 const resizeObject = (object, before, after) => {
     const set = (p) => Object.assign(p, resizePoint(p, before, after));
     if (object.type === "rect") {
@@ -770,7 +790,8 @@ export const initProCanvasUi = (deps) => {
             closeButton.type = "button";
             closeButton.textContent = "✕";
             closeButton.title = uiText("Close", "閉じる");
-            closeButton.onclick = () => closeCanvasPop();
+            closeButton.setAttribute("aria-label", closeButton.title);
+            closeButton.onclick = () => { closeCanvasPop(); button.focus(); };
             heading.append(closeButton);
             pop.append(heading);
             const sizeTitle = document.createElement("strong");
@@ -990,7 +1011,7 @@ export const initProCanvasUi = (deps) => {
                 }
                 const mode = effective.shading ? "gradient" : effective.pattern ? "pattern" : effective.fill ? "solid" : "none", fillSeg = document.createElement("div");
                 fillSeg.className = "pro-canvas-fill-seg";
-                fillSeg.append(document.createTextNode(uiText("Fill", "塗り")), seg(mode, [["none", uiText("None", "なし")], ["solid", uiText("Solid color", "単色")], ["pattern", uiText("Hatch", "編みかけ")], ["gradient", uiText("Gradient", "グラデ")]], v => { snapshot(false); targets.forEach(t => { var _a, _b, _c; var _d; const p = (_d = t.style).props || (_d.props = {}); const mem = { ...fillMemory.get(t.id) }; if (p.fill != null)
+                fillSeg.append(document.createTextNode(uiText("Fill", "塗り")), seg(mode, [["none", uiText("None", "なし")], ["solid", uiText("Solid color", "単色")], ["pattern", uiText("Hatch", "網掛け")], ["gradient", uiText("Gradient", "グラデーション")]], v => { snapshot(false); targets.forEach(t => { var _a, _b, _c; var _d; const p = (_d = t.style).props || (_d.props = {}); const mem = { ...fillMemory.get(t.id) }; if (p.fill != null)
                     mem.fill = p.fill; if (p.pattern)
                     mem.pattern = p.pattern; if (p.shading)
                     mem.shading = p.shading; fillMemory.set(t.id, mem); if (v === "none") {
@@ -1036,13 +1057,26 @@ export const initProCanvasUi = (deps) => {
                 summary.textContent = uiText("Details", "詳細");
                 details.append(summary);
                 const fields = [[uiText("Opacity", "不透明度"), "opacity", "number"], [uiText("Corner radius", "角丸"), "roundedCornersPt", "number"], [uiText("Double rule", "二重罫"), "doubleDistancePt", "number"], ["cap", "cap", "select", ["butt", "round", "rect"]], ["join", "join", "select", ["miter", "round", "bevel"]], [uiText("Start arrow", "始点矢印"), "arrowStart", "select", ["", "Stealth", "Latex", "Bar"]], [uiText("End arrow", "終点矢印"), "arrowEnd", "select", ["", "Stealth", "Latex", "Bar"]]];
-                fields.forEach(([label, key, kind, options]) => { var _a; const row = document.createElement("label"), input = kind === "select" ? document.createElement("select") : document.createElement("input"); row.textContent = label; if (input instanceof HTMLInputElement) {
-                    input.type = "number";
-                    input.step = key === "opacity" ? "0.1" : "0.1";
-                    input.min = "0";
-                }
-                else
-                    options.forEach(v => input.add(new Option(v || uiText("None", "なし"), v))); input.value = String((_a = effective[key]) !== null && _a !== void 0 ? _a : ""); input.onchange = () => apply(key, kind === "number" ? Number(input.value) : input.value); row.append(input); details.append(row); });
+                fields.forEach(([label, key, kind, options]) => {
+                    var _a;
+                    const row = document.createElement("label"), input = kind === "select" ? document.createElement("select") : document.createElement("input");
+                    row.textContent = label;
+                    if (input instanceof HTMLInputElement) {
+                        input.type = "number";
+                        input.step = "0.1";
+                        input.min = "0";
+                        if (key === "opacity")
+                            input.max = "1";
+                        input.onchange = () => { const value = Math.max(0, Number(input.value) || 0); apply(key, key === "opacity" ? Math.min(1, value) : value); };
+                    }
+                    else {
+                        options.forEach(v => input.add(new Option(v || uiText("None", "なし"), v)));
+                        input.onchange = () => apply(key, input.value);
+                    }
+                    input.value = String((_a = effective[key]) !== null && _a !== void 0 ? _a : "");
+                    row.append(input);
+                    details.append(row);
+                });
                 host.append(details);
             }
             if (targets.length) {
@@ -1252,6 +1286,10 @@ export const initProCanvasUi = (deps) => {
                 let pathShape = null;
                 const tipOf = (value) => isArrowKind(value) ? value : null;
                 const tipMetrics = (kind) => arrowMetrics(kind, style.lineWidthPt || .4, ptu);
+                if (style.cap)
+                    attrs["stroke-linecap"] = style.cap === "rect" ? "square" : style.cap;
+                if (style.join)
+                    attrs["stroke-linejoin"] = style.join;
                 if (style.dash && style.dash !== "solid" && style.dashGapPt && style.dashGapPt > 0) {
                     const gap = style.dashGapPt * ptu;
                     attrs["stroke-dasharray"] = style.dash === "dashed" ? `${Math.max(lw * 4, 1.2 * ptu)} ${gap}` : `${Math.max(lw * .01, .001)} ${gap}`;
@@ -1259,7 +1297,7 @@ export const initProCanvasUi = (deps) => {
                         attrs["stroke-linecap"] = "round";
                 }
                 if (object.type === "rect")
-                    el = svgEl("rect", { ...attrs, x: Math.min(object.from.x, object.to.x), y: Math.min(object.from.y, object.to.y), width: Math.abs(object.to.x - object.from.x), height: Math.abs(object.to.y - object.from.y), rx: style.roundedCornersPt || 0 });
+                    el = svgEl("rect", { ...attrs, x: Math.min(object.from.x, object.to.x), y: Math.min(object.from.y, object.to.y), width: Math.abs(object.to.x - object.from.x), height: Math.abs(object.to.y - object.from.y), rx: (style.roundedCornersPt || 0) * ptu });
                 else if (object.type === "ellipse")
                     el = svgEl("ellipse", { ...attrs, cx: object.center.x, cy: object.center.y, rx: object.rx, ry: object.ry });
                 else if (object.type === "path") {
@@ -2168,7 +2206,7 @@ export const initProCanvasUi = (deps) => {
         const cloneWithNewIds = (object) => { const copy = JSON.parse(JSON.stringify(object)); const renew = (item) => { item.id = newObjectId(); if (item.type === "group")
             item.children.forEach(renew); }; renew(copy); return copy; };
         const onKey = (e) => {
-            var _a, _b;
+            var _a, _b, _c;
             if (editingNodeId)
                 return;
             const target = e.target;
@@ -2269,34 +2307,42 @@ export const initProCanvasUi = (deps) => {
             }
             if (command && key === "g") {
                 e.preventDefault();
-                const objects = currentObjects(), oneId = selectedIdOne();
-                if (e.shiftKey && oneId) {
-                    const group = objects.find(item => item.id === oneId);
-                    if ((group === null || group === void 0 ? void 0 : group.type) === "group") {
-                        snapshot();
-                        const index = objects.indexOf(group);
-                        objects.splice(index, 1, ...group.children);
-                        clearSelection();
-                        render();
+                const objects = currentObjects(), selected = topLevelSelectedObjects();
+                if (e.shiftKey) {
+                    const groups = selected.flatMap(object => {
+                        if (object.type !== "group")
+                            return [];
+                        const split = ungroupParts(object);
+                        return split ? [{ object, split }] : [];
+                    });
+                    if (!groups.length)
+                        return;
+                    snapshot();
+                    for (const { object, split } of groups) {
+                        const children = split();
+                        objects.splice(objects.indexOf(object), 1, ...children);
+                        selection.ids.delete(object.id);
+                        children.forEach(child => selection.ids.add(child.id));
                     }
+                    selection.primaryId = (_c = selection.ids.values().next().value) !== null && _c !== void 0 ? _c : null;
                 }
                 else {
-                    const selected = topLevelSelectedObjects();
-                    if (selected.length) {
-                        snapshot();
-                        const indices = selected.map(item => objects.indexOf(item)).filter(index => index >= 0), index = Math.min(...indices);
-                        selected.forEach(item => removeById(objects, item.id));
-                        const group = { id: newObjectId(), type: "group", children: selected, transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 } };
-                        objects.splice(index, 0, group);
-                        replaceSelection(group.id);
-                        render();
-                    }
+                    if (!selected.length)
+                        return;
+                    snapshot();
+                    const index = objects.indexOf(selected[0]);
+                    selected.forEach(item => removeById(objects, item.id));
+                    const group = { id: newObjectId(), type: "group", children: selected, transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 } };
+                    objects.splice(index, 0, group);
+                    replaceSelection(group.id);
                 }
+                render();
                 return;
             }
-            if (command && (e.key === "]" || e.key === "[") && selection.ids.size) {
+            if (command && selection.ids.size && ["[", "]", "{", "}"].includes(e.key)) {
                 e.preventDefault();
-                changeOrder(e.key === "]" ? (e.shiftKey ? "front" : "forward") : (e.shiftKey ? "back" : "backward"));
+                const forward = e.key === "]" || e.key === "}";
+                changeOrder(forward ? (e.shiftKey ? "front" : "forward") : (e.shiftKey ? "back" : "backward"));
                 return;
             }
             if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key) && selection.ids.size) {

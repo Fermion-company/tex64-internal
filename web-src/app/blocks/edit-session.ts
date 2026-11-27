@@ -1,3 +1,4 @@
+import { isTexFilePath } from "../files.js";
 import type { BlockAutoDetectApi } from "./auto-detect.js";
 import type { BlockMode } from "../types.js";
 
@@ -41,7 +42,7 @@ export const initBlockEditSession = (deps: BlockEditSessionDeps): BlockEditSessi
   const canEdit = () => {
     const group = deps.getActiveGroup();
     const editor = group.editor;
-    if (!editor || !group.currentFilePath?.endsWith(".tex")) {
+    if (!editor || !isTexFilePath(group.currentFilePath)) {
       return false;
     }
     return true;
@@ -134,7 +135,7 @@ export const initBlockEditSession = (deps: BlockEditSessionDeps): BlockEditSessi
   };
 
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") {
+    if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) {
       return;
     }
     if (mode !== "edit") {

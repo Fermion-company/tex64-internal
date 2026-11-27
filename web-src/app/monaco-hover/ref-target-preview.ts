@@ -5,10 +5,14 @@
  * logic is unit-testable under node:test.
  */
 
+import { getHoverLine } from "./utils.js";
+import { isEscapedAt } from "../blocks/tex-utils.js";
+
 export type RefExcerpt = {
   startLine: number;
   lines: string[];
   targetLine: number;
+  labelColumn?: number;
 };
 
 const DISPLAY_MATH_ENVIRONMENTS = new Set([
@@ -30,23 +34,13 @@ const DISPLAY_MATH_ENVIRONMENTS = new Set([
   "displaymath",
 ]);
 
-const stripCommentTail = (line: string) => {
-  for (let i = 0; i < line.length; i += 1) {
-    if (line[i] !== "%") {
-      continue;
-    }
-    let slashCount = 0;
-    for (let j = i - 1; j >= 0; j -= 1) {
-      if (line[j] !== "\\") {
-        break;
-      }
-      slashCount += 1;
-    }
-    if (slashCount % 2 === 0) {
-      return line.slice(0, i);
-    }
+export const findLabelColumn = (line: string, key: string): number | undefined => {
+  const code = getHoverLine(line);
+  const label = /\\label\s*\{([^{}]*)\}/g;
+  for (let match = label.exec(code); match; match = label.exec(code)) {
+    if (!isEscapedAt(line, match.index) && match[1].trim() === key) return match.index;
   }
-  return line;
+  return undefined;
 };
 
 type JoinedExcerpt = {
@@ -59,7 +53,7 @@ const joinExcerpt = (lines: string[]): JoinedExcerpt => {
   let text = "";
   lines.forEach((line, index) => {
     lineOffsets.push(text.length);
-    text += stripCommentTail(line ?? "");
+    text += getHoverLine(line ?? "");
     if (index < lines.length - 1) {
       text += "\n";
     }
@@ -85,8 +79,9 @@ export const extractMathEnvFromExcerpt = (excerpt: RefExcerpt): string | null =>
     return null;
   }
   const joined = joinExcerpt(lines);
-  const targetOffset = offsetInLine(joined, targetIndex);
-  const targetEnd = targetOffset + (stripCommentTail(lines[targetIndex] ?? "")).length;
+  const lineStart = offsetInLine(joined, targetIndex);
+  const targetOffset = lineStart + (excerpt.labelColumn ?? 0);
+  const targetEnd = lineStart + (excerpt.labelColumn ?? getHoverLine(lines[targetIndex] ?? "").length);
 
   const pairs: Array<{ startOffset: number; endOffset: number }> = [];
 
@@ -196,8 +191,8 @@ export type RefTargetSummary = {
   text: string;
 };
 
-const SECTION_COMMAND_REGEX =
-  /\\(chapter|section|subsection|subsubsection|paragraph|subparagraph)\s*\*?\s*(?:\[[^\]]*\])?\s*\{/;
+const HEADING_COMMAND_REGEX =
+  /\\(chapter|section|subsection|subsubsection|paragraph|subparagraph|caption)\s*\*?\s*(?:\[[^\]]*\])?\s*\{/g;
 
 const SECTION_PREFIX: Record<string, string> = {
   chapter: "§",
@@ -224,30 +219,20 @@ export const extractRefTargetSummary = (excerpt: RefExcerpt): RefTargetSummary |
   }
   const LOOKBACK = 3;
   for (let i = targetIndex; i >= Math.max(0, targetIndex - LOOKBACK); i -= 1) {
-    const line = stripCommentTail(lines[i] ?? "");
-    const sectionMatch = SECTION_COMMAND_REGEX.exec(line);
-    if (sectionMatch) {
-      const braceIndex = sectionMatch.index + sectionMatch[0].length - 1;
-      const title = readBalancedBraceArg(line, braceIndex);
-      if (title) {
-        const cleaned = cleanHeadingText(title);
-        if (cleaned) {
-          const prefix = SECTION_PREFIX[sectionMatch[1]] ?? "§";
-          return { kind: "section", text: `${prefix} ${cleaned}` };
-        }
-      }
+    const fullLine = getHoverLine(lines[i] ?? "");
+    const line = i === targetIndex ? fullLine.slice(0, excerpt.labelColumn) : fullLine;
+    let summary: RefTargetSummary | null = null;
+    HEADING_COMMAND_REGEX.lastIndex = 0;
+    for (let match = HEADING_COMMAND_REGEX.exec(line); match; match = HEADING_COMMAND_REGEX.exec(line)) {
+      if (isEscapedAt(line, match.index)) continue;
+      const title = readBalancedBraceArg(fullLine, match.index + match[0].length - 1);
+      const cleaned = title && cleanHeadingText(title);
+      if (!cleaned) continue;
+      summary = match[1] === "caption"
+        ? { kind: "caption", text: cleaned }
+        : { kind: "section", text: `${SECTION_PREFIX[match[1]]} ${cleaned}` };
     }
-    const captionMatch = /\\caption\s*(?:\[[^\]]*\])?\s*\{/.exec(line);
-    if (captionMatch) {
-      const braceIndex = captionMatch.index + captionMatch[0].length - 1;
-      const caption = readBalancedBraceArg(line, braceIndex);
-      if (caption) {
-        const cleaned = cleanHeadingText(caption);
-        if (cleaned) {
-          return { kind: "caption", text: cleaned };
-        }
-      }
-    }
+    if (summary) return summary;
   }
   return null;
 };

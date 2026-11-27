@@ -29,7 +29,8 @@ export type EditorSessionBufferOps = {
 
 export const createEditorSessionBufferOps = (
   runtime: EditorSessionRuntime,
-  coreOps: EditorSessionCoreOps
+  coreOps: EditorSessionCoreOps,
+  onDirtyChanged?: (path: string, dirty: boolean) => void,
 ): EditorSessionBufferOps => {
   let languageLookup: Map<string, string> | null = null;
   let registeredLanguageIds: Set<string> | null = null;
@@ -121,6 +122,13 @@ export const createEditorSessionBufferOps = (
   };
 
   const clearEditorView = (group: EditorGroupState) => {
+    // A workspace change can dispose the composing model before Monaco's
+    // compositionend callback. Its candidate and tab action belong to that model.
+    group.isComposing = false;
+    group.compositionText = "";
+    group.composingFilePath = null;
+    delete group.compositionBaseline;
+    group.pendingCompositionAction = null;
     if (!group.editor) {
       return;
     }
@@ -138,8 +146,8 @@ export const createEditorSessionBufferOps = (
     }
     // Blur will trigger compositionend which handles recovery
     group.pendingCompositionAction = action;
-    const input = group.editorHost?.querySelector<HTMLTextAreaElement>("textarea.inputarea");
-    input?.blur();
+    const input = document.activeElement;
+    if (input instanceof HTMLElement && group.editorHost?.contains(input)) input.blur();
   };
 
   const handleCompositionEnd = (group: EditorGroupState) => {
@@ -162,7 +170,7 @@ export const createEditorSessionBufferOps = (
     const baseSaved = savedContent ?? entry?.savedContent ?? groupSavedContent;
     // Monaco hides the BOM by default. Compare the same complete UTF-8 text
     // that the save path reads, including a BOM when the model carries one.
-    if (entry?.plainText) content = entry.model.getValue(undefined, true);
+    if (entry && (entry.plainText || baseSaved?.charCodeAt(0) === 0xfeff)) content = entry.model.getValue(undefined, true);
     if (baseSaved === undefined) {
       // No saved reference exists — treat content itself as saved baseline
       // but do NOT overwrite an existing entry.savedContent.
@@ -185,7 +193,11 @@ export const createEditorSessionBufferOps = (
         group.isDirty = runtime.dirtyFiles.has(path);
       }
     });
-    if (wasDirty !== runtime.dirtyFiles.has(path)) window.dispatchEvent(new Event("tex64:dirty-state-changed"));
+    const dirty = runtime.dirtyFiles.has(path);
+    if (wasDirty !== dirty) {
+      onDirtyChanged?.(path, dirty);
+      window.dispatchEvent(new Event("tex64:dirty-state-changed"));
+    }
   };
 
   const storeViewState = (group: EditorGroupState, path: string) => {

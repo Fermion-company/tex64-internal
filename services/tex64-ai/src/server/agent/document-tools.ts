@@ -329,9 +329,9 @@ export function createDocumentTools(scope: ToolScope) {
   return {
     read_document: tool({
       description:
-        "現在の構造化文書を読み取る。生成ソースや内部ファイルは返さない。",
+        "現在の構造化文書と、その内容が属する版番号 revision を返す。変更時はこの番号を baseRevision に使う。",
       inputSchema: serializableToolSchema(ReadDocumentInputSchema),
-      outputSchema: DocumentSchema,
+      outputSchema: DocumentSchema.safeExtend({ revision: z.number().int().nonnegative() }),
       execute: () => readDocument(scope),
     }),
 

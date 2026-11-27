@@ -24,6 +24,8 @@ const beginTaskTurn = (service, id, request, steering = false) => {
   });
 };
 const recordUndo = (service, id, result) => {
+  const meta = service.sessionMetaByConversation?.get(id);
+  if (meta) delete meta.changeReview;
   const task = readTask(service, id);
   if (!task) return;
   // Undo changes the source outside the model loop. Its previous PDF proof and
@@ -81,15 +83,24 @@ const recordReceipt = (service, id, name, args, result, isWrite = false) => {
     }
     artifact = { revision: (artifact?.revision || 0) + 1, changes: [...earlier, ...changes] };
   }
-  if (name === "compile_document" && safe.status === "success") artifact = {
-    ...artifact, revision: artifact?.revision || 0, compiled: artifact?.revision || 0, pdfPath: safe.pdfPath,
-    requiredPages: safe.affectedPages || [], observedPages: [], inspected: undefined,
-  };
+  if (name === "compile_document") {
+    // Every build replaces the evidence for the previous PDF, even if the
+    // source revision stayed the same or the compiler left its old PDF behind.
+    artifact = { revision: artifact?.revision || 0, changes: artifact?.changes || [] };
+    if (safe.status === "success") Object.assign(artifact, {
+      compiled: artifact.revision, pdfPath: safe.pdfPath,
+      requiredPages: safe.affectedPages || [], observedPages: [],
+    });
+  }
   if (name === "inspect_pdf" && ok && safe.pdfVersion && safe.compiledPdf && safe.compiledPdf === artifact?.pdfPath) {
     artifact = { ...artifact, rendered: artifact.compiled, pages: safe.pages, pdfVersion: safe.pdfVersion };
   }
   const receipt = { tool: name, turn: task.turn, ok: name === "compile_document" ? safe.status === "success" : ok, applied, pdfPath: name === "compile_document" ? safe.pdfPath : safe.compiledPdf, path: clip(args?.path || args?.mainFile, 1000),
     result: JSON.stringify(safe).slice(0, 1800), at: Date.now() };
+  const review = service.sessionMetaByConversation?.get(id)?.changeReview;
+  if (name === "compile_document" && review && review.runId === service.runningControllers?.get(id)?.token) {
+    review.build = safe.status === "success" ? "success" : "failure";
+  }
   saveTask(service, id, { ...task, artifact, ...(applied ? { status: "working" } : {}), receipts: [...task.receipts, receipt].slice(-30), updatedAt: Date.now() });
 };
 // Successful tools must observe the latest edit, never an older PDF.
@@ -104,7 +115,8 @@ const verificationGaps = (task) => {
 const markPdfObserved = (service, id, observation) => {
   const task = readTask(service, id);
   const artifact = task?.artifact;
-  if (artifact && observation && artifact.revision === observation.revision && artifact.pdfVersion === observation.pdfVersion) {
+  if (artifact?.pdfVersion && observation && artifact.rendered === artifact.revision &&
+      artifact.revision === observation.revision && artifact.pdfVersion === observation.pdfVersion) {
     saveTask(service, id, { ...task, artifact: { ...artifact, inspected: artifact.rendered,
       observedPages: [...new Set([...(artifact.observedPages || []), ...(observation.pages || [])])] } });
   }

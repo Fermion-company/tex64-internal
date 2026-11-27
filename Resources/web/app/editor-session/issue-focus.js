@@ -1,6 +1,6 @@
 export const createEditorSessionIssueFocusOps = (runtime, coreOps, issueOps, navigationOps, deps) => {
     const focusIssue = (issue, options = {}) => {
-        var _a;
+        var _a, _b, _c;
         const activeGroup = coreOps.getActiveGroup();
         const targetKey = (_a = options.groupKey) !== null && _a !== void 0 ? _a : coreOps.getActiveEditorGroupKey();
         const monacoApi = runtime.deps.getMonacoApi();
@@ -13,6 +13,8 @@ export const createEditorSessionIssueFocusOps = (runtime, coreOps, issueOps, nav
             issueOps.clearIssueHighlight();
             navigationOps.jumpToFileLine(detail.path, detail.line, targetKey, {
                 className,
+                column: (_b = detail.column) !== null && _b !== void 0 ? _b : undefined,
+                issueMessage: detail.message,
                 force: true,
             });
             return;
@@ -41,7 +43,7 @@ export const createEditorSessionIssueFocusOps = (runtime, coreOps, issueOps, nav
             },
         ]);
         editor.revealLineInCenter(detail.line);
-        editor.setPosition({ lineNumber: detail.line, column: 1 });
+        editor.setPosition({ lineNumber: detail.line, column: (_c = detail.column) !== null && _c !== void 0 ? _c : 1 });
         editor.focus();
     };
     return { focusIssue };

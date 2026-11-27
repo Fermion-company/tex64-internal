@@ -18,10 +18,11 @@ export function searchableText(content: PageText) {
 }
 type PdfLink = { id: string; rect: [number, number, number, number]; url?: string; dest?: unknown; label: string };
 
-export function PdfTextLayer({ page, scale, editing, hits, activeHit, onEdit, onNavigate }: {
+export function PdfTextLayer({ page, scale, editing, keyboardSelection, hits, activeHit, onEdit, onNavigate }: {
   page: PDFPageProxy;
   scale: number;
   editing: boolean;
+  keyboardSelection: boolean;
   hits: PdfSearchHit[];
   activeHit: number | null;
   onEdit: (clientX: number, clientY: number) => void;
@@ -88,12 +89,38 @@ export function PdfTextLayer({ page, scale, editing, hits, activeHit, onEdit, on
   }, [editing, hits, activeHit, ready]);
 
   return <>
-    <div ref={hostRef} className={`textLayer ${styles.textLayer}${editing ? ` ${styles.editingText}` : ""}`}
+    <div ref={hostRef} tabIndex={keyboardSelection ? 0 : undefined} data-pdf-text-page={page.pageNumber}
+      role={keyboardSelection ? "group" : undefined} aria-label={keyboardSelection ? `PDF本文 ${page.pageNumber}ページ` : undefined}
+      className={`textLayer ${styles.textLayer}${editing ? ` ${styles.editingText}` : ""}`}
       style={{ "--total-scale-factor": scale } as React.CSSProperties}
       onClick={(event) => { if (editing && !(window.getSelection()?.toString())) onEdit(event.clientX, event.clientY); }}
       onKeyDown={(event) => {
-        if (editing && (event.key === "Enter" || event.key === " ") && event.target instanceof HTMLElement) {
-          event.preventDefault(); const rect = event.target.getBoundingClientRect(); onEdit(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        if (keyboardSelection && event.target === event.currentTarget && ["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown"].includes(event.key)) {
+          const layer = event.currentTarget;
+          const selection = window.getSelection();
+          const first = layerRef.current?.textDivs.find((span) => span.firstChild?.textContent)?.firstChild;
+          if (!selection || !first) return;
+          event.preventDefault();
+          if (!layer.contains(selection.anchorNode) && !layer.contains(selection.focusNode)) {
+            selection.collapse(first, 0);
+          }
+          const vertical = event.key === "ArrowUp" || event.key === "ArrowDown";
+          const direction = event.key === "ArrowLeft" || event.key === "ArrowUp" ? "backward" : "forward";
+          const granularity = vertical ? "line" : event.metaKey ? "lineboundary" : event.ctrlKey || event.altKey ? "word" : "character";
+          selection.modify(event.shiftKey ? "extend" : "move", direction, granularity);
+          return;
+        }
+        if (editing && (event.key === "Enter" || event.key === " ")) {
+          const selection = window.getSelection();
+          const node = selection?.focusNode;
+          if (!selection?.isCollapsed || !(node instanceof Text) || !node.length || !event.currentTarget.contains(node)) return;
+          const offset = Math.min(selection.focusOffset, node.length - 1);
+          const range = document.createRange();
+          range.setStart(node, offset);
+          range.setEnd(node, offset + 1);
+          const rect = range.getBoundingClientRect();
+          event.preventDefault();
+          onEdit(rect.left + rect.width / 2, rect.top + rect.height / 2);
         }
       }} />
     <div className={styles.linkLayer}>

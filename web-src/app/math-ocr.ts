@@ -389,10 +389,13 @@ const computeMaskData = (imageData: ImageData) => {
     if (raw > max) max = raw;
     normalized[i] = raw;
   }
-  const scale = max > min ? 255 / (max - min) : 0;
+  if (max === min) {
+    throw new Error(uiText("Could not recognize the formula.", "数式を認識できませんでした。"));
+  }
+  const scale = 255 / (max - min);
   let mean = 0;
   for (let i = 0; i < normalized.length; i += 1) {
-    const value = scale > 0 ? (normalized[i] - min) * scale : 0;
+    const value = (normalized[i] - min) * scale;
     const clamped = clampByte(value);
     normalized[i] = clamped;
     mean += clamped;
@@ -664,6 +667,7 @@ const scoreLatexCandidate = (value: string) => {
 
 const recognizeMathInternal = async (
   imageDataUrl: string,
+  signal: AbortSignal,
   onProgress?: (current: number, total: number) => void
 ) => {
   const bridgeWindow = window as BridgeWindow;
@@ -674,6 +678,7 @@ const recognizeMathInternal = async (
 
   const pipelineStart = Date.now();
   const payloadVariants = await preprocessImageVariants(imageDataUrl);
+  signal.throwIfAborted();
   const totalSteps = payloadVariants.length;
   let bestLatex = "";
   let bestScore = -Infinity;
@@ -694,6 +699,7 @@ const recognizeMathInternal = async (
         maxSeqLen,
         maxDecodeCandidates,
       });
+      signal.throwIfAborted();
       const latex = typeof result?.latex === "string" ? result.latex.trim() : "";
       if (!latex) {
         return false;
@@ -707,6 +713,7 @@ const recognizeMathInternal = async (
         return true;
       }
     } catch (error) {
+      signal.throwIfAborted();
       lastError = error instanceof Error ? error : new Error(uiText("OCR failed.", "OCRできませんでした。"));
     }
     return false;
@@ -749,15 +756,24 @@ const recognizeMathInternal = async (
 
 export const recognizeMath = async (
   imageDataUrl: string,
-  onProgress?: (current: number, total: number) => void
+  onProgress?: (current: number, total: number) => void,
+  callerSignal?: AbortSignal
 ) => {
-  return Promise.race([
-    recognizeMathInternal(imageDataUrl, onProgress),
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(uiText("OCR timed out.", "OCRがタイムアウトしました。"))),
-        PIPELINE_TIMEOUT_MS
-      )
-    ),
-  ]);
+  const deadline = new AbortController();
+  const signal = callerSignal ? AbortSignal.any([deadline.signal, callerSignal]) : deadline.signal;
+  signal.throwIfAborted();
+  const timer = window.setTimeout(() => {
+    deadline.abort(new Error(uiText("OCR timed out.", "OCRがタイムアウトしました。")));
+  }, PIPELINE_TIMEOUT_MS);
+  let onAbort: () => void;
+  const cancelled = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort);
+  });
+  try {
+    return await Promise.race([recognizeMathInternal(imageDataUrl, signal, onProgress), cancelled]);
+  } finally {
+    window.clearTimeout(timer);
+    signal.removeEventListener("abort", onAbort);
+  }
 };

@@ -228,11 +228,12 @@ defineFunction(['cfrac'], '[:string]{:expression}{:expression}', {
       genfracOptions
     );
   },
-  serialize: (atom, options) => {
+  serialize: (atom: GenfracAtom, options) => {
     const numer = atom.aboveToLatex(options);
     const denom = atom.belowToLatex(options);
 
-    return latexCommand(atom.command, numer, denom);
+    const alignment = atom.align === 'left' ? '[l]' : atom.align === 'right' ? '[r]' : '';
+    return latexCommand(atom.command + alignment, numer, denom);
   },
 });
 

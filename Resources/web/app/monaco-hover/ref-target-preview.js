@@ -4,6 +4,8 @@
  * instead of only a raw code excerpt. Pure text functions — no DOM — so the
  * logic is unit-testable under node:test.
  */
+import { getHoverLine } from "./utils.js";
+import { isEscapedAt } from "../blocks/tex-utils.js";
 const DISPLAY_MATH_ENVIRONMENTS = new Set([
     "equation",
     "equation*",
@@ -22,30 +24,21 @@ const DISPLAY_MATH_ENVIRONMENTS = new Set([
     "math",
     "displaymath",
 ]);
-const stripCommentTail = (line) => {
-    for (let i = 0; i < line.length; i += 1) {
-        if (line[i] !== "%") {
-            continue;
-        }
-        let slashCount = 0;
-        for (let j = i - 1; j >= 0; j -= 1) {
-            if (line[j] !== "\\") {
-                break;
-            }
-            slashCount += 1;
-        }
-        if (slashCount % 2 === 0) {
-            return line.slice(0, i);
-        }
+export const findLabelColumn = (line, key) => {
+    const code = getHoverLine(line);
+    const label = /\\label\s*\{([^{}]*)\}/g;
+    for (let match = label.exec(code); match; match = label.exec(code)) {
+        if (!isEscapedAt(line, match.index) && match[1].trim() === key)
+            return match.index;
     }
-    return line;
+    return undefined;
 };
 const joinExcerpt = (lines) => {
     const lineOffsets = [];
     let text = "";
     lines.forEach((line, index) => {
         lineOffsets.push(text.length);
-        text += stripCommentTail(line !== null && line !== void 0 ? line : "");
+        text += getHoverLine(line !== null && line !== void 0 ? line : "");
         if (index < lines.length - 1) {
             text += "\n";
         }
@@ -59,7 +52,7 @@ const offsetInLine = (joined, lineIndex) => { var _a; return (_a = joined.lineOf
  * the target line is not inside display math within the excerpt.
  */
 export const extractMathEnvFromExcerpt = (excerpt) => {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f;
     const { startLine, lines, targetLine } = excerpt;
     if (!Array.isArray(lines) || lines.length === 0) {
         return null;
@@ -69,23 +62,24 @@ export const extractMathEnvFromExcerpt = (excerpt) => {
         return null;
     }
     const joined = joinExcerpt(lines);
-    const targetOffset = offsetInLine(joined, targetIndex);
-    const targetEnd = targetOffset + (stripCommentTail((_a = lines[targetIndex]) !== null && _a !== void 0 ? _a : "")).length;
+    const lineStart = offsetInLine(joined, targetIndex);
+    const targetOffset = lineStart + ((_a = excerpt.labelColumn) !== null && _a !== void 0 ? _a : 0);
+    const targetEnd = lineStart + ((_b = excerpt.labelColumn) !== null && _b !== void 0 ? _b : getHoverLine((_c = lines[targetIndex]) !== null && _c !== void 0 ? _c : "").length);
     const pairs = [];
     // Environment pairs (\begin{env} ... \end{env}) with proper nesting.
     const tokenRegex = /\\(begin|end)\{([A-Za-z*@]+)\}/g;
     const stack = [];
     let token = tokenRegex.exec(joined.text);
     while (token) {
-        const action = (_b = token[1]) !== null && _b !== void 0 ? _b : "";
-        const env = (_c = token[2]) !== null && _c !== void 0 ? _c : "";
+        const action = (_d = token[1]) !== null && _d !== void 0 ? _d : "";
+        const env = (_e = token[2]) !== null && _e !== void 0 ? _e : "";
         if (DISPLAY_MATH_ENVIRONMENTS.has(env)) {
             if (action === "begin") {
                 stack.push({ env, startOffset: token.index });
             }
             else {
                 for (let i = stack.length - 1; i >= 0; i -= 1) {
-                    if (((_d = stack[i]) === null || _d === void 0 ? void 0 : _d.env) === env) {
+                    if (((_f = stack[i]) === null || _f === void 0 ? void 0 : _f.env) === env) {
                         const begin = stack.splice(i, 1)[0];
                         pairs.push({
                             startOffset: begin.startOffset,
@@ -169,7 +163,7 @@ export const cleanHeadingText = (value) => value
     .replace(/~/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-const SECTION_COMMAND_REGEX = /\\(chapter|section|subsection|subsubsection|paragraph|subparagraph)\s*\*?\s*(?:\[[^\]]*\])?\s*\{/;
+const HEADING_COMMAND_REGEX = /\\(chapter|section|subsection|subsubsection|paragraph|subparagraph|caption)\s*\*?\s*(?:\[[^\]]*\])?\s*\{/g;
 const SECTION_PREFIX = {
     chapter: "§",
     section: "§",
@@ -184,7 +178,7 @@ const SECTION_PREFIX = {
  * lines above (labels conventionally follow the thing they mark).
  */
 export const extractRefTargetSummary = (excerpt) => {
-    var _a, _b;
+    var _a;
     const { startLine, lines, targetLine } = excerpt;
     if (!Array.isArray(lines) || lines.length === 0) {
         return null;
@@ -195,30 +189,23 @@ export const extractRefTargetSummary = (excerpt) => {
     }
     const LOOKBACK = 3;
     for (let i = targetIndex; i >= Math.max(0, targetIndex - LOOKBACK); i -= 1) {
-        const line = stripCommentTail((_a = lines[i]) !== null && _a !== void 0 ? _a : "");
-        const sectionMatch = SECTION_COMMAND_REGEX.exec(line);
-        if (sectionMatch) {
-            const braceIndex = sectionMatch.index + sectionMatch[0].length - 1;
-            const title = readBalancedBraceArg(line, braceIndex);
-            if (title) {
-                const cleaned = cleanHeadingText(title);
-                if (cleaned) {
-                    const prefix = (_b = SECTION_PREFIX[sectionMatch[1]]) !== null && _b !== void 0 ? _b : "§";
-                    return { kind: "section", text: `${prefix} ${cleaned}` };
-                }
-            }
+        const fullLine = getHoverLine((_a = lines[i]) !== null && _a !== void 0 ? _a : "");
+        const line = i === targetIndex ? fullLine.slice(0, excerpt.labelColumn) : fullLine;
+        let summary = null;
+        HEADING_COMMAND_REGEX.lastIndex = 0;
+        for (let match = HEADING_COMMAND_REGEX.exec(line); match; match = HEADING_COMMAND_REGEX.exec(line)) {
+            if (isEscapedAt(line, match.index))
+                continue;
+            const title = readBalancedBraceArg(fullLine, match.index + match[0].length - 1);
+            const cleaned = title && cleanHeadingText(title);
+            if (!cleaned)
+                continue;
+            summary = match[1] === "caption"
+                ? { kind: "caption", text: cleaned }
+                : { kind: "section", text: `${SECTION_PREFIX[match[1]]} ${cleaned}` };
         }
-        const captionMatch = /\\caption\s*(?:\[[^\]]*\])?\s*\{/.exec(line);
-        if (captionMatch) {
-            const braceIndex = captionMatch.index + captionMatch[0].length - 1;
-            const caption = readBalancedBraceArg(line, braceIndex);
-            if (caption) {
-                const cleaned = cleanHeadingText(caption);
-                if (cleaned) {
-                    return { kind: "caption", text: cleaned };
-                }
-            }
-        }
+        if (summary)
+            return summary;
     }
     return null;
 };

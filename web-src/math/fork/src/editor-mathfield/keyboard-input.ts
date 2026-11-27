@@ -205,7 +205,7 @@ export function onKeystroke(
   // 4.3 Check if this matches a keybinding.
   //
   // Need to check this **after** checking for inline shortcuts because
-  // Shift+Backquote is a keybinding that inserts "\~"", but "~~" is a
+  // Shift+Backquote inserts "\sim", but "~~" is a
   // shortcut for "\approx" and needs to have priority over Shift+Backquote
   // A translated printable key takes precedence over physical-key mappings.
   // In particular a quote on a non-US layout must never become a fraction.
@@ -807,7 +807,7 @@ function insertMathModeChar(mathfield: _Mathfield, c: string): void {
   else if (input === '#') input = '\\#';
   else if (input === '$') input = '\\$';
   else if (input === '%') input = '\\%';
-  else if (input === '~') input = '\\~';
+  else if (input === '~') input = '\\sim';
   else if (input === '\\') input = '\\backslash';
 
   // General purpose character insertion

@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { isUtf8 } = require("node:buffer");
 const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
@@ -48,6 +49,16 @@ const realpathSync = (targetPath) =>
   typeof fs.realpathSync.native === "function"
     ? fs.realpathSync.native(targetPath)
     : fs.realpathSync(targetPath);
+
+const canonicalWorkspacePath = (rootPath) => {
+  let resolved = path.resolve(rootPath);
+  try {
+    resolved = realpathSync(resolved);
+  } catch {
+    // A just-created directory may not have a real path yet.
+  }
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+};
 
 const isWithinPath = (rootPath, targetPath) => {
   const relative = path.relative(rootPath, targetPath);
@@ -104,13 +115,12 @@ const ensureDirectory = async (dirPath) => {
   await fsp.mkdir(dirPath, { recursive: true });
 };
 
-const readUtf8File = async (filePath) => {
+const readUtf8File = async (filePath, { requireUtf8 = false } = {}) => {
   const data = await fsp.readFile(filePath);
-  const content = data.toString("utf8");
-  if (!content && data.length > 0) {
+  if (requireUtf8 && !isUtf8(data)) {
     throw new Error(WorkspaceError.invalidEncoding);
   }
-  return content;
+  return data.toString("utf8");
 };
 
 // Atomic replace: a crash or kill mid-write must never leave a truncated
@@ -120,10 +130,10 @@ const readUtf8File = async (filePath) => {
 const writeFileAtomic = async (filePath, buffer) => {
   const tmpPath = path.join(
     path.dirname(filePath),
-    `.${path.basename(filePath)}.tmp-${process.pid}-${Date.now()}`
+    `.${path.basename(filePath)}.tmp-${generateId()}`
   );
-  await fsp.writeFile(tmpPath, buffer);
   try {
+    await fsp.writeFile(tmpPath, buffer, { flag: "wx" });
     await fsp.rename(tmpPath, filePath);
   } catch (error) {
     await fsp.rm(tmpPath, { force: true }).catch(() => {});
@@ -170,13 +180,16 @@ class WorkspaceManager {
 
   constructor() {
     this.rootPath = null;
+    this.rootGeneration = 0;
     this.rootFileInfo = null;
     this.rootInfoRootPath = null;
     this.undoStack = [];
     this.fileMutationTails = new Map();
+    this.pendingUndo = Promise.resolve();
   }
 
   setRootPath(rootPath) {
+    this.rootGeneration++;
     this.rootPath = rootPath;
     this.rootFileInfo = null;
     this.rootInfoRootPath = null;
@@ -187,11 +200,16 @@ class WorkspaceManager {
     return this.rootPath;
   }
 
+  assertCurrentRoot(generation) {
+    if (this.rootGeneration !== generation) throw new Error("Workspace changed.");
+  }
+
   async withFileMutation(relativePath, operation) {
     if (typeof operation !== "function") {
       throw new Error("A file mutation callback is required.");
     }
     const rootPath = this.rootPath;
+    const generation = this.rootGeneration;
     if (!rootPath) throw new Error(WorkspaceError.invalidPath);
     const normalized = normalizeRelativePath(relativePath ?? "");
     // Resolve before acquiring the queue so invalid/symlink-escaping paths never
@@ -200,7 +218,7 @@ class WorkspaceManager {
     const key = `${rootPath}\0${normalized}`;
     const previous = this.fileMutationTails.get(key) ?? Promise.resolve();
     const run = previous.catch(() => {}).then(() => {
-      if (this.rootPath !== rootPath) throw new Error(WorkspaceError.invalidPath);
+      this.assertCurrentRoot(generation);
       return operation();
     });
     const tail = run.then(
@@ -248,19 +266,22 @@ class WorkspaceManager {
     if (this.rootFileInfo) {
       return this.rootFileInfo;
     }
+    const generation = this.rootGeneration;
     const settings = await this.loadSettings().catch(() => null);
-    if (settings?.rootFile) {
-      const resolved = this.resolvePath(settings.rootFile);
-      const exists = await fsp
-        .stat(resolved)
-        .then((stat) => stat.isFile())
-        .catch(() => false);
-      if (exists) {
-        this.rootFileInfo = { path: settings.rootFile, source: "manual" };
-        return this.rootFileInfo;
-      }
+    this.assertCurrentRoot(generation);
+    if (typeof settings?.rootFile === "string" && /\.tex$/i.test(settings.rootFile.trim())) {
+      try {
+        const resolved = this.resolvePath(settings.rootFile);
+        if ((await fsp.stat(resolved)).isFile()) {
+          this.assertCurrentRoot(generation);
+          this.rootFileInfo = { path: normalizeRelativePath(path.relative(this.rootPath, resolved)), source: "manual" };
+          return this.rootFileInfo;
+        }
+      } catch { /* A moved project may have a stale root. Try auto-detection. */ }
     }
+    this.assertCurrentRoot(generation);
     const autoRoot = await this.detectRootFile();
+    this.assertCurrentRoot(generation);
     if (autoRoot) {
       this.rootFileInfo = { path: autoRoot, source: "auto" };
       return this.rootFileInfo;
@@ -272,6 +293,7 @@ class WorkspaceManager {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
     }
+    const generation = this.rootGeneration;
     const trimmed = (pathValue ?? "").trim();
     if (!trimmed) {
       return this.clearRootOverride();
@@ -284,12 +306,15 @@ class WorkspaceManager {
     if (path.extname(resolved).toLowerCase() !== ".tex") {
       throw new Error(WorkspaceError.invalidPath);
     }
-    this.rootFileInfo = { path: normalizeRelativePath(trimmed), source: "manual" };
-    this.rootInfoRootPath = this.rootPath;
+    this.assertCurrentRoot(generation);
+    const relativePath = normalizeRelativePath(trimmed);
     await this.updateSettings((settings) => {
-      settings.rootFile = normalizeRelativePath(trimmed);
+      settings.rootFile = relativePath;
       return settings;
     });
+    this.assertCurrentRoot(generation);
+    this.rootFileInfo = { path: relativePath, source: "manual" };
+    this.rootInfoRootPath = this.rootPath;
     return this.rootFileInfo;
   }
 
@@ -297,17 +322,16 @@ class WorkspaceManager {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
     }
-    this.rootInfoRootPath = this.rootPath;
+    const generation = this.rootGeneration;
     const autoRoot = await this.detectRootFile();
-    if (autoRoot) {
-      this.rootFileInfo = { path: autoRoot, source: "auto" };
-    } else {
-      this.rootFileInfo = null;
-    }
+    this.assertCurrentRoot(generation);
     await this.updateSettings((settings) => {
       delete settings.rootFile;
       return settings;
     });
+    this.assertCurrentRoot(generation);
+    this.rootInfoRootPath = this.rootPath;
+    this.rootFileInfo = autoRoot ? { path: autoRoot, source: "auto" } : null;
     return this.rootFileInfo;
   }
 
@@ -345,9 +369,9 @@ class WorkspaceManager {
     return results.sort((a, b) => a.localeCompare(b, "ja"));
   }
 
-  async readFile(relativePath) {
+  async readFile(relativePath, options) {
     const resolved = this.resolvePath(relativePath);
-    const content = await readUtf8File(resolved);
+    const content = await readUtf8File(resolved, options);
     return content;
   }
 
@@ -390,22 +414,37 @@ class WorkspaceManager {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
     }
+    const generation = this.rootGeneration;
     const trimmed = (newName ?? "").trim();
     if (!trimmed || trimmed.includes("/") || trimmed.includes("\\")) {
       throw new Error(WorkspaceError.invalidName);
     }
     const resolved = this.resolvePath(relativePath);
     const stat = await fsp.stat(resolved).catch(() => null);
+    this.assertCurrentRoot(generation);
     if (!stat) {
       throw new Error(WorkspaceError.notFound);
     }
     const parentDir = path.dirname(resolved);
     const target = path.join(parentDir, trimmed);
-    const exists = await fsp.stat(target).then(() => true).catch(() => false);
-    if (exists) {
-      throw new Error(WorkspaceError.alreadyExists);
+    const targetEntry = await fsp.lstat(target).catch((error) => {
+      if (error.code !== "ENOENT") throw error;
+      return null;
+    });
+    if (targetEntry) {
+      // On a case-insensitive volume both spellings can address one directory entry.
+      // Distinct entries (including hard links) must still never replace one another.
+      const folded = (name) => name.normalize("NFC").toLowerCase();
+      const sourceName = path.basename(resolved);
+      const targetName = folded(trimmed);
+      if (folded(sourceName) !== targetName ||
+          (await fsp.readdir(parentDir)).filter(name => folded(name) === targetName).length !== 1) {
+        throw new Error(WorkspaceError.alreadyExists);
+      }
     }
+    this.assertCurrentRoot(generation);
     await fsp.rename(resolved, target);
+    this.assertCurrentRoot(generation);
     const newRelative = normalizeRelativePath(path.relative(this.rootPath, target));
     this.updateRootOverrideAfterRename(relativePath, newRelative);
     return newRelative;
@@ -415,12 +454,14 @@ class WorkspaceManager {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
     }
+    const generation = this.rootGeneration;
     const trimmed = (relativePath ?? "").trim();
     if (!trimmed) {
       throw new Error(WorkspaceError.invalidPath);
     }
     const resolvedSource = this.resolvePath(trimmed);
     const stat = await fsp.stat(resolvedSource).catch(() => null);
+    this.assertCurrentRoot(generation);
     if (!stat) {
       throw new Error(WorkspaceError.notFound);
     }
@@ -454,7 +495,9 @@ class WorkspaceManager {
       throw new Error(WorkspaceError.alreadyExists);
     }
 
+    this.assertCurrentRoot(generation);
     await fsp.rename(sourcePath, target);
+    this.assertCurrentRoot(generation);
     const newRelative = normalizeRelativePath(path.relative(this.rootPath, target));
     this.updateRootOverrideAfterRename(trimmed, newRelative);
 
@@ -477,12 +520,14 @@ class WorkspaceManager {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
     }
+    const generation = this.rootGeneration;
     const trimmed = (relativePath ?? "").trim();
     if (!trimmed) {
       throw new Error(WorkspaceError.invalidPath);
     }
     const resolvedSource = this.resolvePath(trimmed);
     const stat = await fsp.stat(resolvedSource).catch(() => null);
+    this.assertCurrentRoot(generation);
     if (!stat) {
       throw new Error(WorkspaceError.notFound);
     }
@@ -505,7 +550,9 @@ class WorkspaceManager {
       throw new Error(WorkspaceError.alreadyExists);
     }
 
+    this.assertCurrentRoot(generation);
     await fsp.cp(resolvedSource, target, { recursive: stat.isDirectory() });
+    this.assertCurrentRoot(generation);
     return normalizeRelativePath(path.relative(this.rootPath, target));
   }
 
@@ -513,12 +560,14 @@ class WorkspaceManager {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
     }
+    const generation = this.rootGeneration;
     const trimmed = (relativePath ?? "").trim();
     if (!trimmed) {
       throw new Error(WorkspaceError.invalidPath);
     }
     const resolved = this.resolvePath(trimmed);
     const stat = await fsp.stat(resolved).catch(() => null);
+    this.assertCurrentRoot(generation);
     if (!stat) {
       throw new Error(WorkspaceError.notFound);
     }
@@ -534,6 +583,7 @@ class WorkspaceManager {
     const affectsIndex = stat.isDirectory() || this.isIndexTarget(trimmed);
 
     const trashedPath = await this.moveToInternalTrash(resolved);
+    this.assertCurrentRoot(generation);
     this.undoStack.push({
       kind: "delete",
       fromPath: normalizeRelativePath(trimmed),
@@ -547,51 +597,45 @@ class WorkspaceManager {
   }
 
   async undoLastOperation() {
-    if (!this.rootPath) {
-      throw new Error(WorkspaceError.invalidPath);
-    }
-    const operation = this.undoStack.pop();
-    if (!operation) {
-      return null;
-    }
+    if (!this.rootPath) throw new Error(WorkspaceError.invalidPath);
+    const generation = this.rootGeneration;
+    const run = this.pendingUndo.then(() => this.restoreLastOperation(generation));
+    this.pendingUndo = run.catch(() => {});
+    return run;
+  }
+
+  async restoreLastOperation(generation) {
+    this.assertCurrentRoot(generation);
+    const stack = this.undoStack;
+    const index = stack.length - 1;
+    const operation = stack[index];
+    if (!operation) return null;
+    const sourcePath = operation.kind === "move" ? operation.toPath : operation.trashedPath;
+    if (!sourcePath) throw new Error(WorkspaceError.invalidMove);
+    const source = this.resolvePath(sourcePath);
+    const target = this.resolvePath(operation.fromPath);
+    const exists = await fsp.lstat(target).then(() => true, error => {
+      if (error.code === "ENOENT") return false;
+      throw error;
+    });
+    if (exists) throw new Error(WorkspaceError.alreadyExists);
+    this.assertCurrentRoot(generation);
+    await ensureDirectory(path.dirname(target));
+    this.assertCurrentRoot(generation);
+    await fsp.rename(source, target);
+    // A failed restore remains available after the user resolves the conflict.
+    stack.splice(index, 1);
+    this.assertCurrentRoot(generation);
     if (operation.kind === "move") {
-      if (!operation.toPath) {
-        throw new Error(WorkspaceError.invalidMove);
-      }
-      const source = this.resolvePath(operation.toPath);
-      const target = this.resolvePath(operation.fromPath);
-      const exists = await fsp.stat(target).then(() => true).catch(() => false);
-      if (exists) {
-        throw new Error(WorkspaceError.alreadyExists);
-      }
-      await ensureDirectory(path.dirname(target));
-      await fsp.rename(source, target);
       this.updateRootOverrideAfterRename(operation.toPath, operation.fromPath);
-      return operation;
+    } else if (operation.restoreRootPath) {
+      this.rootInfoRootPath = this.rootPath;
+      this.rootFileInfo = { path: operation.restoreRootPath, source: "manual" };
+      await this.updateSettings((settings) => {
+        settings.rootFile = operation.restoreRootPath;
+      });
     }
-    if (operation.kind === "delete") {
-      if (!operation.trashedPath) {
-        throw new Error(WorkspaceError.invalidMove);
-      }
-      const source = this.resolvePath(operation.trashedPath);
-      const target = this.resolvePath(operation.fromPath);
-      const exists = await fsp.stat(target).then(() => true).catch(() => false);
-      if (exists) {
-        throw new Error(WorkspaceError.alreadyExists);
-      }
-      await ensureDirectory(path.dirname(target));
-      await fsp.rename(source, target);
-      if (operation.restoreRootPath) {
-        this.rootInfoRootPath = this.rootPath;
-        this.rootFileInfo = { path: operation.restoreRootPath, source: "manual" };
-        await this.updateSettings((settings) => {
-          settings.rootFile = operation.restoreRootPath;
-          return settings;
-        }).catch(() => null);
-      }
-      return operation;
-    }
-    return null;
+    return operation;
   }
 
   async detectRootFile() {
@@ -731,73 +775,58 @@ class WorkspaceManager {
   }
 
   async updateSettings(mutator) {
-    if (!this.rootPath) {
-      throw new Error(WorkspaceError.invalidPath);
-    }
-    const directory = this.resolvePath(".tex64");
-    await ensureDirectory(directory);
-    const settingsPath = this.resolvePath(".tex64/settings.json");
-
-    const exists = await fsp.stat(settingsPath).then(() => true).catch(() => false);
-    let settings = {};
-    if (exists) {
-      settings = await readUtf8File(settingsPath)
-        .then((raw) => JSON.parse(raw))
-        .catch(() => ({}));
-      if (!settings || typeof settings !== "object") {
-        settings = {};
+    const relativePath = ".tex64/settings.json";
+    const settingsPath = this.resolvePath(relativePath);
+    const generation = this.rootGeneration;
+    return this.withFileMutation(relativePath, async () => {
+      let current = {};
+      try {
+        current = JSON.parse(await readUtf8File(settingsPath));
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
       }
-    }
-
-    const next = mutator(settings) ?? settings;
-    const normalized = next && typeof next === "object" ? next : {};
-
-    Object.keys(normalized).forEach((key) => {
-      if (normalized[key] === undefined) {
-        delete normalized[key];
+      if (!current || typeof current !== "object" || Array.isArray(current)) {
+        throw new Error("Invalid project settings.");
       }
+      this.assertCurrentRoot(generation);
+      const next = mutator(current) ?? current;
+      if (!Object.keys(next).some(key => next[key] !== undefined)) {
+        await fsp.rm(settingsPath, { force: true });
+        return;
+      }
+      await ensureDirectory(path.dirname(settingsPath));
+      this.assertCurrentRoot(generation);
+      await writeUtf8File(settingsPath, JSON.stringify(next, null, 2));
     });
-
-    const keys = Object.keys(normalized);
-    if (keys.length === 0) {
-      await fsp.unlink(settingsPath).catch(() => null);
-      return;
-    }
-
-    const payload = JSON.stringify(normalized, null, 2);
-    await writeUtf8File(settingsPath, payload);
   }
 
   async loadSettings() {
-    if (!this.rootPath) {
-      return null;
-    }
+    if (!this.rootPath) return null;
     const settingsPath = this.resolvePath(".tex64/settings.json");
-    const exists = await fsp.stat(settingsPath).then(() => true).catch(() => false);
-    if (!exists) {
-      return null;
+    try {
+      return JSON.parse(await readUtf8File(settingsPath));
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
     }
-    const raw = await readUtf8File(settingsPath);
-    return JSON.parse(raw);
   }
 
   async saveSettings(settings) {
-    if (!this.rootPath) {
-      throw new Error(WorkspaceError.invalidPath);
-    }
-    const directory = this.resolvePath(".tex64");
-    await ensureDirectory(directory);
-    const settingsPath = this.resolvePath(".tex64/settings.json");
-    const payload = JSON.stringify(settings, null, 2);
-    await writeUtf8File(settingsPath, payload);
+    const relativePath = ".tex64/settings.json";
+    const settingsPath = this.resolvePath(relativePath);
+    const generation = this.rootGeneration;
+    return this.withFileMutation(relativePath, async () => {
+      await ensureDirectory(path.dirname(settingsPath));
+      this.assertCurrentRoot(generation);
+      await writeUtf8File(settingsPath, JSON.stringify(settings, null, 2));
+    });
   }
 
   async removeSettings() {
-    if (!this.rootPath) {
-      return;
-    }
-    const settingsPath = this.resolvePath(".tex64/settings.json");
-    await fsp.unlink(settingsPath).catch(() => null);
+    if (!this.rootPath) return;
+    const relativePath = ".tex64/settings.json";
+    const settingsPath = this.resolvePath(relativePath);
+    return this.withFileMutation(relativePath, () => fsp.rm(settingsPath, { force: true }));
   }
 
   updateRootOverrideAfterRename(oldPath, newPath) {
@@ -858,8 +887,10 @@ class WorkspaceManager {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
     }
+    const generation = this.rootGeneration;
     const trashDir = this.resolvePath(".tex64/.trash");
     await ensureDirectory(trashDir);
+    this.assertCurrentRoot(generation);
     const baseName = path.basename(itemPath);
     let attempt = 0;
     let candidate = this.resolvePath(
@@ -870,6 +901,7 @@ class WorkspaceManager {
       if (!exists) {
         break;
       }
+      this.assertCurrentRoot(generation);
       attempt += 1;
       candidate = this.resolvePath(
         normalizeRelativePath(path.join(".tex64", ".trash", `${generateId()}-${baseName}`)),
@@ -879,6 +911,7 @@ class WorkspaceManager {
     if (finalExists) {
       throw new Error(WorkspaceError.alreadyExists);
     }
+    this.assertCurrentRoot(generation);
     await fsp.rename(itemPath, candidate);
     return candidate;
   }
@@ -935,4 +968,5 @@ module.exports = {
   WorkspaceManager,
   WorkspaceError,
   normalizeRelativePath,
+  canonicalWorkspacePath,
 };

@@ -121,7 +121,13 @@ class GitService {
     const plan = { action, state, args: {}, paths: [], createdAt: Date.now(), writesWorktree: ["branch-create", "branch-switch", "merge", "merge-abort"].includes(action) };
     if (["stage", "unstage", "resolve-stage"].includes(action)) {
       if (!Array.isArray(args.paths) || !args.paths.length || args.paths.length > 500) throw fail("GIT_PATH_INVALID", "Choose the files for this operation.");
-      plan.paths = [...new Set(args.paths.map(literalPath))].sort();
+      const selected = new Set(args.paths.map(literalPath));
+      plan.paths = [...selected];
+      if (action === "unstage") {
+        for (const entry of state.status.entries) {
+          if (entry.index === "R" && selected.has(entry.path)) plan.paths.push(literalPath(entry.originalPath));
+        }
+      }
       if (action === "resolve-stage" && plan.paths.some(file => !state.status.entries.some(entry => entry.path === file && entry.unmerged))) throw fail("GIT_PATH_INVALID", "Choose an unresolved file.");
       if (action === "unstage" && state.unborn) plan.emptyTree = text(await this.read(["hash-object", "-t", "tree", "--stdin"]));
     }

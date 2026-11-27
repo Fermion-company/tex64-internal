@@ -1,3 +1,6 @@
+import { uiText } from "../i18n.js";
+import { showEditorNotice } from "../editor-notice.js";
+import { isTexFilePath } from "../files.js";
 import { formatSnippetForInsert } from "./format.js";
 import type { BlockApplyMode, BlockMode } from "../types.js";
 import type { DetectedBlockSnapshot, PendingBlockApply } from "./types.js";
@@ -81,7 +84,6 @@ export const initBlockInsertFlow = (
   deps: BlockInsertDeps
 ): BlockInsertApi => {
   const { blockInsertButton } = context.dom;
-  let triggerInsertSeq = 0;
   const countLines = (text: string) => {
     if (!text) return 1;
     return text.split(/\r?\n/).length;
@@ -232,7 +234,7 @@ export const initBlockInsertFlow = (
       deps.updateFallback("Editor is not ready.");
       return;
     }
-    if (!activeGroup.currentFilePath || !activeGroup.currentFilePath.endsWith(".tex")) {
+    if (!isTexFilePath(activeGroup.currentFilePath)) {
       deps.updateIssues(1, "Math can only be inserted in .tex files.", "error", [
         { severity: "error", message: "Math can only be inserted in .tex files." },
       ]);
@@ -246,6 +248,11 @@ export const initBlockInsertFlow = (
 
     let range: unknown;
     const model = editor.getModel?.();
+    if (applyPayload && (applyPayload.sourceModel !== model ||
+      (applyPayload.mode === "new" && applyPayload.sourceVersion !== model?.getVersionId?.()))) {
+      showEditorNotice(blockInsertButton, uiText("The source changed. Review the formula again.", "原稿が変わりました。数式をもう一度確認してください。"));
+      return;
+    }
     const blockMode = deps.getBlockMode?.() ?? "insert";
     const mode: BlockApplyMode =
       applyPayload?.mode ?? (blockMode === "edit" ? "detected" : "new");
@@ -273,6 +280,7 @@ export const initBlockInsertFlow = (
       const content = model.getValue();
       const slice = content.slice(snapshot.start, snapshot.end);
       if (slice !== snapshot.snippet) {
+        showEditorNotice(blockInsertButton, uiText("The formula changed. Review it again.", "原稿の数式が変わりました。もう一度確認してください。"));
         return;
       }
       const startPos = model.getPositionAt(snapshot.start);
@@ -338,15 +346,15 @@ export const initBlockInsertFlow = (
     deps.setPendingBlockApply(null);
     deps.setCurrentBlockDraft(null);
     deps.resetBlockSession({ applyMode: mode });
+    deps.requestFormatCurrentFile("blockInsert");
   };
 
   const triggerInsert = async () => {
-    const triggerSeq = ++triggerInsertSeq;
     const activeGroup = deps.getActiveGroup();
     if (!activeGroup.editor) {
       return;
     }
-    if (!activeGroup.currentFilePath || !activeGroup.currentFilePath.endsWith(".tex")) {
+    if (!isTexFilePath(activeGroup.currentFilePath)) {
       deps.updateIssues(1, "Math can only be inserted in .tex files.", "error", [
         { severity: "error", message: "Math can only be inserted in .tex files." },
       ]);
@@ -400,13 +408,13 @@ export const initBlockInsertFlow = (
         column: insertRange.startColumn,
       };
     }
-    let formattedSnippet =
+    const formattedSnippet =
       mode === "new"
         ? formatSnippetForInsert(draft.snippet, editorForDetect.getModel?.(), insertPosition, {
             alignEnv: deps.getEditorAlignEnvEnabled(),
           })
         : draft.snippet;
-    let resolvedDraft = { ...draft, snippet: formattedSnippet };
+    const resolvedDraft = { ...draft, snippet: formattedSnippet };
 
     const editorModel = editorForDetect.getModel?.();
     const hasPositionAt = (model: {
@@ -414,6 +422,13 @@ export const initBlockInsertFlow = (
       getPositionAt?: (offset: number) => { lineNumber: number; column: number };
     }): model is EditorModelWithPosition =>
       typeof model.getValue === "function" && typeof model.getPositionAt === "function";
+    const applyPayload: PendingBlockApply = {
+      sourceModel: editorModel ?? null, sourceVersion: editorModel?.getVersionId?.(),
+      mode, draft: resolvedDraft, detectedSnapshot: mode === "detected" ? detectedSnapshot : null,
+      insertPosition, insertRange,
+    };
+    deps.setPendingBlockApply(applyPayload);
+    deps.setCurrentBlockDraft(resolvedDraft);
     if (editorModel && hasPositionAt(editorModel)) {
       const model = editorModel as EditorModelWithPosition;
       let startOffset = 0;
@@ -435,45 +450,15 @@ export const initBlockInsertFlow = (
         startOffset = offset;
         endOffset = offset;
       }
-      let replaceRange: PendingBlockApply["replaceRange"] = null;
-      let replaceSnippet: PendingBlockApply["replaceSnippet"] = null;
-      let diffStartOffset = startOffset;
-      let diffEndOffset = endOffset;
-      if (triggerSeq !== triggerInsertSeq) {
-        return;
-      }
-
-      const applyPayload: PendingBlockApply = {
-        mode,
-        draft: resolvedDraft,
-        detectedSnapshot: mode === "detected" ? detectedSnapshot : null,
-        insertPosition,
-        insertRange,
-        replaceRange,
-        replaceSnippet,
-      };
-      deps.setPendingBlockApply(applyPayload);
-      deps.setCurrentBlockDraft(resolvedDraft);
-
       const diffContext = buildDiffPreviewContext(
         model,
-        diffStartOffset,
-        diffEndOffset,
+        startOffset,
+        endOffset,
         resolvedDraft.snippet
       );
       deps.showDiffModal(diffContext.original, diffContext.modified, diffContext.lineOffset);
       return;
     }
-
-    const applyPayload: PendingBlockApply = {
-      mode,
-      draft: resolvedDraft,
-      detectedSnapshot: mode === "detected" ? detectedSnapshot : null,
-      insertPosition,
-      insertRange,
-    };
-    deps.setPendingBlockApply(applyPayload);
-    deps.setCurrentBlockDraft(resolvedDraft);
 
     const originalSnippet =
       mode === "detected" ? detectedSnapshot?.snippet ?? "" : "";
@@ -486,12 +471,13 @@ export const initBlockInsertFlow = (
   };
 
   const applyPendingFromDiffModal = () => {
+    const pending = deps.getPendingBlockApply();
+    if (!pending) return;
     deps.setBlockPreviewActive(true);
-    applyBlockInsert(deps.getPendingBlockApply() ?? undefined);
+    applyBlockInsert(pending);
     deps.setBlockPreviewActive(false);
     deps.setPendingBlockApply(null);
     deps.setCurrentBlockDraft(null);
-    deps.requestFormatCurrentFile("blockInsert");
   };
 
   const clearPending = () => {

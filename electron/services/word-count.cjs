@@ -8,10 +8,8 @@
 // manuscripts use). Headings and math are counted, not their contents.
 
 const path = require("node:path");
-const { resolveBuildTarget, parseTexIncludes } = require("./tex-build-target.cjs");
+const { resolveBuildTarget, parseTexIncludes, includeCandidates, activeTexSource } = require("./tex-build-target.cjs");
 
-const MAX_FILES = 40;
-const MAX_DEPTH = 16;
 
 // How many {..} arguments after these are not prose (optional [..] are
 // always skipped). \href{url}{text}: the url only; \textcolor{red}{text}:
@@ -90,24 +88,19 @@ const skipSpaces = (text, index) => {
   return i;
 };
 
-// First uncommented match of `pattern` (global) in `text`.
-const firstUncommented = (text, pattern) => {
-  let match;
-  while ((match = pattern.exec(text))) {
-    const lineStart = text.lastIndexOf("\n", match.index) + 1;
-    const before = text.slice(lineStart, match.index);
-    if (!/(^|[^\\])%/.test(before)) return match;
-  }
-  return null;
+// Locate the real document boundaries without matching examples in comments
+// or verbatim. The mask preserves source offsets for slicing the original.
+const documentRange = (masked) => {
+  const begin = /\\begin\s*\{document\}/.exec(masked);
+  const start = begin ? begin.index + begin[0].length : 0;
+  const endPattern = /\\end\s*\{document\}/g;
+  endPattern.lastIndex = start;
+  return { start, end: endPattern.exec(masked)?.index ?? masked.length };
 };
 
-// The body of a document: between \begin{document} and \end{document} when
-// the file has them; nothing after \end{document} is printed.
 const documentBody = (text) => {
-  const begin = firstUncommented(text, /\\begin\s*\{document\}/g);
-  const body = begin ? text.slice(begin.index + begin[0].length) : text;
-  const end = firstUncommented(body, /\\end\s*\{document\}/g);
-  return end ? body.slice(0, end.index) : body;
+  const { start, end } = documentRange(activeTexSource(text));
+  return text.slice(start, end);
 };
 
 // Prose text plus the counts that are not read from it.
@@ -274,76 +267,48 @@ const normalizeRelative = (value) => (typeof value === "string" ? value.replace(
 // before the disk and resolved the way Build resolves them (plain \input is
 // relative to the main file's folder or the root; \import / \subfile set a
 // new base).
-const documentFiles = async (workspace, main, buffers) => {
-  const root = workspace.getRootPath();
-  const normalize = (file) => {
-    try {
-      const relative = path.relative(root, workspace.resolvePath(file)).split(path.sep).join("/");
-      return relative && !relative.startsWith("../") ? relative : null;
-    } catch {
-      return null;
-    }
-  };
-  const cache = new Map();
-  const read = async (file) => {
-    if (!cache.has(file)) {
-      cache.set(file, typeof buffers[file] === "string"
-        ? Promise.resolve(buffers[file])
-        : Promise.resolve(workspace.readFile(file)).then((content) => (typeof content === "string" ? content : null), () => null));
-    }
-    return cache.get(file);
-  };
-  const cwd = path.posix.dirname(main);
-  const files = [];
-  const seen = new Set();
-  const queue = [{ file: main, base: cwd, depth: 0 }];
-  while (queue.length && files.length < MAX_FILES) {
-    const entry = queue.shift();
-    if (seen.has(entry.file) || entry.depth > MAX_DEPTH) continue;
-    seen.add(entry.file);
-    const content = await read(entry.file);
-    if (content === null) continue;
-    files.push({ path: entry.file, content });
-    // Only what TeX reads: nothing after the \end{document} that closes the
-    // body (the preamble's \input files are read; a macro defined there may
-    // contain \end{document} itself).
-    const begin = firstUncommented(content, /\\begin\s*\{document\}/g);
-    const endPattern = /\\end\s*\{document\}/g;
-    endPattern.lastIndex = begin ? begin.index + begin[0].length : 0;
-    const end = firstUncommented(content, endPattern);
-    for (const include of parseTexIncludes(end ? content.slice(0, end.index) : content)) {
-      const base = include.directory !== undefined
-        ? path.posix.join(include.kind.startsWith("sub") ? entry.base : cwd, include.directory)
-        : include.kind.startsWith("subfile") ? path.posix.dirname(entry.file) : entry.base;
-      const withExt = (file) => (path.posix.extname(file) ? file : `${file}.tex`);
-      const tries = [withExt(path.posix.join(base, include.file))];
-      if (include.directory === undefined && !include.kind.startsWith("subfile")) tries.push(withExt(include.file));
-      for (const attempt of tries) {
-        const candidate = normalize(attempt);
-        if (!candidate || seen.has(candidate)) continue;
-        if ((await read(candidate)) === null) continue;
-        queue.push({
-          file: candidate,
-          base: include.directory !== undefined || include.kind.startsWith("subfile") ? path.posix.dirname(candidate) : entry.base,
-          depth: entry.depth + 1,
-        });
-        break;
-      }
-    }
-  }
-  return files;
-};
-
-// The document's files (main first) with their counts. `buffers` holds the
-// unsaved editor contents by workspace-relative path.
 const countDocument = async ({ workspace, mainFile, buffers = {} }) => {
   const main = normalizeRelative(mainFile);
+  const cwd = path.posix.dirname(main);
+  const root = workspace.getRootPath();
+  const generation = workspace.rootGeneration;
   const files = [];
   const total = emptyCounts();
-  for (const { path: relative, content } of main ? await documentFiles(workspace, main, buffers) : []) {
-    const counts = countLatex(content);
-    files.push({ path: relative, ...counts });
-    addCounts(total, counts);
+  const seen = new Set();
+  const missing = new Set();
+  const queue = main ? [[{ file: main, base: cwd }]] : [];
+  for (let i = 0; i < queue.length; i++) {
+    for (const candidate of queue[i]) {
+      workspace.assertCurrentRoot?.(generation);
+      let file;
+      try {
+        file = path.relative(root, workspace.resolvePath(candidate.file)).split(path.sep).join("/");
+      } catch { continue; }
+      if (!file || file === ".." || file.startsWith("../") || path.isAbsolute(file)) continue;
+      if (seen.has(file)) break;
+      if (missing.has(file)) continue;
+      let content = buffers[file];
+      if (typeof content !== "string") {
+        try { content = await workspace.readFile(file); }
+        catch (error) {
+          if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
+          missing.add(file);
+          continue;
+        }
+      }
+      workspace.assertCurrentRoot?.(generation);
+      if (typeof content !== "string") { missing.add(file); continue; }
+      seen.add(file);
+      const masked = activeTexSource(content);
+      const { start, end } = documentRange(masked);
+      const counts = countLatex(content.slice(start, end), { body: false });
+      files.push({ path: file, ...counts });
+      addCounts(total, counts);
+      for (const include of parseTexIncludes(masked.slice(0, end), { masked: true })) {
+        queue.push(includeCandidates(include, file, candidate.base, cwd));
+      }
+      break;
+    }
   }
   return { mainFile: main, files, total };
 };

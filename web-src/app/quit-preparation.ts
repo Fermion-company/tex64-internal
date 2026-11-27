@@ -9,6 +9,8 @@ type QuitPreparationInput = {
   saveDirtyFiles: () => Promise<boolean>;
   getDirtyFileCount: () => number;
   freeze: () => void;
+  finishWorkspace?: () => Promise<void>;
+  getCompositionError?: () => string | null;
   maxSavePasses?: number;
 };
 
@@ -21,6 +23,8 @@ type QuitPreparationInput = {
 export const prepareRendererForQuit = async (
   input: QuitPreparationInput,
 ): Promise<QuitPreparationResult> => {
+  const pendingInput = input.getCompositionError?.();
+  if (pendingInput) return { ok: false, phase: "save", error: pendingInput };
   let quiet: { ok: boolean; error?: string };
   try {
     quiet = await input.quiesce();
@@ -36,24 +40,27 @@ export const prepareRendererForQuit = async (
   }
 
   const maxSavePasses = Math.max(1, Math.floor(input.maxSavePasses ?? 100));
-  for (let pass = 0; pass < maxSavePasses; pass += 1) {
-    if (input.getDirtyFileCount() === 0) {
-      input.freeze();
-      return { ok: true };
+  let savePasses = 0;
+  let finishWorkspace = input.finishWorkspace;
+  try {
+    while (true) {
+      const compositionError = input.getCompositionError?.();
+      if (compositionError) return { ok: false, phase: "save", error: compositionError };
+      if (input.getDirtyFileCount() > 0) {
+        if (savePasses >= maxSavePasses) break;
+        savePasses++;
+        if (!await input.saveDirtyFiles()) return { ok: false, phase: "save", error: "Saving failed." };
+      } else if (finishWorkspace) {
+        // Shared changes can be pending even for files the editor never opened.
+        await finishWorkspace();
+        finishWorkspace = undefined;
+      } else {
+        input.freeze();
+        return { ok: true };
+      }
     }
-    let saved = false;
-    try {
-      saved = await input.saveDirtyFiles();
-    } catch (error) {
-      return {
-        ok: false,
-        phase: "save",
-        error: error instanceof Error ? error.message : "Saving failed.",
-      };
-    }
-    if (!saved) {
-      return { ok: false, phase: "save", error: "Saving failed." };
-    }
+  } catch (error) {
+    return { ok: false, phase: "save", error: error instanceof Error ? error.message : "Saving failed." };
   }
   return {
     ok: false,

@@ -1,3 +1,4 @@
+import type { ActiveFileSnapshot, EditorSessionApi } from "./editor-session/types.js";
 import type { AppContext } from "./context.js";
 import { aiText } from "./ai-i18n.js";
 import { onUiLocaleChange, uiText } from "./i18n.js";
@@ -25,7 +26,7 @@ import { createMessageElement, createRatingBox, setMessageRating, updateMessageE
 import { createUnifiedProposalCard } from "./ai-chat-proposal.js";
 import { TEX64_LINKS } from "./platform-links.js";
 import { createAiChatStatusController } from "./ai-chat-status.js";
-import { createContextPayloadBuilder } from "./ai-chat-context-payload.js";
+import { createContextPayloadBuilder, MAX_DIRTY_FILE_CONTEXT_CHARS } from "./ai-chat-context-payload.js";
 import { createContextBarUpdater } from "./ai-chat-context-bar.js";
 import { initAiChatEventBindings } from "./ai-chat-ui-events.js";
 import type { SteerResultPayload } from "./ai-chat-steer.js";
@@ -34,16 +35,18 @@ import { createHistoryController } from "./ai-chat-history.js";
 import { createAiChatAttachmentsController, type AiImageAttachment } from "./ai-chat-attachments.js";
 import { createAiChatIncomingHandlers } from "./ai-chat-incoming-handlers.js";
 import { createAiChatRunner, type PendingAiRequest } from "./ai-chat-runner.js";
-import { restorePendingAiDraft } from "./ai-chat-draft-restore.js";
+import { type ComposerDraft, hasComposerDraft } from "./ai-chat-draft-restore.js";
 import { createMentionController, type MentionCandidate } from "./ai-chat-mention.js";
 import type { ContextExtras } from "./ai-chat-context-payload.js";
 import { createVoiceController } from "./ai-chat-voice.js";
 import type { MessageExtras } from "./ai-chat-incoming-handlers.js";
 
 type AiChatDeps = {
+  prepareEditorForAgent?: () => Promise<void>;
   postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
+  openProjectFile: (path: string) => void;
   getActiveFilePath: () => string | null;
-  getActiveFileSnapshot?: () => { path: string; content: string; isDirty: boolean } | null;
+  getActiveFileSnapshot?: () => ActiveFileSnapshot | null;
   getActiveCursorPosition?: () => { lineNumber: number; column: number } | null;
   getActiveSelectionSnapshot?: () => {
     path: string;
@@ -54,10 +57,7 @@ type AiChatDeps = {
     endLine: number;
     endColumn: number;
   } | null;
-  getOpenFileSnapshots?: (options?: { maxFiles?: number; maxChars?: number }) => {
-    files: Array<{ path: string; isDirty: boolean; isActive: boolean }>;
-    snapshots: Array<{ path: string; content: string; isDirty: boolean; truncated: boolean; contentLength: number }>;
-  };
+  getOpenFileSnapshots?: EditorSessionApi["getOpenFileSnapshots"];
   getRecentIssuesSnapshot?: () => {
     count: number; summary: string; status: IssuesStatus; issues: IssueItem[]; updatedAt: number;
   } | null;
@@ -471,9 +471,10 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   const switchActiveChat = (chatId: string) => {
     const chat = getChat(chatId);
     if (!chat) return;
+    if (activeChatId !== chat.id) voice.cancel();
     activeChatId = chat.id;
+    showComposerDraft(chatId);
     setChatTitle(chat);
-    clearPendingAttachments();
     renderChatContent();
     wrappedUpdateStatusDisplay();
     updateSendState();
@@ -481,10 +482,11 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   };
 
   const resetToNewChatState = () => {
+    voice.cancel();
     activeChatId = null;
     // "+" while the history list is open closes it: the new chat is the view.
     closeHistory();
-    clearPendingAttachments();
+    showComposerDraft(null, true);
     if (aiTopbarTitle instanceof HTMLElement) {
       aiTopbarTitle.textContent = aiText("new_chat");
     }
@@ -514,12 +516,13 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     getActiveChatId: () => activeChatId,
     switchActiveChat,
     resetToNewChatState,
+    forgetDraft: (chatId) => drafts.delete(draftKey(chatId)),
     postToNative: deps.postToNative,
   });
   // A place on the page: page number, the text there, and the source line
   // SyncTeX found for it. It rides along with the next request as its
   // first referenced item and clears once sent.
-  let pdfPlace: { page: number; path: string; line: number; text: string } | null = null;
+  let pdfPlace: ComposerDraft["place"] = null;
   let pendingPdfAsk: { requestId: string; page: number; text: string } | null = null;
   // The range a spoken instruction is about, fixed when recording starts:
   // the chip and the request read it in place of the editor's selection
@@ -592,20 +595,40 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   // ── @ picker: files, sections, labels, bib entries, issues ──
   // The document index comes from the host on demand (a scan of the .tex and
   // .bib files, milliseconds); it is asked for when the picker opens.
-  let documentIndex: {
+  type DocumentIndex = {
     sections: Array<{ path: string; id: number; type: string; number?: string; title: string; line: number; endLine: number }>;
     labels: Array<{ key: string; path: string; line: number }>;
     bibKeys: Array<{ key: string; path: string; line?: number; title?: string }>;
     git: { isRepo: boolean; changed: number };
     rules: { exists: boolean };
-  } = { sections: [], labels: [], bibKeys: [], git: { isRepo: false, changed: 0 }, rules: { exists: false } };
+  };
+  const emptyDocumentIndex = (): DocumentIndex => ({
+    sections: [], labels: [], bibKeys: [], git: { isRepo: false, changed: 0 }, rules: { exists: false },
+  });
+  let documentIndex = emptyDocumentIndex();
+  let documentDraftKey = "";
+  let documentIndexFile: string | null | undefined;
+  let documentIndexRequestId = "";
+  let documentIndexSequence = 0;
   let documentIndexRequestedAt = 0;
-  const requestDocumentMap = (force = false) => {
+  const requestDocumentMap = (forPicker = false) => {
+    if (!chatWorkspaceRoot) return;
+    const file = deps.getActiveFilePath() ?? null;
     const now = Date.now();
-    if (!force && now - documentIndexRequestedAt < 2_000) return;
+    const recentlyRequested = file === documentIndexFile && now - documentIndexRequestedAt < 2_000;
+    if (!forPicker && recentlyRequested) return;
+    const drafts = deps.getOpenFileSnapshots?.({
+      maxFiles: 0, maxChars: MAX_DIRTY_FILE_CONTEXT_CHARS, onlyDirty: true,
+    }).snapshots ?? [];
+    const draftKey = JSON.stringify(drafts.map(draft => [draft.path, draft.modelRevision ?? draft.content]));
+    if (recentlyRequested && draftKey === documentDraftKey) return;
+    documentDraftKey = draftKey;
+    if (file !== documentIndexFile) documentIndex = emptyDocumentIndex();
+    documentIndexFile = file;
+    documentIndexRequestId = `map-${++documentIndexSequence}`;
     documentIndexRequestedAt = now;
     deps.postToNative(
-      { type: "agent:documentMap:get", requestId: `map-${now.toString(36)}`, activeFilePath: deps.getActiveFilePath() ?? undefined },
+      { type: "agent:documentMap:get", requestId: documentIndexRequestId, activeFilePath: file ?? undefined, openFileSnapshots: drafts },
       true,
     );
   };
@@ -629,26 +652,60 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       ? createMentionController({
           aiInput,
           getCandidates: mentionCandidates,
-          onOpen: () => requestDocumentMap(),
+          onOpen: () => requestDocumentMap(true),
         })
       : null;
+
+  const draftKey = (chatId: string | null) => JSON.stringify([chatWorkspaceRoot, chatId]);
+  const drafts = new Map<string, ComposerDraft>();
+  let composerKey = draftKey(null);
+  const getComposerDraft = (): ComposerDraft => ({
+    text: aiInput instanceof HTMLTextAreaElement ? aiInput.value : "",
+    attachments: getPendingAttachments().slice(),
+    mentions: mentionController?.saveDraft() ?? [],
+    place: pdfPlace,
+  });
+  const writeComposerDraft = (draft?: ComposerDraft) => {
+    if (!(aiInput instanceof HTMLTextAreaElement)) return;
+    aiInput.value = draft?.text ?? "";
+    mentionController?.restoreDraft(draft?.mentions ?? []);
+    pdfPlace = draft?.place ?? null;
+    pendingPdfAsk = null;
+    voiceSelection = null;
+    setPendingAttachments(draft?.attachments ?? []);
+    autoGrow();
+    updateContextBar();
+  };
+
+  const showComposerDraft = (chatId: string | null, cancelPendingReads = false) => {
+    if (!(aiInput instanceof HTMLTextAreaElement)) return;
+    const nextKey = draftKey(chatId);
+    if (nextKey === composerKey) {
+      // A new-chat click can cancel reads still pending on the empty composer.
+      if (cancelPendingReads) setPendingAttachments(getPendingAttachments());
+      return;
+    }
+    const current = getComposerDraft();
+    if (hasComposerDraft(current)) drafts.set(composerKey, current);
+    composerKey = nextKey;
+    const draft = drafts.get(nextKey);
+    drafts.delete(nextKey);
+    writeComposerDraft(draft);
+  };
 
   const updateSendState = () => {
     const active = getChat(activeChatId);
     const isRunning = Boolean(active && runningConversations.has(active.id));
     const canResume = Boolean(active && !isRunning && resumableConversations.has(active.id));
     const canUndo = Boolean(active && active.hasUndo && !isRunning);
-    // AI running 中でも入力欄は常に有効 (ChatGPT/Claude と同じ UX)。
-    // ユーザーは返答を待ちながら次のメッセージを準備できる。
-    // 送信ボタンは非表示にし、代わりに停止ボタンを表示する。
-    const blockSend = activeChatId !== null && isRunning;
+    // A draft can steer the current run or queue the next one. Keep Stop independently available.
     const hasDraft =
       (aiInput instanceof HTMLTextAreaElement && aiInput.value.trim().length > 0) ||
       getPendingAttachments().length > 0;
     if (aiSend instanceof HTMLButtonElement) {
-      aiSend.disabled = blockSend;
+      aiSend.disabled = !hasDraft;
       aiSend.classList.remove("is-loading");
-      aiSend.style.display = blockSend || !hasDraft ? "none" : "flex";
+      aiSend.style.display = hasDraft ? "flex" : "none";
     }
     if (aiInput instanceof HTMLTextAreaElement) aiInput.disabled = false;
     // Attachments are allowed while a turn runs: the request queues with them
@@ -674,7 +731,8 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     ...deps,
     getActiveSelectionSnapshot: getSelectionForContext,
   });
-  const buildContextPayload = (extras: ContextExtras = {}) => {
+  const buildContextPayload = (extras: ContextExtras = {}, includeDraft = true) => {
+    if (!includeDraft) return _rawBuildContextPayload(extras);
     const refs = mentionController ? mentionController.getExplicitRefs() : [];
     const placeRefs = pdfPlace
       ? [{ kind: "pdf" as const, page: pdfPlace.page, path: pdfPlace.path, line: pdfPlace.line, text: pdfPlace.text }]
@@ -965,7 +1023,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       if (fileEl) {
         event.preventDefault();
         const filePath = fileEl.dataset.openFile ?? "";
-        if (filePath) deps.postToNative({ type: "openFile", path: filePath });
+        if (filePath) deps.openProjectFile(filePath);
         return;
       }
       const rulesEl = target?.closest?.("[data-ai-rules]") as HTMLElement | null;
@@ -1038,7 +1096,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     chat.messages.push(message);
     let element: HTMLElement | null = null;
     if (chat.id === activeChatId && aiChatLog instanceof HTMLElement) {
-      element = createMessageElement(message);
+      element = createMessageElement(message, { assistantIndex: assistantOrdinal(chat, message) });
       appendToChatLog(element);
       scrollToBottom();
     }
@@ -1099,6 +1157,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     }
   };
 
+  let hasPendingReads = () => false;
   let setPendingAttachments = (_attachments: AiImageAttachment[]) => {};
   ({
     getPendingAttachments,
@@ -1106,6 +1165,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     clearPendingAttachments,
     addImageFiles,
     setPendingAttachments,
+    hasPendingReads,
   } = createAiChatAttachmentsController({
     aiAttachments,
     aiAttachInput,
@@ -1290,8 +1350,25 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     scrollToBottom(true);
   };
 
-  const restoreDraftFromPending = (chatId: string, request: PendingAiRequest | null) =>
-    restorePendingAiDraft({ chatId, request, activeChatId, aiInput, autoGrow, appendMessage, setPendingAttachments });
+  const restoreDraftFromPending = (chatId: string, request: PendingAiRequest | null) => {
+    const chat = getChat(chatId);
+    if (!chat || !request) return;
+    chat.messages = chat.messages.filter(entry => entry !== request.optimisticRow);
+    if (chatId === activeChatId) renderChatContent();
+    const key = draftKey(chatId);
+    const visible = key === composerKey;
+    const occupied = visible ? hasPendingReads() || hasComposerDraft(getComposerDraft()) : drafts.has(key);
+    if (request.draft && !occupied) {
+      if (visible) writeComposerDraft(request.draft);
+      else drafts.set(key, request.draft);
+      return;
+    }
+    // Keep the original request and its context available for an explicit retry.
+    const id = crypto.randomUUID();
+    const { message, parts, contextPayload, draft } = request;
+    chat.queue.unshift({ id, text: message, parts, contextPayload, draft, manualRetry: true });
+    appendMessage({ role: "user", text: request.message, queued: true, queueId: id, manualRetry: true }, chatId);
+  };
 
   const { requestAgentRun } = createAiChatRunner({
     isAiBlocked: gatedAiBlocked,
@@ -1309,7 +1386,6 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     buildContextPayload: () => buildContextPayload({ axiomMode: eventApi?.getMode() ?? "agent" }),
     getAgentSettings: () => agentSettings,
     clearThinkingMessage,
-    restoreDraftFromPending,
   });
 
   // ── Voice: the microphone in the composer ──
@@ -1339,6 +1415,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   });
 
   eventApi = initAiChatEventBindings({
+    prepareEditorForAgent: deps.prepareEditorForAgent,
     aiChatLog,
     aiInput,
     aiSend,
@@ -1353,13 +1430,16 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     getActiveChatId: () => activeChatId,
     setActiveChatId: (chatId) => {
       activeChatId = chatId;
+      composerKey = draftKey(chatId);
     },
     getPendingAttachments,
+    getComposerDraft,
     getChat,
     createChat,
     setChatTitle,
     renderHistoryList,
     appendMessage,
+    refreshTranscript: (chatId) => { if (chatId === activeChatId) renderChatContent(); },
     removeQueuedMessage,
     settleLiveProposals: (chat) => {
       settleLiveProposals(chat);
@@ -1436,7 +1516,6 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     ensureChat,
     getChat,
     setChatTitle,
-    clearPendingAttachments,
     renderHistoryList,
     renderChatContent,
     updateSendState,
@@ -1452,6 +1531,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     restoreDraftFromPending,
     updateContextBar,
     switchActiveChat,
+    forgetRunningTurn: (chatId) => eventApi?.forgetRunningTurn(chatId),
     drainQueue: (chatId) => eventApi?.drainQueue(chatId),
     refreshActiveChat: () => renderChatContent(),
     settleLiveProposals,
@@ -1459,6 +1539,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   });
 
   const handleDocumentMap: AiChatApi["handleDocumentMap"] = (payload) => {
+    if (payload?.requestId !== documentIndexRequestId || documentIndexFile !== (deps.getActiveFilePath() ?? null)) return;
     const previousGit = `${documentIndex.git.isRepo}:${documentIndex.git.changed}:${documentIndex.rules.exists}`;
     documentIndex = {
       sections: Array.isArray(payload?.sections) ? payload.sections : [],
@@ -1502,7 +1583,12 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     streamingMessages.clear();
     thinkingMessages.clear();
     pendingAgentRequests.clear();
-    documentIndex = { sections: [], labels: [], bibKeys: [], git: { isRepo: false, changed: 0 }, rules: { exists: false } };
+    eventApi?.forgetWorkspaceTurns();
+    documentIndexFile = undefined;
+    documentDraftKey = "";
+    documentIndexRequestedAt = 0;
+    documentIndexRequestId = "";
+    documentIndex = emptyDocumentIndex();
     resetToNewChatState();
     renderHistoryList();
     return true;
@@ -1510,14 +1596,16 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
 
   return {
     handleSettings,
-    handleState: (state) =>
+    handleState: (state) => {
       handleState({
         ...state,
         sessions: (Array.isArray(state.sessions) ? state.sessions : []).filter(
           (session) =>
             normalizeWorkspaceRoot(session.workspaceRootPath) === chatWorkspaceRoot,
         ),
-      }),
+      });
+      showComposerDraft(activeChatId);
+    },
     handleStatus, handleMessage, handleMessageDelta, handleTool,
     handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleScratchpad, handleThought, handleError, handleRequestRejected,
     handleTitle,

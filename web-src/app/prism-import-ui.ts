@@ -284,19 +284,22 @@ export const initPrismImportUi = (deps: Deps): PrismImportUiApi => {
         } catch {
           return;
         }
-        if (gen !== generation) return;
+        if (gen !== generation || current?.project !== project || current.result !== result || busy) return;
         finish();
+        const finishedGeneration = generation;
         if (deps.getWorkspaceRoot() !== project.root) {
           deps.openProjectPath(project.root);
           const until = Date.now() + 15000;
-          while (Date.now() < until && deps.getWorkspaceRoot() !== project.root) {
+          while (generation === finishedGeneration && Date.now() < until && deps.getWorkspaceRoot() !== project.root) {
             await new Promise((resolve) => setTimeout(resolve, 200));
           }
           if (deps.getWorkspaceRoot() !== project.root) return;
           // The switch still reports its own cancel/idle issues for a moment.
           await new Promise((resolve) => setTimeout(resolve, 1500));
         }
-        deps.showIssues(payload.summary, payload.issues);
+        if (generation === finishedGeneration && deps.getWorkspaceRoot() === project.root) {
+          deps.showIssues(payload.summary, payload.issues);
+        }
       })();
     });
     box.append(more);

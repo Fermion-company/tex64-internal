@@ -357,6 +357,23 @@ export const initFileTreeUi = (context, deps) => {
         deleteTargetType = null;
         setDeleteModalOpen(false);
     };
+    const cancelDialogs = () => {
+        if (createModalKind)
+            closeCreateModal();
+        if (renameTargetPath)
+            closeRenameModal();
+        if (deleteTargetPath)
+            closeDeleteModal();
+        deps.contextMenu.close();
+        setTreeFocus(false);
+    };
+    const resetWorkspace = () => {
+        cancelDialogs();
+        clearSelection();
+        fileClipboard = null;
+        dragPayload = null;
+        clearDropTargets();
+    };
     const submitDeleteModal = () => {
         if (!deleteTargetPath) {
             return;
@@ -399,6 +416,8 @@ export const initFileTreeUi = (context, deps) => {
             ]);
             return;
         }
+        if (payload.workspaceRoot && payload.workspaceRoot !== deps.getWorkspaceRootKey())
+            return;
         const currentParent = getParentPath(payload.path);
         if (currentParent === targetFolder) {
             return;
@@ -659,6 +678,8 @@ export const initFileTreeUi = (context, deps) => {
     }
     if (createModalInput instanceof HTMLInputElement) {
         createModalInput.addEventListener("keydown", (event) => {
+            if (event.isComposing || event.keyCode === 229)
+                return;
             if (event.key === "Enter") {
                 event.preventDefault();
                 submitCreateModal();
@@ -688,6 +709,8 @@ export const initFileTreeUi = (context, deps) => {
     }
     if (renameModalInput instanceof HTMLInputElement) {
         renameModalInput.addEventListener("keydown", (event) => {
+            if (event.isComposing || event.keyCode === 229)
+                return;
             if (event.key === "Enter") {
                 event.preventDefault();
                 submitRenameModal();
@@ -819,6 +842,8 @@ export const initFileTreeUi = (context, deps) => {
     return {
         render,
         loadOpenState,
+        cancelDialogs,
+        resetWorkspace,
         requestCreate,
         setTreeFocus,
         setSelection,

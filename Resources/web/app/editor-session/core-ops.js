@@ -1,3 +1,8 @@
+const revisionOf = (model) => {
+    var _a, _b;
+    const version = (_a = model === null || model === void 0 ? void 0 : model.getVersionId) === null || _a === void 0 ? void 0 : _a.call(model);
+    return version === undefined ? undefined : `${(_b = model.id) !== null && _b !== void 0 ? _b : ""}/${version}`;
+};
 export const createEditorSessionCoreOps = (runtime) => {
     const getEditorGroup = (key) => runtime.editorGroups[key];
     const getActiveGroup = () => runtime.editorGroups[runtime.state.activeEditorGroup];
@@ -15,7 +20,7 @@ export const createEditorSessionCoreOps = (runtime) => {
         if (content === null) {
             return null;
         }
-        return { path: group.currentFilePath, content, isDirty: group.isDirty };
+        return { path: group.currentFilePath, content, isDirty: group.isDirty, modelRevision: revisionOf(entry === null || entry === void 0 ? void 0 : entry.model) };
     };
     const getActiveSelectionSnapshot = () => {
         var _a, _b, _c, _d, _e, _f, _g, _h;
@@ -69,7 +74,7 @@ export const createEditorSessionCoreOps = (runtime) => {
         }
         const otherKey = getOtherGroupKey(preferredKey);
         const other = getEditorGroup(otherKey);
-        if (other.openTabs.length === 0) {
+        if (other.openTabs.length === 0 && !runtime.fileOpsState.pendingOpenRequests.some(request => request.group === otherKey)) {
             return otherKey;
         }
         return preferredKey;
@@ -133,18 +138,13 @@ export const createEditorSessionCoreOps = (runtime) => {
         const files = new Map();
         const snapshots = [];
         const pushSnapshot = (path, isDirty) => {
-            var _a, _b, _c, _d, _e;
-            if (snapshots.length >= maxFiles || !runtime.monacoModels.has(path)) {
+            var _a;
+            if (path === (options === null || options === void 0 ? void 0 : options.excludePath) || snapshots.length >= maxFiles)
                 return;
-            }
-            const entry = runtime.monacoModels.get(path);
-            const editorGroupKey = findGroupKeyByPath(path);
-            const group = editorGroupKey ? getEditorGroup(editorGroupKey) : null;
-            const editor = group === null || group === void 0 ? void 0 : group.editor;
-            const rawContent = (_e = (_c = (_b = (_a = entry === null || entry === void 0 ? void 0 : entry.model) === null || _a === void 0 ? void 0 : _a.getValue) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : (_d = editor === null || editor === void 0 ? void 0 : editor.getValue) === null || _d === void 0 ? void 0 : _d.call(editor)) !== null && _e !== void 0 ? _e : null;
-            if (rawContent === null) {
+            const model = (_a = runtime.monacoModels.get(path)) === null || _a === void 0 ? void 0 : _a.model;
+            if (!model)
                 return;
-            }
+            const rawContent = (options === null || options === void 0 ? void 0 : options.readModelText) ? options.readModelText(model) : model.getValue();
             const truncated = Number.isFinite(maxChars) && rawContent.length > maxChars;
             const content = truncated ? rawContent.slice(0, maxChars) : rawContent;
             snapshots.push({
@@ -153,6 +153,7 @@ export const createEditorSessionCoreOps = (runtime) => {
                 isDirty,
                 truncated,
                 contentLength: rawContent.length,
+                modelRevision: revisionOf(model),
             });
         };
         forEachEditorGroup((group) => {
@@ -178,7 +179,7 @@ export const createEditorSessionCoreOps = (runtime) => {
         });
         const entries = Array.from(files.values());
         entries.forEach((entry) => {
-            if (entry.isDirty && !entry.isActive) {
+            if (entry.isDirty) {
                 pushSnapshot(entry.path, entry.isDirty);
             }
         });
@@ -189,7 +190,7 @@ export const createEditorSessionCoreOps = (runtime) => {
                 }
             });
         }
-        return { files: Array.from(files.values()), snapshots };
+        return { files: entries, snapshots };
     };
     return {
         getEditorGroup,

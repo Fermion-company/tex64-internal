@@ -53,10 +53,12 @@ function boundary(
   // Text mode zone
   //
   if (atom.mode === 'text') {
-    while (atom) {
-      if (atom.mode !== 'text' || !LETTER_AND_DIGITS.test(atom.value)) break;
-      pos += dir;
-      atom = model.at(pos);
+    if (LETTER_AND_DIGITS.test(atom.value)) {
+      let next = model.at(pos + dir);
+      while (next?.mode === 'text' && LETTER_AND_DIGITS.test(next.value)) {
+        pos += dir;
+        next = model.at(pos + dir);
+      }
     }
     return direction === 'backward' ? pos - 1 : pos;
   }

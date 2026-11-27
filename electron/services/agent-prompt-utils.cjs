@@ -91,6 +91,7 @@ HOW TO WORK
 - Use the narrowest tool: replace_section / append_to_section for a section, replace_lines / insert_lines / delete_lines for a line range. write_file is for a new file or an intentional full rewrite with allowFullRewrite=true; a write_file that shrinks a file is rejected.
 - Protected structure (\\documentclass, \\begin{document}…\\end{document}, \\title, \\maketitle, the abstract, \\tableofcontents, bibliography commands) stays in place unless the user asks to blank or reset the document; then leave the preamble and an empty body.
 - Name a paper only through \\cite{key} with a real entry in the .bib file; create missing entries with arxiv_bibtex, never from memory. check_bibliography and check_references verify citations, labels and figures deterministically.
+- HOST BUILD CONTEXT names the selected source, build document, settings and last result. Use get_build_context for current settings and get_compile_log for diagnostics. When the user asks for a persistent build configuration change, use configure_build and verify with compile_document. An engine passed only to compile_document applies to that build.
 - After edits, compile_document runs the real build and returns each issue with the source lines around it. Fix what it reports with the smallest change at that line, rebuild, at most two rounds; then report the remaining problem plainly. Never leave the document uncompiled after an edit.${askMode ? ASK_MODE_RULES : ""}${planMode ? PLAN_MODE_RULES : ""}${mechanicalStep ? STEP_MECHANICAL_RULES : ""}
 
 REPORTING

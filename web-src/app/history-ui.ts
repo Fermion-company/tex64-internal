@@ -19,6 +19,8 @@ export const initHistoryUi = (editor: EditorSessionApi, diff: DiffModalApi) => {
   let versions: Version[] = [];
   let selected = "";
   let workspace = "";
+  let workspaceId = "";
+  let projectSequence = 0;
   let phase = "idle";
   let busy = false;
   let poll = 0;
@@ -72,16 +74,25 @@ export const initHistoryUi = (editor: EditorSessionApi, diff: DiffModalApi) => {
     uiText("Private files, Git settings and build logs are excluded. Source files and input images are kept. Files over 128 MiB stop recording; nothing is silently omitted.", "秘密情報・Git設定・ビルドログは対象外です。ソースと入力画像は記録します。128 MiBを超えるファイルがあれば記録を中止し、黙って除外しません。"),
   ], {topic: uiText("history storage", "履歴の保存")});
   const usageRow = el("div", "has-explain"); usageRow.append(usage, storageExplain.button);
+  limit.required = true;
+  limit.addEventListener("input", () => limit.setCustomValidity(""));
   storage.append(usageRow, storageExplain.panel, limit,
-    button(uiText("Set limit (GiB)", "上限変更（GiB）"), () => void run(async () => { await call("limit", { gib: Number(limit.value) }); await refresh(); })));
+    button(uiText("Set limit (GiB)", "上限変更（GiB）"), () => {
+      if (!limit.value || !limit.validity.valid) {
+        limit.setCustomValidity(uiText("Choose a whole number from 1 to 100.", "1から100の整数を入力してください。"));
+        limit.reportValidity();
+        return;
+      }
+      void run(async () => { await call("limit", { gib: Number(limit.value) }); await refresh(); });
+    }));
   function showDialog(title: string, content: HTMLElement) {
-    const modal = el("dialog", "history-confirm");
+    const modal = el("dialog", "history-confirm history-dialog");
     const heading = el("h2", "", title); heading.id = "history-detail-title"; modal.setAttribute("aria-labelledby", heading.id);
     const actions = el("div", "history-confirm-actions"); actions.append(button(uiText("Close", "閉じる"), () => modal.close()));
     modal.append(heading, content, actions);
     modal.addEventListener("close", () => modal.remove()); document.body.append(modal); modal.showModal();
   }
-  function showStorage() { showDialog(uiText("Storage settings", "保存設定"), storage); }
+  function showStorage() { limit.setCustomValidity(""); showDialog(uiText("Storage settings", "保存設定"), storage); }
   async function showDetails() {
     const version = versions.find((v) => v.id === selected); if (!version) return;
     const { excluded: excludedFiles } = await call("inspect", { id: version.id });
@@ -125,7 +136,9 @@ export const initHistoryUi = (editor: EditorSessionApi, diff: DiffModalApi) => {
   collabSession.onChange((state) => applyCollabGuestLock(host, state.active && state.role === "guest"));
 
   const call = async (action: string, payload: Record<string, unknown> = {}) => {
+    const requestedProject = projectSequence;
     const result = await bridge.call(action, payload);
+    if (requestedProject !== projectSequence) throw new Error(uiText("The project changed.", "プロジェクトが変わりました。"));
     if (!result.ok) throw Object.assign(new Error(result.error), { code: result.code });
     return result;
   };
@@ -203,12 +216,13 @@ export const initHistoryUi = (editor: EditorSessionApi, diff: DiffModalApi) => {
       if (document.activeElement !== limit) limit.value = String(data.maxBytes / 1024 ** 3);
       if (data.error) error.textContent = data.error;
       render(); scheduleComparison();
-    } catch (reason) { error.textContent = String(reason instanceof Error ? reason.message : reason); }
+    } catch (reason) { if (generation === refreshGeneration) error.textContent = reason instanceof Error ? reason.message : String(reason); }
   }
   async function run(action: () => Promise<void>) {
     if (busy) return;
+    const requestedProject = projectSequence;
     busy = true; invalidateComparison(); error.textContent = ""; render();
-    try { await action(); } catch (reason) { error.textContent = reason instanceof Error ? reason.message : String(reason); }
+    try { await action(); } catch (reason) { if (requestedProject === projectSequence) error.textContent = reason instanceof Error ? reason.message : String(reason); }
     finally { busy = false; render(); scheduleComparison(); }
   }
   async function withSaved(purpose: string, action: () => Promise<any>) {
@@ -265,7 +279,7 @@ export const initHistoryUi = (editor: EditorSessionApi, diff: DiffModalApi) => {
           if (generation !== comparisonGeneration) return;
           if (value.text) diff.showDiffModal(value.original, value.modified, 0, { title: comparisonTitle, fileName: file.path, viewOnly: true, closeLabel: uiText("Close", "閉じる") });
           else if (value.originalImage || value.modifiedImage) {
-            const modal = el("dialog", "history-confirm history-image-compare");
+            const modal = el("dialog", "history-confirm history-dialog history-image-compare");
             modal.append(el("h2", "", file.path), el("p", "history-local", comparisonTitle));
             const columns = el("div", "history-image-columns");
             for (const [label, src, size] of [[uiText("Before", "変更前"), value.originalImage, value.originalSize], [uiText("After", "変更後"), value.modifiedImage, value.modifiedSize]]) {
@@ -288,7 +302,7 @@ export const initHistoryUi = (editor: EditorSessionApi, diff: DiffModalApi) => {
     await run(async () => {
       const data = await withSaved("restore", () => call("plan", { id }));
       const version = versions.find((v) => v.id === id);
-      const modal = el("dialog", "history-confirm");
+      const modal = el("dialog", "history-confirm history-dialog");
       const title = el("h2", "", version?.kind === "safety" ? uiText("Undo the restore", "復元の直前に戻す") : uiText("Restore", "復元")); title.id = "history-confirm-title"; modal.setAttribute("aria-labelledby", title.id);
       const target = el("p", "", `${version ? versionTitle(version) : ""} · ${(version ? historyDateLabels(versions).get(version.id)?.exact : "")}`);
       modal.append(title, ...explainedHeading(target, uiText("The current work is kept as a version before restoring.", "現在の作業は、戻す前に版として残します。"), { topic: uiText("restoring", "復元") }));
@@ -322,10 +336,20 @@ export const initHistoryUi = (editor: EditorSessionApi, diff: DiffModalApi) => {
     });
   }
   bridge.onChange((message) => {
+    const id = message.payload?.workspaceId;
+    if (typeof id === "string" && (workspaceId !== id || message.type === "updateWorkspace")) {
+      const next = `${id}:${message.payload.workspaceGeneration}`;
+      if (workspace !== next) {
+        if (workspaceId !== id) projectSequence++;
+        workspaceId = id; workspace = next;
+        selected = ""; versions = []; invalidateComparison(); refreshGeneration++;
+        name.value = ""; name.hidden = true; renameSave.hidden = true;
+        error.textContent = ""; usage.textContent = ""; limit.value = "";
+        document.querySelectorAll<HTMLDialogElement>("dialog.history-dialog[open]").forEach(modal => modal.close());
+        render();
+      }
+    }
     if (message.type === "updateWorkspace") {
-      const next = `${message.payload.workspaceId}:${message.payload.workspaceGeneration}`;
-      if (workspace !== next) { selected = ""; versions = []; invalidateComparison(); refreshGeneration++; }
-      workspace = next;
       phase = message.payload.history?.phase || phase;
       freeze(phase !== "idle");
       window.clearTimeout(poll); poll = window.setTimeout(() => void refresh(), 80);

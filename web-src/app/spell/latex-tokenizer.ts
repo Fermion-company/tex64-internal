@@ -23,9 +23,9 @@ const SKIP_ARG_COMMANDS = new Set([
   "textcite", "footcite", "autocite", "supercite", "nocite",
   "input", "include", "includegraphics", "includestandalone", "subfile",
   "usepackage", "RequirePackage", "documentclass", "bibliography", "bibliographystyle",
-  "addbibresource", "url", "href", "hyperref", "hypersetup", "geometry", "pagestyle",
+  "addbibresource", "url", "href", "hypersetup", "geometry", "pagestyle",
   "thispagestyle", "definecolor", "color", "textcolor", "colorbox", "pagecolor",
-  "verb", "lstinline", "texttt", "lstinputlisting", "bibitem", "newcommand",
+  "texttt", "lstinputlisting", "bibitem", "newcommand",
   "renewcommand", "newenvironment", "renewenvironment", "DeclareMathOperator",
   "setlength", "addtolength", "setcounter", "vspace", "hspace", "rule", "graphicspath",
 ]);
@@ -37,7 +37,8 @@ const MATH_ENVIRONMENTS = new Set([
   "smallmatrix", "split", "IEEEeqnarray", "dmath", "dgroup",
 ]);
 
-const isLetter = (ch: string | undefined): boolean => ch !== undefined && /[A-Za-z]/.test(ch);
+const LITERAL_ENVIRONMENT = /^(?:[A-Za-z@]*[Vv]erbatim[A-Za-z@]*|lstlisting|minted|filecontents|luacode|comment)\*?$/;
+const isCommandLetter = (ch: string | undefined): boolean => ch !== undefined && /[A-Za-z]/.test(ch);
 
 export const shouldCheckWord = (word: string): boolean => {
   if (word.length < 2) {
@@ -52,6 +53,9 @@ export const shouldCheckWord = (word: string): boolean => {
 
 export const tokenizeLatexProse = (text: string): SpellToken[] => {
   const tokens: SpellToken[] = [];
+  // Both dictionaries use Latin script. Keep accents and internal hyphens
+  // with their word while preserving its original UTF-16 range in Monaco.
+  const proseWord = /\p{Script=Latin}[\p{Script=Latin}\p{M}]*(?:['’-]\p{Script=Latin}[\p{Script=Latin}\p{M}]*)*/uy;
   const n = text.length;
   let i = 0;
   let line = 1;
@@ -164,7 +168,7 @@ export const tokenizeLatexProse = (text: string): SpellToken[] => {
         skipUntilLiteral("\\]");
         continue;
       }
-      if (!isLetter(next)) {
+      if (!isCommandLetter(next)) {
         // Escaped char (\%, \&, \_, \$, \\, ...) — not prose.
         advance();
         if (i < n) advance();
@@ -173,13 +177,45 @@ export const tokenizeLatexProse = (text: string): SpellToken[] => {
       // Command name.
       advance(); // backslash
       let name = "";
-      while (i < n && isLetter(text[i])) {
+      while (i < n && isCommandLetter(text[i])) {
         name += text[i];
         advance();
       }
       if (text[i] === "*") {
-        name += "*";
         advance();
+      }
+
+      if (name === "verb" || name === "lstinline" || name === "mintinline") {
+        if (name !== "verb") {
+          skipSpaces();
+          skipOptionalBracket();
+          skipSpaces();
+          if (name === "mintinline") {
+            skipBraceGroup();
+            skipSpaces();
+          }
+        }
+        const delimiter = text[i];
+        if (delimiter === "{" && name !== "verb") {
+          skipBraceGroup();
+        } else if (delimiter && !/\s/u.test(delimiter)) {
+          advance();
+          while (i < n && text[i] !== delimiter && text[i] !== "\n") advance();
+          if (text[i] === delimiter) advance();
+        }
+        continue;
+      }
+
+      if (name === "hyperref") {
+        skipSpaces();
+        if (text[i] === "[") skipOptionalBracket();
+        else {
+          for (let group = 0; group < 3; group++) {
+            skipSpaces();
+            skipBraceGroup();
+          }
+        }
+        continue;
       }
 
       if (name === "begin" || name === "end") {
@@ -193,7 +229,7 @@ export const tokenizeLatexProse = (text: string): SpellToken[] => {
           }
           if (text[i] === "}") advance();
         }
-        if (name === "begin" && MATH_ENVIRONMENTS.has(env)) {
+        if (name === "begin" && (MATH_ENVIRONMENTS.has(env) || LITERAL_ENVIRONMENT.test(env))) {
           skipUntilLiteral(`\\end{${env}}`);
         }
         continue;
@@ -209,25 +245,14 @@ export const tokenizeLatexProse = (text: string): SpellToken[] => {
       continue;
     }
 
-    if (isLetter(ch)) {
+    proseWord.lastIndex = i;
+    const word = proseWord.exec(text)?.[0];
+    if (word) {
       const startColumn = col;
-      const startLine = line;
-      let word = "";
-      while (i < n) {
-        const c = text[i];
-        if (isLetter(c)) {
-          word += c;
-          advance();
-        } else if ((c === "'" || c === "’" || c === "-") && isLetter(text[i + 1])) {
-          // internal apostrophe/hyphen, e.g. don't, well-known
-          word += c;
-          advance();
-        } else {
-          break;
-        }
-      }
-      if (word && shouldCheckWord(word)) {
-        tokens.push({ word, lineNumber: startLine, startColumn, endColumn: col });
+      i += word.length;
+      col += word.length;
+      if (shouldCheckWord(word)) {
+        tokens.push({ word, lineNumber: line, startColumn, endColumn: col });
       }
       continue;
     }

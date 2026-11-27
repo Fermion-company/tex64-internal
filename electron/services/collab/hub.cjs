@@ -14,6 +14,7 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
+const { isUnknownTextBuffer, readUnknownTextFile } = require("../text-file-types.cjs");
 const Y = require("yjs");
 const syncProtocol = require("y-protocols/sync");
 const encoding = require("lib0/encoding");
@@ -21,8 +22,9 @@ const decoding = require("lib0/decoding");
 const transport = require("./transport-ws.cjs");
 const relay = require("./relay-transport.cjs");
 const invite = require("./invite.cjs");
-const { WorkspaceManifest, safeRelativePath, resolveInsideRoot, looksTextByName, hashBuffer, extensionOf, MAX_TEXT_BYTES, MAX_BINARY_BYTES } = require("./manifest.cjs");
-const { DiskSync, DISK_ORIGIN } = require("./disk-sync.cjs");
+const { WorkspaceManifest, safeRelativePath, resolveInsideRoot, looksTextByName, hashBuffer, extensionOf, MAX_BINARY_BYTES } = require("./manifest.cjs");
+const { readWorkspaceComments } = require("./comments.cjs");
+const { DiskSync, DISK_ORIGIN, applyTextDelta } = require("./disk-sync.cjs");
 const { acquireMirror } = require("./mirror-lock.cjs");
 
 const SESSION_DOC = "$session";
@@ -221,7 +223,9 @@ class CollabHub extends EventEmitter {
           if (entry.kind === "text") {
             let content;
             try {
-              content = fs.readFileSync(path.join(rootPath, relative), "utf8");
+              const bytes = fs.readFileSync(path.join(rootPath, relative));
+              if (!isUnknownTextBuffer(bytes)) continue;
+              content = bytes.toString("utf8");
             } catch {
               continue;
             }
@@ -294,6 +298,7 @@ class CollabHub extends EventEmitter {
     });
     session.pendingBlobs = new Set();
     session.joinWaiters = [];
+    session.locallyEdited = new Set();
     this.pushState();
     try {
       const greeting = { clientId: session.selfId, name: displayName };
@@ -391,7 +396,9 @@ class CollabHub extends EventEmitter {
       await this.waitForInitialSync(session);
       session.initialBlobs = new Set(session.pendingBlobs);
       session.diskSync.resume();
-      await session.diskSync.flush(60000);
+      if (!await session.diskSync.flush(60000)) {
+        throw Object.assign(new Error(text(this.deps.locale(), "The shared files could not be saved.", "共有中のファイルを保存できませんでした。")), { code: "COLLAB_FLUSH_FAILED" });
+      }
       session.joining = false;
       if (!rejoining) {
         session.phase = "opening";
@@ -418,8 +425,7 @@ class CollabHub extends EventEmitter {
     }
   }
 
-  // On leaving, a guest records the hash of every mirrored file so a rejoin
-  // can tell "edited here after leaving" from "changed by the host meanwhile".
+  // A rejoin compares mirrored files with the host state known at leave time.
   mirrorManifestPath(session) {
     return path.join(session.rootPath, ".tex64", "collab-mirror.json");
   }
@@ -430,6 +436,9 @@ class CollabHub extends EventEmitter {
       await session.manifest.scan();
       const files = {};
       for (const [relative, entry] of session.manifest.entries) {
+        // A local save only confirms the mirror, not receipt by the host.
+        // On the next join keep this copy if the host supplies different bytes.
+        if (session.locallyEdited?.has(relative)) continue;
         if (entry.kind === "binary") files[relative] = entry.hash;
         else if (entry.kind === "skipped") continue;
         else {
@@ -471,22 +480,31 @@ class CollabHub extends EventEmitter {
       // Nothing there to keep; any other failure (EACCES …) keeps the file.
       return error?.code === "ENOENT";
     }
-    if (incoming !== null && (typeof incoming === "string" ? current.toString("utf8") === incoming : Buffer.from(incoming).equals(current))) return true;
+    if (incoming !== null && Buffer.from(incoming).equals(current)) return true;
     if (session.mirrorHashes) {
       const recorded = session.mirrorHashes[relative];
       if (recorded && recorded === hashBuffer(current)) return true;
     }
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const extension = path.extname(relative);
-    const target = `${absolute.slice(0, absolute.length - extension.length)}.local-${stamp}${extension}`;
+    const stem = `${absolute.slice(0, absolute.length - extension.length)}.local-${stamp}`;
+    let target;
     try {
-      await fsp.copyFile(absolute, target);
+      for (let n = 1; ; n += 1) {
+        target = `${stem}${n === 1 ? "" : `-${n}`}${extension}`;
+        try {
+          await fsp.copyFile(absolute, target, fs.constants.COPYFILE_EXCL);
+          break;
+        } catch (error) {
+          if (error.code !== "EEXIST") throw error;
+        }
+      }
       session.preserved.push(path.relative(session.rootPath, target));
       // A file of the join that arrived after the mirror opened: the join's
       // own report has already been shown.
       if (!session.joining) {
         const kept = path.relative(session.rootPath, target);
-        this.notice(text(this.deps.locale(), `${relative}: edited after you left, kept as ${kept}.`, `${relative}: 退出後に編集した分を ${kept} として退避しました。`));
+        this.notice(text(this.deps.locale(), `${relative}: local edits kept as ${kept}.`, `${relative}: 手元で編集した分を ${kept} として退避しました。`));
       }
       return true;
     } catch (error) {
@@ -504,7 +522,12 @@ class CollabHub extends EventEmitter {
           return;
         }
         const sessionReady = Boolean(session.docs.get(SESSION_DOC)?.synced);
-        const docsReady = sessionReady && [...session.docs.values()].every((doc) => doc.docId === SESSION_DOC || doc.deleted || doc.synced);
+        const docs = [...session.docs.values()].filter(doc => doc.docId !== SESSION_DOC && !doc.deleted);
+        if (docs.some(doc => doc.preserveFailed)) {
+          reject(Object.assign(new Error(text(this.deps.locale(), "Could not keep a local edit before joining.", "参加前に手元の変更を退避できませんでした。")), { code: "COLLAB_FLUSH_FAILED" }));
+          return;
+        }
+        const docsReady = sessionReady && docs.every(doc => doc.synced && doc.attached);
         if (sessionReady && docsReady) {
           resolve();
           return;
@@ -646,7 +669,12 @@ class CollabHub extends EventEmitter {
     const entry = session.docs.get(docId);
     if (!entry || entry.attached || entry.deleted || docId === SESSION_DOC) return;
     entry.attached = true;
-    session.diskSync.attach(docId, entry.ytext, baselineContent);
+    if (Buffer.isBuffer(baselineContent)) {
+      session.diskSync.attach(docId, entry.ytext, null, hashBuffer(baselineContent));
+    } else {
+      session.diskSync.attach(docId, entry.ytext, baselineContent);
+    }
+    session.knownBinaryHashes.delete(docId);
   }
 
   // A doc becomes writable once we hold its content: immediately for docs we
@@ -657,14 +685,21 @@ class CollabHub extends EventEmitter {
     if (!session.rootPath) return;
     let baseline = null;
     try {
-      baseline = fs.readFileSync(path.join(session.rootPath, docId), "utf8");
+      const bytes = fs.readFileSync(path.join(session.rootPath, docId));
+      baseline = isUnknownTextBuffer(bytes) ? bytes.toString("utf8") : bytes;
     } catch {}
     if (session.joining && baseline !== null && baseline !== entry.ytext.toString()) {
+      if (entry.preserving || entry.preserveFailed) return;
+      entry.preserving = true;
       void this.preserveLocal(session, docId, entry.ytext.toString()).then((kept) => {
+        if (this.session !== session || session.docs.get(docId) !== entry) return;
+        entry.preserving = false;
         if (kept) this.attachDoc(session, docId, baseline);
+        else entry.preserveFailed = true;
       });
       return;
     }
+    if (Buffer.isBuffer(baseline) && hashBuffer(baseline) !== session.knownBinaryHashes.get(docId)) return;
     this.attachDoc(session, docId, baseline);
   }
 
@@ -676,6 +711,9 @@ class CollabHub extends EventEmitter {
     if (session.transport) {
       if (session.role === "host") session.transport.broadcast(frame, origin && origin.socket ? origin : null);
       else if (!(origin && origin.socket) && session.access !== "view") session.transport.broadcast(frame);
+    }
+    if (session.role === "guest" && entry.ytext && !(origin && origin.socket) && session.access !== "view") {
+      session.locallyEdited?.add(entry.docId);
     }
     if (origin !== RENDERER && session.rendererDocs.has(entry.docId)) {
       this.deps.sendCollab({ type: "collab:doc", sessionId: session.id, epoch: session.epoch, docId: entry.docId, kind: "sync", bytes: encoding.toUint8Array(encoder) });
@@ -874,6 +912,8 @@ class CollabHub extends EventEmitter {
   // (so updates can arrive before the manifest entry) any valid text path.
   docForPeer(session, docId) {
     if (docId === SESSION_DOC) return session.docs.get(SESSION_DOC) || null;
+    const shared = session.sessionDoc?.getMap("files").get(docId);
+    if (shared && (shared.deleted || shared.kind !== "text")) return null;
     const existing = session.docs.get(docId);
     if (existing) return existing.deleted ? null : existing;
     if (!safeRelativePath(docId) || !looksTextByName(docId)) return null;
@@ -1125,6 +1165,7 @@ class CollabHub extends EventEmitter {
       }
       return;
     }
+    this.detachTextDoc(session, relative);
     this.noticeRemoteLimit(session, relative, entry);
     if (this.lacksFile(session, relative, entry)) {
       if (session.role === "guest") {
@@ -1135,8 +1176,7 @@ class CollabHub extends EventEmitter {
     }
   }
 
-  async removeLocal(session, relative) {
-    if (!(await this.preserveLocal(session, relative, null))) return;
+  detachTextDoc(session, relative) {
     const doc = session.docs.get(relative);
     if (doc) {
       doc.deleted = true;
@@ -1144,14 +1184,22 @@ class CollabHub extends EventEmitter {
       session.diskSync.detach(relative);
       session.rendererDocs.delete(relative);
     }
+  }
+
+  async removeLocal(session, relative) {
+    const stillRemoved = () => this.session === session && session.sessionDoc.getMap("files").get(relative)?.deleted === true;
+    if (!(await this.preserveLocal(session, relative, null)) || !stillRemoved()) return;
+    this.detachTextDoc(session, relative);
     session.knownBinaryHashes.delete(relative);
     if (!session.rootPath) return;
     const absolute = await resolveInsideRoot(session.rootPath, relative);
     if (!absolute) return;
     try {
       if (session.diskSync.coordinated) {
-        await this.deps.withWorkspaceMutation(() => this.deps.workspace.withFileMutation(relative, () => fsp.rm(absolute, { force: true })));
-      } else {
+        await this.deps.withWorkspaceMutation(() => this.deps.workspace.withFileMutation(relative, () => {
+          if (stillRemoved()) return fsp.rm(absolute, { force: true });
+        }));
+      } else if (stillRemoved()) {
         await fsp.rm(absolute, { force: true });
       }
     } catch (error) {
@@ -1201,12 +1249,23 @@ class CollabHub extends EventEmitter {
 
   async onBlob(session, conn, frame) {
     const relative = safeRelativePath(frame.path);
-    if (!relative || !session.rootPath) return;
-    if (!looksTextByName(relative) || frame.bytes.length > MAX_TEXT_BYTES) {
-      // fallthrough: binary payload
-    }
-    const hash = hashBuffer(Buffer.from(frame.bytes));
-    if (hash !== frame.hash) return;
+    if (!relative || !session.rootPath || hashBuffer(frame.bytes) !== frame.hash) return;
+    session.blobWrites ??= new Map();
+    const previous = session.blobWrites.get(relative);
+    if (previous?.hash === frame.hash) return previous.promise;
+    const pending = {
+      hash: frame.hash,
+      promise: Promise.resolve(previous?.promise).catch(() => {}).then(() => {
+        if (this.session === session) return this.receiveBlob(session, conn, frame, relative);
+      }),
+    };
+    session.blobWrites.set(relative, pending);
+    try { await pending.promise; }
+    finally { if (session.blobWrites.get(relative) === pending) session.blobWrites.delete(relative); }
+  }
+
+  async receiveBlob(session, conn, frame, relative) {
+    const hash = frame.hash;
     const shared = session.sessionDoc?.getMap("files").get(relative);
     const known = session.knownBinaryHashes.get(relative);
     // The same version, or a smaller copy of the original this peer holds.
@@ -1216,16 +1275,27 @@ class CollabHub extends EventEmitter {
     }
     const absolute = await resolveInsideRoot(session.rootPath, relative);
     if (!absolute) return;
-    if (!(await this.preserveLocal(session, relative, frame.bytes))) return;
+    if (!(await this.preserveLocal(session, relative, frame.bytes)) || this.session !== session) return;
     const write = async () => {
+      if (this.session !== session) return;
       await fsp.mkdir(path.dirname(absolute), { recursive: true });
       const temporary = `${absolute}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await fsp.writeFile(temporary, Buffer.from(frame.bytes));
-      await fsp.rename(temporary, absolute);
+      try {
+        await fsp.writeFile(temporary, frame.bytes);
+        if (this.session !== session) {
+          await fsp.rm(temporary, { force: true });
+          return;
+        }
+        await fsp.rename(temporary, absolute);
+      } catch (error) {
+        await fsp.rm(temporary, { force: true }).catch(() => {});
+        throw error;
+      }
     };
     try {
       if (session.diskSync.coordinated) await this.deps.withWorkspaceMutation(() => this.deps.workspace.withFileMutation(relative, write));
       else await write();
+      if (this.session !== session) return;
       session.knownBinaryHashes.set(relative, hash);
       await session.manifest?.refresh(relative);
       this.blobSettled(session, relative);
@@ -1271,17 +1341,20 @@ class CollabHub extends EventEmitter {
             if (viewOnly) continue;
             let content;
             try {
-              content = await fsp.readFile(path.join(session.rootPath, relative), "utf8");
+              content = await readUnknownTextFile(path.join(session.rootPath, relative));
+              if (content === null) continue;
             } catch {
               continue;
             }
+            const current = doc || this.createDoc(session, relative, content);
             if (doc) {
+              // Other peers can still hold this Y.Doc. Replacing it with an
+              // unrelated one makes the two complete file contents merge.
               doc.deleted = false;
-              doc.synced = true;
-              session.docs.delete(relative);
+              applyTextDelta(doc.ytext, doc.ytext.toString(), content, DISK_ORIGIN);
             }
-            const created = this.createDoc(session, relative, content);
-            created.synced = true;
+            current.synced = true;
+            session.locallyEdited?.add(relative);
             session.sessionDoc.transact(() => files.set(relative, { kind: "text", by: session.selfId }), LOCAL);
             this.attachDoc(session, relative, content);
             this.sendSyncStep1(session, relative);
@@ -1309,10 +1382,12 @@ class CollabHub extends EventEmitter {
           // the host's bytes arrive, an edited old copy is kept beside them.
           if (session.initialBlobs?.has(relative)) continue;
           if (entry.kind === "skipped" && shared?.kind === "skipped" && shared.size === entry.size) continue;
+          this.detachTextDoc(session, relative);
           if (entry.hash) session.knownBinaryHashes.set(relative, entry.hash);
           else session.knownBinaryHashes.delete(relative);
           const next = await this.sharedEntry(session, relative, entry);
           if (this.session !== session) return;
+          session.locallyEdited?.add(relative);
           session.sessionDoc.transact(() => files.set(relative, next), LOCAL);
           if (next.kind === "binary") void this.sendBlob(session, relative);
         }
@@ -1333,12 +1408,7 @@ class CollabHub extends EventEmitter {
           session.knownBinaryHashes.delete(relative);
           continue;
         }
-        if (doc) {
-          doc.deleted = true;
-          doc.attached = false;
-          session.diskSync.detach(relative);
-          session.rendererDocs.delete(relative);
-        }
+        this.detachTextDoc(session, relative);
         session.knownBinaryHashes.delete(relative);
         session.sessionDoc.transact(() => files.set(relative, { deleted: true, by: session.selfId, t: Date.now() }), LOCAL);
       }
@@ -1503,17 +1573,10 @@ class CollabHub extends EventEmitter {
   }
 
   async loadCommentsFromDisk(session) {
-    let parsed;
-    try {
-      parsed = JSON.parse(await fsp.readFile(this.commentsPath(session), "utf8"));
-    } catch {
-      return;
-    }
-    if (!parsed || !Array.isArray(parsed.comments)) return;
+    const { comments } = await readWorkspaceComments(this.commentsPath(session));
     const map = session.sessionDoc.getMap("comments");
     session.sessionDoc.transact(() => {
-      for (const item of parsed.comments) {
-        if (!item || typeof item.id !== "string" || typeof item.filePath !== "string" || !item.range) continue;
+      for (const item of comments) {
         const ymap = new Y.Map();
         ymap.set("filePath", item.filePath);
         ymap.set("text", String(item.text || "").slice(0, 4000));

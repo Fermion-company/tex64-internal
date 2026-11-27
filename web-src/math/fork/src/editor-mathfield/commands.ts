@@ -4,7 +4,7 @@ import { onInput } from './keyboard-input';
 import { toggleKeystrokeCaption } from './keystroke-caption';
 import { requestUpdate } from './render';
 import { ParseMode } from '../public/core-types';
-import { updateAutocomplete } from './autocomplete';
+import { complete, updateAutocomplete } from './autocomplete';
 import { canInsertArrayColumn, canInsertArrayRow } from './array-input';
 
 // Commands that don't change content
@@ -90,6 +90,7 @@ registerCommand(
     // e.g. when using a virtual keyboard
     commit: (mathfield: _Mathfield) => {
       const model = mathfield.model;
+      if (model.mode === 'latex') return complete(mathfield, 'accept-all');
       if (!canInsertArrayRow(model)) return true;
       if (model.contentWillChange({ inputType: 'insertLineBreak' })) {
         mathfield.host?.dispatchEvent(
