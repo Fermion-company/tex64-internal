@@ -13,7 +13,13 @@ services
 native-macos
 build
 artifacts
-electron
+# The renderer's collaboration bundle imports this shared diff helper.
+electron/*
+!electron/services/
+electron/services/*
+!electron/services/collab/
+electron/services/collab/*
+!electron/services/collab/text-delta.cjs
 marketing
 marketing-video
 prototypes
