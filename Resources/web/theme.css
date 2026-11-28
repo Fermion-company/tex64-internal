@@ -4673,6 +4673,22 @@ input.settings-select {
   border-color: var(--panel-border-strong);
 }
 
+.editor-tab[data-drop-position] {
+  z-index: 2;
+}
+
+.editor-tab[data-drop-position]::after {
+  content: "";
+  position: absolute;
+  inset-block: 2px;
+  width: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.editor-tab[data-drop-position="before"]::after { left: 0; }
+.editor-tab[data-drop-position="after"]::after { right: 0; }
+
 /* The last build's problems, beside Build: errors in the danger colour,
    warnings alone in the warning colour, nothing when clean. The shape (disc
    or triangle) carries the difference too. Opens the Problems panel. */
@@ -8684,6 +8700,14 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 /* ── Monaco Editor Widgets (Hover, Find, etc.) ── */
 .monaco-editor .editor-widget:not(.suggest-widget) {
   border-radius: var(--radius-sm) !important;
+}
+
+/* Monaco declares a 16px icon with 3px padding. Keep the full hit area
+   under the app's border-box reset and centre it on the 25px find row. */
+.monaco-editor .find-widget > .button.codicon-widget-close {
+  width: 22px;
+  height: 22px;
+  top: 4.5px;
 }
 
 /* Keep Monaco problems/peek widgets inside editor bounds on narrow panes. */

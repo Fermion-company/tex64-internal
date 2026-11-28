@@ -176,6 +176,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     let disposable = null;
     let cursorDisposable = null;
     let queuedSessionKey = null;
+    let queuedActivePath;
     let queuedBuffers = new Map();
     let pendingPush = null;
     let pushing = false;
@@ -417,6 +418,9 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             distributeLive(null, liveGeneration);
         }
     };
+    const matchesQueuedSource = (snapshot) => snapshot.sessionKey === queuedSessionKey &&
+        snapshot.payload.activePath === queuedActivePath &&
+        sameBuffers(snapshot.buffers, queuedBuffers);
     let limitedRetryTimer = null;
     const retryLimited = (sessionKey) => {
         if (limitedRetryTimer !== null)
@@ -563,8 +567,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             compositionRetry();
             return;
         }
-        if (!sourceRefreshPending &&
-            snapshot.sessionKey === queuedSessionKey && sameBuffers(snapshot.buffers, queuedBuffers)) {
+        if (!sourceRefreshPending && matchesQueuedSource(snapshot)) {
             // With no queued or in-flight request, queuedBuffers is the last source
             // the bridge accepted. A new capture of those same bytes is already live.
             if (!pushing && !pendingPush)
@@ -572,6 +575,9 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             return;
         }
         queuedSessionKey = snapshot.sessionKey;
+        // For long books, main selects the chapter by the active path even when
+        // both tabs are clean and the root and dirty buffers are identical.
+        queuedActivePath = snapshot.payload.activePath;
         queuedBuffers = new Map(snapshot.buffers);
         sourceRefreshPending = false;
         pendingPush = {
@@ -728,7 +734,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             const snapshot = currentSnapshot();
             if (snapshot)
                 retireObsoleteSession(snapshot.sessionKey);
-            if (snapshot && (sourceRefreshPending || snapshot.sessionKey !== queuedSessionKey || !sameBuffers(snapshot.buffers, queuedBuffers)))
+            if (snapshot && (sourceRefreshPending || !matchesQueuedSource(snapshot)))
                 debouncedPush();
             if (engineUrl)
                 distributeLive(engineUrl);

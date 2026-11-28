@@ -184,6 +184,9 @@ const createBuildCoreHandlers = (deps, resolvers) => {
   let activeCleanHandlers = 0;
   let nextBuildHandlerId = 0;
   const activeBuildRequests = new Map();
+  // Two documents can use the same profile output path. The most recent
+  // successful writer decides whether that path still belongs to a root.
+  const pdfOwners = new Map();
   let pendingQueuedBuild = null;
   let queuedBuildTimer = null;
 
@@ -198,7 +201,7 @@ const createBuildCoreHandlers = (deps, resolvers) => {
   const queueLatestBuild = (request, { announce = true } = {}) => {
     const replaced = pendingQueuedBuild;
     pendingQueuedBuild = request;
-    if (replaced) {
+    if (replaced?.options.requestId) {
       sendBuildState(
         "idle",
         "Build request superseded.",
@@ -250,8 +253,8 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     }
     if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
     if (
-      options.queueIfBusy === true &&
-      (activeBuildHandlers > 0 || activeCleanHandlers > 0 || buildService.isBuilding)
+      options.queueIfBusy !== false &&
+      (pendingQueuedBuild || activeBuildHandlers > 0 || activeCleanHandlers > 0 || buildService.isBuilding)
     ) {
       queueLatestBuild({
         rootPath,
@@ -274,29 +277,11 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
       await updateWorkspaceIfNeeded(rootPath);
       if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
-      const rootInfo = await workspace.rootInfo().catch(() => null);
-      const requestedFile = mainFile && mainFile.trim() ? mainFile.trim() : null;
-      let targetFile = rootInfo?.path || "main.tex";
-      if (requestedFile && requestedFile.endsWith(".tex")) {
-        if (options.exactTarget === true) {
-          // AI mode deliberately owns an exact document selection. A magic
-          // root inside that file must not silently move its PDF/state to a
-          // different document; Code mode still follows magic roots below.
-          targetFile = requestedFile;
-        } else {
-          const magicRoot = await workspace.resolveTexRootFromMagic(requestedFile).catch(() => null);
-          if (magicRoot) {
-            targetFile = magicRoot;
-          } else if (!rootInfo?.path) {
-            targetFile = requestedFile;
-          }
-        }
-      } else if (requestedFile && !rootInfo?.path) {
-        targetFile = requestedFile;
-      }
-      if (options.exactTarget !== true && typeof workspace.resolveBuildTarget === "function") {
-        targetFile = await workspace.resolveBuildTarget(requestedFile);
-      }
+      const requestedFile = typeof mainFile === "string" && mainFile.trim() ? mainFile.trim() : null;
+      let targetFile = options.exactTarget === true && requestedFile
+        ? requestedFile
+        : await workspace.resolveBuildTarget(requestedFile);
+      if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
       // Treat the renderer/webview target as untrusted. Besides rejecting
       // lexical traversal, WorkspaceManager.resolvePath verifies the nearest
       // existing ancestor's realpath so an in-workspace symlink cannot send
@@ -317,9 +302,11 @@ const createBuildCoreHandlers = (deps, resolvers) => {
             try { return fs.lstatSync(expectedPdfPath); } catch { return null; }
           })()
         : null;
-      const previousPdfPath = expectedPdfStats?.isFile() && !expectedPdfStats.isSymbolicLink()
-        ? expectedPdfPath
-        : null;
+      const pdfOwner = pdfOwners.get(expectedPdfPath);
+      const previousPdfPath =
+        (!pdfOwner || pdfOwner === targetFile) && expectedPdfStats?.isFile() && !expectedPdfStats.isSymbolicLink()
+          ? expectedPdfPath
+          : null;
       buildExpectedPdfPath = expectedPdfPath;
       const relativePreviousPdfPath = previousPdfPath
         ? rendererPath(resolveWorkspaceRelativePath(rootPath, previousPdfPath))
@@ -343,6 +330,11 @@ const createBuildCoreHandlers = (deps, resolvers) => {
           : options.pdfViewerMode === "none"
             ? "none"
             : "window";
+      const isCurrent = () => buildRequestIsCurrent(rootPath, options, activityGeneration);
+      if (relativePreviousPdfPath && viewerMode === "tab") {
+        await handleOpenFile(relativePreviousPdfPath, { buildPreview: "previous", isCurrent });
+        if (!isCurrent()) return;
+      }
       if (previousPdfPath && viewerMode === "window") {
         pdfWindowManager.show(previousPdfPath, { reload: false });
         pdfWindowManager.setBuildState?.("building", buildMessage, previousPdfPath);
@@ -395,16 +387,17 @@ const createBuildCoreHandlers = (deps, resolvers) => {
         result.log = [...recoveryNotes, "", result.log].join("\n");
       }
       if (result.kind === "busy") {
-        if (options.queueIfBusy === true) {
-          queueLatestBuild(
-            {
+        if (options.queueIfBusy !== false) {
+          if (!pendingQueuedBuild) {
+            queueLatestBuild({
               rootPath,
               mainFile,
               options: { ...options },
               activityGeneration,
-            },
-            { announce: false },
-          );
+            }, { announce: false });
+          } else if (options.requestId) {
+            sendBuildState("idle", "Build request superseded.", eventContext);
+          }
           scheduleQueuedBuild();
           return;
         }
@@ -428,13 +421,16 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       if (result.kind === "success") {
         if (fs.existsSync(result.pdfPath)) {
           state.lastBuildPdfPath = result.pdfPath;
+          pdfOwners.set(result.pdfPath, targetFile);
+          workspace.noteBuildTarget?.(targetFile);
           pdfWindowManager.markBuilt?.(rootPath, result.pdfPath);
           // "none" leaves every viewer untouched: the AI mode shows the page
           // itself and must not have the Code-mode PDF window pop over it.
           if (viewerMode === "tab") {
             const relativePdfPath = rendererPath(resolveWorkspaceRelativePath(rootPath, result.pdfPath));
             if (relativePdfPath) {
-              await handleOpenFile(relativePdfPath);
+              await handleOpenFile(relativePdfPath, { buildPreview: "built", isCurrent });
+              if (!isCurrent()) return;
             } else {
               pdfWindowManager.show(result.pdfPath);
             }
@@ -532,22 +528,8 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       if (!buildRequestIsCurrent(rootPath, {}, activityGeneration)) return;
       await updateWorkspaceIfNeeded(rootPath);
       if (!buildRequestIsCurrent(rootPath, {}, activityGeneration)) return;
-      const rootInfo = await workspace.rootInfo().catch(() => null);
-      const requestedFile = mainFile && mainFile.trim() ? mainFile.trim() : null;
-      let targetFile = rootInfo?.path || "main.tex";
-      if (requestedFile && requestedFile.endsWith(".tex")) {
-        const magicRoot = await workspace.resolveTexRootFromMagic(requestedFile).catch(() => null);
-        if (magicRoot) {
-          targetFile = magicRoot;
-        } else if (!rootInfo?.path) {
-          targetFile = requestedFile;
-        }
-      } else if (requestedFile && !rootInfo?.path) {
-        targetFile = requestedFile;
-      }
-      if (typeof workspace.resolveBuildTarget === "function") {
-        targetFile = await workspace.resolveBuildTarget(requestedFile);
-      }
+      const requestedFile = typeof mainFile === "string" && mainFile.trim() ? mainFile.trim() : null;
+      let targetFile = await workspace.resolveBuildTarget(requestedFile);
       targetFile = resolveWorkspaceBuildTarget(rootPath, targetFile);
       const buildProfile =
         normalizeBuildProfile(options?.buildProfile) ??
@@ -640,52 +622,35 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     sendIssues(0, "Canceling build…", "info", []);
   };
 
-  // The document a Jump from `requestedFile` lands in, decided like a Build
-  // (magic root, the including document, the user's main TeX; an explicit
-  // target is taken as is), and the PDF that document's Build writes.
-  // Throws BUILD_TARGET_CHOICE when several documents could own the file.
+  // Jump uses the same owner and output profile as Build.
   const resolveJumpDocument = async (requestedFile, { exactTarget = null } = {}) => {
     const rootPath = ensureWorkspace();
     if (!rootPath) return null;
-    let targetFile = exactTarget;
-    if (!targetFile && typeof workspace.resolveBuildTarget === "function") {
-      targetFile = await workspace.resolveBuildTarget(requestedFile);
-    }
-    if (!targetFile) return null;
+    const source = exactTarget ?? await workspace.resolveBuildTarget(requestedFile);
     const buildProfile = await resolveBuildProfile().catch(() => null);
+    if (ensureWorkspace() !== rootPath) return null;
     const isFile = (file) => {
       try { return fs.statSync(file).isFile(); } catch { return false; }
     };
     const describe = (file) => {
-      const target = resolveWorkspaceBuildTarget(rootPath, file);
-      const outputProfile = buildService.resolveBuildOutputProfile(rootPath, target, buildProfile);
+      const targetFile = resolveWorkspaceBuildTarget(rootPath, file);
+      const outputProfile = buildService.resolveBuildOutputProfile(rootPath, targetFile, buildProfile);
       const pdfPath = outputProfile.invalidDirectoryArgument || (outputProfile.outDirRequested && !outputProfile.outDir)
         ? null
         : outputProfile.pdfPath;
-      const synctexPath = pdfPath ? pdfPath.replace(/\.pdf$/i, ".synctex.gz") : null;
-      const built = Boolean(pdfPath && isFile(pdfPath) && (isFile(synctexPath) || isFile(synctexPath.replace(/\.gz$/, ""))));
-      let builtAt = 0;
-      if (built) { try { builtAt = fs.statSync(pdfPath).mtimeMs; } catch { builtAt = 0; } }
-      return { targetFile: rendererPath(target), pdfPath, built, builtAt };
+      const pdfOwner = pdfOwners.get(pdfPath);
+      const syncPath = pdfPath?.replace(/\.pdf$/i, ".synctex");
+      const built = Boolean((!pdfOwner || pdfOwner === targetFile) &&
+        pdfPath && isFile(pdfPath) && (isFile(`${syncPath}.gz`) || isFile(syncPath)));
+      return { targetFile, pdfPath, built };
     };
-    const own = describe(targetFile);
-    // A chapter that can be built on its own (subfiles) is also part of the
-    // book. Jump goes to a PDF that exists: when the chapter itself has none,
-    // the book that includes it answers instead of starting a chapter Build.
-    // With both built, the newer PDF is the one the reader is working on.
-    if (!exactTarget && rendererPath(own.targetFile) === rendererPath(requestedFile) &&
-        typeof workspace.resolveIncludingDocuments === "function") {
-      let including = [];
-      try { including = await workspace.resolveIncludingDocuments(requestedFile); } catch { including = []; }
-      const builtOwners = including.map(describe).filter((entry) => entry.built)
-        .sort((a, b) => b.builtAt - a.builtAt);
-      if (builtOwners.length && (!own.built || builtOwners[0].builtAt > own.builtAt)) {
-        const { builtAt: _ownerBuiltAt, ...owner } = builtOwners[0];
-        return owner;
-      }
+    // A chapter explicitly compiled on its own can still use its own paper
+    // until the regular Build from that chapter compiles the enclosing root.
+    if (!exactTarget && source !== requestedFile && workspace.getRecentBuildTargets?.()[0] === requestedFile) {
+      const standalone = describe(requestedFile);
+      if (standalone.built) return standalone;
     }
-    const { builtAt: _builtAt, ...result } = own;
-    return result;
+    return describe(source);
   };
 
   return {

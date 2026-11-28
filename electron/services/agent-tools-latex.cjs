@@ -256,7 +256,7 @@ const handleReadSection = async (service, args, policy, conversationId) => {
   if (!targetPath) return { error: "path is empty." };
   if (isBlockedPath(targetPath, policy)) return { error: "Target path is read-protected." };
   if (!isTextExtension(targetPath, policy)) return { error: "Only text files can be read." };
-  const read = await readCurrentTextContent(service, policy, conversationId, targetPath);
+  const read = await readCurrentTextContent(service, policy, conversationId, targetPath, { partialRead: true });
   if (!read.ok) return { error: read.error };
   const structure = parseLatexStructure(read.content);
   const node = findNode(structure, args || {});
@@ -284,8 +284,8 @@ const handleReadSection = async (service, args, policy, conversationId) => {
 const handleReplaceSection = async (service, args, policy, conversationId) => {
   const targetPath = normalizePath(args?.path);
   if (!targetPath) return { error: "path is empty." };
-  const read = await readCurrentTextContent(service, policy, conversationId, targetPath);
-  if (!read.ok) return { error: read.error };
+  const read = await readCurrentTextContent(service, policy, conversationId, targetPath, { forEdit: true });
+  if (!read.ok) return read;
   const structure = parseLatexStructure(read.content);
   const node = findNode(structure, args || {});
   if (!node) {
@@ -319,6 +319,7 @@ const handleReplaceSection = async (service, args, policy, conversationId) => {
       afterLine,
       replacementText,
       `Fill in ${node.type} "${node.title}"`,
+      read,
     );
   }
   const newline = read.content.includes("\r\n") ? "\r\n" : "\n";
@@ -362,8 +363,12 @@ const handleInsertIntoFile = async (
   afterLine,
   insertionText,
   summary,
+  base = null,
 ) => {
-  const newline = originalLines.join("\n").includes("\r\n") ? "\r\n" : "\n";
+  // `base` is the read the lines came from: its exact text and hash let the
+  // write be checked against (and rebased onto) the disk like other edits.
+  const baseText = typeof base?.content === "string" ? base.content : null;
+  const newline = (baseText ?? originalLines.join("\n")).includes("\r\n") ? "\r\n" : "\n";
   const normalizedInsertion = (insertionText || "").replace(/\r\n/g, "\n");
   const insertionLines = normalizedInsertion.split("\n");
   if (
@@ -378,7 +383,7 @@ const handleInsertIntoFile = async (
     ...insertionLines,
     ...originalLines.slice(afterLine),
   ];
-  const originalContent = originalLines.join("\n");
+  const originalContent = baseText ?? originalLines.join("\n");
   let updatedContent = updatedLines.join("\n");
   if (newline === "\r\n") {
     updatedContent = updatedContent.replace(/\n/g, "\r\n");
@@ -390,8 +395,8 @@ const handleInsertIntoFile = async (
     targetPath,
     originalContent,
     updatedContent,
-    baseContentHash: null,
-    baseSource: null,
+    baseContentHash: typeof base?.baseContentHash === "string" ? base.baseContentHash : null,
+    baseSource: base?.baseSource ?? null,
     summary: summary || `Insert content into ${targetPath}`,
     allowFullRewrite: true,
     proposalType: "patch",
@@ -401,8 +406,8 @@ const handleInsertIntoFile = async (
 const handleAppendToSection = async (service, args, policy, conversationId) => {
   const targetPath = normalizePath(args?.path);
   if (!targetPath) return { error: "path is empty." };
-  const read = await readCurrentTextContent(service, policy, conversationId, targetPath);
-  if (!read.ok) return { error: read.error };
+  const read = await readCurrentTextContent(service, policy, conversationId, targetPath, { forEdit: true });
+  if (!read.ok) return read;
   const structure = parseLatexStructure(read.content);
   const node = findNode(structure, args || {});
   if (!node) {

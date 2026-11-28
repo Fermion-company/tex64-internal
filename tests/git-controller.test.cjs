@@ -175,3 +175,39 @@ test('staged rename compares original HEAD path and deletion works when its pare
  await fs.mkdir(path.join(f.root,'folder'));await fs.writeFile(path.join(f.root,'folder/nested.tex'),'nested');await f.run(['add','folder/nested.tex']);await f.run(['commit','-m','nested']);await fs.rm(path.join(f.root,'folder'),{recursive:true});
  result=await f.request('diff',{path:'folder/nested.tex',side:'unstaged'});assert.equal(result.original,'nested');assert.equal(result.modified,'');
 });
+
+test('Git protection finds the same vault and restore boundary through a folder alias', async t => {
+  const f = await fixture(t);
+  const link = path.join(f.dir, 'link');
+  await fs.symlink(f.root, link, 'dir');
+  const { token } = await f.begin();
+  const { plan } = await f.request('plan', { token, action: 'branch-create', args: { name: 'new' } });
+  await f.request('execute', { token, planId: plan.planId });
+  await f.request('ack', { token, buffers: [] });
+  const boundary = f.controller.boundary(f.root);
+  assert.ok(boundary);
+  assert.equal(f.controller.boundary(link), boundary);
+  const alternateCase = path.join(f.dir, 'Project');
+  if (await fs.stat(alternateCase).catch(() => null)) {
+    assert.equal(f.controller.directory(alternateCase), f.controller.directory(f.root));
+    const reopened = new GitController({ ...f.deps, workspace: { getRootPath: () => alternateCase } });
+    await reopened.prepareWorkspace(alternateCase);
+    assert.equal(reopened.boundary(alternateCase), boundary);
+  }
+});
+
+test('Git acknowledgements check a stale editor buffer named by a case alias', async t => {
+  const f = await fixture(t);
+  const alias = 'Main.tex';
+  if (!await fs.stat(path.join(f.root, alias)).catch(() => null)) {
+    t.skip('This volume distinguishes case.');
+    return;
+  }
+  const { token } = await f.begin();
+  const { plan } = await f.request('plan', { token, action: 'branch-create', args: { name: 'new' } });
+  await f.request('execute', { token, planId: plan.planId });
+  await assert.rejects(f.request('ack', {
+    token, buffers: [{ path: alias, content: 'older text', savedContent: 'older text' }],
+  }), { code: 'SYNC_REQUIRED' });
+  await f.request('ack', { token, buffers: [{ path: alias, content: 'A', savedContent: 'A' }] });
+});

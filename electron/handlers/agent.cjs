@@ -1,3 +1,4 @@
+const { withProjectFileWrites, writeProjectFile } = require("../services/project-file-writes.cjs");
 const { resolveAgentsApiConfig, getAgentsApiAccess } = require("../services/openprism/agents-api.cjs");
 const {
   DEFAULT_BASE_URL,
@@ -878,15 +879,18 @@ const createAgentHandlers = (deps) => {
     const rootPath = agentService.workspace.getRootPath?.();
     if (!rootPath) return;
     const absolute = path.join(rootPath, RULES_RELATIVE_PATH);
-    let content = "";
-    try {
-      content = await fsp.readFile(absolute, "utf8");
-    } catch {
-      await fsp.mkdir(path.dirname(absolute), { recursive: true });
-      content = RULES_TEMPLATE;
-      await fsp.writeFile(absolute, content, "utf8");
-      await agentService.updateWorkspaceIfNeeded?.(rootPath, true);
-    }
+    let created = false;
+    const content = await withProjectFileWrites([absolute], async () => {
+      try {
+        return await fsp.readFile(absolute, "utf8");
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+        await writeProjectFile(absolute, RULES_TEMPLATE, { exclusive: true });
+        created = true;
+        return RULES_TEMPLATE;
+      }
+    });
+    if (created) await agentService.updateWorkspaceIfNeeded?.(rootPath, true);
     sendToRenderer("openFileResult", { path: RULES_RELATIVE_PATH, content });
   };
 

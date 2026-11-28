@@ -11,12 +11,16 @@
 //
 //   disk → Y.Doc: three-way. `baseline` is the content this layer last wrote
 //   or read. A disk content C equal to the baseline is our own echo. Otherwise
-//   the hunks baseline→C are relocated onto the current Y.Text B; a hunk that
-//   overlaps an unsaved edit in B is dropped (B wins, B is written back, and
-//   the user is told once).
+//   the hunks baseline→C are relocated onto the current Y.Text B. Where a hunk
+//   overlaps an unsaved edit in B, the shared document keeps the file's name
+//   (B is written back, and the user is told once) and C, byte for byte, is
+//   first kept beside it as <name>.local-<time><ext>: neither version is lost
+//   and the file is never left unwritten. If that copy cannot be made, nothing
+//   is written and the doc stays dirty (a flush fails) until it can.
 
 const fsp = require("node:fs/promises");
 const path = require("node:path");
+const { withProjectFileWrites, writeProjectFile } = require("../project-file-writes.cjs");
 const Diff = require("diff");
 const { contentDigest, resolveInsideRoot } = require("./manifest.cjs");
 
@@ -103,10 +107,12 @@ const applyTextDelta = (ytext, from, to, origin) => {
 const hunksConflict = (a, b) => a.start <= b.end && b.start <= a.end;
 
 // Relocates baseline→disk hunks onto the current text. Returns the number of
-// hunks dropped because they overlapped unsaved edits.
-const mergeThreeWay = (ytext, baseline, current, disk, origin) => {
+// hunks dropped because they overlapped unsaved edits. `skipIdentical`: a
+// disk hunk equal to one of ours is already in the text (not a conflict);
+// `dryRun`: count only, change nothing.
+const mergeThreeWay = (ytext, baseline, current, disk, origin, { skipIdentical = false, dryRun = false } = {}) => {
   if (current === baseline) {
-    applyTextDelta(ytext, baseline, disk, origin);
+    if (!dryRun) applyTextDelta(ytext, baseline, disk, origin);
     return 0;
   }
   const ours = textHunks(baseline, current);
@@ -114,6 +120,7 @@ const mergeThreeWay = (ytext, baseline, current, disk, origin) => {
   const edits = [];
   let dropped = 0;
   for (const hunk of theirs) {
+    if (skipIdentical && ours.some((mine) => mine.start === hunk.start && mine.end === hunk.end && mine.text === hunk.text)) continue;
     const overlaps = ours.some((mine) => hunksConflict(mine, hunk));
     if (overlaps) {
       dropped += 1;
@@ -125,8 +132,28 @@ const mergeThreeWay = (ytext, baseline, current, disk, origin) => {
     }
     edits.push({ start: hunk.start + shift, end: hunk.end + shift, text: hunk.text });
   }
-  applyHunks(ytext, edits, origin);
+  if (!dryRun) applyHunks(ytext, edits, origin);
   return dropped;
+};
+
+// Keeps `bytes` (a version of `relative` that is about to be replaced) beside
+// it as <name>.local-<time><ext>, never over an existing file, and synced to
+// disk before this returns. The session's manifest leaves these copies out
+// (manifest.cjs). Returns the copy's path relative to `rootPath`.
+const keepLocalCopy = async (rootPath, relative, bytes) => {
+  const absolute = path.join(rootPath, relative);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const extension = path.extname(relative);
+  const base = absolute.slice(0, absolute.length - extension.length);
+  for (let attempt = 1; ; attempt += 1) {
+    const target = `${base}.local-${stamp}${attempt > 1 ? `-${attempt}` : ""}${extension}`;
+    try {
+      await writeProjectFile(target, bytes, { exclusive: true, durable: true });
+      return path.relative(rootPath, target);
+    } catch (error) {
+      if (error?.code !== "EEXIST" || attempt >= 100) throw error;
+    }
+  }
 };
 
 class DiskSync {
@@ -164,6 +191,8 @@ class DiskSync {
       baseline: baselineContent === null ? null : { content: baselineContent, digest: contentDigest(baselineContent) },
       timer: null,
       dirty: false,
+      // the outside version last kept as a .local copy (one copy per version)
+      keptDigest: null,
       queue: Promise.resolve(),
       waiters: [],
     };
@@ -206,7 +235,7 @@ class DiskSync {
     const entry = this.docs.get(docId);
     if (!entry) return Promise.resolve();
     const run = entry.queue.catch(() => {}).then(async () => {
-      if (!this.coordinated) return operation();
+      if (!this.coordinated) return withProjectFileWrites([await this.safeAbsolute(docId)], operation);
       return this.deps.withWorkspaceMutation(() => this.deps.withFileMutation(docId, operation));
     });
     entry.queue = run.then(() => undefined, () => undefined);
@@ -221,23 +250,25 @@ class DiskSync {
     return absolute;
   }
 
-  async readDisk(docId) {
+  // { text, bytes } of the file (null when it is not there).
+  async readDiskVersion(docId) {
     const absolute = await this.safeAbsolute(docId);
     try {
-      const buffer = await fsp.readFile(absolute);
-      return buffer.toString("utf8");
+      const bytes = await fsp.readFile(absolute);
+      return { text: bytes.toString("utf8"), bytes };
     } catch (error) {
       if (error.code === "ENOENT") return null;
       throw error;
     }
   }
 
+  async readDisk(docId) {
+    return (await this.readDiskVersion(docId))?.text ?? null;
+  }
+
   async writeDisk(docId, content) {
     const absolute = await this.safeAbsolute(docId);
-    await fsp.mkdir(path.dirname(absolute), { recursive: true });
-    const temporary = `${absolute}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await fsp.writeFile(temporary, content, "utf8");
-    await fsp.rename(temporary, absolute);
+    await writeProjectFile(absolute, content);
   }
 
   // A doc whose path leads out of the project is never written: it is let go
@@ -256,12 +287,41 @@ class DiskSync {
     }
   }
 
+  // Folds the disk version (text + its raw bytes) into the Y.Text and makes
+  // it the baseline. Where it overlaps unsaved edits, the edits stay (the
+  // document keeps the name) and the disk version is kept first as a .local
+  // copy. Returns false, merging nothing, when that copy could not be made.
+  async mergeDisk(docId, entry, disk, bytes) {
+    const baseline = entry.baseline?.content ?? "";
+    const digest = contentDigest(disk);
+    const conflicts = mergeThreeWay(entry.ytext, baseline, entry.ytext.toString(), disk, DISK_ORIGIN, { skipIdentical: true, dryRun: true });
+    if (conflicts > 0 && entry.keptDigest !== digest) {
+      let kept;
+      try {
+        kept = await keepLocalCopy(this.deps.rootPath(), docId, bytes);
+      } catch (error) {
+        console.warn("[collab] could not keep the outside version", docId, error?.message || error);
+        entry.dirty = true;
+        return false;
+      }
+      entry.keptDigest = digest;
+      this.deps.onNotice?.(docId, conflicts, kept);
+    }
+    // (read again: peers may have typed while the copy was written; whatever
+    // is dropped here is in that copy)
+    mergeThreeWay(entry.ytext, baseline, entry.ytext.toString(), disk, DISK_ORIGIN, { skipIdentical: true });
+    entry.baseline = { content: disk, digest };
+    return true;
+  }
+
   // One write of a doc's text to disk (merging what changed there first).
-  async writeOperation(docId, entry) {
+  // `rereads`: how many more times a disk version that changed again while
+  // it was being merged (and kept) is read and merged before writing.
+  async writeOperation(docId, entry, rereads = 3) {
     if (!this.docs.has(docId)) return;
-    let current;
+    let version;
     try {
-      current = await this.readDisk(docId);
+      version = await this.readDiskVersion(docId);
     } catch (error) {
       if (error?.code !== "UNSAFE_PATH") throw error;
       // A path that leads out of the project is never written; the doc is let go.
@@ -270,6 +330,7 @@ class DiskSync {
       this.detach(docId);
       return;
     }
+    const current = version?.text ?? null;
     let target = entry.ytext.toString();
     if (current === null && entry.baseline !== null && !this.readOnly) {
       // Deleted underneath us. The manifest decides whether that is a
@@ -280,9 +341,11 @@ class DiskSync {
     }
     if (!this.readOnly && current !== null && (entry.baseline === null || current !== entry.baseline.content) && current !== target) {
       // Something else wrote since the baseline: merge it in first.
-      const dropped = mergeThreeWay(entry.ytext, entry.baseline?.content ?? "", target, current, DISK_ORIGIN);
-      entry.baseline = { content: current, digest: contentDigest(current) };
-      if (dropped > 0) this.deps.onNotice?.(docId, dropped);
+      if (!(await this.mergeDisk(docId, entry, current, version.bytes))) {
+        throw Object.assign(new Error(`Could not keep the outside version of ${docId}.`), { code: "COLLAB_KEEP_FAILED" });
+      }
+      // Written over only as merged: a newer outside version is merged first.
+      if (rereads > 0 && (await this.readDisk(docId)) !== current) return this.writeOperation(docId, entry, rereads - 1);
       target = entry.ytext.toString();
     }
     if (current !== target) {
@@ -298,12 +361,13 @@ class DiskSync {
   async writeNow(docId) {
     const entry = this.docs.get(docId);
     if (!entry || this.stopped) return;
+    let failed = false;
     try {
       if (!(await this.keepIfSafe(docId, entry))) return;
       await this.guarded(docId, () => this.writeOperation(docId, entry));
     } catch (error) {
       if (!this.docs.has(docId) || this.stopped) return;
-      if (error?.code === "HISTORY_BUSY" || error?.code === "AGENT_WORKSPACE_BUSY") {
+      if (["HISTORY_BUSY", "AGENT_WORKSPACE_BUSY", "FILE_WRITE_BUSY"].includes(error?.code)) {
         // Keep the edit in the Y.Doc; retry once the lease clears.
         if (!entry.timer) {
           entry.timer = setTimeout(() => {
@@ -314,11 +378,14 @@ class DiskSync {
         }
         return;
       }
+      failed = true;
       console.warn("[collab] write failed", docId, error?.message || error);
       this.deps.onError?.(docId, error);
     } finally {
+      // A failed write answers a waiting flush as well: the doc is still
+      // dirty, so that flush reports the failure now, not at its timeout.
       const latest = this.docs.get(docId);
-      if (latest && !latest.dirty) for (const waiter of latest.waiters.splice(0)) waiter();
+      if (latest && (!latest.dirty || failed)) for (const waiter of latest.waiters.splice(0)) waiter();
     }
   }
 
@@ -329,11 +396,12 @@ class DiskSync {
     try {
       await this.guarded(docId, async () => {
         if (!this.docs.has(docId)) return;
-        const disk = await this.readDisk(docId);
-        if (disk === null) {
+        const version = await this.readDiskVersion(docId);
+        if (version === null) {
           this.deps.onMissing?.(docId);
           return;
         }
+        const disk = version.text;
         const digest = contentDigest(disk);
         if (entry.baseline && digest === entry.baseline.digest && disk === entry.baseline.content) return;
         const current = entry.ytext.toString();
@@ -349,9 +417,12 @@ class DiskSync {
           this.noteUpdate(docId);
           return;
         }
-        const dropped = mergeThreeWay(entry.ytext, entry.baseline?.content ?? "", current, disk, DISK_ORIGIN);
-        entry.baseline = { content: disk, digest };
-        if (dropped > 0) this.deps.onNotice?.(docId, dropped);
+        // (a copy that could not be made: the doc stays dirty; its next
+        // write, or a flush, merges again)
+        if (!(await this.mergeDisk(docId, entry, disk, version.bytes))) {
+          this.noteUpdate(docId);
+          return;
+        }
         if (entry.ytext.toString() !== disk) this.noteUpdate(docId);
         else {
           entry.dirty = false;
@@ -359,7 +430,7 @@ class DiskSync {
         }
       });
     } catch (error) {
-      if (error?.code === "HISTORY_BUSY" || error?.code === "AGENT_WORKSPACE_BUSY") {
+      if (["HISTORY_BUSY", "AGENT_WORKSPACE_BUSY", "FILE_WRITE_BUSY"].includes(error?.code)) {
         setTimeout(() => void this.ingestDisk(docId), BLOCKED_RETRY_MS).unref?.();
         return;
       }
@@ -398,7 +469,7 @@ class DiskSync {
       try {
         if (!(await this.keepIfSafe(docId, entry))) continue;
         if (this.coordinated) await this.deps.withFileMutation(docId, () => this.writeOperation(docId, entry));
-        else await this.writeOperation(docId, entry);
+        else await withProjectFileWrites([await this.safeAbsolute(docId)], () => this.writeOperation(docId, entry));
       } catch (error) {
         ok = false;
         console.warn("[collab] write failed", docId, error?.message || error);
@@ -422,4 +493,4 @@ class DiskSync {
   }
 }
 
-module.exports = { DiskSync, mergeThreeWay, applyTextDelta, DISK_ORIGIN };
+module.exports = { DiskSync, mergeThreeWay, applyTextDelta, keepLocalCopy, DISK_ORIGIN };

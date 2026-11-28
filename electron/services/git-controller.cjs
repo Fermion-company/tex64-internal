@@ -1,6 +1,7 @@
 'use strict';
 const fs = require('node:fs/promises');
-const { constants, realpathSync } = require('node:fs');
+const { constants } = require('node:fs');
+const { canonicalPath } = require('./file-identity.cjs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { WorkspaceOperationCoordinator } = require('./workspace-operation.cjs');
@@ -22,6 +23,8 @@ const publicState = state => {
   const keys = ['repository', 'layout', 'supported', 'unsupportedReason', 'head', 'branchRef', 'branch', 'unborn', 'detached', 'refs', 'status', 'operation', 'remotes'];
   return Object.fromEntries(keys.filter(key => Object.hasOwn(state, key)).map(key => [key, state[key]]));
 };
+const { withProjectFileWrites } = require("./project-file-writes.cjs");
+
 class GitController {
   constructor(deps) {
     this.deps = deps; this.coordinator = deps.coordinator || new WorkspaceOperationCoordinator();
@@ -29,11 +32,12 @@ class GitController {
   }
   directory(root = this.deps.workspace.getRootPath()) {
     const base = typeof this.deps.directory === 'function' ? this.deps.directory() : this.deps.directory;
-    return path.join(base, crypto.createHash('sha256').update(realpathSync(root)).digest('hex'));
+    return path.join(base, crypto.createHash('sha256').update(canonicalPath(root)).digest('hex'));
   }
-  boundary(root) { return this.boundaries.get(root) || null; }
+  boundary(root) { return root ? this.boundaries.get(canonicalPath(root)) || null : null; }
   async loadBoundary(root) {
-    try { const value = JSON.parse(await fs.readFile(path.join(this.directory(root), 'boundary.json'), 'utf8')); if (typeof value.id !== 'string' || !/^(?:[a-f0-9-]{36}|[a-f0-9]{64})$/.test(value.id)) throw fail('GIT_BOUNDARY_INVALID', 'Git boundary is invalid.'); this.boundaries.set(root, value.id); this.boundaryJournals.set(root, value.journals || null); }
+    const key = canonicalPath(root);
+    try { const value = JSON.parse(await fs.readFile(path.join(this.directory(key), 'boundary.json'), 'utf8')); if (typeof value.id !== 'string' || !/^(?:[a-f0-9-]{36}|[a-f0-9]{64})$/.test(value.id)) throw fail('GIT_BOUNDARY_INVALID', 'Git boundary is invalid.'); this.boundaries.set(key, value.id); this.boundaryJournals.set(key, value.journals || null); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   journalFingerprint(journals) {
@@ -41,11 +45,12 @@ class GitController {
     return rows.length ? crypto.createHash('sha256').update(JSON.stringify(rows)).digest('hex') : null;
   }
   async persistBoundary(op) {
-    const directory = this.directory(op.root); await fs.mkdir(directory, { recursive: true, mode: 0o700 });
-    const session = this.sessions.get(await fs.realpath(op.root));
+    const key = canonicalPath(op.root);
+    const directory = this.directory(key); await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+    const session = this.sessions.get(key);
     const journals = session?.transaction ? this.journalFingerprint(await session.transaction.list()) : null;
     const filename = path.join(directory, 'boundary.json'), temporary = path.join(directory, `.boundary-${crypto.randomUUID()}.tmp`);
-    try { const fd = await fs.open(temporary, 'wx', 0o600); try { await fd.writeFile(JSON.stringify({ id: op.boundaryId || op.id, journals })); await fd.sync(); } finally { await fd.close(); } await fs.rename(temporary, filename); const parent = await fs.open(directory, 'r'); try { await parent.sync(); } finally { await parent.close(); } this.boundaries.set(op.root, op.boundaryId || op.id); this.boundaryJournals.set(op.root, journals); }
+    try { const fd = await fs.open(temporary, 'wx', 0o600); try { await fd.writeFile(JSON.stringify({ id: op.boundaryId || op.id, journals })); await fd.sync(); } finally { await fd.close(); } await fs.rename(temporary, filename); const parent = await fs.open(directory, 'r'); try { await parent.sync(); } finally { await parent.close(); } this.boundaries.set(key, op.boundaryId || op.id); this.boundaryJournals.set(key, journals); }
     finally { await fs.unlink(temporary).catch(() => {}); }
   }
   identity() { return { workspaceId: this.deps.state.workspaceId, workspaceGeneration: this.deps.state.workspaceGeneration }; }
@@ -106,7 +111,7 @@ class GitController {
     try {
       const journals = await (await this.transaction(session)).list();
       const journalBoundary = this.journalFingerprint(journals);
-      if (journalBoundary && journalBoundary !== this.boundaryJournals.get(root)) this.boundaries.set(root, journalBoundary);
+      if (journalBoundary && journalBoundary !== this.boundaryJournals.get(session.root)) this.boundaries.set(session.root, journalBoundary);
       const pending = journals.filter(item => item.recoveryRequired && item.phase !== 'conflict');
       if (pending.length) { op.phase = 'recovery-required'; op.error = 'Gitの中断した操作を確認してください。'; op.recoveryId = pending[0].id; this.emit(); }
       else if (journals.some(item => item.phase === 'conflict')) { this.preparedRoot = root; op.phase = 'conflict'; op.conflict = true; this.emit(); }
@@ -273,7 +278,7 @@ class GitController {
       const checkState = await session.service.status(), checkDisk = await this.resolutionFile(session.root, plan.path);
       if (checkState.operation !== 'merge' || checkState.indexFingerprint !== plan.indexFingerprint || checkDisk.hash !== plan.disk.hash) throw fail('STATE_CHANGED', 'The conflict changed. Open it again before saving.');
       const transaction = await this.transaction(session), resume = (await transaction.list()).find(item => item.phase === 'conflict');
-      const result = await this.mutation(() => transaction.run({ action: 'resolution', ...(resume ? { resumeId: resume.id } : {}), verify: async ({ before, after }) => {
+      const result = await this.mutation(() => withProjectFileWrites([path.join(session.root, plan.path)], () => transaction.run({ action: 'resolution', ...(resume ? { resumeId: resume.id } : {}), verify: async ({ before, after }) => {
         if (before.head !== after.head || before.branchRef !== after.branchRef || (await this.resolutionFile(session.root, plan.path)).hash !== expected) throw fail('GIT_RESULT_UNCERTAIN', 'The conflict resolution could not be verified.');
         return 'completed';
       } }, async () => {
@@ -289,7 +294,7 @@ class GitController {
         }
         const parent = await fs.open(path.dirname(full), 'r'); try { await parent.sync(); } finally { await parent.close(); }
         return {};
-      }));
+      })));
       op.conflict = true;
       return { ...(await this.synchronize(op, [plan.path])), result: { transaction: publicTransaction(result.transaction) } };
     } catch (error) {
@@ -312,8 +317,18 @@ class GitController {
       if (!Array.isArray(request.buffers) || !Array.isArray(op.syncFiles)) throw fail('SYNC_REQUIRED', 'Confirm the current editor state before continuing.');
       const current = await this.syncFiles(op);
       if (JSON.stringify(current) !== JSON.stringify(op.syncFiles)) { op.syncFiles = current; throw fail('SYNC_REQUIRED', 'Files changed again. Synchronize the editor again.'); }
+      const keyOf = (relative) => {
+        const absolute = path.join(op.root, safePath(relative));
+        try { return canonicalPath(absolute); } catch { return absolute; }
+      };
+      const buffersByFile = new Map();
+      for (const buffer of request.buffers) {
+        const key = keyOf(buffer.path);
+        if (!buffersByFile.has(key)) buffersByFile.set(key, []);
+        buffersByFile.get(key).push(buffer);
+      }
       for (const file of op.syncFiles) {
-        const buffers = request.buffers.filter(item => item.path === file.path);
+        const buffers = buffersByFile.get(keyOf(file.path)) || [];
         if (buffers.length > 1 || buffers.some(buffer => file.content === null || buffer.content !== file.content || buffer.savedContent !== file.content)) throw fail('SYNC_REQUIRED', 'An editor still contains the previous state.');
       }
       if (op.recoveryRequired) { op.phase = 'recovery-required'; this.emit(); return { recoveryRequired: true }; }

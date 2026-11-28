@@ -24,6 +24,9 @@ const createWorkspaceContext = (deps) => {
     fileAccess = { ensureAccess: async () => true },
     beforeWorkspaceChange = async () => {},
     beginRendererWorkspaceMutation = () => () => {},
+    // (rootPath, relativePath, previousText): a disk-checked save of the
+    // person's typing is about to replace previousText.
+    beforeUserSave = () => {},
   } = deps;
 
   if (!Number.isSafeInteger(state.workspaceGeneration)) {
@@ -88,12 +91,14 @@ const createWorkspaceContext = (deps) => {
     };
   };
 
-  const withWorkspaceMutation = async (operation) => {
+  const withWorkspaceMutation = async (operation, { kind = "other" } = {}) => {
     const mutationRootPath = workspace.getRootPath();
     // This synchronous lease handshake is shared with AgentService. It makes
     // renderer mutations and the external Codex writer mutually exclusive;
     // an in-process file lock alone cannot serialize a separate process.
-    const releaseRendererMutation = beginRendererWorkspaceMutation(mutationRootPath);
+    // `kind: "save"` (the editor saving typing) may pass during an in-process
+    // Axiom turn (workspace-writer-coordinator.cjs).
+    const releaseRendererMutation = beginRendererWorkspaceMutation(mutationRootPath, kind);
     const release = await acquireWorkspaceMutation();
     try {
       return await operation();
@@ -342,6 +347,7 @@ const createWorkspaceContext = (deps) => {
     fileAccess,
     beforeWorkspaceChange,
     beginRendererWorkspaceMutation,
+    beforeUserSave,
 
     TEXT_FILE_EXTENSIONS,
     IMAGE_FILE_EXTENSIONS,

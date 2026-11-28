@@ -13,6 +13,7 @@ const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const os = require("node:os");
+const { withProjectFileWrites, writeProjectFile } = require("../project-file-writes.cjs");
 const path = require("node:path");
 const Y = require("yjs");
 const syncProtocol = require("y-protocols/sync");
@@ -22,7 +23,7 @@ const transport = require("./transport-ws.cjs");
 const relay = require("./relay-transport.cjs");
 const invite = require("./invite.cjs");
 const { WorkspaceManifest, safeRelativePath, resolveInsideRoot, looksTextByName, hashBuffer, extensionOf, MAX_TEXT_BYTES, MAX_BINARY_BYTES } = require("./manifest.cjs");
-const { DiskSync, DISK_ORIGIN } = require("./disk-sync.cjs");
+const { DiskSync, DISK_ORIGIN, keepLocalCopy } = require("./disk-sync.cjs");
 const { acquireMirror } = require("./mirror-lock.cjs");
 
 const SESSION_DOC = "$session";
@@ -380,7 +381,7 @@ class CollabHub extends EventEmitter {
           settings = JSON.parse(await fsp.readFile(settingsPath, "utf8")) || {};
         } catch {}
         settings.rootFile = session.rootFile;
-        await fsp.writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
+        await writeProjectFile(settingsPath, JSON.stringify(settings, null, 2));
       }
       this.createSessionDoc(session);
       this.sendSyncStep1(session, SESSION_DOC);
@@ -472,27 +473,30 @@ class CollabHub extends EventEmitter {
       return error?.code === "ENOENT";
     }
     if (incoming !== null && (typeof incoming === "string" ? current.toString("utf8") === incoming : Buffer.from(incoming).equals(current))) return true;
+    const version = hashBuffer(current);
     if (session.mirrorHashes) {
       const recorded = session.mirrorHashes[relative];
-      if (recorded && recorded === hashBuffer(current)) return true;
+      if (recorded && recorded === version) return true;
     }
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const extension = path.extname(relative);
-    const target = `${absolute.slice(0, absolute.length - extension.length)}.local-${stamp}${extension}`;
-    try {
-      await fsp.copyFile(absolute, target);
-      session.preserved.push(path.relative(session.rootPath, target));
-      // A file of the join that arrived after the mirror opened: the join's
-      // own report has already been shown.
-      if (!session.joining) {
-        const kept = path.relative(session.rootPath, target);
-        this.notice(text(this.deps.locale(), `${relative}: edited after you left, kept as ${kept}.`, `${relative}: 退出後に編集した分を ${kept} として退避しました。`));
-      }
-      return true;
-    } catch (error) {
-      console.warn("[collab] preserve failed", relative, error?.message || error);
-      return false;
+    // One copy per version of a file: the same blob can arrive more than once.
+    session.keptCopies ??= new Map();
+    const key = `${relative}\0${version}`;
+    if (!session.keptCopies.has(key)) {
+      session.keptCopies.set(key, keepLocalCopy(session.rootPath, relative, current).then((kept) => {
+        session.preserved.push(kept);
+        // A file of the join that arrived after the mirror opened: the join's
+        // own report has already been shown.
+        if (!session.joining) {
+          this.notice(text(this.deps.locale(), `${relative}: edited after you left, kept as ${kept}.`, `${relative}: 退出後に編集した分を ${kept} として退避しました。`));
+        }
+        return true;
+      }, (error) => {
+        console.warn("[collab] preserve failed", relative, error?.message || error);
+        session.keptCopies.delete(key);
+        return false;
+      }));
     }
+    return session.keptCopies.get(key);
   }
 
   waitForInitialSync(session) {
@@ -589,6 +593,30 @@ class CollabHub extends EventEmitter {
     const session = this.session;
     if (!session) return true;
     return session.diskSync.flush();
+  }
+
+  // Quit and window close (quit-preparation.ts): every shared document, a
+  // peer's edit to a file never opened here included, is written before the
+  // editor freezes. Peer edits arriving from the drain on are held, not
+  // applied, so none can land in a Y.Doc after the last successful write and
+  // be lost with it at teardown. A failed drain, or a quit or close that does
+  // not go ahead (resumeIntake), applies them in order and the session goes on.
+  async drain() {
+    const session = this.session;
+    if (!session) return true;
+    session.heldFrames ??= [];
+    const flushed = await session.diskSync.flush();
+    if (this.session !== session) return true;
+    if (!flushed) this.resumeIntake();
+    return flushed;
+  }
+
+  resumeIntake() {
+    const session = this.session;
+    const held = session?.heldFrames;
+    if (!held) return;
+    session.heldFrames = null;
+    for (const [conn, frame] of held) this.onPeerFrame(session, conn, frame);
   }
 
   // -------------------------------------------------------------- history
@@ -842,6 +870,10 @@ class CollabHub extends EventEmitter {
 
   onPeerFrame(session, conn, frame) {
     if (this.session !== session || session.phase === "leaving") return;
+    if (session.heldFrames) {
+      session.heldFrames.push([conn, frame]);
+      return;
+    }
     if (session.role === "host" && conn.access !== "edit" && !this.viewerMayApply(session, frame)) return;
     try {
       if (frame.kind === transport.FRAME_SYNC) {
@@ -1135,8 +1167,42 @@ class CollabHub extends EventEmitter {
     }
   }
 
+  async matchesSharedDisk(session, relative, absolute, incomingHash = null) {
+    if (session.joining || session.initialBlobs?.has(relative)) return true;
+    const disk = await fsp.readFile(absolute).catch((error) => {
+      if (error.code !== "ENOENT") throw error;
+      return null;
+    });
+    if (disk === null) return true;
+    const digest = hashBuffer(disk);
+    if (digest === incomingHash) return true;
+    const baseline = session.diskSync.baselineOf(relative);
+    const expected = baseline === null ? session.knownBinaryHashes.get(relative) : hashBuffer(Buffer.from(baseline));
+    if (digest === expected) return true;
+    session.diskSync.deps.onNotice?.(relative);
+    return false;
+  }
+
   async removeLocal(session, relative) {
-    if (!(await this.preserveLocal(session, relative, null))) return;
+    if (!session.rootPath) return;
+    const absolute = await resolveInsideRoot(session.rootPath, relative);
+    if (!absolute) return;
+    const remove = async () => {
+      if (!(await resolveInsideRoot(session.rootPath, relative)) ||
+          !(await this.matchesSharedDisk(session, relative, absolute)) ||
+          !(await this.preserveLocal(session, relative, null))) return false;
+      await fsp.rm(absolute, { force: true });
+      return true;
+    };
+    try {
+      const removed = session.diskSync.coordinated
+        ? await this.deps.withWorkspaceMutation(() => this.deps.workspace.withFileMutation(relative, remove))
+        : await withProjectFileWrites([absolute], remove);
+      if (!removed) return;
+    } catch (error) {
+      console.warn("[collab] remove failed", relative, error?.message || error);
+      return;
+    }
     const doc = session.docs.get(relative);
     if (doc) {
       doc.deleted = true;
@@ -1145,18 +1211,6 @@ class CollabHub extends EventEmitter {
       session.rendererDocs.delete(relative);
     }
     session.knownBinaryHashes.delete(relative);
-    if (!session.rootPath) return;
-    const absolute = await resolveInsideRoot(session.rootPath, relative);
-    if (!absolute) return;
-    try {
-      if (session.diskSync.coordinated) {
-        await this.deps.withWorkspaceMutation(() => this.deps.workspace.withFileMutation(relative, () => fsp.rm(absolute, { force: true })));
-      } else {
-        await fsp.rm(absolute, { force: true });
-      }
-    } catch (error) {
-      console.warn("[collab] remove failed", relative, error?.message || error);
-    }
     await session.manifest?.refresh(relative);
     this.deps.refreshTree?.();
     this.pushState();
@@ -1216,16 +1270,18 @@ class CollabHub extends EventEmitter {
     }
     const absolute = await resolveInsideRoot(session.rootPath, relative);
     if (!absolute) return;
-    if (!(await this.preserveLocal(session, relative, frame.bytes))) return;
     const write = async () => {
-      await fsp.mkdir(path.dirname(absolute), { recursive: true });
-      const temporary = `${absolute}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await fsp.writeFile(temporary, Buffer.from(frame.bytes));
-      await fsp.rename(temporary, absolute);
+      if (!(await resolveInsideRoot(session.rootPath, relative)) ||
+          !(await this.matchesSharedDisk(session, relative, absolute, hash)) ||
+          !(await this.preserveLocal(session, relative, frame.bytes))) return false;
+      await writeProjectFile(absolute, Buffer.from(frame.bytes));
+      return true;
     };
     try {
-      if (session.diskSync.coordinated) await this.deps.withWorkspaceMutation(() => this.deps.workspace.withFileMutation(relative, write));
-      else await write();
+      const written = session.diskSync.coordinated
+        ? await this.deps.withWorkspaceMutation(() => this.deps.workspace.withFileMutation(relative, write))
+        : await withProjectFileWrites([absolute], write);
+      if (!written) return;
       session.knownBinaryHashes.set(relative, hash);
       await session.manifest?.refresh(relative);
       this.blobSettled(session, relative);
@@ -1495,7 +1551,7 @@ class CollabHub extends EventEmitter {
       const payload = this.exportComments(session);
       const target = this.commentsPath(session);
       await fsp.mkdir(path.dirname(target), { recursive: true });
-      await fsp.writeFile(target, JSON.stringify(payload, null, 2), "utf8");
+      await writeProjectFile(target, JSON.stringify(payload, null, 2));
       if (!silent) this.deps.sendCollab({ type: "collab:comments", sessionId: session.id });
     } catch (error) {
       console.warn("[collab] comments persist failed", error?.message || error);

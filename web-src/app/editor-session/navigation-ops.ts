@@ -84,16 +84,11 @@ export const createEditorSessionNavigationOps = (
       issueOps.revealLine(targetGroup, line, { focus, className, column });
       return;
     }
-    const requested = deps.requestOpenFile(path, targetGroupKey, forceOpen);
-    if (requested) {
-      runtime.fileOpsState.pendingReveal = {
-        path,
-        line,
-        column,
-        group: targetGroupKey,
-        focus,
-        className,
-      };
+    // An open tab can install its model before requestOpenFile returns.
+    const reveal = { path, line, column, group: targetGroupKey, focus, className };
+    runtime.fileOpsState.pendingReveal = reveal;
+    if (!deps.requestOpenFile(path, targetGroupKey, forceOpen) && runtime.fileOpsState.pendingReveal === reveal) {
+      runtime.fileOpsState.pendingReveal = null;
     }
   };
 

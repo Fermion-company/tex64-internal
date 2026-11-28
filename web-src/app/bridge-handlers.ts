@@ -313,6 +313,7 @@ type BridgeHandlersDeps = {
       content?: string;
       error?: string;
       kind?: "text" | "image" | "pdf" | "unsupported";
+      buildPreview?: "previous" | "built";
       data?: string;
       mimeType?: string;
       livePreview?: { generation: number; documentEpoch: number };
@@ -333,12 +334,14 @@ type BridgeHandlersDeps = {
       path: string,
       content: string,
       options?: {
+        fileIdentity?: string;
         updateSaved?: boolean;
         showAiDiff?: boolean;
         expectedContent?: string;
         expectedFileMissing?: boolean;
         fileDeleted?: boolean;
         conversationId?: string;
+        onDeferredConflict?: () => void;
       }
     ) => { handled: boolean; conflict: boolean };
   };
@@ -374,7 +377,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
     window.dispatchEvent(new CustomEvent("tex64:build-state", { detail }));
     if (detail.sourceChanged) buildSourceWarning =
       "Sources changed during the build. The saved PDF is from an earlier version; build again to update it.";
-    if (payload.targetFile && !payload.requestId) deps.build.setBuildTarget?.(payload.targetFile);
+    if (payload.state === "success" && payload.targetFile && !payload.requestId) deps.build.setBuildTarget?.(payload.targetFile);
     deps.build.setBuildState(payload.state, payload.message);
   };
 
@@ -971,6 +974,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         {
           const applyPayload = message.payload as {
             path?: string;
+            fileIdentity?: string;
             content?: string;
             expectedContent?: string;
             expectedFileMissing?: boolean;
@@ -980,10 +984,22 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
             showAiDiff?: boolean;
             conversationId?: string;
           };
+        // A conflict is reported to Axiom whether the edit applied at once or
+        // waited for an IME composition to end.
+        const reportConflict = () => {
+          if (typeof applyPayload.conversationId === "string" && applyPayload.conversationId.trim()) {
+            deps.postToNative({
+              type: "agent:contentConflict",
+              conversationId: applyPayload.conversationId,
+              path: applyPayload.fileIdentity ?? applyPayload.path ?? "",
+            });
+          }
+        };
         const applyResult = deps.editorSession.applyContentToOpenFile(
           applyPayload.path ?? "",
           applyPayload.content ?? "",
           {
+            fileIdentity: applyPayload.fileIdentity,
             updateSaved: applyPayload.updateSaved === true,
             ...(typeof applyPayload.expectedContent === "string"
               ? { expectedContent: applyPayload.expectedContent }
@@ -996,19 +1012,10 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
             showAiDiff:
               applyPayload.showAiDiff === true ||
               (applyPayload.showAiDiff !== false && applyPayload.source !== "ai-direct-edit"),
+            onDeferredConflict: reportConflict,
           }
         );
-        if (
-          applyResult.conflict &&
-          typeof applyPayload.conversationId === "string" &&
-          applyPayload.conversationId.trim()
-        ) {
-          deps.postToNative({
-            type: "agent:contentConflict",
-            conversationId: applyPayload.conversationId,
-            path: applyPayload.path ?? "",
-          });
-        }
+        if (applyResult.conflict) reportConflict();
         }
         break;
       default:

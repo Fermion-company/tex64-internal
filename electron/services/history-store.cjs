@@ -4,6 +4,7 @@ const fsp = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { hash, fail, validId, validPath, protectedReason, safePath, readRegular, atomicWrite, syncDirectory } = require("./history-files.cjs");
+const { isStagingName } = require("./project-file-writes.cjs");
 
 class HistoryStore {
   constructor({ root, directory, maxBytes = 2 * 1024 ** 3, maxFileBytes = 128 * 1024 ** 2, fault = async () => {} }) {
@@ -183,7 +184,10 @@ class HistoryStore {
     const value = await this.readJson("trees", id);
     if (hash(JSON.stringify(value)) !== id || value.schema !== 1 || !Array.isArray(value.entries)) throw fail("STORE_CORRUPT", "The version manifest is damaged.");
     const paths = new Set();
-    for (const entry of value.entries) {
+    // Builds before staging names were recognised could record a save's
+    // temporary file. It is left out on every read, so on restore too.
+    const entries = value.entries.filter((entry) => typeof entry?.path !== "string" || !isStagingName(entry.path));
+    for (const entry of entries) {
       validPath(entry.path);
       if (protectedReason(entry.path) || !validId(entry.blob) || !/^[a-f0-9]{64}$/.test(entry.blob) || !Number.isSafeInteger(entry.size) || entry.size < 0) throw fail("STORE_CORRUPT", "The version contains an unsafe file entry.");
       const normalized = entry.path.normalize("NFC").toLowerCase();
@@ -191,7 +195,7 @@ class HistoryStore {
       paths.add(normalized);
     }
     if (value.rootFile) validPath(value.rootFile);
-    return { id, ...value };
+    return { id, ...value, entries };
   }
 
   async list() {

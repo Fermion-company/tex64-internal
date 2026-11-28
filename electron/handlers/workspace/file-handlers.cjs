@@ -1,3 +1,4 @@
+const { writeProjectFile } = require("../../services/project-file-writes.cjs");
 const {
   looksBinary,
   MAX_EXTENDED_TEXT_FILE_BYTES,
@@ -5,6 +6,7 @@ const {
 } = require("../../services/text-file-types.cjs");
 const crypto = require("crypto");
 const path = require("path");
+const { canonicalPath, fileIdentity, relativeIdentity } = require("../../services/file-identity.cjs");
 
 const createWorkspaceFileHandlers = (ctx) => {
   const {
@@ -33,6 +35,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     openInTerminal,
     revealInFinder,
     withWorkspaceMutation = async (operation) => operation(),
+    beforeUserSave = () => {},
   } = ctx;
 
   const hashText = (content) =>
@@ -84,10 +87,10 @@ const createWorkspaceFileHandlers = (ctx) => {
     return true;
   };
 
-  // Keep each in-process read/check/write sequence indivisible. Atomic rename
+  // Keep each read/check/write sequence indivisible. Atomic rename
   // prevents truncation, but without this queue two valid CAS reads can still
   // both pass and the later write can erase the earlier one.
-  const withFileMutation = async (rootPath, relativePath, operation) => {
+  const withFileMutation = async (rootPath, relativePath, operation, options) => {
     const workspaceRoot =
       typeof workspace.getRootPath === "function" ? workspace.getRootPath() : ensureWorkspace();
     if (workspaceRoot !== rootPath) {
@@ -96,9 +99,9 @@ const createWorkspaceFileHandlers = (ctx) => {
       throw error;
     }
     if (typeof workspace.withFileMutation === "function") {
-      return workspace.withFileMutation(relativePath, operation);
+      return workspace.withFileMutation(relativePath, operation, options);
     }
-    const key = `${rootPath}\0${relativePath}`;
+    const key = canonicalPath(resolveWorkspacePath?.(relativePath) ?? path.resolve(rootPath, relativePath));
     const previous = localFileMutationTails.get(key) ?? Promise.resolve();
     const run = previous.catch(() => {}).then(operation);
     const tail = run.then(
@@ -113,7 +116,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
   };
 
-  const mutateCapturedWorkspace = (rootPath, operation) =>
+  const mutateCapturedWorkspace = (rootPath, operation, mutation = undefined) =>
     withWorkspaceMutation(async () => {
       if (ensureWorkspace() !== rootPath) {
         const error = new Error("The workspace changed before the operation finished.");
@@ -121,14 +124,16 @@ const createWorkspaceFileHandlers = (ctx) => {
         throw error;
       }
       return operation();
-    });
+    }, mutation);
 
-  const handleOpenFile = async (relativePath) => {
+  const handleOpenFile = async (relativePath, { buildPreview, isCurrent = () => true, openRequestId } = {}) => {
+    const request = typeof openRequestId === "number" ? { openRequestId } : {};
     const rootPath = ensureWorkspace();
     if (!rootPath) {
       sendToRenderer("openFileResult", {
         path: relativePath,
         error: "No workspace is selected.",
+        ...request,
       });
       return;
     }
@@ -136,8 +141,13 @@ const createWorkspaceFileHandlers = (ctx) => {
     await updateWorkspaceIfNeeded(rootPath);
     if (!workspaceRequestIsCurrent(rootPath, identity)) return;
     const sendOpenResult = (payload) => {
-      if (!workspaceRequestIsCurrent(rootPath, identity)) return false;
-      sendToRenderer("openFileResult", payload);
+      if (!workspaceRequestIsCurrent(rootPath, identity) || !isCurrent()) return false;
+      // Keep the requested spelling for matching the pending IPC request.
+      // Text buffers and the queues that protect them use the underlying file.
+      if (payload.kind === "text" && typeof workspace.resolvePath === "function") {
+        payload.fileIdentity = relativeIdentity(rootPath, fileIdentity(workspace, relativePath));
+      }
+      sendToRenderer("openFileResult", { ...payload, ...request });
       return true;
     };
     try {
@@ -148,6 +158,7 @@ const createWorkspaceFileHandlers = (ctx) => {
           kind: "pdf",
           mimeType: "application/pdf",
           data: data.toString("base64"),
+          ...(buildPreview ? { buildPreview } : {}),
         });
         return;
       }
@@ -345,25 +356,26 @@ const createWorkspaceFileHandlers = (ctx) => {
         const stem = dot > 0 ? name.slice(0, dot) : name;
         const extension = dot > 0 ? name.slice(dot) : "";
         let candidate = `${ATTACHMENT_DIRECTORY}/${name}`;
-        for (let ordinal = 2; ordinal < 1000; ordinal += 1) {
-          let stats = null;
-          try {
-            stats = fs.statSync(resolveWorkspacePath(candidate));
-          } catch (_error) {
-            stats = null;
-          }
-          if (!stats) break;
-          if (stats.isFile() && stats.size === buffer.length) {
-            const existing = await workspace.readBinaryFile(candidate);
-            if (crypto.createHash("sha256").update(existing).digest("hex") === digest) {
-              return { path: candidate, reused: true };
+        for (let ordinal = 2; ordinal <= 1000; ordinal += 1) {
+          const saved = await withFileMutation(rootPath, candidate, async () => {
+            try {
+              const existing = await workspace.readBinaryFile(candidate);
+              return existing.length === buffer.length && crypto.createHash("sha256").update(existing).digest("hex") === digest
+                ? { path: candidate, reused: true } : null;
+            } catch (error) {
+              if (error.code === "EISDIR") return null;
+              if (error.code !== "ENOENT") throw error;
             }
+            await writeProjectFile(resolveWorkspacePath(candidate), buffer, { exclusive: true });
+            return { path: candidate, reused: false };
+          });
+          if (saved) {
+            if (!saved.reused) await sendWorkspace(rootPath);
+            return saved;
           }
           candidate = `${ATTACHMENT_DIRECTORY}/${stem}-${ordinal}${extension}`;
         }
-        await workspace.writeBinaryFile(candidate, buffer);
-        await sendWorkspace(rootPath);
-        return { path: candidate, reused: false };
+        throw new Error(WorkspaceError.alreadyExists);
       });
       if (!workspaceRequestIsCurrent(rootPath, identity)) {
         fail("The workspace changed.", { stale: true });
@@ -396,7 +408,7 @@ const createWorkspaceFileHandlers = (ctx) => {
       });
       if (result.canceled || !result.filePath) { reply({ ok: false, cancelled: true }); return; }
       if (!workspaceRequestIsCurrent(root, identity)) throw new Error("プロジェクトが変更されています。");
-      await fs.promises.writeFile(result.filePath, bytes);
+      await writeProjectFile(result.filePath, bytes, { projectRoot: rootReal });
       reply({ ok: true });
     } catch (error) { reply({ ok: false, error: error?.message || "PDFを保存できませんでした。" }); }
   };
@@ -593,8 +605,14 @@ const createWorkspaceFileHandlers = (ctx) => {
       });
       return;
     }
-    await updateWorkspaceIfNeeded(rootPath);
+    const checkedSave = typeof options.expectedContent === "string";
     try {
+      const readDisk = () => workspace.readFile(relativePath).catch((error) => {
+        if (error.code !== "ENOENT") throw error;
+        return null;
+      });
+      const expectedContent = checkedSave ? options.expectedContent : await readDisk();
+      await updateWorkspaceIfNeeded(rootPath);
       const shouldFormat =
         options.format === true &&
         typeof relativePath === "string" &&
@@ -638,6 +656,16 @@ const createWorkspaceFileHandlers = (ctx) => {
           }
         }
       }
+      const checkDisk = async () => {
+        const currentContent = await readDisk();
+        if (currentContent !== expectedContent) {
+          const error = new Error("The file changed on disk before this save completed. Your editor buffer was kept.");
+          error.code = "FILE_SAVE_CONFLICT";
+          error.currentContent = currentContent;
+          throw error;
+        }
+        return currentContent;
+      };
       await mutateCapturedWorkspace(rootPath, () => withFileMutation(rootPath, relativePath, async () => {
         // WorkspaceManager resolves the absolute target synchronously when
         // writeFile is called. Re-check inside the per-file queue immediately
@@ -648,18 +676,19 @@ const createWorkspaceFileHandlers = (ctx) => {
           error.code = "STALE_WORKSPACE";
           throw error;
         }
-        if (typeof options.expectedContent === "string") {
-          const currentContent = await workspace.readFile(relativePath).catch(() => null);
-          if (currentContent !== options.expectedContent) {
-            const error = new Error(
-              "The file changed on disk before this save completed. Your editor buffer was kept.",
-            );
-            error.code = "FILE_SAVE_CONFLICT";
-            throw error;
+        const currentContent = await checkDisk();
+        if (checkedSave) {
+          try {
+            beforeUserSave(rootPath, relativePath, currentContent);
+          } catch {
+            // Bookkeeping for Axiom only; the save goes ahead.
           }
         }
         await workspace.writeFile(relativePath, finalContent);
-      }));
+      // Only a save that checks the disk first may run during an in-process
+      // Axiom turn: Axiom may have written this file since the editor last
+      // saved it.
+      }), checkedSave ? { kind: "save" } : undefined);
       sendToRenderer("saveResult", {
         path: relativePath,
         ok: true,
@@ -675,7 +704,8 @@ const createWorkspaceFileHandlers = (ctx) => {
         path: relativePath,
         ok: false,
         ...(error?.code === "STALE_WORKSPACE" ? { stale: true } : {}),
-        ...(error?.code === "AGENT_WORKSPACE_BUSY" ? { busy: true } : {}),
+        ...(["AGENT_WORKSPACE_BUSY", "FILE_WRITE_BUSY"].includes(error?.code) ? { busy: true } : {}),
+        ...(error?.code === "FILE_SAVE_CONFLICT" ? { currentContent: error.currentContent } : {}),
         error: error.message,
       });
     }
@@ -798,6 +828,9 @@ const createWorkspaceFileHandlers = (ctx) => {
         if (workspaceRequestIsCurrent(rootPath, identity)) {
           sendToRenderer("agent:applyContent", {
             path: relativePath,
+            ...(typeof workspace.resolvePath === "function"
+              ? { fileIdentity: relativeIdentity(rootPath, fileIdentity(workspace, relativePath)) }
+              : {}),
             content: replaced,
             expectedContent: content,
             updateSaved: true,

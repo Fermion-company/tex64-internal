@@ -3,10 +3,11 @@
 const path = require("node:path");
 const fsp = require("node:fs/promises");
 const crypto = require("node:crypto");
+const { canonicalPath } = require("./file-identity.cjs");
 const { WorkspaceOperationCoordinator } = require("./workspace-operation.cjs");
 const { HistoryStore } = require("./history-store.cjs");
 const { HistoryTransaction } = require("./history-transaction.cjs");
-const { fail, hash, protectedReason, readRegular } = require("./history-files.cjs");
+const { fail, hash, protectedReason, readRegular, validPath } = require("./history-files.cjs");
 
 // Storage snapshots retain their original direction; presentation can point
 // from the comparison source to the selected version, including image bytes.
@@ -42,10 +43,10 @@ class HistoryController {
     this._operation = value;
   }
 
-  boundary(root) { return this.boundaries.get(root) || null; }
+  boundary(root) { return root ? this.boundaries.get(canonicalPath(root)) || null : null; }
   async refreshBoundary(store) {
     const latest = (await store.list()).find((record) => record.kind === "restore");
-    this.boundaries.set(this.deps.workspace.getRootPath(), latest?.id || null);
+    this.boundaries.set(store.root, latest?.id || null);
   }
 
   identity() { return { workspaceId: this.deps.state.workspaceId, workspaceGeneration: this.deps.state.workspaceGeneration }; }
@@ -126,9 +127,14 @@ class HistoryController {
       if (!op || request.token !== op.id || op.phase !== "syncing") throw fail("HISTORY_BUSY", "There is no restored editor state to acknowledge.");
       const buffers = request.buffers;
       if (!Array.isArray(op.syncFiles) || !Array.isArray(buffers)) throw fail("SYNC_REQUIRED", "The editor must confirm the restored files before editing resumes.");
-      for (const file of op.syncFiles || []) {
-        const buffer = buffers.find((item) => item.path === file.path);
-        if (buffer && (file.content === null || buffer.content !== file.content || buffer.savedContent !== file.content)) {
+      const keyOf = (relative) => {
+        const absolute = path.join(store.root, validPath(relative));
+        try { return canonicalPath(absolute); } catch { return absolute; }
+      };
+      const expected = new Map(op.syncFiles.map((file) => [keyOf(file.path), file]));
+      for (const buffer of buffers) {
+        const file = expected.get(keyOf(buffer.path));
+        if (file && (file.content === null || buffer.content !== file.content || buffer.savedContent !== file.content)) {
           throw fail("SYNC_REQUIRED", "An editor still contains the previous version. Keep this window open and retry synchronization.");
         }
       }
@@ -270,7 +276,7 @@ class HistoryController {
             this.plans.delete(request.planId);
             op.phase = "syncing";
             op.committed = true;
-            this.boundaries.set(this.deps.workspace.getRootPath(), result.record.id);
+            this.boundaries.set(store.root, result.record.id);
             this.deps.advanceGeneration?.();
             op.syncOperations = result.operations;
             result.files = [];

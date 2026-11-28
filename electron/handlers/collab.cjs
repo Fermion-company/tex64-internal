@@ -1,7 +1,7 @@
 "use strict";
 
 // IPC surface of the collaboration hub:
-//   ipcMain.handle("tex64:collab", action, payload)   start / join / leave / end / flush / status / comments:*
+//   ipcMain.handle("tex64:collab", action, payload)   start / join / leave / end / flush / drain / status / comments:*
 //   ipcMain.on("tex64:collab:send", frame)             renderer → hub Y.Doc frames
 //   main → renderer: webContents.send("tex64:collab:message", message)
 // Invite links (tex64://collab/join?…) arrive from open-url / second-instance
@@ -9,6 +9,7 @@
 
 const fsp = require("node:fs/promises");
 const path = require("node:path");
+const { writeProjectFile } = require("../services/project-file-writes.cjs");
 const { parseInviteLink } = require("../services/collab/invite.cjs");
 
 const MAX_COMMENT_BYTES = 4 * 1024 * 1024;
@@ -47,8 +48,7 @@ const createCollabHandlers = ({ ipcMain, hub, state, workspace, sendCollab, getL
     const comments = Array.isArray(payload?.comments) ? payload.comments : [];
     const text = JSON.stringify({ schema: 1, comments }, null, 2);
     if (Buffer.byteLength(text) > MAX_COMMENT_BYTES) throw new Error("Comments file is too large.");
-    await fsp.mkdir(path.dirname(target), { recursive: true });
-    await fsp.writeFile(target, text, "utf8");
+    await writeProjectFile(target, text);
     return { comments };
   };
 
@@ -70,6 +70,9 @@ const createCollabHandlers = ({ ipcMain, hub, state, workspace, sendCollab, getL
           return { ok: true, ...hub.status() };
         case "flush":
           return { ok: true, flushed: await hub.flush() };
+        // Quit / window close, before the editor freezes (hub.drain).
+        case "drain":
+          return { ok: true, flushed: await hub.drain() };
         case "comments:load":
           return { ok: true, ...(await loadComments()) };
         case "comments:save":

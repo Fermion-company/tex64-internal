@@ -14,6 +14,7 @@ import { createEditorSessionInitialOpenOps } from "./initial-open-ops.js";
 import { createEditorSessionWorkspaceOps } from "./workspace-ops.js";
 import { createEditorSessionCursorOps } from "./cursor-ops.js";
 import { createEditorSessionIssueFocusOps } from "./issue-focus.js";
+import { createOutsideEdits } from "./outside-edits.js";
 import { uiText } from "../i18n.js";
 import { contentDigest } from "../collab/digest.js";
 import {
@@ -41,8 +42,14 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     scheduleAutoSave,
     getSaveStatus,
     handleOpenFileResult,
+    clearOpenRequests,
     handleSaveResult,
     clearContentConflicts,
+    holdSaves,
+    unholdSaves,
+    lastTypedAt,
+    mergesCleanly,
+    disturbsTyping,
   } = createEditorSessionFileOps({
     deps: runtime.deps,
     editorGroups: runtime.editorGroups,
@@ -361,7 +368,7 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
   const handleOpenFileResultWithLiveEdit = (
     payload: Parameters<typeof handleOpenFileResult>[0]
   ) => {
-    handleOpenFileResult(payload);
+    if (!handleOpenFileResult(payload)) return;
     if (payload.error) {
       openingLivePaths.delete(payload.path);
       for (const [sessionId, pending] of pendingLiveEdits) {
@@ -389,38 +396,31 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     openingLivePaths.clear();
   };
 
-  const pendingExternalChanges = new Map<string, object>();
-  const handleExternalFileChange = (payload: { path: string; content: string | null; fileDeleted?: boolean }) => {
-    const entry = runtime.monacoModels.get(payload.path);
-    const groupKey = coreOps.findGroupKeyByPath(payload.path);
-    if (!entry || !groupKey) return;
-    const group = coreOps.getEditorGroup(groupKey);
-    pendingExternalChanges.set(payload.path, payload);
-    const apply = () => {
-      if (pendingExternalChanges.get(payload.path) !== payload) return;
-      if (runtime.monacoModels.get(payload.path) !== entry) {
-        pendingExternalChanges.delete(payload.path);
-        return;
-      }
-      if (group.isComposing) {
-        window.setTimeout(apply, 100);
-        return;
-      }
-      pendingExternalChanges.delete(payload.path);
-      if (!payload.fileDeleted && payload.content === entry.savedContent) return;
-      if (!payload.fileDeleted && runtime.fileOpsState.pendingSave?.path === payload.path &&
-        runtime.fileOpsState.pendingSave.content === payload.content) return;
-      applyFormattedContent(group, payload.path, payload.content ?? "", {
-        updateSaved: true,
-        showAiDiff: false,
-        expectedContent: entry.savedContent,
-        fileDeleted: payload.fileDeleted,
-        externalChange: true,
-      });
-      deps.onLivePreviewSourceChanged?.();
-    };
-    apply();
-  };
+  // Disk changes from another program and Axiom's writes; both wait for an
+  // open IME composition on their file, and an Axiom edit to the paragraph
+  // being typed waits for a pause in typing (outside-edits.ts).
+  const outsideEdits = createOutsideEdits({
+    editorGroups: runtime.editorGroups,
+    monacoModels: runtime.monacoModels,
+    findGroupKeyByPath: coreOps.findGroupKeyByPath,
+    getEditorGroup: coreOps.getEditorGroup,
+    getPendingSave: () => runtime.fileOpsState.pendingSave,
+    applyFormattedContent,
+    onLivePreviewSourceChanged: () => deps.onLivePreviewSourceChanged?.(),
+    disturbsTyping,
+    mergesCleanly,
+    lastTypedAt,
+    holdSaves,
+    unholdSaves,
+    // A deletion became final: close its clean tab and, as a tree update
+    // would, open another file if the editor is left empty.
+    onDeletionSettled: () => {
+      workspaceOps.resyncWorkspaceFiles();
+      initialOpenOps.requestInitialOpen();
+    },
+  });
+  workspaceOps.setKeepMissingPath((path) => outsideEdits.isDeletionPending(path));
+  const handleExternalFileChange = outsideEdits.handleExternalFileChange;
 
   const markSavedExternally = (path: string, digest: string) => {
     const entry = runtime.monacoModels.get(path);
@@ -499,7 +499,7 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     jumpToFileLine: navigationOps.jumpToFileLine,
     jumpToLocation: navigationOps.jumpToLocation,
     applyFormattedContent,
-    applyContentToOpenFile: navigationOps.applyContentToOpenFile,
+    applyContentToOpenFile: outsideEdits.applyContentToOpenFile,
     applyLivePreviewEdit,
     getLivePreviewSourceAnchor,
     handleExternalFileChange,
@@ -516,9 +516,10 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     handleRenameResult: workspaceOps.handleRenameResult,
     syncWorkspaceFiles: (payload) => {
       if (payload.rootChanged) {
+        clearOpenRequests();
         clearContentConflicts();
         clearLivePreviewEdits();
-        pendingExternalChanges.clear();
+        outsideEdits.clear();
       }
       workspaceOps.syncWorkspaceFiles(payload);
     },

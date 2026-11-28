@@ -1,5 +1,6 @@
 import type { createViewer } from "../viewer.js";
 import type { SaveStatus } from "../save-status.js";
+import type { TabPosition } from "./tab-state-ops.js";
 import type {
   FormatSettingsPayload,
   IndexEntry,
@@ -184,17 +185,17 @@ export type EditorSessionApi = {
   setSplitViewEnabled: (enabled: boolean) => void;
   getSplitViewEnabled: () => boolean;
   cacheCurrentBuffer: (group: EditorGroupState) => void;
-  addOpenTab: (group: EditorGroupState, path: string) => void;
+  addOpenTab: (group: EditorGroupState, path: string, position?: TabPosition) => void;
   getHistoryBuffers: () => Array<{ path: string; content: string; savedContent: string }>;
   applyHistoryFiles: (files: Array<{ path: string; content: string | null }>) => void;
   closeTab: (group: EditorGroupState, path: string) => void;
-  scheduleAfterComposition: (group: EditorGroupState, action: () => void) => void;
-  handleCompositionEnd: (group: EditorGroupState) => void;
+  scheduleAfterComposition: (group: EditorGroupState, action: () => void, cancel?: () => void) => void;
+  handleCompositionEnd: (group: EditorGroupState, options?: { cancelled?: boolean }) => void;
   updateDirtyState: (path: string, content: string, savedContent?: string) => void;
   clearJumpHighlight: (group: EditorGroupState) => void;
   scheduleAutoSave: () => void;
   getSaveStatus: () => SaveStatus;
-  requestOpenFile: (path: string, groupKey: EditorGroupKey, force?: boolean) => boolean;
+  requestOpenFile: (path: string, groupKey: EditorGroupKey, force?: boolean, position?: TabPosition) => boolean;
   jumpToFileLine: (
     path: string,
     line: number,
@@ -219,12 +220,14 @@ export type EditorSessionApi = {
     path: string,
     content: string,
     options?: {
+      fileIdentity?: string;
       updateSaved?: boolean;
       showAiDiff?: boolean;
       expectedContent?: string;
       expectedFileMissing?: boolean;
       fileDeleted?: boolean;
       conversationId?: string;
+      onDeferredConflict?: () => void;
     }
   ) => { handled: boolean; conflict: boolean };
   applyLivePreviewEdit: (payload: LivePreviewEditPayload) => boolean;
@@ -248,6 +251,7 @@ export type EditorSessionApi = {
     content?: string;
     error?: string;
     kind?: "text" | "image" | "pdf" | "unsupported";
+    buildPreview?: "previous" | "built";
     languageId?: "plaintext";
     data?: string;
     mimeType?: string;

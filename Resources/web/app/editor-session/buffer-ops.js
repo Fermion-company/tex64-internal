@@ -95,23 +95,47 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
             editor.setModel(emptyModel);
         }
     };
-    const scheduleAfterComposition = (group, action) => {
-        var _a;
+    // Callers waiting on an action queued below, answered instead when the
+    // composition is cancelled (its model replaced: editor-composition.ts).
+    const compositionCancels = new WeakMap();
+    const scheduleAfterComposition = (group, action, cancel) => {
+        var _a, _b;
         if (!group.isComposing) {
             action();
             return;
         }
-        // Blur will trigger compositionend which handles recovery
-        group.pendingCompositionAction = action;
-        const input = (_a = group.editorHost) === null || _a === void 0 ? void 0 : _a.querySelector("textarea.inputarea");
+        if (cancel)
+            compositionCancels.set(group, [...((_a = compositionCancels.get(group)) !== null && _a !== void 0 ? _a : []), cancel]);
+        // Blurring finishes composition. Keep other waiters, for example a save
+        // already waiting on the same input when the user clicks another tab.
+        const previous = group.pendingCompositionAction;
+        group.pendingCompositionAction = previous ? () => {
+            try {
+                previous();
+            }
+            finally {
+                action();
+            }
+        } : action;
+        const input = (_b = group.editorHost) === null || _b === void 0 ? void 0 : _b.querySelector(".native-edit-context, textarea.inputarea");
         input === null || input === void 0 ? void 0 : input.blur();
     };
-    const handleCompositionEnd = (group) => {
-        if (!group.pendingCompositionAction) {
-            return;
-        }
+    const handleCompositionEnd = (group, options = {}) => {
+        var _a;
+        const cancels = (_a = compositionCancels.get(group)) !== null && _a !== void 0 ? _a : [];
+        compositionCancels.delete(group);
         const action = group.pendingCompositionAction;
         group.pendingCompositionAction = null;
+        if (options.cancelled) {
+            // Queued for the model (and folder) that was replaced: nothing of it
+            // runs against the new one.
+            for (const settle of cancels)
+                settle();
+            return;
+        }
+        if (!action) {
+            return;
+        }
         requestAnimationFrame(() => {
             action();
         });

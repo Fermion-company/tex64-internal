@@ -20,8 +20,8 @@ export type EditorSessionBufferOps = {
   getLanguageIdForPath: (path: string) => string;
   setEditorLanguage: (group: EditorGroupState, path: string) => void;
   clearEditorView: (group: EditorGroupState) => void;
-  scheduleAfterComposition: (group: EditorGroupState, action: () => void) => void;
-  handleCompositionEnd: (group: EditorGroupState) => void;
+  scheduleAfterComposition: (group: EditorGroupState, action: () => void, cancel?: () => void) => void;
+  handleCompositionEnd: (group: EditorGroupState, options?: { cancelled?: boolean }) => void;
   updateDirtyState: (path: string, content: string, savedContent?: string) => void;
   restoreViewState: (group: EditorGroupState, path: string) => void;
   cacheCurrentBuffer: (group: EditorGroupState) => void;
@@ -131,23 +131,44 @@ export const createEditorSessionBufferOps = (
     }
   };
 
-  const scheduleAfterComposition = (group: EditorGroupState, action: () => void) => {
+  // Callers waiting on an action queued below, answered instead when the
+  // composition is cancelled (its model replaced: editor-composition.ts).
+  const compositionCancels = new WeakMap<EditorGroupState, Array<() => void>>();
+
+  const scheduleAfterComposition = (group: EditorGroupState, action: () => void, cancel?: () => void) => {
     if (!group.isComposing) {
       action();
       return;
     }
-    // Blur will trigger compositionend which handles recovery
-    group.pendingCompositionAction = action;
-    const input = group.editorHost?.querySelector<HTMLTextAreaElement>("textarea.inputarea");
+    if (cancel) compositionCancels.set(group, [...(compositionCancels.get(group) ?? []), cancel]);
+    // Blurring finishes composition. Keep other waiters, for example a save
+    // already waiting on the same input when the user clicks another tab.
+    const previous = group.pendingCompositionAction;
+    group.pendingCompositionAction = previous ? () => {
+      try {
+        previous();
+      } finally {
+        action();
+      }
+    } : action;
+    const input = group.editorHost?.querySelector<HTMLElement>(".native-edit-context, textarea.inputarea");
     input?.blur();
   };
 
-  const handleCompositionEnd = (group: EditorGroupState) => {
-    if (!group.pendingCompositionAction) {
-      return;
-    }
+  const handleCompositionEnd = (group: EditorGroupState, options: { cancelled?: boolean } = {}) => {
+    const cancels = compositionCancels.get(group) ?? [];
+    compositionCancels.delete(group);
     const action = group.pendingCompositionAction;
     group.pendingCompositionAction = null;
+    if (options.cancelled) {
+      // Queued for the model (and folder) that was replaced: nothing of it
+      // runs against the new one.
+      for (const settle of cancels) settle();
+      return;
+    }
+    if (!action) {
+      return;
+    }
     requestAnimationFrame(() => {
       action();
     });

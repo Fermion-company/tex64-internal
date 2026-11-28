@@ -42,7 +42,7 @@ export const initBridgeHandlers = (deps) => {
         if (detail.sourceChanged)
             buildSourceWarning =
                 "Sources changed during the build. The saved PDF is from an earlier version; build again to update it.";
-        if (payload.targetFile && !payload.requestId)
+        if (payload.state === "success" && payload.targetFile && !payload.requestId)
             (_f = (_e = deps.build).setBuildTarget) === null || _f === void 0 ? void 0 : _f.call(_e, payload.targetFile);
         deps.build.setBuildState(payload.state, payload.message);
     };
@@ -137,7 +137,7 @@ export const initBridgeHandlers = (deps) => {
         (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleError(payload.message, payload.conversationId);
     };
     const handleBridgeMessage = (message) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69;
         if (!(message === null || message === void 0 ? void 0 : message.type)) {
             return;
         }
@@ -445,7 +445,20 @@ export const initBridgeHandlers = (deps) => {
             case "agent:applyContent":
                 {
                     const applyPayload = message.payload;
+                    // A conflict is reported to Axiom whether the edit applied at once or
+                    // waited for an IME composition to end.
+                    const reportConflict = () => {
+                        var _a, _b;
+                        if (typeof applyPayload.conversationId === "string" && applyPayload.conversationId.trim()) {
+                            deps.postToNative({
+                                type: "agent:contentConflict",
+                                conversationId: applyPayload.conversationId,
+                                path: (_b = (_a = applyPayload.fileIdentity) !== null && _a !== void 0 ? _a : applyPayload.path) !== null && _b !== void 0 ? _b : "",
+                            });
+                        }
+                    };
                     const applyResult = deps.editorSession.applyContentToOpenFile((_68 = applyPayload.path) !== null && _68 !== void 0 ? _68 : "", (_69 = applyPayload.content) !== null && _69 !== void 0 ? _69 : "", {
+                        fileIdentity: applyPayload.fileIdentity,
                         updateSaved: applyPayload.updateSaved === true,
                         ...(typeof applyPayload.expectedContent === "string"
                             ? { expectedContent: applyPayload.expectedContent }
@@ -457,16 +470,10 @@ export const initBridgeHandlers = (deps) => {
                             : {}),
                         showAiDiff: applyPayload.showAiDiff === true ||
                             (applyPayload.showAiDiff !== false && applyPayload.source !== "ai-direct-edit"),
+                        onDeferredConflict: reportConflict,
                     });
-                    if (applyResult.conflict &&
-                        typeof applyPayload.conversationId === "string" &&
-                        applyPayload.conversationId.trim()) {
-                        deps.postToNative({
-                            type: "agent:contentConflict",
-                            conversationId: applyPayload.conversationId,
-                            path: (_70 = applyPayload.path) !== null && _70 !== void 0 ? _70 : "",
-                        });
-                    }
+                    if (applyResult.conflict)
+                        reportConflict();
                 }
                 break;
             default:

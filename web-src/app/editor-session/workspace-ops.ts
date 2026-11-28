@@ -8,6 +8,10 @@ import { rememberEditorModelPath } from "./model-path.js";
 export type EditorSessionWorkspaceOps = {
   handleRenameResult: (payload: { oldPath: string; newPath: string; isDirectory: boolean }) => void;
   syncWorkspaceFiles: (payload: { workspaceFiles: string[]; rootChanged: boolean }) => void;
+  /** Apply the last file list again (a file kept through a grace period). */
+  resyncWorkspaceFiles: () => void;
+  /** Open files missing from the tree that keep their tab for now. */
+  setKeepMissingPath: (keep: (path: string) => boolean) => void;
   getDirtyPaths: () => Set<string>;
 };
 
@@ -94,8 +98,22 @@ export const createEditorSessionWorkspaceOps = (
     coreOps.forEachEditorGroup((group) => runtime.deps.editorTabs.render(group));
   };
 
+  // A file that vanished from disk may be coming back (an editor or git
+  // replacing it): while `keepMissingPath` says so (outside-edits.ts), its tab
+  // and buffer stay as if it were still listed.
+  let keepMissingPath: (path: string) => boolean = () => false;
+  let lastWorkspaceFiles: string[] | null = null;
+
   const syncWorkspaceFiles = (payload: { workspaceFiles: string[]; rootChanged: boolean }) => {
-    const { workspaceFiles, rootChanged } = payload;
+    const { rootChanged } = payload;
+    lastWorkspaceFiles = payload.workspaceFiles;
+    const listed = new Set(payload.workspaceFiles);
+    const workspaceFiles = rootChanged
+      ? payload.workspaceFiles
+      : [
+        ...payload.workspaceFiles,
+        ...Array.from(runtime.monacoModels.keys()).filter((path) => !listed.has(path) && keepMissingPath(path)),
+      ];
     if (rootChanged) {
       runtime.fileOpsState.pendingReveal = null;
       runtime.lastCursorPositions.clear();
@@ -191,6 +209,12 @@ export const createEditorSessionWorkspaceOps = (
   return {
     handleRenameResult,
     syncWorkspaceFiles,
+    resyncWorkspaceFiles: () => {
+      if (lastWorkspaceFiles) syncWorkspaceFiles({ workspaceFiles: lastWorkspaceFiles, rootChanged: false });
+    },
+    setKeepMissingPath: (keep) => {
+      keepMissingPath = keep;
+    },
     getDirtyPaths,
   };
 };

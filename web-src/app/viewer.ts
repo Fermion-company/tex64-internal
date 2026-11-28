@@ -51,12 +51,20 @@ export type PdfSyncPayload = {
   y: number;
   /** Only roughly known (a neighbouring line stood in): shown as a band, not a box. */
   approximate?: boolean;
+  /**
+   * The Live revision this place was computed for, by the engine's own
+   * lookup of that revision's canonical pass (goto-sync `liveRevision`).
+   * Absent when the place comes from a Build's SyncTeX.
+   */
+  liveRevision?: { documentEpoch: number; srcRev: number; canonicalId?: number };
+  /** Vertical writing: the line is a column (an approximate place is a vertical band). */
+  direction?: "tate";
   pdfPath?: string;
   blockX?: number;
   blockY?: number;
   blockWidth?: number;
   blockHeight?: number;
-  blocks?: Array<{ x: number; y: number; width: number; height: number }>;
+  blocks?: Array<{ x: number; y: number; width: number; height: number; page?: number }>;
   sourceFile?: string;
   sourceLine?: number;
   sourceColumn?: number;
@@ -361,6 +369,36 @@ export const createViewer = (deps: ViewerDeps) => {
       deps.onPdfClose?.();
       return;
     }
+    if (payload.type === "jump-recheck") {
+      // The PDF a Build made is on screen and a Jump was made while that Build
+      // ran: its line on this PDF, from the Jump code (build-ops-ui), comes
+      // back as a "sync" with the same token, to this viewer only while it
+      // still shows that PDF.
+      const detail = (payload as { payload?: unknown }).payload as
+        | { file?: unknown; line?: unknown; column?: unknown; path?: unknown; token?: unknown }
+        | null
+        | undefined;
+      const line = Number(detail?.line);
+      const column = Number(detail?.column);
+      const viewerPath = pdfViewerPath;
+      if (typeof detail?.file !== "string" || !detail.file || !Number.isInteger(line) || line < 1 ||
+          typeof detail?.path !== "string" || !viewerPath || detail.path !== viewerPath || detail.token == null) return;
+      const token = detail.token;
+      window.dispatchEvent(new CustomEvent("tex64:jump-recheck", {
+        detail: {
+          file: detail.file,
+          line,
+          column: Number.isInteger(column) && column > 0 ? column : 1,
+          pdfPath: viewerPath,
+          reply: (place: PdfSyncPayload) => {
+            if (pdfViewerReady && pdfViewerPath === viewerPath) {
+              postPdfMessage({ type: "sync", payload: { ...place, recheckToken: token } });
+            }
+          },
+        },
+      }));
+      return;
+    }
     if (payload.type === "live-runtime-error") {
       if (!matchingLivePreview()) return;
       const error = (payload as { payload?: { code?: unknown; message?: unknown } | null }).payload;
@@ -507,7 +545,7 @@ export const createViewer = (deps: ViewerDeps) => {
     }
   };
 
-  const showPdfViewer = (path: string, data?: string, mimeType?: string) => {
+  const showPdfViewer = (path: string, data?: string, mimeType?: string, preserveFocus = false) => {
     if (!data || !(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
       showUnsupportedViewer();
       return;
@@ -535,7 +573,7 @@ export const createViewer = (deps: ViewerDeps) => {
         pendingPdfOpen = payload;
       }
       setViewerMode("pdf");
-      blurActiveElement();
+      if (!preserveFocus) blurActiveElement();
     } catch {
       showUnsupportedViewer();
     }
@@ -600,5 +638,8 @@ export const createViewer = (deps: ViewerDeps) => {
     openPdfFind: () => viewerMode === "pdf" && pdfViewerReady && postPdfMessage({ type: "find-open" }),
     syncPdf,
     setLivePreview,
+    // The Live paper is this viewer's page canvas (not the static PDF a
+    // Build holds over it): a Jump's page numbers are then Live's.
+    livePaperShown: () => viewerMode === "pdf" && matchingLivePreview()?.hold === false,
   };
 };

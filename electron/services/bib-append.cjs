@@ -115,7 +115,7 @@ const resolveCitationDocument = async (workspace, { documentMainFile, activeFile
   if (isTex(chosen) && (await workspace.readFile(chosen).then(() => true, () => false))) return chosen;
   const active = normalizeRelative(activeFilePath);
   try {
-    const owner = normalizeRelative(await resolveBuildTarget(workspace, isTex(active) ? active : ""));
+    const owner = normalizeRelative(await resolveBuildTarget(workspace, isTex(active) ? active : "", { requireUniqueOwner: true }));
     if (isTex(owner) && (await workspace.readFile(owner).then(() => true, () => false))) return owner;
   } catch (error) {
     if (error?.code === BUILD_TARGET_CHOICE) {

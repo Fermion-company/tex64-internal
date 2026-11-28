@@ -1,6 +1,7 @@
 import { createActionsMenu } from "./actions-menu.js";
 import { uiText } from "./i18n.js";
 import { createExplain } from "./explain.js";
+import { isNameArgumentContext } from "./completion-context.js";
 let items = [];
 let revision = 0;
 let activeEditor;
@@ -31,7 +32,8 @@ export const attachSnippetEditor = (editor, monaco) => {
                 var _a;
                 const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
                 const prefix = ((_a = before.match(/\\?[A-Za-z0-9_-]+$/)) === null || _a === void 0 ? void 0 : _a[0]) || "";
-                if (!prefix)
+                // Not inside \begin{…}, \end{…}, \ref{…}, \cite{…} or a file argument.
+                if (!prefix || isNameArgumentContext(before))
                     return { suggestions: [] };
                 return { suggestions: items.filter((item) => item.prefix.startsWith(prefix)).map((item) => ({
                         label: item.prefix, detail: item.name, kind: monaco.languages.CompletionItemKind.Snippet,

@@ -231,6 +231,8 @@ test("past the limit the engine is given the chapter in front, and keeps it whil
     service.rememberOpenedSnapshot(opened[0], 1);
     await push();
     assert.equal(asked.length, 2);
+    assert.equal(asked[1].rootText, fs.readFileSync(path.join(dir, "book.tex"), "utf8"),
+      "plan window changes from the project root, even when the accepted source was rewritten");
     assert.equal(opened.length, 1, "same chapter, same buffers: nothing to send");
     service.stop();
   } finally {
@@ -302,6 +304,59 @@ test("the engine is told of the outer sheets once, and again when the chapter ch
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("child typing and save keep the root session after one edit resync", async (t) => {
+  const dir = project();
+  const posts = [];
+  let failEdit = false;
+  const server = require("node:http").createServer(async (req, res) => {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    posts.push([req.url, JSON.parse(body)]);
+    res.writeHead(req.url === "/edit" && failEdit ? 409 : 200, { "Content-Type": "application/json" });
+    failEdit = false;
+    res.end(JSON.stringify({ srcRev: posts.length }));
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+
+  const service = new TdomEngineService({ pageWatchIntervalMs: 0 });
+  Object.assign(service, { state: "ready", port: server.address().port, proc: { exitCode: null, killed: false, kill() {} } });
+  service.checkPageLimit = async () => ({ limited: false });
+  service.loadPersistedCanonicalBuild = async () => null;
+  t.after(async () => {
+    service.stop();
+    await new Promise(resolve => server.close(resolve));
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const book = path.join(dir, "book.tex");
+  const child = path.join(dir, "tex/two.tex");
+  const rootText = fs.readFileSync(book, "utf8");
+  const push = (buffers) => service.push({ workspaceRoot: dir, rootFile: "book.tex", activePath: "tex/two.tex", buffers });
+  await push([]);
+  failEdit = true;
+  await push([{ path: "tex/two.tex", text: "First child edit.\n" }]);
+  assert.deepEqual(posts.map(([endpoint]) => endpoint), ["/open", "/edit", "/open"]);
+  assert.equal(posts[2][1].text, rootText);
+
+  const text = "Second child edit.\n";
+  await push([{ path: "tex/two.tex", text }]);
+  assert.deepEqual(posts.at(-1), ["/edit", {
+    start: 0, end: 0, text: "", slim: true, overlays: [{ filePath: child, text }],
+  }]);
+  fs.writeFileSync(child, text);
+  await push([]);
+  assert.deepEqual(posts.at(-1)[1].removeOverlays, [child]);
+
+  const start = rootText.indexOf("\n");
+  const insertion = " % edited";
+  await push([{ path: "book.tex", text: rootText.slice(0, start) + insertion + rootText.slice(start) }]);
+  assert.deepEqual(posts.at(-1), ["/edit", { start, end: start, text: insertion, slim: true }]);
+  await push([]);
+  assert.deepEqual(posts.at(-1), ["/edit", {
+    start, end: start + insertion.length, text: "", slim: true,
+  }], "discarding a dirty root restores the disk source without reopening");
+  assert.equal(posts.filter(([endpoint]) => endpoint === "/open").length, 2);
 });
 
 test("the Build's labels reach the chapter through a file, and only where the path is one LaTeX can read", () => {

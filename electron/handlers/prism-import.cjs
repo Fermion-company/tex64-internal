@@ -8,6 +8,7 @@
 // `prism:progress` messages. Failures carry a `code` (and the `step` they
 // belong to); the renderer owns the wording.
 
+const { writeProjectFile } = require("../services/project-file-writes.cjs");
 const path = require("node:path");
 const fsp = require("node:fs/promises");
 const crypto = require("node:crypto");
@@ -165,7 +166,7 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
       settings.buildProfiles = [profile, ...others];
       settings.buildProfileId = PROFILE_ID;
     }
-    await fsp.writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
+    await writeProjectFile(settingsPath, JSON.stringify(settings, null, 2));
   };
 
   const publicProject = (project) => ({
@@ -332,7 +333,7 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
     const stat = await fsp.stat(pdfPath).catch(() => null);
     if (!stat?.isFile()) { project.preserved.add(pdfPath); return; }
     const copy = path.join(path.dirname(pdfPath), `${path.basename(pdfPath, ".pdf")}.prism.pdf`);
-    await fsp.copyFile(pdfPath, copy);
+    await writeProjectFile(copy, await fsp.readFile(pdfPath));
     project.preserved.add(pdfPath);
     const relative = path.relative(project.root, pdfPath).split(path.sep).join("/");
     if (project.analysis.prismPdf === relative) {

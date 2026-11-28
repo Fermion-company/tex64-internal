@@ -8,15 +8,19 @@ type QuitPreparationInput = {
   quiesce: () => Promise<{ ok: boolean; error?: string }>;
   saveDirtyFiles: () => Promise<boolean>;
   getDirtyFileCount: () => number;
+  /** Writes the shared (collaboration) documents held in main; false: not all. */
+  drainShared?: () => Promise<boolean>;
   freeze: () => void;
   maxSavePasses?: number;
 };
 
 /**
- * Stop native writers, drain every dirty Code buffer, and only then freeze the
- * renderer for final process teardown. A save pass can itself receive editor
- * input while waiting for native acknowledgements, so re-check the live dirty
- * set and repeat until it is empty in the same JS turn that freezes the UI.
+ * Stop native writers, drain every dirty Code buffer and then the shared
+ * documents (a peer's edit to a file this window never opened has no buffer
+ * here), and only then freeze the renderer for final process teardown. A save
+ * pass or the drain can itself receive editor input while waiting for native
+ * acknowledgements, so re-check the live dirty set and repeat until it is
+ * empty in the same JS turn that freezes the UI.
  */
 export const prepareRendererForQuit = async (
   input: QuitPreparationInput,
@@ -38,6 +42,14 @@ export const prepareRendererForQuit = async (
   const maxSavePasses = Math.max(1, Math.floor(input.maxSavePasses ?? 100));
   for (let pass = 0; pass < maxSavePasses; pass += 1) {
     if (input.getDirtyFileCount() === 0) {
+      let drained = true;
+      try {
+        drained = (await input.drainShared?.()) ?? true;
+      } catch {
+        drained = false;
+      }
+      if (!drained) return { ok: false, phase: "save" };
+      if (input.getDirtyFileCount() > 0) continue;
       input.freeze();
       return { ok: true };
     }

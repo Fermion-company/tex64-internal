@@ -77,8 +77,21 @@ export const createEditorSessionWorkspaceOps = (runtime, coreOps, splitViewOps, 
         runtime.deps.fileTree.render();
         coreOps.forEachEditorGroup((group) => runtime.deps.editorTabs.render(group));
     };
+    // A file that vanished from disk may be coming back (an editor or git
+    // replacing it): while `keepMissingPath` says so (outside-edits.ts), its tab
+    // and buffer stay as if it were still listed.
+    let keepMissingPath = () => false;
+    let lastWorkspaceFiles = null;
     const syncWorkspaceFiles = (payload) => {
-        const { workspaceFiles, rootChanged } = payload;
+        const { rootChanged } = payload;
+        lastWorkspaceFiles = payload.workspaceFiles;
+        const listed = new Set(payload.workspaceFiles);
+        const workspaceFiles = rootChanged
+            ? payload.workspaceFiles
+            : [
+                ...payload.workspaceFiles,
+                ...Array.from(runtime.monacoModels.keys()).filter((path) => !listed.has(path) && keepMissingPath(path)),
+            ];
         if (rootChanged) {
             runtime.fileOpsState.pendingReveal = null;
             runtime.lastCursorPositions.clear();
@@ -169,6 +182,13 @@ export const createEditorSessionWorkspaceOps = (runtime, coreOps, splitViewOps, 
     return {
         handleRenameResult,
         syncWorkspaceFiles,
+        resyncWorkspaceFiles: () => {
+            if (lastWorkspaceFiles)
+                syncWorkspaceFiles({ workspaceFiles: lastWorkspaceFiles, rootChanged: false });
+        },
+        setKeepMissingPath: (keep) => {
+            keepMissingPath = keep;
+        },
         getDirtyPaths,
     };
 };

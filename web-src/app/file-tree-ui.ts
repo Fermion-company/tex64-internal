@@ -39,6 +39,7 @@ type FileTreeDeps = {
 
 export type FileTreeUiApi = {
   render: () => void;
+  getDragPayload: () => DragPayload | null;
   loadOpenState: () => void;
   requestCreate: (kind: CreateKind) => void;
   setTreeFocus: (value: boolean) => void;
@@ -895,6 +896,7 @@ export const initFileTreeUi = (
         return;
       }
       dragEvent.preventDefault();
+      if (dragEvent.dataTransfer) dragEvent.dataTransfer.dropEffect = "move";
       clearDropTargets();
       fileTree.classList.add("is-drop-target");
     });
@@ -949,6 +951,7 @@ export const initFileTreeUi = (
 
   return {
     render,
+    getDragPayload,
     loadOpenState,
     requestCreate,
     setTreeFocus,

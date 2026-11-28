@@ -469,18 +469,11 @@ export const initMain = () => {
             aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.refreshContextBar();
         };
         let lastBuildMainFile = null;
-        // Fragment → the document Build makes of it: the user's choice first, else
-        // what main resolves (asked once per fragment, forgotten after each build
-        // since includes may have changed). Ambiguous fragments stay unresolved.
-        // null: asked, no answer yet. false: main has no single document for it.
+        // Keep the previous owner visible while refreshing the include graph after a build.
         const documentOwners = new Map();
-        // The last answer for each file. A Build forgets the answers (includes may
-        // have changed) and asks again; until main has answered, the previous one
-        // stands. Without it every Build left a moment in which a chapter, or the
-        // book itself, had no known document and Live chose another.
         const lastDocumentOwners = new Map();
         const documentOwnerOf = (path) => {
-            var _a, _b;
+            var _a;
             const chosen = buildOps === null || buildOps === void 0 ? void 0 : buildOps.documentFor(path);
             if (chosen)
                 return chosen;
@@ -491,31 +484,19 @@ export const initMain = () => {
                 void (bridge === null || bridge === void 0 ? void 0 : bridge.documentFor(path).then((result) => {
                     if (documentOwners.get(key) !== null)
                         return;
-                    if ((result === null || result === void 0 ? void 0 : result.ok) && typeof result.document === "string") {
-                        documentOwners.set(key, { document: result.document, including: Array.isArray(result.including) ? result.including.filter((entry) => typeof entry === "string") : [] });
-                    }
-                    else
-                        documentOwners.set(key, false);
-                    lastDocumentOwners.set(key, documentOwners.get(key));
+                    const owner = (result === null || result === void 0 ? void 0 : result.ok) && typeof result.document === "string"
+                        ? { document: result.document, including: Array.isArray(result.including) ? result.including : [] }
+                        : false;
+                    documentOwners.set(key, owner);
+                    lastDocumentOwners.set(key, owner);
                 }, () => { if (documentOwners.get(key) === null)
                     documentOwners.set(key, false); }));
             }
             const answered = documentOwners.get(key);
-            const owner = answered === null ? (_b = lastDocumentOwners.get(key)) !== null && _b !== void 0 ? _b : null : answered;
+            const owner = answered === null ? lastDocumentOwners.get(key) : answered;
             if (owner === false)
                 return null;
-            if (!owner)
-                return undefined;
-            // A chapter that can also be built alone (subfiles) follows the paper
-            // the user is producing: the book once the book was built, the chapter
-            // once the chapter itself was; with neither, its only book.
-            if (owner.document === path && owner.including.length) {
-                if (lastBuildMainFile && owner.including.includes(lastBuildMainFile))
-                    return lastBuildMainFile;
-                if (lastBuildMainFile !== path && owner.including.length === 1)
-                    return owner.including[0];
-            }
-            return owner.document;
+            return lastBuildMainFile === path ? path : owner === null || owner === void 0 ? void 0 : owner.document;
         };
         const noteBuildTarget = (path) => {
             lastBuildMainFile = path;
@@ -659,6 +640,7 @@ export const initMain = () => {
                     },
                     saveDirtyFiles: () => editorSession.saveDirtyFiles(),
                     getDirtyFileCount: () => editorSession.getDirtyPaths().size,
+                    drainShared: () => collabSession.drain(),
                     freeze: () => {
                         document.documentElement.dataset.quitPrepared = "true";
                         document.body.inert = true;
@@ -982,7 +964,7 @@ export const initMain = () => {
         editorTabsUi = initEditorTabsUi(appContext, {
             getGroups: () => editorSession.getEditorGroups(),
             getGroup: editorSession.getEditorGroup,
-            getActiveGroupKey: () => editorSession.getActiveEditorGroupKey(),
+            getTreeDragPayload: fileTreeUi.getDragPayload,
             isActiveGroup: editorSession.isActiveGroup,
             setActiveGroup: editorSession.setActiveGroup,
             requestOpenFile: editorSession.requestOpenFile,
@@ -997,13 +979,11 @@ export const initMain = () => {
         });
         buildOps = initBuildOpsUi(appContext, {
             getActiveGroup: editorSession.getActiveGroup,
-            getActiveEditorGroupKey: () => editorSession.getActiveEditorGroupKey(),
             getActiveFilePath: () => editorSession.getActiveFilePath(),
             getWorkspaceFiles,
             getRootFilePath,
             getLastBuildMainFile: () => lastBuildMainFile,
             getWorkspaceRootKey,
-            setLastBuildMainFile: (path) => noteBuildTarget(path),
             getStoredCursorPosition: (path) => editorSession.getStoredCursorPosition(path),
             cacheCurrentBuffer: editorSession.cacheCurrentBuffer,
             saveCurrentFile: () => editorSession.saveCurrentFile(),
@@ -1013,7 +993,7 @@ export const initMain = () => {
             setPendingBuildIssuesFocus: (value) => setPendingBuildIssuesFocus(value),
             applyFormattedContent: editorSession.applyFormattedContent,
             getEditorGroups: () => editorSession.getEditorGroups(),
-            renderEditorTabs: (group) => editorTabsUi.render(group),
+            renderEditorTabs: (group) => editorTabsUi.render(editorSession.getEditorGroup(group.key)),
             requestOpenFile: editorSession.requestOpenFile,
             getSplitViewEnabled: () => editorSession.getSplitViewEnabled(),
             setSplitViewEnabled: (enabled) => editorSession.setSplitViewEnabled(enabled),
@@ -1075,7 +1055,7 @@ export const initMain = () => {
         issuesUi = initIssuesUi(appContext, {
             parseIssueDetail: editorSession.parseIssueDetail,
             onFocusIssue: (issue) => {
-                editorSession.focusIssue(issue, { groupKey: "primary" });
+                editorSession.focusIssue(issue);
             },
             onOpenRuntimeSettings: () => {
                 setActiveTab("settings");

@@ -20,8 +20,12 @@ export const createEditorSessionInitialOpenOps = (runtime, coreOps, deps) => {
     const requestInitialOpen = () => {
         const activeGroup = coreOps.getActiveGroup();
         const workspaceFiles = runtime.deps.getWorkspaceFiles();
+        // A file still open in the editor though missing from the listing (it
+        // vanished and may come back, or it has unsaved typing) stays the active
+        // file: the tree sync kept its tab on purpose.
         const hasValidCurrent = activeGroup.currentFilePath !== null &&
-            workspaceFiles.includes(activeGroup.currentFilePath);
+            (workspaceFiles.includes(activeGroup.currentFilePath) ||
+                runtime.monacoModels.has(activeGroup.currentFilePath));
         if (hasValidCurrent) {
             return;
         }

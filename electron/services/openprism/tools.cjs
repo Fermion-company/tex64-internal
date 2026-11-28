@@ -34,11 +34,14 @@
 const { existsSync, readFileSync } = require("fs");
 const fsp = require("fs/promises");
 const nodePath = require("path");
+const { fileIdentity } = require("../file-identity.cjs");
 const { execFile } = require("child_process");
 const { readTask, updateTask, recordReceipt } = require("./task-state.cjs");
 const { renderPdfPages } = require("../agent-pdf-review.cjs");
 const { calculateBatch } = require("./calculate.cjs");
 const { extractArxivId, searchArxiv, fetchArxivEntry, buildArxivBibtex } = require("./arxiv-service.cjs");
+const { MAX_DELIVERY_CHARS, deliverFullText, deliverPositions, needsFullRead, recordMentionedPositions } = require("../agent-model-view.cjs");
+const { normalizePath } = require("../agent-policy.cjs");
 const {
   checkBibliography,
   checkReferences,
@@ -66,6 +69,21 @@ const WRITE_TOOL_NAMES = new Set([
   "delete_lines",
   "replace_section",
   "append_to_section",
+]);
+
+/** Tools whose results give no positions in files: they leave Axiom's
+ * picture of a file (agent-model-view.cjs) as it was, even when they name it. */
+const NO_POSITION_TOOL_NAMES = new Set([
+  "list_files",
+  "update_task",
+  "read_conversation",
+  "arxiv_search",
+  "arxiv_bibtex",
+  "check_environment",
+  "propose_next_steps",
+  "ask_user",
+  "record_plan",
+  "calculate",
 ]);
 
 /** What `git diff` may hand the model at most; the rest is summarized. */
@@ -298,6 +316,9 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
   // Whole-file reads are remembered for the turn: the second one is refused
   // in favour of a range or a section, which is what the map is for.
   const fullReadsThisRun = new Map();
+  const readKey = (file) => {
+    try { return fileIdentity(service.workspace, file); } catch { return file; }
+  };
   const reviewedPages = new Set();
   let compiledPdf = readTask(service, conversationId)?.artifact?.pdfPath || null;
   const attachOutline = async (result) => {
@@ -307,7 +328,7 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     if (!applied || !targetPath || !/\.(tex|ltx)$/i.test(targetPath)) return result;
     try {
       const content = await fsp.readFile(resolveCapturedWorkspacePath(targetPath), "utf8");
-      fullReadsThisRun.delete(targetPath);
+      fullReadsThisRun.delete(readKey(targetPath));
       return { ...result, outline: formatOutlineForResult(content) };
     } catch {
       return result;
@@ -357,6 +378,13 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
             : args;
         const result = await fn(safeArgs);
         assertWorkspaceBound();
+        // A file this call named or reported on may have been given to Axiom
+        // as line numbers in its current text: recorded as numbering only,
+        // never as the text Axiom's edits are based on (agent-model-view.cjs).
+        // read_file records what it delivered itself.
+        if (!WRITE_TOOL_NAMES.has(name) && !NO_POSITION_TOOL_NAMES.has(name) && name !== "read_file") {
+          await recordMentionedPositions(service, conversationId, safeArgs, result).catch(() => {});
+        }
         if (WRITE_TOOL_NAMES.has(name) || ["compile_document", "inspect_pdf", "check_references", "check_bibliography", "check_exercises", "check_japanese_text"].includes(name)) {
           let parsed = result;
           if (typeof parsed === "string") { try { parsed = JSON.parse(parsed); } catch { /* text result */ } }
@@ -390,13 +418,16 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
       required: ["path"],
     },
     async (args) => {
-      const result = await handleReadFile(service, { path: args.path }, policy, conversationId);
+      const targetPath = normalizePath(args.path);
+      const result = await handleReadFile(service, { path: targetPath }, policy, conversationId);
       if (result?.error) return result;
       const content = typeof result?.content === "string" ? result.content : "";
       const lines = content.split(/\r?\n/);
       const start = Number.parseInt(args?.startLine, 10);
       const end = Number.parseInt(args?.endLine, 10);
       if (Number.isInteger(start) && start > 0) {
+        // A range: line numbers in this text, not the text itself.
+        deliverPositions(service, conversationId, targetPath, content, { truncatedRead: true });
         const last = Number.isInteger(end) && end >= start ? Math.min(end, lines.length) : Math.min(start + 199, lines.length);
         const excerpt = lines
           .slice(start - 1, last)
@@ -404,8 +435,9 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
           .join("\n");
         return { path: args.path, startLine: start, endLine: last, totalLines: lines.length, content: excerpt };
       }
-      const previous = fullReadsThisRun.get(args.path);
-      if (previous && previous === content) {
+      const key = readKey(targetPath);
+      const previous = fullReadsThisRun.get(key);
+      if (previous === content && !needsFullRead(service, conversationId, targetPath)) {
         return {
           error:
             `${args.path} was already read in full during this turn and has not changed since. ` +
@@ -414,9 +446,15 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
           outline: formatOutlineForResult(content).sections,
         };
       }
-      fullReadsThisRun.set(args.path, content);
-      const truncated = content.length > 20000;
-      const displayed = truncated ? content.slice(0, 20000) : content;
+      const truncated = content.length > MAX_DELIVERY_CHARS;
+      const displayed = content.slice(0, MAX_DELIVERY_CHARS);
+      // Only an uncut file is text Axiom has in full.
+      if (truncated) {
+        deliverPositions(service, conversationId, targetPath, content, { truncatedRead: true });
+      } else if (!result.binary) {
+        fullReadsThisRun.set(key, content);
+        deliverFullText(service, conversationId, targetPath, content);
+      }
       return {
         path: args.path,
         content: displayed,
@@ -703,6 +741,7 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
         const match = args.patch.match(/^---\s+a\/(.+)/m);
         if (match) targetPath = match[1];
       }
+      targetPath = normalizePath(targetPath);
       if (!targetPath) {
         throw new Error(
           "Patch missing file path. You must provide either: " +
@@ -713,7 +752,20 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
       }
 
       const absPath = resolveCapturedWorkspacePath(targetPath);
-      const oldContent = existsSync(absPath) ? readFileSync(absPath, "utf8") : "";
+      const exists = existsSync(absPath);
+      // The diff's lines and context are what Axiom saw: apply it to Axiom's
+      // base when there is one (the person may have saved typing since) and
+      // submit it as an edit of that text, rebased onto the disk on write.
+      // Never record the disk-based result as text Axiom knows.
+      const { readCurrentTextContent, submitEditedContent } = require("../agent-tools-file.cjs");
+      const read = exists
+        ? await readCurrentTextContent(service, policy, conversationId, targetPath, { forEdit: true })
+        : null;
+      if (read && !read.ok) {
+        if (read.conflict) return read;
+        throw new Error(read.error);
+      }
+      const oldContent = read ? read.content : "";
 
       const Diff = require("diff");
       const newContent = Diff.applyPatch(oldContent, args.patch);
@@ -725,6 +777,23 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
         );
       }
 
+      if (read) {
+        if (newContent === oldContent) return { error: "No changes: the diff changes nothing." };
+        return submitEditedContent({
+          service,
+          policy,
+          conversationId,
+          targetPath,
+          originalContent: oldContent,
+          updatedContent: newContent,
+          baseContentHash: read.baseContentHash,
+          baseSource: read.baseSource,
+          summary: "Applied unified diff",
+          allowFullRewrite: args.allowFullRewrite === true,
+          allowStructuralRemoval: runContext.allowStructuralRemoval === true,
+          proposalType: "patch",
+        });
+      }
       const result = await handleProposeWrite(
         service,
         {

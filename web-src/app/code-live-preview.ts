@@ -210,6 +210,7 @@ export const initCodeLivePreview = ({
   let disposable: { dispose: () => void } | null = null;
   let cursorDisposable: { dispose: () => void } | null = null;
   let queuedSessionKey: string | null = null;
+  let queuedActivePath: string | undefined;
   let queuedBuffers = new Map<string, string>();
   let pendingPush: (NonNullable<ReturnType<typeof currentSnapshot>> & {
     pushVersion: number;
@@ -458,6 +459,11 @@ export const initCodeLivePreview = ({
     }
   };
 
+  const matchesQueuedSource = (snapshot: NonNullable<ReturnType<typeof currentSnapshot>>) =>
+    snapshot.sessionKey === queuedSessionKey &&
+    snapshot.payload.activePath === queuedActivePath &&
+    sameBuffers(snapshot.buffers, queuedBuffers);
+
   let limitedRetryTimer: ReturnType<typeof setTimeout> | null = null;
   const retryLimited = (sessionKey: string) => {
     if (limitedRetryTimer !== null) clearTimeout(limitedRetryTimer);
@@ -596,14 +602,16 @@ export const initCodeLivePreview = ({
       compositionRetry();
       return;
     }
-    if (!sourceRefreshPending &&
-        snapshot.sessionKey === queuedSessionKey && sameBuffers(snapshot.buffers, queuedBuffers)) {
+    if (!sourceRefreshPending && matchesQueuedSource(snapshot)) {
       // With no queued or in-flight request, queuedBuffers is the last source
       // the bridge accepted. A new capture of those same bytes is already live.
       if (!pushing && !pendingPush) clearAcceptedExactInputs(snapshot, true);
       return;
     }
     queuedSessionKey = snapshot.sessionKey;
+    // For long books, main selects the chapter by the active path even when
+    // both tabs are clean and the root and dirty buffers are identical.
+    queuedActivePath = snapshot.payload.activePath;
     queuedBuffers = new Map(snapshot.buffers);
     sourceRefreshPending = false;
     pendingPush = {
@@ -750,7 +758,7 @@ export const initCodeLivePreview = ({
       // match the last successful enqueue.
       const snapshot = currentSnapshot();
       if (snapshot) retireObsoleteSession(snapshot.sessionKey);
-      if (snapshot && (sourceRefreshPending || snapshot.sessionKey !== queuedSessionKey || !sameBuffers(snapshot.buffers, queuedBuffers))) debouncedPush();
+      if (snapshot && (sourceRefreshPending || !matchesQueuedSource(snapshot))) debouncedPush();
       if (engineUrl) distributeLive(engineUrl);
     } else distributeLive(null);
   };

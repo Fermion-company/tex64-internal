@@ -1,4 +1,5 @@
 const fs = require("fs");
+const { withProjectFileWrites, writeProjectFile } = require("./project-file-writes.cjs");
 const fsp = require("fs/promises");
 const path = require("path");
 const { spawn } = require("child_process");
@@ -753,7 +754,12 @@ class FormatterService {
       formatSettings
     );
     if (result.ok && typeof result.content === "string" && result.content !== content) {
-      await fsp.writeFile(absPath, result.content, "utf8");
+      return withProjectFileWrites([absPath], async () => {
+        const currentContent = await fsp.readFile(absPath, "utf8");
+        if (currentContent !== content) return { ok: false, currentContent, error: "The file changed on disk before this save completed. Your editor buffer was kept." };
+        await writeProjectFile(absPath, result.content);
+        return result;
+      });
     }
     return result;
   }

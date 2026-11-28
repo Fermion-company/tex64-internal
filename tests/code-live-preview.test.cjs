@@ -42,7 +42,7 @@ const createClock = () => {
   };
 };
 
-const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) => {
+const setup = async ({ ready = true, initialPath = "/project/main.tex", rootFile = null, dirty = true } = {}) => {
   const clock = createClock();
   const pushes = [], focuses = [], polls = new Map(), listeners = new Map();
   let text = "initial", enabled = true, changeSettings, contentChanged, cursorChanged;
@@ -59,7 +59,7 @@ const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) =
   };
   model.getOffsetAt = () => 0;
   const group = {
-    editor, currentFilePath: model.path, isDirty: true, isComposing: false,
+    editor, currentFilePath: model.path, isDirty: dirty, isComposing: false,
     viewer: { setLivePreview(url) { if (shown.at(-1) !== url) shown.push(url); }, getViewerMode: () => "editor" },
   };
   const window = {
@@ -101,7 +101,7 @@ const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) =
     getEditorGroups: () => [group],
     getAppMode: () => "code",
     getWorkspaceRoot: () => "/project",
-    getRootFile: () => group.currentFilePath,
+    getRootFile: () => rootFile ?? group.currentFilePath,
     getDirtyFileSnapshots: () => [],
   });
   if (ready) {
@@ -130,6 +130,22 @@ const setup = async ({ ready = true, initialPath = "/project/main.tex" } = {}) =
 };
 
 const pushedText = push => push.payload.buffers[0].text;
+
+test("clean chapter switches reach the host and typing uses the child model even with the root closed", async () => {
+  const h = await setup({ initialPath: "ch/one.tex", rootFile: "main.tex", dirty: false });
+  h.switchFile("ch/two.tex", "Second chapter");
+  h.poll();
+  await h.clock.advance(1);
+  assert.deepEqual(h.pushes.map(({ payload }) => ({
+    rootFile: payload.rootFile, activePath: payload.activePath, buffers: payload.buffers, fresh: payload.fresh,
+  })), [{ rootFile: "main.tex", activePath: "ch/two.tex", buffers: [], fresh: false }]);
+
+  // Simulate the content callback firing before the tab is marked dirty.
+  h.type("SecondX chapter", "X");
+  assert.deepEqual(h.pushes.at(-1).payload.buffers, [{ path: "ch/two.tex", text: "SecondX chapter" }]);
+  assert.equal(h.pushes.at(-1).payload.activePath, "ch/two.tex");
+  assert.equal(h.pushes.at(-1).payload.fresh, false);
+});
 
 test("an empty project sends no preview source and starts previewing its first document without a reload", async () => {
   const h = await setup({ ready: false, initialPath: null });

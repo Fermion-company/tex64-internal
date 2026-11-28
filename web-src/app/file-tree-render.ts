@@ -115,6 +115,7 @@ export const createFileTreeRenderer = ({
             return;
           }
           dragEvent.preventDefault();
+          if (dragEvent.dataTransfer) dragEvent.dataTransfer.dropEffect = "move";
           clearDropTargets();
           summary.classList.add("is-drop-target");
         });
@@ -190,6 +191,7 @@ export const createFileTreeRenderer = ({
           const dropContainer =
             button.parentElement instanceof HTMLElement ? button.parentElement : null;
           dragEvent.preventDefault();
+          if (dragEvent.dataTransfer) dragEvent.dataTransfer.dropEffect = "move";
           clearDropTargets();
           if (dropContainer) {
             dropContainer.classList.add("is-drop-target");

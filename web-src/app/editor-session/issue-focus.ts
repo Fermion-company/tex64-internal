@@ -36,7 +36,7 @@ export const createEditorSessionIssueFocusOps = (
       issueOps.clearIssueHighlight();
       navigationOps.jumpToFileLine(detail.path, detail.line, targetKey, {
         className,
-        force: true,
+        column: detail.column ?? undefined,
       });
       return;
     }

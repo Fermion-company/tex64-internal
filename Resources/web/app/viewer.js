@@ -250,6 +250,34 @@ export const createViewer = (deps) => {
             (_c = deps.onPdfClose) === null || _c === void 0 ? void 0 : _c.call(deps);
             return;
         }
+        if (payload.type === "jump-recheck") {
+            // The PDF a Build made is on screen and a Jump was made while that Build
+            // ran: its line on this PDF, from the Jump code (build-ops-ui), comes
+            // back as a "sync" with the same token, to this viewer only while it
+            // still shows that PDF.
+            const detail = payload.payload;
+            const line = Number(detail === null || detail === void 0 ? void 0 : detail.line);
+            const column = Number(detail === null || detail === void 0 ? void 0 : detail.column);
+            const viewerPath = pdfViewerPath;
+            if (typeof (detail === null || detail === void 0 ? void 0 : detail.file) !== "string" || !detail.file || !Number.isInteger(line) || line < 1 ||
+                typeof (detail === null || detail === void 0 ? void 0 : detail.path) !== "string" || !viewerPath || detail.path !== viewerPath || detail.token == null)
+                return;
+            const token = detail.token;
+            window.dispatchEvent(new CustomEvent("tex64:jump-recheck", {
+                detail: {
+                    file: detail.file,
+                    line,
+                    column: Number.isInteger(column) && column > 0 ? column : 1,
+                    pdfPath: viewerPath,
+                    reply: (place) => {
+                        if (pdfViewerReady && pdfViewerPath === viewerPath) {
+                            postPdfMessage({ type: "sync", payload: { ...place, recheckToken: token } });
+                        }
+                    },
+                },
+            }));
+            return;
+        }
         if (payload.type === "live-runtime-error") {
             if (!matchingLivePreview())
                 return;
@@ -402,7 +430,7 @@ export const createViewer = (deps) => {
             showUnsupportedViewer();
         }
     };
-    const showPdfViewer = (path, data, mimeType) => {
+    const showPdfViewer = (path, data, mimeType, preserveFocus = false) => {
         if (!data || !(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
             showUnsupportedViewer();
             return;
@@ -431,7 +459,8 @@ export const createViewer = (deps) => {
                 pendingPdfOpen = payload;
             }
             setViewerMode("pdf");
-            blurActiveElement();
+            if (!preserveFocus)
+                blurActiveElement();
         }
         catch {
             showUnsupportedViewer();
@@ -488,5 +517,8 @@ export const createViewer = (deps) => {
         openPdfFind: () => viewerMode === "pdf" && pdfViewerReady && postPdfMessage({ type: "find-open" }),
         syncPdf,
         setLivePreview,
+        // The Live paper is this viewer's page canvas (not the static PDF a
+        // Build holds over it): a Jump's page numbers are then Live's.
+        livePaperShown: () => { var _a; return viewerMode === "pdf" && ((_a = matchingLivePreview()) === null || _a === void 0 ? void 0 : _a.hold) === false; },
     };
 };

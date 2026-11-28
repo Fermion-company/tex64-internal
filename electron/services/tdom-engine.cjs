@@ -256,7 +256,7 @@ class TdomEngineService {
     this.lastProjectRoot = null;
     this.lastSessionKey = null;
     this.lastOverlays = new Map();
-    this.lastRootMtimeMs = null;
+    this.lastDiskRoot = null;
     this.lastAcceptedSrcRev = null;
     // Exact queued snapshot objects only. A source/hash key could outlive its
     // original push and incorrectly acknowledge a later identical root after
@@ -668,7 +668,7 @@ class TdomEngineService {
     this.lastProjectRoot = snapshot.projectRoot;
     this.lastSessionKey = snapshot.sessionKey;
     this.lastOverlays = new Map(snapshot.overlays);
-    this.lastRootMtimeMs = snapshot.rootMtimeMs;
+    this.lastDiskRoot = snapshot.diskRoot ?? null;
     this.lastAcceptedSrcRev = Number.isInteger(acceptedSrcRev) ? acceptedSrcRev : null;
   }
 
@@ -1048,7 +1048,7 @@ class TdomEngineService {
         this.lastProjectRoot = null;
         this.lastSessionKey = null;
         this.lastOverlays.clear();
-        this.lastRootMtimeMs = null;
+        this.lastDiskRoot = null;
         // A Build may have begun while the child was starting. Apply its
         // resource lease before start() lets any pending /open proceed.
         await this.applyActiveBuildLease();
@@ -1079,7 +1079,7 @@ class TdomEngineService {
     this.lastProjectRoot = null;
     this.lastSessionKey = null;
     this.lastOverlays.clear();
-    this.lastRootMtimeMs = null;
+    this.lastDiskRoot = null;
     this.lastAcceptedSrcRev = null;
     this.fulfilledBuildOpenAcks = new WeakMap();
     this.pendingCanonicalBuilds.clear();
@@ -1146,7 +1146,7 @@ class TdomEngineService {
         sessionKey: filePath || "legacy",
         overlays: new Map(),
         fresh: Boolean(payload.fresh),
-        rootMtimeMs: null,
+        diskRoot: null,
       };
     }
 
@@ -1161,14 +1161,17 @@ class TdomEngineService {
       if (!isWithin(workspaceRoot, absolute)) continue;
       buffers.set(absolute, text);
     }
-    let rootMtimeMs = null;
-    try { rootMtimeMs = fs.statSync(rootPath).mtimeMs; } catch {}
     let source = buffers.get(rootPath);
-    if (source === undefined && this.lastPath === rootPath && this.lastSource !== null
-      && this.lastRootMtimeMs === rootMtimeMs) {
-      source = this.lastSource;
+    let diskRoot = null;
+    if (source === undefined) {
+      const mtimeMs = fs.statSync(rootPath).mtimeMs;
+      const cached = this.lastDiskRoot;
+      // A window can rewrite the engine's root, and a dirty root can be
+      // discarded without changing the file's mtime. Cache only disk bytes.
+      source = cached?.path === rootPath && cached.mtimeMs === mtimeMs
+        ? cached.text : fs.readFileSync(rootPath, "utf8");
+      diskRoot = { path: rootPath, mtimeMs, text: source };
     }
-    if (source === undefined) source = fs.readFileSync(rootPath, "utf8");
     buffers.delete(rootPath);
     return {
       source,
@@ -1177,7 +1180,7 @@ class TdomEngineService {
       sessionKey: `${workspaceRoot}\0${rootPath}`,
       overlays: buffers,
       fresh: Boolean(payload.fresh),
-      rootMtimeMs,
+      diskRoot,
     };
   }
 
@@ -1304,7 +1307,7 @@ class TdomEngineService {
         const removeOverlays = [...this.lastOverlays.keys()].filter((filePath) => !snapshot.overlays.has(filePath));
         const sourceChanged = snapshot.source !== this.lastSource;
         if (!sourceChanged && !overlays.length && !removeOverlays.length) {
-          this.lastRootMtimeMs = snapshot.rootMtimeMs;
+          this.lastDiskRoot = snapshot.diskRoot ?? null;
           return { ok: true, url: this.url };
         }
         const edit = sourceChanged ? diffEdit(this.lastSource, snapshot.source) : { start: 0, end: 0, text: "" };
@@ -1326,7 +1329,7 @@ class TdomEngineService {
           }))?.srcRev;
           this.lastSource = snapshot.source;
           this.lastOverlays = new Map(snapshot.overlays);
-          this.lastRootMtimeMs = snapshot.rootMtimeMs;
+          this.lastDiskRoot = snapshot.diskRoot ?? null;
           this.lastAcceptedSrcRev = Number.isInteger(acceptedSrcRev) ? acceptedSrcRev : null;
           if (trace) {
             trace.marks.push(["answered", Date.now()]);
@@ -1421,6 +1424,115 @@ class TdomEngineService {
     };
   }
 
+  // Where the paper Live shows puts a source line, for a Jump the last Build
+  // cannot answer (no Build yet, or a file or line it does not have). It is
+  // the lookup the viewer itself refines a Jump with (server /synctex/jump:
+  // the canonical pass of the current source revision), and it is current
+  // whenever the status mark is green. `page` is in the numbering a Jump's
+  // goto-sync uses: the Build's sheets around a chapter window.
+  // A pass that failed for the current source, or one of an older source, is
+  // never asked: its lines are numbered as another text was (the mark is red
+  // or orange then, and the caller answers from the Build instead).
+  //   { status: "hit", page, livePage?, boxes, rootPath, revision }
+  //       revision: { documentEpoch, srcRev, canonicalId } the answer is of
+  //   { status: "miss", rootPath, notTypeset? }
+  //                                   that pass is current and has nothing for the
+  //                                   line (`notTypeset`: the engine says it typeset
+  //                                   nothing for it, server reason "no-ink")
+  //   { status: "failed", rootPath }  that pass failed for the current source
+  //   { status: "pending", rootPath } that pass was still behind the source at `waitMs`
+  //   null                            no live document of this project (or not
+  //                                   `documentPath`) to ask, or no answer within
+  //                                   `answerWithinMs`
+  async jumpToSource({ projectRoot = null, filePath, line, waitMs = 0, answerWithinMs = null, documentPath = null,
+    statusOnly = false, isCurrent = () => true } = {}) {
+    if (!this.isRunning() || this.state !== "ready" || !this.url || !this.lastPath || this.pageLimited) return null;
+    if (typeof filePath !== "string" || !filePath || !Number.isSafeInteger(line) || line < 1) return null;
+    const rootPath = this.lastPath;
+    const samePath = (left, right) => {
+      if (path.resolve(left) === path.resolve(right)) return true;
+      try { return fs.realpathSync(left) === fs.realpathSync(right); } catch { return false; }
+    };
+    const sameProject = this.lastProjectRoot
+      ? typeof projectRoot === "string" && samePath(projectRoot, this.lastProjectRoot)
+      : samePath(filePath, rootPath);
+    if (!sameProject) return null;
+    if (typeof documentPath === "string" && documentPath && !samePath(documentPath, rootPath)) return null;
+    const answerBy = Number.isFinite(answerWithinMs) && answerWithinMs > 0 ? Date.now() + answerWithinMs : Infinity;
+    const within = (ms) => Math.max(1, Math.min(ms, answerBy - Date.now()));
+    // As the viewer names it: relative to the project the engine opened.
+    const relative = this.lastProjectRoot ? path.relative(path.resolve(projectRoot), path.resolve(filePath)) : "";
+    const file = relative && !relative.startsWith("..") && !path.isAbsolute(relative)
+      ? relative.split(path.sep).join("/")
+      : path.resolve(filePath);
+    const deadline = Date.now() + Math.max(0, Number(waitMs) || 0);
+    for (;;) {
+      let status;
+      let answer;
+      try {
+        status = await requestJson(`${this.url}/status`, { timeoutMs: within(2_000) });
+        if (!isCurrent() || this.lastPath !== rootPath || !this.isRunning()) return null;
+        if (status?.up === false || !Number.isSafeInteger(status?.srcRev) ||
+            !Number.isSafeInteger(status?.documentEpoch)) return null;
+        if (status.canonical?.error && Number(status.canonical.errorRev) === status.srcRev) {
+          return { status: "failed", rootPath };
+        }
+        if (statusOnly) return null;
+        const canonicalRev = Number(status.canonical?.rev);
+        const behind = Number.isFinite(canonicalRev) && canonicalRev < status.srcRev;
+        if (behind && Date.now() + 200 > deadline) return { status: "pending", rootPath };
+        answer = behind ? { pending: true } : await requestJson(`${this.url}/synctex/jump`, {
+          method: "POST",
+          body: { file, line, documentEpoch: status.documentEpoch, srcRev: status.srcRev },
+          // the first lookup of a canonical pass reads its whole PDF's text
+          timeoutMs: within(15_000),
+        });
+      } catch {
+        return null;
+      }
+      if (!isCurrent() || this.lastPath !== rootPath || !this.isRunning()) return null;
+      const boxes = Array.isArray(answer?.boxes)
+        ? answer.boxes.filter((box) => box && ["left", "top", "right", "bottom"].every((key) => Number.isFinite(box[key])) &&
+            box.right >= box.left && box.bottom >= box.top)
+        : [];
+      const page = Number(answer?.page);
+      // An edit between the two requests: the answer is for an older source.
+      const sameRevision = answer?.documentEpoch === status.documentEpoch &&
+        (answer?.srcRev === undefined || answer.srcRev === status.srcRev);
+      if (boxes.length > 0 && Number.isSafeInteger(page) && page >= 1 && sameRevision) {
+        const outer = status.outer && Number.isSafeInteger(status.outer.before) && status.outer.before >= 0
+          ? status.outer : null;
+        return {
+          status: "hit",
+          page: outer ? outer.before + page : page,
+          ...(outer ? { livePage: page } : {}),
+          boxes: boxes.map(({ left, top, right, bottom }) => ({ left, top, right, bottom })),
+          // (vertical writing: the engine's boxes are columns)
+          ...(answer?.direction === "tate" ? { direction: "tate" } : {}),
+          rootPath,
+          revision: {
+            documentEpoch: status.documentEpoch,
+            srcRev: status.srcRev,
+            ...(Number.isSafeInteger(answer?.id) ? { canonicalId: answer.id } : {}),
+          },
+        };
+      }
+      // `found: false` is a file the engine could not read: nothing to say.
+      if (answer?.found === false) return null;
+      // Why there is no answer (server /synctex/jump `reason`; engines
+      // before it say only `pending`).
+      const reason = typeof answer?.reason === "string" ? answer.reason : null;
+      if (reason === "failed" && sameRevision) return { status: "failed", rootPath };
+      // the pass did not read this file as it is, or could not be read: cannot tell
+      if (reason === "not-an-input" || reason === "unreadable") return null;
+      const pending = answer?.pending === true || reason === "pending" || reason === "failed" || boxes.length > 0;
+      if (!pending) return { status: "miss", rootPath, ...(reason === "no-ink" ? { notTypeset: true } : {}) };
+      if (Date.now() + 200 > Math.min(deadline, answerBy)) return { status: "pending", rootPath };
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      if (!isCurrent()) return null;
+    }
+  }
+
   stop() {
     // Invalidate startup even before a child exists (permission / port awaits).
     this.lifecycleGeneration += 1;
@@ -1434,7 +1546,7 @@ class TdomEngineService {
     this.lastProjectRoot = null;
     this.lastSessionKey = null;
     this.lastOverlays.clear();
-    this.lastRootMtimeMs = null;
+    this.lastDiskRoot = null;
     this.lastAcceptedSrcRev = null;
     this.fulfilledBuildOpenAcks = new WeakMap();
     this.pendingCanonicalBuilds.clear();

@@ -26,6 +26,10 @@ Code の設定トグルで有効化する、書きながら組版されるプレ
 
 通常時は TDOM の canonical 面を表示する。編集中も数式を欠いた provisional 面は表示せず、直前の完成した紙面を保持する。未取得の数式・画像・脚注・float と初回rescueはエンジンが `pending-exact` で通知する。影響するページ群の全 chunk・フォント・文字座標・ソース対応を画面外で準備してから、まとめて切り替える。ページ数の減少は確定PDFの提示まで保留する。増分描画の座標とソース範囲はその紙面と一緒に保持し、canonical PDF へ切り替わったら対応する世代へ更新する。別文書の座標を混ぜないよう `documentEpoch` も照合する。
 
+静的 PDF と Live は同じ紙を同じ幅で描く。Live の zoom 1 は PDF.js のページ幅（`#pdf-scroll` の幅 − 40 px）で、`pdf-viewer.js` が `paper-width` で Live に伝える（表示前と、ペインの幅が変わったとき）。読み手がどちらでも拡大しなければ、切り替え（最初の表示、Build 中の保持と再開、Live の停止、リセットのカバー）で紙の幅は変わらない。Live で拡大した幅は静的 PDF へ manual の倍率として持ち帰る。Build 中に静的 PDF で Jump した行は、Build の PDF が表示された後に `jump-recheck`（`{ file, line, column, path, token }`）でホストに問い直し、ホストが同じ `token` を `recheckToken` に付けた `sync` で答える。行が表示域の中ほど（70%）にあれば動かさず、外れていれば一度だけ動く。読み手が操作していれば問い直さない。
+
+埋め込み直接編集はこのリリースから止めている（tdom-engine `web/app.js` の `directEditingOn()`、テスト専用の `globalThis.__tdomDirectEditing`）。止めている間はエディタが開かないので、以下の保留は効かず、`shipping-exact` 文書も編集の証明を待たずに shipping PDF を提示する。
+
 埋め込み直接編集では、原文・SyncTeXの世代対応と入力面の移動を証明できない shipping PDF は提示しない。マクロで隠れた多段組の `shipping-exact` 文書は直前の編集可能な紙面を保ち、対応情報が揃った canonical PDF へ切り替える。通常の structured 文書は完成した増分描画を引き続き使う。
 
 確定PDFとresidentのページ構成が違う場合は、residentに削除通知がなくても増分ページ群を保持する。編集中のページの更新には、原文範囲と全文の文字座標が同じページに一意に残る証明も必要。改ページやUndo途中で一致しない配置は、確定PDFと入力面をまとめて移すまで提示しない。

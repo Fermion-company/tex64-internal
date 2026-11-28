@@ -197,7 +197,7 @@ const createSynctexReverseHandler = (deps, resolvers) => {
     // line-initial word and can land in another file via a page box.
     if (message.context && typeof synctexService.refineReverseByText === "function") {
       try {
-        const refined = synctexService.refineReverseByText({ pdfPath, page, y, result, context: message.context });
+        const refined = synctexService.refineReverseByText({ pdfPath, page, x, y, result, context: message.context });
         const refinedPath = refined ? resolveResultSourcePath(refined) : null;
         if (refined && refinedPath) {
           result = { ...result, path: refined.path, line: refined.line, column: 1, refinedByText: true };

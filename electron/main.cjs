@@ -18,6 +18,7 @@ const {
 const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
+const { temporaryLockDirectory, ensureTemporaryLockDirectory, logStorageFailure } = require("./services/app-storage.cjs");
 if (process.env.TEX64_EDITION === "education") {
   app.setName("TeX64 Education");
   app.setPath("userData", path.join(app.getPath("appData"), "TeX64 Education"));
@@ -143,13 +144,29 @@ if (e2eUserDataPath) {
 // would start with empty settings. It keeps its own under userData and starts
 // from a copy of the first window's settings (see launchDetachedInstance).
 const WINDOW_SESSIONS_DIR = "window-sessions";
-const windowSessionsPath = () => path.join(app.getPath("userData"), WINDOW_SESSIONS_DIR);
-const ownWindowSessionPath =
-  process.env.TEX64_ALLOW_MULTI_INSTANCE === "1"
-    ? path.join(windowSessionsPath(), String(process.pid))
-    : null;
+const windowSessionDirectories = () => [app.getPath("userData"), temporaryLockDirectory()]
+  .map((base) => path.join(base, WINDOW_SESSIONS_DIR));
+const ownWindowSessionPath = (() => {
+  if (process.env.TEX64_ALLOW_MULTI_INSTANCE !== "1") return null;
+  let failure;
+  for (const [index, directory] of windowSessionDirectories().entries()) {
+    const sessionPath = path.join(directory, String(process.pid));
+    const probe = path.join(sessionPath, ".write-probe");
+    try {
+      if (index === 1) ensureTemporaryLockDirectory(path.dirname(directory));
+      fs.mkdirSync(sessionPath, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(probe, "1", { flag: "wx", mode: 0o600 });
+      fs.unlinkSync(probe);
+      app.setPath("sessionData", sessionPath);
+      return sessionPath;
+    } catch (error) {
+      failure = error;
+    }
+  }
+  logStorageFailure("window session storage", failure);
+  return null;
+})();
 if (ownWindowSessionPath) {
-  app.setPath("sessionData", ownWindowSessionPath);
   process.once("exit", () => {
     try {
       fs.rmSync(ownWindowSessionPath, { recursive: true, force: true });
@@ -159,21 +176,23 @@ if (ownWindowSessionPath) {
   });
 }
 const sweepWindowSessions = async () => {
-  const entries = await fsp.readdir(windowSessionsPath(), { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    const target = path.join(windowSessionsPath(), entry.name);
-    if (entry.isDirectory() && /^\d+$/.test(entry.name)) {
-      try {
-        process.kill(Number(entry.name), 0);
+  for (const directory of windowSessionDirectories()) {
+    const entries = await fsp.readdir(directory, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory() && /^\d+$/.test(entry.name)) {
+        try {
+          process.kill(Number(entry.name), 0);
+          continue;
+        } catch (error) {
+          if (error.code !== "ESRCH") continue;
+        }
+      } else if (!/^seed-.+\.json$/.test(entry.name) ||
+          Date.now() - ((await fsp.stat(target).catch(() => null))?.mtimeMs ?? Date.now()) < 60_000) {
         continue;
-      } catch (error) {
-        if (error.code !== "ESRCH") continue;
       }
-    } else if (!/^seed-.+\.json$/.test(entry.name) ||
-        Date.now() - ((await fsp.stat(target).catch(() => null))?.mtimeMs ?? Date.now()) < 60_000) {
-      continue;
+      await fsp.rm(target, { recursive: true, force: true }).catch(() => {});
     }
-    await fsp.rm(target, { recursive: true, force: true }).catch(() => {});
   }
 };
 // The settings the first window handed over, given to the renderer once.
@@ -182,7 +201,8 @@ const takeWindowSettingsSeed = () => {
   if (windowSettingsSeedTaken) return null;
   windowSettingsSeedTaken = true;
   const seedPath = process.env.TEX64_WINDOW_SETTINGS_FILE;
-  if (typeof seedPath !== "string" || path.dirname(path.resolve(seedPath)) !== path.resolve(windowSessionsPath())) return null;
+  if (typeof seedPath !== "string" || !/^seed-[0-9a-f-]+\.json$/i.test(path.basename(seedPath)) ||
+      !windowSessionDirectories().some((directory) => path.resolve(directory) === path.dirname(path.resolve(seedPath)))) return null;
   try {
     const entries = JSON.parse(fs.readFileSync(seedPath, "utf8"));
     return Array.isArray(entries) ? entries : null;
@@ -190,7 +210,7 @@ const takeWindowSettingsSeed = () => {
     // Without the copy the window starts with default settings.
     return null;
   } finally {
-    fs.rmSync(seedPath, { force: true });
+    try { fs.unlinkSync(seedPath); } catch {}
   }
 };
 ipcMain.on("tex64:windowSettingsSeed", (event) => {
@@ -323,12 +343,23 @@ const runStartupWebBuildIfNeeded = () => {
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const { configureProjectFileLocks } = require("./services/project-file-writes.cjs");
+configureProjectFileLocks(() => path.join(app.getPath("userData"), "project-writes"));
 const workspace = new WorkspaceManager();
 // Other app processes (File > New Window) share userData; a folder is open in
 // one of them at a time.
 const workspaceWindowLock = new WorkspaceWindowLock({
   directory: () => path.join(app.getPath("userData"), "open-workspaces"),
+  // Another live process now holds the open folder (it judged this one gone,
+  // or the claim file was removed from outside): say so in the window's error
+  // notice. History, Git protection and comment writes stop (permitsOpenFolderWrites).
+  onLost: () => sendToRenderer("launcherStatus", { isBusy: false, message: folderTakenMessage() }),
 });
+function folderTakenMessage() {
+  return /^ja/i.test(String(state.uiLocale || app.getLocale() || ""))
+    ? "このフォルダは別の TeX64 ウインドウで開かれています。"
+    : "This folder is already open in another TeX64 window.";
+}
 const setWorkspaceRootPath = workspace.setRootPath.bind(workspace);
 workspace.setRootPath = (rootPath) => {
   setWorkspaceRootPath(rootPath);
@@ -367,6 +398,7 @@ const buildService = new BuildService({
     });
   },
   acquireHeavyWorkLease: (payload) => getTdomEngineService().acquireBuildLease(payload),
+  liveActive: () => Boolean(tdomEngineService?.isRunning?.()),
 });
 const formatterService = new FormatterService();
 const indexerService = new IndexerService();
@@ -606,6 +638,10 @@ const createMainWindow = () => {
       })
       .finally(() => {
         mainWindowClosePromise = null;
+        // The renderer drained the shared documents before it froze; the
+        // session outlives the window (a quit drains it again in main). A
+        // quit under way keeps them held through its teardown.
+        if (quitCoordinator.getPhase() === "idle") collabHub?.resumeIntake();
       });
   });
 
@@ -815,6 +851,13 @@ const getPlatformAccessService = () => {
 const workspaceChangeCoordinator = {
   beforeChange: async () => {},
 };
+// The folder a switch goes to is reserved first and given back if the switch
+// is refused at any point (folder-switch-claim.cjs).
+const folderSwitchClaim = require("./services/folder-switch-claim.cjs").createFolderSwitchClaim({
+  lock: workspaceWindowLock,
+  currentRoot: () => workspace.getRootPath(),
+  takenError: () => new Error(folderTakenMessage()),
+});
 
 const externalWriterCoordinator = new WorkspaceWriterCoordinator();
 
@@ -843,10 +886,12 @@ const workspaceHandlers = createWorkspaceHandlers({
     await historyController?.prepareWorkspace(rootPath);
     await gitController?.prepareWorkspace(rootPath);
   },
-  beginRendererWorkspaceMutation: (rootPath) => {
+  beginRendererWorkspaceMutation: (rootPath, kind) => folderSwitchClaim.leased(rootPath, () => {
     historyController?.assertWriterAllowed();
-    return externalWriterCoordinator.beginRendererMutation(rootPath);
-  },
+    return externalWriterCoordinator.beginRendererMutation(rootPath, kind);
+  }),
+  beforeUserSave: (rootPath, relativePath, previousText) =>
+    agentService.noteUserSave(rootPath, relativePath, previousText),
 });
 
 workspaceFileWatcher = new WorkspaceFileWatcher({
@@ -901,8 +946,9 @@ const agentService = new AgentService({
     Boolean(historyController?.blocked()) || externalWriterCoordinator.hasRendererMutation(rootPath),
 });
 
+// null, "in-process" (openprism turn: saves may pass) or "exclusive".
 externalWriterCoordinator.setAgentActiveCheck((rootPath) =>
-  agentService.runningWorkspaceRoots.has(rootPath));
+  agentService.activeWriter(rootPath));
 
 const buildHandlers = createBuildHandlers({
   fs,
@@ -922,6 +968,9 @@ const buildHandlers = createBuildHandlers({
   handleOpenFile: workspaceHandlers.handleOpenFile,
   state,
   delay,
+  // Jump asks the live preview when the last Build has no answer; never
+  // starts the engine just to ask.
+  getLiveEngine: () => tdomEngineService,
 });
 
 const quiesceWorkspaceActivity = async () => {
@@ -1034,7 +1083,16 @@ collabHub = new CollabHub({
 // E2E drivers (TEX64_E2E_USERDATA) reach the hub to simulate network loss.
 if (process.env.TEX64_E2E_USERDATA) global.__tex64CollabHub = collabHub;
 collabHub.on("state", () => installApplicationMenu());
-collabHandlers = createCollabHandlers({ ipcMain, hub: collabHub, state, workspace, sendCollab, getLocale: () => state.uiLocale || "en" });
+// History, Git protection and comments are written back whole. Require a
+// folder claim while lock storage is available.
+const permitsOpenFolderWrites = () => workspaceWindowLock.permitsWrites(workspace.getRootPath());
+const folderTakenRefusal = () => ({ ok: false, code: "WORKSPACE_TAKEN", error: folderTakenMessage() });
+const collabIpc = {
+  handle: (channel, listener) => ipcMain.handle(channel, (event, action, ...rest) =>
+    (action === "comments:save" && !permitsOpenFolderWrites() ? folderTakenRefusal() : listener(event, action, ...rest))),
+  on: (...args) => ipcMain.on(...args),
+};
+collabHandlers = createCollabHandlers({ ipcMain: collabIpc, hub: collabHub, state, workspace, sendCollab, getLocale: () => state.uiLocale || "en" });
 // Guests edit through the shared documents only. Git, History restores and
 // Axiom run on the host; a guest asking gets one line back.
 const COLLAB_GUEST_READ_ONLY = {
@@ -1042,6 +1100,17 @@ const COLLAB_GUEST_READ_ONLY = {
   git: new Set(["status", "diff", "ahead-behind", "shelves", "recovery-files", "read-conflict"]),
 };
 const collabGuestRefusal = () => ({ ok: false, code: "COLLAB_GUEST", error: collabHandlers.guestError() });
+// Every History and Git request, from the renderer or from the collab hub,
+// checks the claim first; reads and the release of an operation still run.
+for (const [controller, reads] of [
+  [historyController, new Set([...COLLAB_GUEST_READ_ONLY.history, "release", "ack"])],
+  [gitController, new Set([...COLLAB_GUEST_READ_ONLY.git, "release", "ack"])],
+]) {
+  const request = controller.request.bind(controller);
+  controller.request = (action, payload) => (reads.has(action) || permitsOpenFolderWrites()
+    ? request(action, payload)
+    : Promise.reject(Object.assign(new Error(folderTakenMessage()), { code: "WORKSPACE_TAKEN" })));
+}
 const gitCloneDestinations = new Map();
 ipcMain.handle("tex64:git", async (event, action, request) => {
   if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid Git owner." };
@@ -1108,8 +1177,8 @@ ipcMain.handle("tex64:wordCount", async (event, request = {}) => {
   } catch (error) { return { ok: false, code: error.code || "WORD_COUNT_ERROR", error: error.message }; }
 });
 
-// The document a file belongs to, resolved like a Build (live preview asks
-// once per fragment). Several owners come back as `candidates`.
+// Live preview asks for the same document as Build and the other documents
+// that include the active source.
 ipcMain.handle("tex64:documentFor", async (event, request = {}) => {
   if (event.sender !== state.mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return { ok: false, code: "INVALID_OWNER", error: "Invalid document owner." };
   try {
@@ -1149,12 +1218,8 @@ ipcMain.handle("tex64:history", async (event, action, request) => {
   } catch (error) { return { ok: false, code: error.code || "HISTORY_ERROR", error: error.message }; }
 });
 
-workspaceChangeCoordinator.beforeChange = async (change = {}) => {
-  // prepareWorkspaceChange holds the workspace lease while this runs.
-  workspaceWindowLock.keepOnly(workspace.getRootPath());
-  if (!workspaceWindowLock.claim(change.toRootPath)) {
-    throw new Error("This folder is already open in another TeX64 window.");
-  }
+// prepareWorkspaceChange holds the workspace lease while this runs.
+workspaceChangeCoordinator.beforeChange = (change = {}) => folderSwitchClaim.reserve(change.toRootPath, async () => {
   if (collabHub.session && collabHub.session.phase !== "opening") await collabHub.leave({ leaseHeld: true });
   await quiesceWorkspaceActivity();
   if (
@@ -1166,7 +1231,7 @@ workspaceChangeCoordinator.beforeChange = async (change = {}) => {
       "Resolve the Axiom edit conflict before switching projects.",
     );
   }
-};
+});
 
 const clearWorkspaceSession = ({ closePdfWindow = false } = {}) => {
   workspaceFileWatcher?.stop();
@@ -1354,10 +1419,23 @@ const writeWindowSettingsSeed = async () => {
       new Promise((resolve) => { timer = setTimeout(() => resolve(null), 2_000); }),
     ]);
     if (!Array.isArray(entries)) return null;
-    await fsp.mkdir(windowSessionsPath(), { recursive: true });
-    const seedPath = path.join(windowSessionsPath(), `seed-${require("crypto").randomUUID()}.json`);
-    await fsp.writeFile(seedPath, JSON.stringify(entries), { encoding: "utf8", mode: 0o600 });
-    return seedPath;
+    const content = JSON.stringify(entries);
+    const name = `seed-${require("crypto").randomUUID()}.json`;
+    let failure;
+    for (const [index, directory] of windowSessionDirectories().entries()) {
+      const seedPath = path.join(directory, name);
+      try {
+        if (index === 1) ensureTemporaryLockDirectory(path.dirname(directory));
+        await fsp.mkdir(directory, { recursive: true, mode: 0o700 });
+        await fsp.writeFile(seedPath, content, { mode: 0o600, flag: "wx" });
+        return seedPath;
+      } catch (error) {
+        if (error.code !== "EEXIST") await fsp.unlink(seedPath).catch(() => {});
+        failure = error;
+      }
+    }
+    logStorageFailure("window session storage", failure);
+    return null;
   } catch {
     return null;
   } finally {
@@ -1704,8 +1782,21 @@ const shutdownQuitServices = () => {
   }
 };
 
+// Quit: the renderer saves its buffers and drains the shared documents before
+// it freezes (quit-preparation.ts). With no renderer to ask (its window has
+// closed), main drains them. Peer edits are held from the drain on, through
+// teardown; an attempt that does not go ahead takes them again.
+const prepareEditorForQuit = async () => {
+  const window = state.mainWindow;
+  const rendererAsked = Boolean(window && !window.isDestroyed() && window.webContents && !window.webContents.isDestroyed());
+  let result = rendererAsked ? await prepareRendererForQuit() : { ok: true };
+  if (result?.ok && !rendererAsked && collabHub && !(await collabHub.drain())) result = { ok: false };
+  if (!result?.ok) collabHub?.resumeIntake();
+  return result;
+};
+
 const quitCoordinator = createQuitCoordinator({
-  prepareRenderer: prepareRendererForQuit,
+  prepareRenderer: prepareEditorForQuit,
   flushAgent: () => flushAgentSessionsForQuit(agentService),
   teardown: shutdownQuitServices,
   requestQuit: () => app.quit(),
@@ -1949,11 +2040,22 @@ ipcMain.handle("tex64:files:write-base64", async (_event, payload) => {
     if (!relativePath || !data) throw new Error("A workspace path and image data are required.");
     const rootPath = workspace.getRootPath();
     if (!rootPath) throw new Error("No workspace is selected.");
+    const readDisk = () => workspace.readBinaryFile(relativePath).catch((error) => {
+      if (error.code !== "ENOENT") throw error;
+      return null;
+    });
+    const expected = await readDisk();
     await workspaceHandlers.withWorkspaceMutation(async () => {
       if (workspace.getRootPath() !== rootPath) {
         throw new Error("The workspace changed before the file was saved.");
       }
-      await workspace.writeBinaryFile(relativePath, Buffer.from(data, "base64"));
+      await workspace.withFileMutation(relativePath, async () => {
+        const current = await readDisk();
+        if (expected === null ? current !== null : !current?.equals(expected)) {
+          throw new Error("The file changed on disk before this save completed. Your editor buffer was kept.");
+        }
+        await workspace.writeBinaryFile(relativePath, Buffer.from(data, "base64"));
+      });
     });
     return { ok: true, path: relativePath };
   } catch (error) {
@@ -2446,7 +2548,7 @@ const handleRendererMessage = (event, message) => {
       workspaceGeneration: message.workspaceGeneration,
       workspaceId: message.workspaceId,
       documentMainFile: message.documentMainFile,
-      queueIfBusy: message.queueIfBusy === true,
+      queueIfBusy: message.queueIfBusy !== false,
     });
     return;
   }
@@ -2462,7 +2564,7 @@ const handleRendererMessage = (event, message) => {
     return;
   }
   if (type === "openFile") {
-    workspaceHandlers.handleOpenFile(message.path);
+    workspaceHandlers.handleOpenFile(message.path, { openRequestId: message.openRequestId });
     return;
   }
   if (type === "file:preview") {
@@ -2909,6 +3011,24 @@ ipcMain.on("tex64:pdf", (event, message) => {
       y: payload.y,
       pdfPath: payload.path,
       context: payload.context,
+    });
+    return;
+  }
+  // The window's PDF a Build made is on screen: the line of a Jump made
+  // during that Build, on it (synctex-forward.cjs, source "recheck").
+  if (type === "jump-recheck") {
+    const payload = message.payload ?? {};
+    if (typeof payload.file !== "string" || typeof payload.path !== "string") return;
+    buildHandlers.handleSynctexForward({
+      type: "synctex:forward",
+      source: "recheck",
+      path: payload.file,
+      line: payload.line,
+      column: payload.column,
+      pdfPath: payload.path,
+      recheckToken: payload.token,
+      fallbackToTop: false,
+      pdfViewerMode: "window",
     });
     return;
   }

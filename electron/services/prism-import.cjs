@@ -15,6 +15,7 @@
 //                     numbers, citations, page count)
 //   comparePdfOutlines pure: the difference list shown after the first build
 
+const { withProjectFileWrites, writeProjectFile } = require("./project-file-writes.cjs");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
@@ -248,19 +249,29 @@ const writeEntry = async (zip, zipSize, entry, target, { signal, onCreated }) =>
       callback(written > entry.uncompressedSize ? invalidZip(`entry larger than declared: ${target}`) : null, chunk);
     },
   });
-  const output = await fsp.open(target, "wx");
-  onCreated(target);
-  try {
-    const source = entry.compressedSize > 0
-      ? zip.createReadStream({ start, end: start + entry.compressedSize - 1, autoClose: false })
-      : Readable.from([]);
-    const stages = entry.method === 8 ? [source, zlib.createInflateRaw(), counter] : [source, counter];
-    await pipeline(...stages, output.createWriteStream(), ...(signal ? [{ signal }] : []));
-  } finally {
-    await output.close().catch(() => {});
-  }
-  if (written !== entry.uncompressedSize) throw invalidZip(`entry smaller than declared: ${target}`);
-  return written;
+  return withProjectFileWrites([target], async () => {
+    const staging = await fsp.mkdtemp(path.join(path.dirname(target), ".tex64-import-"));
+    const temporary = path.join(staging, "entry");
+    try {
+      const output = await fsp.open(temporary, "wx");
+      try {
+        const source = entry.compressedSize > 0
+          ? zip.createReadStream({ start, end: start + entry.compressedSize - 1, autoClose: false })
+          : Readable.from([]);
+        const stages = entry.method === 8 ? [source, zlib.createInflateRaw(), counter] : [source, counter];
+        await pipeline(...stages, output.createWriteStream(), ...(signal ? [{ signal }] : []));
+      } finally {
+        await output.close().catch(() => {});
+      }
+      if (written !== entry.uncompressedSize) throw invalidZip(`entry smaller than declared: ${target}`);
+      await fsp.link(temporary, target);
+      onCreated(target);
+      if (entry.mtime) await fsp.utimes(target, entry.mtime, entry.mtime).catch(() => {});
+      return written;
+    } finally {
+      await fsp.rm(staging, { recursive: true, force: true }).catch(() => {});
+    }
+  });
 };
 
 const extractZip = async (zipPath, destinationDir, { onProgress = () => {}, signal } = {}) => {
@@ -303,7 +314,6 @@ const extractZip = async (zipPath, destinationDir, { onProgress = () => {}, sign
         throw new Error(`Unsafe path inside the zip: ${relativePath}`);
       }
       const size = await writeEntry(zip, stat.size, entry, target, { signal, onCreated: (file) => createdFiles.push(file) });
-      if (entry.mtime) await fsp.utimes(target, entry.mtime, entry.mtime).catch(() => {});
       written += 1;
       files.push({ relativePath, size, mtime: entry.mtime ? entry.mtime.getTime() : stat.mtimeMs });
       onProgress({ current: written, total: planned.length, relativePath });
@@ -591,7 +601,7 @@ const writeConversationNotes = async (projectRoot, conversationPaths) => {
     while (used.has(base)) base = `${safeNoteName(path.posix.basename(relativePath))}-${counter++}`;
     used.add(base);
     const target = path.join(notesDir, `${base}.md`);
-    await fsp.writeFile(target, conversationToMarkdown(json, base), "utf8");
+    await writeProjectFile(target, conversationToMarkdown(json, base), { exclusive: true });
     written.push(path.posix.join("notes", "prism-conversations", `${base}.md`));
   }
   return written;

@@ -1,7 +1,9 @@
-const path = require("path");
+const fs = require("node:fs");
+const path = require("node:path");
 
 module.exports = (BuildService) => {
-  BuildService.prototype.parseIssues = function (output, rootPath) {
+  BuildService.prototype.parseIssues = function (output, rootPath, mainFileName) {
+    const documentDir = mainFileName && rootPath ? path.dirname(path.resolve(rootPath, mainFileName)) : null;
     const lines = output.split(/\r?\n/);
     const parsed = [];
     const seen = new Set();
@@ -25,7 +27,7 @@ module.exports = (BuildService) => {
       // A log written with the default max_print_line (79) wraps file:line
       // diagnostics, even in the middle of "Undefined control sequence".
       // Builds now widen it, so only a line cut at exactly 79 continues.
-      if (this.extractIssueLocation(line, rootPath)) {
+      if (this.extractIssueLocation(line, rootPath, documentDir)) {
         let physicalLine = line;
         let offset = 1;
         while (physicalLine.length === 79 && offset <= 8) {
@@ -43,7 +45,7 @@ module.exports = (BuildService) => {
       if (this.isLatexmkMetaLine(line)) {
         continue;
       }
-      const contextPath = this.extractContextTexPath(line, rootPath);
+      const contextPath = this.extractContextTexPath(line, rootPath, documentDir);
       if (contextPath) {
         activeTexPath = contextPath;
       }
@@ -54,7 +56,7 @@ module.exports = (BuildService) => {
         }
         continue;
       }
-      const location = this.extractIssueLocation(line, rootPath);
+      const location = this.extractIssueLocation(line, rootPath, documentDir);
       const severity = this.extractIssueSeverity(line) ?? (location ? "error" : null);
       if (!severity) {
         continue;
@@ -62,7 +64,7 @@ module.exports = (BuildService) => {
       const wrappedLineNumber = this.extractWrappedLineNumber(lines, index, line);
       const message = this.composeIssueMessage(line, wrappedLineNumber);
       const shouldSearchNearby = severity === "error";
-      const nearbyLocation = shouldSearchNearby ? this.extractNearbyIssueLocation(lines, index, rootPath) : null;
+      const nearbyLocation = shouldSearchNearby ? this.extractNearbyIssueLocation(lines, index, rootPath, documentDir) : null;
       const directLineNumber = this.extractLineNumber(line);
       const lineNumber =
         location?.line ?? directLineNumber ?? wrappedLineNumber ?? nearbyLocation?.line ?? null;
@@ -233,36 +235,46 @@ module.exports = (BuildService) => {
     return message;
   };
 
-  BuildService.prototype.normalizeIssuePath = function (filePath, rootPath) {
-    if (!filePath || typeof filePath !== "string") {
-      return null;
+  BuildService.prototype.normalizeIssuePath = function (filePath, rootPath, documentDir) {
+    if (typeof filePath !== "string") return null;
+    const reported = filePath.trim().replace(/^\(+|\)+$/g, "").replace(/^"(.*)"$/, "$1");
+    if (!reported) return null;
+    const inside = (relative) =>
+      relative && relative !== "." && relative !== ".." &&
+      !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+    const workspacePath = (absolute) => {
+      const relative = path.relative(rootPath, absolute);
+      return inside(relative) ? relative : null;
+    };
+    if (rootPath && path.isAbsolute(reported)) {
+      // TeX may report an absolute path under the real spelling of the workspace.
+      let relative = workspacePath(reported);
+      if (!relative) {
+        try {
+          const real = path.relative(fs.realpathSync(rootPath), fs.realpathSync(reported));
+          if (inside(real)) relative = real;
+        } catch { /* leave distribution and missing files outside the project */ }
+      }
+      return relative?.split(path.sep).join("/") ?? null;
     }
-    let normalized = filePath.trim();
-    if (!normalized) {
-      return null;
+    if (rootPath && documentDir && documentDir !== rootPath) {
+      // TeX runs in the workspace. A ./ prefix is explicitly relative to its
+      // working directory; bare source paths may come from the document folder.
+      const bases = /^\.[\\/]/.test(reported) ? [rootPath, documentDir] : [documentDir, rootPath];
+      for (const base of bases) {
+        const candidate = path.resolve(base, reported);
+        const relative = workspacePath(candidate);
+        if (!relative) continue;
+        try {
+          if (fs.statSync(candidate).isFile()) return relative.split(path.sep).join("/");
+        } catch { /* try the other base */ }
+      }
     }
-    normalized = normalized
-      .replace(/^\(+/, "")
-      .replace(/\)+$/, "")
-      .replace(/^\.([\\/])/, "");
-    if (rootPath && path.isAbsolute(normalized)) {
-      normalized = path.relative(rootPath, normalized);
-    }
-    if (!normalized || normalized === ".") {
-      return null;
-    }
-    // A distribution file (TeX Live's keyval.tex and friends) is not something
-    // the user can open and fix, and TeX names them constantly while loading
-    // packages. Treating one as the issue's location sends the reader into
-    // /usr/local/texlive instead of their own document, so refuse it and let
-    // the caller fall back to a path inside the project.
-    if (normalized.startsWith("..") || path.isAbsolute(normalized)) {
-      return null;
-    }
-    return normalized;
+    const relative = path.normalize(reported);
+    return inside(relative) ? relative.split(path.sep).join("/") : null;
   };
 
-  BuildService.prototype.extractIssueLocation = function (line, rootPath) {
+  BuildService.prototype.extractIssueLocation = function (line, rootPath, documentDir) {
     if (typeof line !== "string") {
       return null;
     }
@@ -272,7 +284,7 @@ module.exports = (BuildService) => {
     if (!match) {
       return null;
     }
-    const filePath = this.normalizeIssuePath(match[1], rootPath);
+    const filePath = this.normalizeIssuePath(match[1], rootPath, documentDir);
     if (!filePath) {
       return null;
     }
@@ -283,7 +295,7 @@ module.exports = (BuildService) => {
     };
   };
 
-  BuildService.prototype.extractContextTexPath = function (line, rootPath) {
+  BuildService.prototype.extractContextTexPath = function (line, rootPath, documentDir) {
     if (typeof line !== "string") {
       return null;
     }
@@ -293,16 +305,16 @@ module.exports = (BuildService) => {
     }
     const starMatch = trimmed.match(/^\*\*([^\r\n]+?\.tex)\s*$/i);
     if (starMatch) {
-      return this.normalizeIssuePath(starMatch[1], rootPath);
+      return this.normalizeIssuePath(starMatch[1], rootPath, documentDir);
     }
     const openMatch = trimmed.match(/^\(([^()\r\n]+?\.tex)\b/i);
     if (openMatch) {
-      return this.normalizeIssuePath(openMatch[1], rootPath);
+      return this.normalizeIssuePath(openMatch[1], rootPath, documentDir);
     }
     return null;
   };
 
-  BuildService.prototype.extractNearbyIssueLocation = function (lines, index, rootPath) {
+  BuildService.prototype.extractNearbyIssueLocation = function (lines, index, rootPath, documentDir) {
     if (!Array.isArray(lines)) {
       return null;
     }
@@ -314,7 +326,7 @@ module.exports = (BuildService) => {
       if (typeof nextLine !== "string") {
         break;
       }
-      const location = this.extractIssueLocation(nextLine, rootPath);
+      const location = this.extractIssueLocation(nextLine, rootPath, documentDir);
       if (location) {
         return location;
       }
@@ -325,7 +337,7 @@ module.exports = (BuildService) => {
         }
       }
       if (!nearbyPath) {
-        nearbyPath = this.extractContextTexPath(nextLine, rootPath);
+        nearbyPath = this.extractContextTexPath(nextLine, rootPath, documentDir);
       }
     }
     if (nearbyLine === null && !nearbyPath) {

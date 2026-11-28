@@ -103,6 +103,7 @@ const fsp = require("node:fs/promises");
 const path = require("node:path");
 
 const { isPathWithinRoot } = require("./utils.cjs");
+const { projectLookupInventory, readOwnershipRecorder } = require("./recorder-ownership.cjs");
 
 const PREVIEW_CACHE_SCHEMA_VERSION = 1;
 const PREVIEW_CACHE_RELATIVE_DIR = ".tex64/cache/live-preview";
@@ -515,6 +516,11 @@ const normalizeDescriptor = (descriptor) => {
     };
   }
   const rawProvenance = descriptor.provenance ?? {};
+  const { ownership } = rawProvenance;
+  const ownershipProof = [ownership?.inventory, ownership?.external, ownership?.recorder]
+    .every((value) => typeof value === "string" && SHA256_PATTERN.test(value))
+    ? { inventory: ownership.inventory, external: ownership.external, recorder: ownership.recorder }
+    : null;
   const inputProof = INPUT_PROOFS.has(rawProvenance.inputProof) ? rawProvenance.inputProof : "none";
   const snapshotId = typeof rawProvenance.snapshotId === "string" && rawProvenance.snapshotId.trim()
     ? rawProvenance.snapshotId.trim().slice(0, MAX_SIGNATURE_LENGTH)
@@ -562,6 +568,7 @@ const normalizeDescriptor = (descriptor) => {
       provenance: {
         inputProof,
         snapshotId,
+        ownership: ownershipProof,
         dynamicInputs: rawProvenance.dynamicInputs === true,
         unknownInputs,
         systemInputsStable: rawProvenance.systemInputsStable === true,
@@ -1227,11 +1234,46 @@ const clearPreviewCache = async ({ rootPath, mainFileName } = {}) => {
   return { cleared: true, removed };
 };
 
+/**
+ * The newest generation's project reads. For Build ownership, require a
+ * recorder with an unchanged lookup inventory and hashes for all inputs.
+ */
+const loadRecordedReads = async ({ rootPath, mainFileName, requiredFiles } = {}) => {
+  const located = await resolvePreviewCacheDirectory(rootPath, mainFileName, false);
+  if (!located.ok) return null;
+  const pointer = await readPointer(located.cacheRealPath);
+  if (!pointer.ok) return null;
+  const read = await readGenerationManifest(located.cacheRealPath, pointer.entries[0]);
+  if (!read.ok) return null;
+  const records = new Map();
+  for (const record of read.manifest.inputs) {
+    if (record?.role !== "project" || typeof record.path !== "string") continue;
+    const relative = normalizeRelativePosixPath(record.path);
+    if (relative) records.set(relative, record);
+  }
+  if (requiredFiles) {
+    const provenance = read.manifest.provenance;
+    const proof = provenance?.ownership;
+    const fls = read.manifest.artifacts.find(({ kind }) => kind === "fls");
+    if (provenance?.inputProof !== "build-fls" || provenance.dynamicInputs ||
+        provenance.unknownInputs?.length || !proof?.inventory ||
+        !fls || !STORED_ARTIFACT_PATTERN.test(fls.storedName) || fls.sha256 !== proof.recorder ||
+        requiredFiles.some((file) => !records.has(file))) return null;
+    if (proof.inventory !== await projectLookupInventory(located.projectRealPath)) return null;
+    if (!(await verifyRecordedInputs(located.projectRealPath, read.manifest.inputs)).matched) return null;
+    const current = await readOwnershipRecorder(path.join(read.generationDir, fls.storedName), located.projectRealPath);
+    if (current?.recorder !== proof.recorder || current.external !== proof.external ||
+        current.project.size !== records.size || [...records.keys()].some((file) => !current.project.has(file))) return null;
+  }
+  return records.size ? new Set(records.keys()) : null;
+};
+
 module.exports = {
   PREVIEW_CACHE_SCHEMA_VERSION,
   PREVIEW_CACHE_RELATIVE_DIR,
   savePreviewCacheGeneration,
   loadPreviewCacheCandidate,
+  loadRecordedReads,
   loadLatexmkHistoryCandidate,
   clearPreviewCache,
 };

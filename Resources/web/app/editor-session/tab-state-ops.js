@@ -4,8 +4,14 @@ const isPersistentTabPath = (path) => {
     return PINNED_TAB_EXTENSIONS.has(ext);
 };
 export const createEditorSessionTabStateOps = (runtime) => {
-    const addOpenTab = (group, path) => {
-        if (!group.openTabs.includes(path)) {
+    const addOpenTab = (group, path, position) => {
+        if (position && position.path !== path) {
+            const tabs = group.openTabs.filter((entry) => entry !== path);
+            const anchor = tabs.indexOf(position.path);
+            tabs.splice(anchor < 0 ? tabs.length : anchor + Number(position.after), 0, path);
+            group.openTabs = tabs;
+        }
+        else if (!group.openTabs.includes(path)) {
             group.openTabs = [...group.openTabs, path];
         }
     };

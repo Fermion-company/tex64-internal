@@ -1,6 +1,8 @@
 "use strict";
 
 const path = require("node:path");
+const { loadRecordedReads } = require("./build/preview-cache.cjs");
+const { resolveReleaseBuildTarget } = require("./build/release-build-target.cjs");
 
 /** error.code when the build target is not unique; error.candidates lists the documents. */
 const BUILD_TARGET_CHOICE = "BUILD_TARGET_CHOICE";
@@ -24,157 +26,400 @@ const stripVerbatim = (source) => source
   .replace(/\\KKverb\|[^|\n]*\|/g, " ")
   .replace(/\\(?:verb|lstinline|mintinline(?:\s*\{[^}]*\})?)\*?([^A-Za-z\s{])[^\n]*?\1/g, " ");
 
-const isStandaloneDocument = (content) => {
-  const source = stripVerbatim(stripTexComments(content));
-  const documentClass = /\\document(?:class|style)\s*(?:\[[^\]]*\])?\s*\{/.exec(source);
-  if (!documentClass) return false;
+const documentClassOf = (source) => {
+  const declaration = /\\document(?:class|style)\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/.exec(source);
+  if (!declaration) return null;
   const body = /\\begin\s*\{document\}/.exec(source);
-  if (!body || body.index < documentClass.index) return false;
-  // A document starts with its class. Body material before \documentclass
-  // (headings, environments) means the class line is quoted text.
-  return !/\\(?:begin\s*\{|part\b|chapter\b|(?:sub)*section\b|input\b|include\b)/.test(source.slice(0, documentClass.index));
+  if (!body || body.index < declaration.index) return null;
+  // Body material before the declaration means the class line is quoted text.
+  if (/\\(?:begin\s*\{|part\b|chapter\b|(?:sub)*section\b|input\b|include\b)/.test(source.slice(0, declaration.index))) {
+    return null;
+  }
+  return declaration[1].trim();
 };
 
-const parseTexIncludes = (content) => {
-  const source = stripTexComments(content);
+const texStructure = (content) => stripVerbatim(stripTexComments(content)).replace(/\\\\/g, " ");
+const isStandaloneDocument = (content) => Boolean(documentClassOf(texStructure(content)));
+
+const parseIncludes = (source) => {
   const result = [];
-  for (const match of source.matchAll(/\\(input|include|subfile|subfileinclude)\s*\{([^}]*)\}|\\(input)\s+([^\s{}\\%]+)/g)) {
-    result.push({ kind: match[1] || match[3], file: (match[2] || match[4]).trim() });
-  }
-  for (const match of source.matchAll(/\\((?:sub)?(?:import|includefrom|inputfrom))\s*\*?\s*\{([^}]*)\}\s*\{([^}]*)\}/g)) {
-    result.push({ kind: match[1], directory: match[2].trim(), file: match[3].trim() });
+  const body = /\\begin\s*\{document\}/.exec(source);
+  const endPattern = /\\end\s*\{document\}/g;
+  endPattern.lastIndex = body ? body.index + body[0].length : 0;
+  const end = endPattern.exec(source);
+  const commands = /\\(input|include|subfile|subfileinclude)\s*\{([^{}]*)\}|\\(input)\s+("[^"\n]+"|[^\s{}\\%]+)|\\((?:sub)?(?:import|includefrom|inputfrom))\s*\*?\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g;
+  for (const match of source.slice(0, end?.index).matchAll(commands)) {
+    const file = (match[2] ?? match[4] ?? match[7]).trim().replace(/^"(.+)"$/, "$1");
+    const directory = match[6]?.trim();
+    if (!file || /[\\#$]/.test(file) || (directory && /[\\#$]/.test(directory))) continue;
+    result.push({ kind: match[1] ?? match[3] ?? match[5], directory, file });
   }
   return result;
 };
 
-// Resolve ownership, not a filename ranking. An independent document wins over
-// the workspace default; fragments follow their including document. Ambiguity
-// requires an explicit magic root instead of silently compiling another PDF.
-const resolveBuildTarget = async (workspace, requestedPath, options = {}) => {
+const parseTexIncludes = (content) => parseIncludes(texStructure(content));
+
+// \includeonly{a, b} in a document's preamble: of the files it reads with
+// \include (and the commands built on it), only those named are read. LaTeX
+// drops every space from the list (\zap@space).
+const INCLUDE_KINDS = new Set(["include", "subfileinclude", "includefrom", "subincludefrom"]);
+const includeName = (name) => String(name).replace(/\s+/g, "").replace(/\.tex$/i, "");
+// Only the option-free standard classes have a known preamble here. A
+// project class or the stock class's size file can shadow that contract.
+const STANDARD_CLASSES = new Set(["article", "report", "book"]);
+const PREAMBLE_DEPTH = 16;
+const PREAMBLE_VISITS = 256;
+const includeSelected = (names, { kind, directory, file }) => !names || !INCLUDE_KINDS.has(kind) ||
+  names.has(includeName(file)) || (directory !== undefined && names.has(includeName(join(directory, file))));
+
+const { dirname, isAbsolute, join, normalize: normalizePath, extname } = path.posix;
+const up = (file) => file === ".." || file.startsWith("../");
+const joinImportPath = (directory, file) => {
+  const joined = join(directory, file);
+  return directory.startsWith("./") && !up(joined) ? `./${joined}` : joined;
+};
+const comparePaths = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+
+const requestChoice = (candidates, requested = null) => {
+  const error = new Error(requested
+    ? `Several documents could be built for ${requested}. Choose one.`
+    : "Several documents could be built. Choose one.");
+  error.code = BUILD_TARGET_CHOICE;
+  error.candidates = candidates.sort(comparePaths);
+  error.requested = requested;
+  throw error;
+};
+
+const resolveBuildTarget = async (workspace, requestedPath, { includingDocuments = false, requireUniqueOwner = false,
+  includesOf = null, recordedReads = loadRecordedReads } = {}) => {
   const root = workspace.getRootPath();
-  const normalize = (file) => path.relative(root, workspace.resolvePath(file)).split(path.sep).join("/");
+  if (!includingDocuments && !requireUniqueOwner && includesOf === null) {
+    return resolveReleaseBuildTarget(workspace, requestedPath, {
+      async recordedOwner(documents, requested) {
+        const candidates = documents.filter((file) => file !== requested);
+        if (candidates.length < 2) return null;
+        const reads = await Promise.all(candidates.map(async (file) => {
+          try {
+            const inputs = await recordedReads?.({
+              rootPath: root, mainFileName: file, requiredFiles: [file, requested],
+            });
+            return inputs?.has(file) && inputs.has(requested) ? file : null;
+          } catch {
+            return null;
+          }
+        }));
+        const owners = reads.filter(Boolean);
+        return owners.length === 1 ? owners[0] : null;
+      },
+    });
+  }
+  const normalize = (file) => {
+    const result = path.relative(root, workspace.resolvePath(file)).split(path.sep).join("/");
+    if (!result || up(result) || isAbsolute(result)) throw new Error("Invalid build target.");
+    return result;
+  };
   const current = () => { if (workspace.getRootPath() !== root) throw new Error("Workspace changed."); };
   const readCache = new Map();
   const read = async (file) => {
     current();
-    file = normalize(file); // retain WorkspaceManager's realpath/symlink guard
-    if (!readCache.has(file)) readCache.set(file, workspace.readFile(file).catch(() => null));
+    if (!readCache.has(file)) {
+      readCache.set(file, (async () => {
+        try {
+          const relativePath = normalize(file); // retain the workspace realpath guard
+          return await workspace.readFile(relativePath);
+        } catch {
+          return null;
+        }
+      })());
+    }
     const content = await readCache.get(file);
     current();
     return content;
   };
-  const rootInfo = await workspace.rootInfo().catch(() => null);
-  const rootFile = rootInfo?.path;
-  // A root the user set (Settings › Main TeX) decides ties; an auto-detected
-  // one is a guess among the workspace's documents and does not.
-  const rootIsManual = rootInfo?.source === "manual";
-  current();
-  // Every standalone document in the workspace (has \documentclass and
-  // \begin{document}), for the cases where nothing names the target.
+  const sourceCache = new Map();
+  const structure = async (file) => {
+    if (!sourceCache.has(file)) sourceCache.set(file, read(file).then(texStructure));
+    return sourceCache.get(file);
+  };
+  let inventory;
+  const buildFiles = () => {
+    inventory ??= (workspace.listBuildTexFiles?.({ includeStyles: true }) ?? workspace.listFiles()).then((files) => {
+      current();
+      return files;
+    });
+    return inventory;
+  };
   const standaloneDocuments = async () => {
     const found = [];
-    for (const candidate of await workspace.listFiles()) {
+    for (const candidate of await buildFiles()) {
       if (!/\.tex$/i.test(candidate)) continue;
-      if (isStandaloneDocument(await read(candidate))) found.push(candidate);
+      const className = documentClassOf(await structure(candidate));
+      if (className) found.push({ file: candidate, className });
     }
     return found;
   };
-  const choose = (candidates, requested) => {
-    const error = new Error(requested
-      ? `Several documents could be built for ${requested}. Choose one.`
-      : "Several documents could be built. Choose one.");
-    error.code = BUILD_TARGET_CHOICE;
-    error.candidates = candidates;
-    error.requested = requested || null;
-    throw error;
+  const rootInfo = async () => {
+    const info = await workspace.rootInfo().catch(() => null);
+    current();
+    return info;
   };
+  let customBuildSetup;
+  const hasCustomBuildSetup = () => customBuildSetup ??= Promise.all(
+    [".latexmkrc", "latexmkrc"].map(read)
+  ).then((files) => files.some((content) => content !== null));
+  const recent = requireUniqueOwner ? [] : workspace.getRecentBuildTargets?.() ?? [];
   if (!requestedPath || !/\.tex$/i.test(requestedPath)) {
-    if (rootFile && rootIsManual) return rootFile;
+    if (includingDocuments) return [];
+    const info = await rootInfo();
+    if (info?.source === "manual" && await read(info.path) !== null) return info.path;
+    for (const file of recent) {
+      if (documentClassOf(await structure(file))) return file;
+    }
     if (await read("main.tex") !== null) return "main.tex";
-    const documents = await standaloneDocuments();
+    const documents = (await standaloneDocuments()).map(({ file }) => file);
     if (documents.length === 1) return documents[0];
-    if (documents.length > 1) choose(documents, null);
-    return rootFile || "main.tex";
+    if (documents.length > 1) requestChoice(documents);
+    return info?.path && await read(info.path) !== null ? info.path : "main.tex";
   }
-  const requested = normalize(requestedPath);
-  const source = await read(requested);
-  if (source === null) throw new Error(`File not found: ${requested}`);
-  const magic = await workspace.resolveTexRootFromMagic(requested);
-  current();
-  if (magic) return normalize(magic);
-  if (requested === rootFile) return requested;
 
-  const includes = async (document) => {
-    const cwd = path.posix.dirname(document);
-    const queue = [{ file: document, base: cwd, depth: 0 }];
-    const visited = new Set();
-    while (queue.length && visited.size < 2000) {
-      const entry = queue.shift();
-      const key = `${entry.file}\0${entry.base}`;
-      if (visited.has(key) || entry.depth > 16) continue;
-      visited.add(key);
-      for (const include of parseTexIncludes(await read(entry.file))) {
-        // Plain input is relative to the build/import directory, not the
-        // including file. import/subimport and subfiles establish a new base.
-        const base = include.directory !== undefined
-          ? path.posix.join(include.kind.startsWith("sub") ? entry.base : cwd, include.directory)
-          : include.kind.startsWith("subfile") ? path.posix.dirname(entry.file) : entry.base;
-        // TeX64 runs TeX from the workspace root with the main file's folder
-        // on TEXINPUTS, so a plain \input resolves against either.
-        const withExt = (file) => (path.posix.extname(file) ? file : `${file}.tex`);
-        const tries = [withExt(path.posix.join(base, include.file))];
-        if (include.directory === undefined && !include.kind.startsWith("subfile")) tries.push(withExt(include.file));
-        let candidate = null;
-        for (const attempt of tries) {
-          try {
-            const normalized = normalize(attempt);
-            if (await read(normalized) !== null) { candidate = normalized; break; }
-          } catch { current(); }
+  const requested = normalize(requestedPath);
+  if (await read(requested) === null) throw new Error(`File not found: ${requested}`);
+  if (!includingDocuments && includesOf === null) {
+    const magic = await workspace.resolveTexRootFromMagic(requested).catch(() => null);
+    current();
+    if (magic && normalize(magic) !== requested && await read(magic) !== null) return normalize(magic);
+    const className = documentClassOf(await structure(requested));
+    if (className && className !== "subfiles") return requested;
+  }
+
+  let recursiveLookup;
+  const filesByBasename = () => {
+    recursiveLookup ??= buildFiles().then((files) => {
+      const index = new Map();
+      for (const file of files) {
+        if (!/\.(?:tex|sty|cls|clo)$/i.test(file)) continue;
+        const name = path.posix.basename(file);
+        if (!index.has(name)) index.set(name, []);
+        index.get(name).push(file);
+      }
+      return index;
+    });
+    return recursiveLookup;
+  };
+  const findInput = async (names, rootBases) => {
+    for (const name of names) {
+      const directOnly = isAbsolute(name) || /^\.\.?\//.test(name);
+      const bases = directOnly ? ["."] : rootBases;
+      const candidates = extname(name) ? [name] : [`${name}.tex`, name];
+      for (const base of bases) {
+        for (const candidate of candidates) {
+          const direct = isAbsolute(candidate) ? candidate : join(base, candidate);
+          if (await read(direct) !== null) return normalize(direct);
+          if (directOnly || !/\.(?:tex|sty|cls)$/i.test(candidate)) continue;
+          // Build puts the document directory and workspace on TEXINPUTS
+          // with //, so TeX also searches their subdirectories, in that order.
+          const matching = (await filesByBasename()).get(path.posix.basename(candidate)) ?? [];
+          const prefix = base === "." ? "" : `${base}/`;
+          const suffix = `/${normalizePath(candidate)}`;
+          const matches = matching.filter((file) => file.startsWith(prefix) && file.endsWith(suffix));
+          // A collision here depends on TeX's directory enumeration order.
+          if (matches.length > 1) return null;
+          if (matches.length === 1 && await read(matches[0]) !== null) return matches[0];
         }
-        if (!candidate) continue;
-        if (candidate === requested) return true;
-        queue.push({
-          file: candidate,
-          base: include.directory !== undefined || include.kind.startsWith("subfile")
-            ? path.posix.dirname(candidate) : entry.base,
-          depth: entry.depth + 1,
-        });
       }
     }
-    return false;
+    return undefined;
   };
-  if (options.includingDocuments === true) {
-    // Every other document that reads this file, whether or not the file
-    // could also be built on its own (a subfiles chapter can).
-    const including = [];
-    for (const candidate of await standaloneDocuments()) {
-      if (candidate !== requested && await includes(candidate)) including.push(candidate);
+  // Parse a closed grammar: a stock class followed by only literal inputs
+  // and includeonly lists. Any other token makes the whole selection unknown,
+  // including code after a literal includeonly and before begin{document}.
+  const includeOnlyOf = async (document, rootBases) => {
+    if (await hasCustomBuildSetup()) return { selected: null, sources: null };
+    const sources = new Set([document]);
+    const active = new Set();
+    let visits = 0;
+    let selected = null;
+    const scan = async (file, main = false) => {
+      if (active.has(file) || active.size >= PREAMBLE_DEPTH || visits++ >= PREAMBLE_VISITS) return false;
+      const content = await read(file);
+      if (content === null) return false;
+      active.add(file);
+      sources.add(file);
+      try {
+        let rest = stripTexComments(content);
+        if (main) {
+          const declaration = /^[ \t\r\n]*\\documentclass[ \t\r\n]*\{([a-z]+)\}/.exec(rest);
+          if (!STANDARD_CLASSES.has(declaration?.[1])) return false;
+          const shadows = new Set([`${declaration[1]}.cls`, "size10.clo", "bk10.clo"]);
+          if ((await buildFiles()).some((name) => shadows.has(path.posix.basename(name).toLowerCase()))) return false;
+          for (const name of shadows) {
+            for (const base of rootBases) if (await read(join(base, name)) !== null) return false;
+          }
+          rest = rest.slice(declaration[0].length);
+        }
+        for (;;) {
+          rest = rest.replace(/^[ \t\r\n]+/, "");
+          if (main && /^\\begin[ \t\r\n]*\{document\}/.test(rest)) return true;
+          if (!rest) return !main;
+          const selection = /^\\includeonly[ \t\r\n]*\{([A-Za-z0-9.,/_ \t\r\n-]*)\}/.exec(rest);
+          if (selection) {
+            selected = new Set(selection[1].split(",").map(includeName).filter(Boolean));
+            rest = rest.slice(selection[0].length);
+            continue;
+          }
+          const input = /^\\input(?:[ \t\r\n]*\{([A-Za-z0-9_-]+(?:\.tex)?)\}|[ \t\r\n]+([A-Za-z0-9_-]+(?:\.tex)?)(?=[ \t\r\n]|$))/.exec(rest);
+          if (!input) return false;
+          const name = input[1] ?? input[2];
+          const basename = (extname(name) ? name : `${name}.tex`).toLowerCase();
+          const alternatives = (await buildFiles()).filter((candidate) =>
+            [basename, name.toLowerCase()].includes(path.posix.basename(candidate).toLowerCase()));
+          // Only one unambiguous project input. The graph's more permissive
+          // TEXINPUTS guesses must never become proof of exclusion.
+          if (alternatives.length !== 1 || !rootBases.includes(dirname(alternatives[0])) ||
+              await findInput([name], rootBases) !== alternatives[0] ||
+              !await scan(alternatives[0])) return false;
+          rest = rest.slice(input[0].length);
+        }
+      } finally {
+        active.delete(file);
+      }
+    };
+    return await scan(document, true) ? { selected, sources } : { selected: null, sources: null };
+  };
+  const includeCache = new Map();
+  const graphCache = new Map();
+  const preambleCache = new Map();
+  const rootBasesFor = (document) => [...new Set([dirname(document), "."])];
+  const preamble = (document) => {
+    if (!preambleCache.has(document)) preambleCache.set(document, includeOnlyOf(document, rootBasesFor(document)));
+    return preambleCache.get(document);
+  };
+  const includeGraph = async (document, onEdge = null) => {
+    if (!onEdge && graphCache.has(document)) return graphCache.get(document);
+    const files = new Set();
+    const seen = new Set();
+    const rootBases = rootBasesFor(document);
+    // what this document's \includeonly leaves out is not read
+    const { selected } = await preamble(document);
+    const queue = [{ file: document, importPath: null, search: [] }];
+    for (let index = 0; index < queue.length; index += 1) {
+      const entry = queue[index];
+      const key = JSON.stringify([entry.file, entry.importPath, entry.search]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!includeCache.has(entry.file)) includeCache.set(entry.file, parseIncludes(await structure(entry.file)));
+      for (const { kind, directory, file } of includeCache.get(entry.file)) {
+        if (!includeSelected(selected, { kind, directory, file })) continue;
+        let importPath = entry.importPath;
+        let search = entry.search;
+        const subfile = kind === "subfile" || kind === "subfileinclude";
+        let name = file;
+        if (directory !== undefined || subfile) {
+          const dir = directory ?? dirname(file);
+          const base = kind.startsWith("sub") ? entry.importPath : null;
+          importPath = isAbsolute(dir)
+            ? normalizePath(dir)
+            : joinImportPath(base ?? (dir.startsWith("./") ? "./" : "."), dir);
+          search = [...new Set([importPath, ...search])];
+          name = subfile && isAbsolute(file)
+            ? file
+            : joinImportPath(importPath, subfile ? path.posix.basename(file) : file);
+        }
+        const names = directory !== undefined || subfile || isAbsolute(name)
+          ? [name]
+          : [...search.map((prefix) => joinImportPath(prefix, name)), name];
+        const candidate = await findInput(names, rootBases);
+        if (!candidate) continue;
+        onEdge?.({ from: entry.file, kind, directory, file, target: candidate });
+        files.add(candidate);
+        queue.push({ file: candidate, importPath, search });
+      }
     }
-    return including;
+    if (!onEdge) graphCache.set(document, files);
+    return files;
+  };
+
+  // (resolveIncludesOf) the files `includesOf` reads as this document's
+  // Build reaches it: with the bases \import, \subimport and \subfile set
+  if (includesOf !== null) {
+    const from = normalize(includesOf);
+    const edges = new Map();
+    await includeGraph(requested, (edge) => { if (edge.from === from) edges.set(JSON.stringify(edge), edge); });
+    return [...edges.values()];
   }
-  if (rootFile && rootIsManual && await includes(rootFile)) return rootFile;
-  if (isStandaloneDocument(source)) return requested;
+
+  const documents = (await standaloneDocuments()).filter(({ file }) => file !== requested);
+  const info = includingDocuments ? null : await rootInfo();
+  const manual = info?.source === "manual" ? info.path : null;
+  if (manual && manual !== requested && !documents.some(({ file }) => file === manual) && await read(manual) !== null) {
+    documents.push({ file: manual, className: null });
+  }
+  // There is no decision for the recorder to change when the sole document
+  // already owns the fragment. Avoid hashing an entire opaque preamble chain.
+  const soleDocument = documents.length === 1 ? documents[0].file : null;
+  if (soleDocument && (await includeGraph(soleDocument)).has(requested)) {
+    return includingDocuments ? [soleDocument] : soleDocument;
+  }
+
   const owners = [];
-  for (const candidate of await standaloneDocuments()) {
-    if (candidate === requested) continue;
-    if (await includes(candidate)) owners.push(candidate);
+  const fresh = [];
+  for (const document of documents) {
+    const { file } = document;
+    const { sources } = await preamble(file);
+    const reads = await Promise.resolve().then(() => recordedReads?.({
+      rootPath: root,
+      mainFileName: file,
+      requiredFiles: [...(sources ?? [file]), requested],
+    })).catch(() => null);
+    current();
+    if (reads?.has(requested)) {
+      fresh.push(document);
+      owners.push(document);
+    } else if ((await includeGraph(file)).has(requested)) {
+      owners.push(document);
+    }
   }
-  // Two documents include the fragment: the caller asks which one to build
-  // (a % !TEX root line in the fragment, or Settings › Main TeX, settles it).
-  if (owners.length > 1) choose(owners, requested);
-  if (owners.length === 1) return owners[0];
-  if (rootFile) return rootFile;
-  // Nothing includes the fragment and no root is set: the workspace's only
-  // document is the best guess; several documents are a choice, none means
-  // the fragment itself (its own error says what is missing).
-  const documents = await standaloneDocuments();
-  if (documents.length === 1) return documents[0];
-  if (documents.length > 1) choose(documents, requested);
-  return requested;
+  if (includingDocuments) return owners.map(({ file }) => file).sort(comparePaths);
+  // Bibliography writes still ask when the document would affect which file is edited.
+  if (requireUniqueOwner && manual && owners.some(({ file }) => file === manual)) return manual;
+  if (requireUniqueOwner && owners.length > 1) requestChoice(owners.map(({ file }) => file), requested);
+  if (fresh.length === 1) return fresh[0].file;
+  if (fresh.length > 1) {
+    if (fresh.some(({ file }) => file === manual)) return manual;
+    requestChoice(fresh.map(({ file }) => file), requested);
+  }
+  if (manual && owners.some(({ file }) => file === manual)) return manual;
+
+  // An independently compilable chapter is an intermediate node when a
+  // document above it includes the requested source too.
+  const roots = [];
+  for (const owner of owners) {
+    let nested = false;
+    if (owner.className === "subfiles") {
+      for (const other of owners) {
+        if (other !== owner && (await includeGraph(other.file)).has(owner.file)) {
+          nested = true;
+          break;
+        }
+      }
+    }
+    if (!nested) roots.push(owner.file);
+  }
+  const candidates = roots.length ? roots : owners.map(({ file }) => file);
+  if (candidates.length > 1) requestChoice(candidates, requested);
+  return candidates[0] ?? requested;
 };
 
-/** The other documents of the workspace that \\input / \\include / \\subfile this file. */
 const resolveIncludingDocuments = (workspace, requestedPath) =>
   resolveBuildTarget(workspace, requestedPath, { includingDocuments: true });
 
-module.exports = { BUILD_TARGET_CHOICE, resolveBuildTarget, resolveIncludingDocuments, stripTexComments, isStandaloneDocument, parseTexIncludes };
+/**
+ * What `fromFile` reads, as the Build of `rootFile` resolves it (the bases
+ * \import, \subimport and \subfile set, TEXINPUTS search included), as
+ * [{ from, kind, directory, file, target }]: `file` as written, `target`
+ * the workspace file read. For Jump from a line that reads a file.
+ */
+const resolveIncludesOf = (workspace, rootFile, fromFile) =>
+  resolveBuildTarget(workspace, rootFile, { includesOf: fromFile });
+
+module.exports = { BUILD_TARGET_CHOICE, resolveBuildTarget, resolveIncludingDocuments, resolveIncludesOf, stripTexComments, isStandaloneDocument, parseTexIncludes };

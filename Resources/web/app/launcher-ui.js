@@ -1,3 +1,4 @@
+import { showEditorNotice } from "./editor-notice.js";
 import { getUiLocale, setUiLocale, onUiLocaleChange, uiText, SUPPORTED_LOCALES, } from "./i18n.js";
 const INITIAL_VISIBLE_COUNT = 3;
 export const initLauncherUi = (context, deps) => {
@@ -44,13 +45,18 @@ export const initLauncherUi = (context, deps) => {
         if (launcherOpenButton instanceof HTMLButtonElement) {
             launcherOpenButton.disabled = launcherBusy;
         }
+        const message = typeof payload.message === "string" && payload.message.trim()
+            ? payload.message.trim()
+            : "";
         if (launcherStatusMessage instanceof HTMLElement) {
-            const message = typeof payload.message === "string" && payload.message.trim()
-                ? payload.message.trim()
-                : "";
             launcherStatusMessage.textContent = message;
             launcherStatusMessage.classList.toggle("is-hidden", !message);
             launcherStatusMessage.setAttribute("aria-hidden", message ? "false" : "true");
+        }
+        // With a folder open the launcher, and this status line, are hidden: a
+        // refusal such as "this folder is open in another TeX64 window" was silent.
+        if (message && !launcherBusy && !document.body.classList.contains("has-launcher")) {
+            showEditorNotice(null, message, { tone: "error", owner: "launcher" });
         }
     };
     const renderRecentProjects = () => {

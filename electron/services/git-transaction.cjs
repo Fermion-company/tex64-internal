@@ -4,6 +4,7 @@
 const fs = require("node:fs/promises");
 const { constants } = require("node:fs");
 const path = require("node:path");
+const { withProjectFileWrites, writeProjectFile } = require("./project-file-writes.cjs");
 const crypto = require("node:crypto");
 const v8 = require("node:v8");
 const { GitState } = require("./git-state.cjs");
@@ -250,6 +251,13 @@ class GitTransaction {
   // The journal records each path before mutation. This is a portable CAS guard,
   // not a filesystem-wide lock against arbitrary external processes.
   async replacePath(journal, name, expected, desired, gitMetadata = false) {
+    const replace = () => this.replacePathHeld(journal, name, expected, desired, gitMetadata);
+    if (gitMetadata) return replace();
+    const filename = await this.checkedPath(name);
+    return withProjectFileWrites([filename], replace, { allowDanglingLinks: true, entryPaths: true });
+  }
+
+  async replacePathHeld(journal, name, expected, desired, gitMetadata) {
     const absolute = await this.checkedPath(name, gitMetadata);
     const actual = await this.pathEntry(name, gitMetadata);
     if (this.entryIdentity(actual) !== this.entryIdentity(expected)) throw fail("STATE_CHANGED", "A recovery target changed.");
@@ -568,9 +576,9 @@ class GitTransaction {
       const relative = path.relative(protectedDirectory, target);
       if (!relative || (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`))) throw fail("GIT_EXPORT_INVALID", "Export outside the active project and protection storage.");
     }
-    const fd = await fs.open(target, "wx", 0o600);
-    try { await fd.writeFile(source.type === "file" ? source.content : Buffer.from(source.target)); await fd.sync(); }
-    finally { await fd.close(); }
+    await writeProjectFile(target, source.type === "file" ? source.content : Buffer.from(source.target), {
+      mode: 0o600, exclusive: true, durable: true,
+    });
     await syncDirectory(directory);
     return { exported: true, type: source.type, size: source.type === "file" ? source.size : Buffer.byteLength(source.target) };
   }

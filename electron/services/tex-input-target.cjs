@@ -8,6 +8,8 @@ const fs = require("fs");
 const path = require("path");
 
 const READS_FILE = /^\s*\\(input|include|subfile|subfileinclude)\s*\{([^{}]+)\}\s*(?:%.*)?$/;
+// \import{dir}{file} and kin (import package): the file is read from `dir`.
+const READS_IMPORT = /^\s*\\((?:sub)?(?:import|includefrom|inputfrom))\s*\*?\s*\{([^{}]*)\}\s*\{([^{}]+)\}\s*(?:%.*)?$/;
 
 const isInside = (root, file) => {
   const relative = path.relative(root, file);
@@ -33,16 +35,43 @@ const firstContentLine = (text) => {
  * Where a Jump from line `line` of `relativePath` should look instead, or
  * null when that line does not read a file of the project.
  * Returns { path, line } with a workspace-relative path.
+ *
+ * `includes`: what this file reads as the Build of its document resolves it
+ * (tex-build-target.cjs resolveIncludesOf: the document's own folder, the
+ * bases \import, \subimport and \subfile set). Without it the name is looked
+ * for beside this file and at the workspace root, which picks the wrong file
+ * when the document sits in a sub-folder or reads this file through \import.
  */
-const resolveInputLineTarget = (rootPath, relativePath, line) => {
+const resolveInputLineTarget = (rootPath, relativePath, line, { lineText = null, includes = null } = {}) => {
   try {
     if (!rootPath || typeof relativePath !== "string") return null;
     const source = path.resolve(rootPath, relativePath);
     if (!isInside(rootPath, source)) return null;
     const lineNumber = Number.parseInt(line, 10);
     if (!Number.isFinite(lineNumber) || lineNumber < 1) return null;
-    const text = fs.readFileSync(source, "utf8").split(/\r?\n/)[lineNumber - 1];
-    const match = typeof text === "string" ? READS_FILE.exec(text) : null;
+    // the line as the editor has it (the caret's line number is the buffer's)
+    const text = typeof lineText === "string"
+      ? lineText
+      : fs.readFileSync(source, "utf8").split(/\r?\n/)[lineNumber - 1];
+    const imported = typeof text === "string" ? READS_IMPORT.exec(text) : null;
+    const match = imported ? null : typeof text === "string" ? READS_FILE.exec(text) : null;
+    if (!match && !imported) return null;
+    // (none known: the document's Build never reaches this file, so there is
+    // no base to go by but the old guess below)
+    if (Array.isArray(includes) && includes.length > 0) {
+      const kind = (imported ?? match)[1];
+      const directory = imported ? imported[2].trim() : undefined;
+      const written = (imported ? imported[3] : match[2]).trim();
+      const edge = includes.find((entry) => entry && entry.kind === kind && String(entry.file).trim() === written &&
+        (entry.directory === undefined ? directory === undefined : String(entry.directory).trim() === directory));
+      if (!edge || typeof edge.target !== "string") return null;
+      const file = path.resolve(rootPath, edge.target);
+      if (!isInside(rootPath, file) || !/\.tex$/i.test(file)) return null;
+      return {
+        path: path.relative(rootPath, file).split(path.sep).join("/"),
+        line: firstContentLine(fs.readFileSync(file, "utf8")),
+      };
+    }
     if (!match) return null;
     const name = match[2].trim();
     if (!name || /[\\#]/.test(name)) return null;

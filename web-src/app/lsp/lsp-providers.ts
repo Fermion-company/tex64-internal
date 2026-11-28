@@ -21,6 +21,14 @@ import {
   toMonacoInlayHints,
   toMonacoLinks,
 } from "./lsp-conversions.js";
+import {
+  dropNonEnvironmentItems,
+  findDefinedEnvironments,
+  isBeginNameContext,
+  isEnvironmentNameContext,
+  keepNamedItems,
+} from "../completion-context.js";
+import { countAllEnvironmentPairs, planEnvironmentAccept } from "../editor-ergonomics.js";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Monaco = any;
@@ -29,6 +37,27 @@ type Disposable = { dispose: () => void };
 const DEFAULT_TRIGGER_CHARACTERS = ["\\", "{", "}", "[", "(", ",", "/", "@", " ", "="];
 
 const uriOf = (model: any): string => model.uri.toString();
+
+// Environment names defined in the open LaTeX documents (the one being edited
+// included). texlab lists a defined environment only once it is used.
+const documentEnvironmentNames = (monaco: Monaco, model: any): string[] => {
+  const models: any[] = monaco?.editor?.getModels?.() ?? [model];
+  const names = new Set<string>();
+  for (const candidate of models) {
+    if (candidate !== model && candidate?.getLanguageId?.() !== "latex") continue;
+    for (const name of findDefinedEnvironments(candidate.getValue())) names.add(name);
+  }
+  return [...names];
+};
+
+// Whether the focused editor showing `model` is filling in a snippet.
+const isInSnippetSession = (monaco: Monaco, model: any): boolean =>
+  (monaco?.editor?.getEditors?.() ?? []).some(
+    (editor: any) =>
+      editor?.getModel?.() === model &&
+      editor?.hasTextFocus?.() &&
+      Boolean(editor?.getContribution?.("snippetController2")?.isInSnippet?.())
+  );
 
 export const registerLspProviders = (
   monaco: Monaco,
@@ -64,6 +93,17 @@ export const registerLspProviders = (
             if (!gate("lsp.completion")) {
               return { suggestions: [] };
             }
+            // Read the text before awaiting texlab: monaco places the items
+            // relative to this request's position, while the model may already
+            // hold what was typed since.
+            const lineText: string = model.getLineContent(position.lineNumber);
+            const textBeforeCaret = lineText.slice(0, Math.max(0, position.column - 1));
+            const documentLines: string[] | null = isBeginNameContext(textBeforeCaret)
+              ? model.getLinesContent()
+              : null;
+            const definedEnvironments = isEnvironmentNameContext(textBeforeCaret)
+              ? documentEnvironmentNames(monaco, model)
+              : [];
             const result = await client
               .request<any>("textDocument/completion", {
                 textDocument: { uri: uriOf(model) },
@@ -73,7 +113,30 @@ export const registerLspProviders = (
             if (!result || token?.isCancellationRequested) {
               return { suggestions: [] };
             }
-            const items = Array.isArray(result) ? result : result.items ?? [];
+            const texlabItems = keepNamedItems(
+              dropNonEnvironmentItems(Array.isArray(result) ? result : result.items ?? [], textBeforeCaret)
+            );
+            // Environments the open documents define but do not use yet; the
+            // same shape as texlab's, so they also close on accept.
+            const offered = new Set(texlabItems.map((item: any) => item.label));
+            const nameStart = textBeforeCaret.lastIndexOf("{") + 1;
+            const items = [
+              ...texlabItems,
+              ...definedEnvironments
+                .filter((name) => !offered.has(name))
+                .map((name) => ({
+                  label: name,
+                  kind: 1,
+                  sortText: "00",
+                  textEdit: {
+                    newText: name,
+                    range: {
+                      start: { line: position.lineNumber - 1, character: nameStart },
+                      end: { line: position.lineNumber - 1, character: position.column - 1 },
+                    },
+                  },
+                })),
+            ];
             const word = model.getWordUntilPosition(position);
             const defaultRange = new monaco.Range(
               position.lineNumber,
@@ -81,9 +144,34 @@ export const registerLspProviders = (
               position.lineNumber,
               word.endColumn
             );
+            // Accepting an environment name closes the environment, as typing
+            // its "}" does. Not inside a snippet's placeholders: a snippet that
+            // writes "\begin{$1}…\end{$1}" already has its end.
+            const pairCounts =
+              documentLines &&
+              editorSettings.isEnabled("ergo.autoCloseEnvironment") &&
+              !isInSnippetSession(monaco, model)
+                ? countAllEnvironmentPairs(documentLines, position.lineNumber - 1)
+                : null;
             return {
               suggestions: items.map((item: any) => {
                 const monacoItem: any = toMonacoCompletionItem(monaco, item, defaultRange);
+                const name = item?.textEdit?.newText ?? item?.insertText ?? item?.label;
+                const accept =
+                  pairCounts && item?.insertTextFormat !== 2 && typeof name === "string"
+                    ? planEnvironmentAccept(lineText, position.column, name, pairCounts)
+                    : null;
+                if (accept) {
+                  monacoItem.insertText = accept.snippet;
+                  monacoItem.insertTextRules =
+                    monaco.languages.CompletionItemInsertTextRule?.InsertAsSnippet ?? 4;
+                  monacoItem.range = new monaco.Range(
+                    position.lineNumber,
+                    accept.startColumn,
+                    position.lineNumber,
+                    accept.endColumn
+                  );
+                }
                 // Stash the original LSP item so resolve can enrich it lazily.
                 monacoItem._lsp = item;
                 return monacoItem;

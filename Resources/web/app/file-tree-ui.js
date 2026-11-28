@@ -767,6 +767,8 @@ export const initFileTreeUi = (context, deps) => {
                 return;
             }
             dragEvent.preventDefault();
+            if (dragEvent.dataTransfer)
+                dragEvent.dataTransfer.dropEffect = "move";
             clearDropTargets();
             fileTree.classList.add("is-drop-target");
         });
@@ -818,6 +820,7 @@ export const initFileTreeUi = (context, deps) => {
     });
     return {
         render,
+        getDragPayload,
         loadOpenState,
         requestCreate,
         setTreeFocus,

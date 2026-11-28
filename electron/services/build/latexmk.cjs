@@ -1,6 +1,16 @@
 const fs = require("fs");
 const path = require("path");
 
+// Jump and the realtime preview both read SyncTeX. While the realtime preview
+// is running, a profile argument that switches SyncTeX off is dropped, so the
+// default `-synctex=1` above stays in force.
+const keepSynctexForLive = (extraArgs, liveActive) => {
+  let live = false;
+  try { live = typeof liveActive === "function" && liveActive() === true; } catch { live = false; }
+  if (!live) return extraArgs;
+  return extraArgs.filter((arg) => !/^--?synctex=(?:0|-?0+)$/.test(String(arg)));
+};
+
 const appendLatexmkTrace = ({ command, args, cwd, result }) => {
   const tracePath = String(process.env.TEX64_LATEXMK_TRACE_FILE ?? "").trim();
   if (!tracePath || !path.isAbsolute(tracePath)) return;
@@ -84,7 +94,7 @@ module.exports = (BuildService) => {
       "-interaction=nonstopmode",
       "-halt-on-error",
       "-file-line-error",
-      ...(Array.isArray(options?.extraArgs) ? options.extraArgs : []),
+      ...keepSynctexForLive(Array.isArray(options?.extraArgs) ? options.extraArgs : [], this.liveActive),
       fileArgument(mainFileName)
     );
     const env = unwrapTexLog({ ...process.env });

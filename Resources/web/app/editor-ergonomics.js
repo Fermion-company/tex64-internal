@@ -1,7 +1,9 @@
 // LaTeX authoring ergonomics layered on a Monaco editor instance:
 //   - Enter after a non-empty "\item" starts a new "\item " (an empty "\item"
 //     is left untouched — Enter just inserts a normal newline)
-//   - Typing "\begin{env}" inserts a matching "\end{env}" body
+//   - Typing "\begin{env}" inserts a matching "\end{env}" body (also on Enter
+//     right before its auto-inserted "}", and when the name is accepted from
+//     the suggest list: planEnvironmentAccept)
 //   - TeX math delimiters "\[" / "\(" receive their TeX-aware closers
 //   - Wrap-selection actions (\textbf, \textit, \emph, \texttt)
 // Each behavior reads its flag from the editor settings store at call time, so
@@ -126,6 +128,143 @@ export const planEnvironmentCompletion = (before, after, documentText) => {
         cursorColumn: indent.length + 3,
     };
 };
+// countEnvironmentPairs for every name in one pass, leaving out one line (the
+// line a completion is about to rewrite).
+export const countAllEnvironmentPairs = (lines, skipLineIndex = -1) => {
+    const counts = new Map();
+    lines.forEach((raw, index) => {
+        var _a;
+        if (index === skipLineIndex || !raw.includes("\\")) {
+            return;
+        }
+        const tokens = /\\(begin|end)\s*\{([^{}\r\n]+)\}/g;
+        const line = stripTexComment(raw);
+        for (let match = tokens.exec(line); match; match = tokens.exec(line)) {
+            const entry = (_a = counts.get(match[2])) !== null && _a !== void 0 ? _a : { begins: 0, ends: 0 };
+            if (match[1] === "begin") {
+                entry.begins += 1;
+            }
+            else {
+                entry.ends += 1;
+            }
+            counts.set(match[2], entry);
+        }
+    });
+    return counts;
+};
+const escapeSnippetText = (value) => value.replace(/[\\$}]/g, "\\$&");
+// Accepting an environment name from the suggest list in "\begin{...}" also
+// steps over the closing brace and adds the body line and "\end{name}": the
+// same text and caret as typing the "}" (planEnvironmentCompletion), written
+// as one snippet so it is one edit and one undo step. Monaco's snippet
+// insertion gives the following lines the begin line's indentation. Returns
+// null where typing "}" would not close either: the begin is not alone on its
+// line, text follows the brace, or an "\end{name}" already pairs with it.
+// `counts` covers every line except the caret's.
+export const planEnvironmentAccept = (line, caretColumn, env, counts) => {
+    var _a;
+    const head = line.slice(0, caretColumn - 1).match(/^([ \t]*\\begin\{)[^{}\\\s]*$/);
+    if (!head || !/^\}?[ \t]*$/.test(line.slice(caretColumn - 1))) {
+        return null;
+    }
+    if (!/^[^{}\\\s%]+$/.test(env)) {
+        return null;
+    }
+    const { begins, ends } = (_a = counts.get(env)) !== null && _a !== void 0 ? _a : { begins: 0, ends: 0 };
+    if (ends >= begins + 1) {
+        return null;
+    }
+    const name = escapeSnippetText(env);
+    return {
+        startColumn: head[1].length + 1,
+        endColumn: line.length + 1,
+        snippet: `${name}\\}\n  $0\n\\\\end{${name}\\}`,
+    };
+};
+// Enter with the caret right before the "}" of "\begin{env}" (the brace an
+// auto-close inserted) acts as at the end of the line instead of splitting
+// "\begin{env" from its brace.
+export const isBeforeBeginBrace = (before, after) => /^[ \t]*\\begin\{[^{}\r\n]+$/.test(before) && /^\}[ \t]*$/.test(after);
+// Enter with several cursors, when one of them is in a "\begin{env}" line (at
+// its end or right before its brace): every such cursor closes its
+// environment as a single cursor would, or, where an "\end" already pairs
+// with it, breaks the line after the brace; the other cursors get a plain line
+// break with their line's indentation. One edit, so one undo step. Null (leave
+// it to monaco) when no cursor is in a begin line or two share a line.
+export const planEnterAtCursors = (lines, cursors, autoClose) => {
+    var _a, _b, _c;
+    if (new Set(cursors.map((cursor) => cursor.lineNumber)).size !== cursors.length) {
+        return null;
+    }
+    const cases = [...cursors]
+        .sort((a, b) => a.lineNumber - b.lineNumber)
+        .map((cursor) => {
+        var _a, _b, _c;
+        const line = (_a = lines[cursor.lineNumber - 1]) !== null && _a !== void 0 ? _a : "";
+        const before = line.slice(0, cursor.column - 1);
+        const after = line.slice(cursor.column - 1);
+        const brace = isBeforeBeginBrace(before, after);
+        const atEnd = after.trim() === "" && /^[ \t]*\\begin\{[^{}\r\n]+\}$/.test(before);
+        const env = brace || atEnd ? ((_c = (_b = before.match(/\\begin\{([^{}\r\n]+)\}?$/)) === null || _b === void 0 ? void 0 : _b[1]) !== null && _c !== void 0 ? _c : null) : null;
+        return { cursor, line, brace, env, indent: leadingWhitespace(line) };
+    });
+    if (!cases.some((entry) => entry.env)) {
+        return null;
+    }
+    // Every begin line is already in the counts; each may take one of the
+    // missing ends, in document order.
+    const counts = autoClose ? countAllEnvironmentPairs(lines) : null;
+    const unclosed = new Map();
+    const plan = { edits: [], cursors: [] };
+    let addedLines = 0;
+    for (const { cursor, line, brace, env, indent } of cases) {
+        if (env && counts && !unclosed.has(env)) {
+            const { begins, ends } = (_a = counts.get(env)) !== null && _a !== void 0 ? _a : { begins: 0, ends: 0 };
+            unclosed.set(env, begins - ends);
+        }
+        if (env && counts && ((_b = unclosed.get(env)) !== null && _b !== void 0 ? _b : 0) > 0) {
+            unclosed.set(env, ((_c = unclosed.get(env)) !== null && _c !== void 0 ? _c : 0) - 1);
+            plan.edits.push({
+                lineNumber: cursor.lineNumber,
+                startColumn: cursor.column,
+                endColumn: line.length + 1,
+                text: `${brace ? "}" : ""}\n${indent}  \n${indent}\\end{${env}}`,
+            });
+            plan.cursors.push({ lineNumber: cursor.lineNumber + addedLines + 1, column: indent.length + 3 });
+            addedLines += 2;
+        }
+        else {
+            const column = env ? line.length + 1 : cursor.column;
+            plan.edits.push({ lineNumber: cursor.lineNumber, startColumn: column, endColumn: column, text: `\n${indent}` });
+            plan.cursors.push({ lineNumber: cursor.lineNumber + addedLines + 1, column: indent.length + 1 });
+            addedLines += 1;
+        }
+    }
+    return plan;
+};
+// The label of the focused row of the editor's suggestion list; null while
+// no list is shown ("" for a row without one).
+const focusedSuggestion = (editor) => {
+    var _a, _b, _c, _d, _e;
+    const widget = (_c = (_b = (_a = editor.getDomNode) === null || _a === void 0 ? void 0 : _a.call(editor)) === null || _b === void 0 ? void 0 : _b.querySelector) === null || _c === void 0 ? void 0 : _c.call(_b, ".suggest-widget.visible");
+    if (!widget) {
+        return null;
+    }
+    return (_e = (_d = widget.querySelector(".monaco-list-row.focused .label-name")) === null || _d === void 0 ? void 0 : _d.textContent) !== null && _e !== void 0 ? _e : "";
+};
+// The suggestion list is open on an environment name it does not show as
+// typed (a partial "\begin{eq|}"): Enter does not close the environment with
+// that name; it breaks the line (Tab accepts the suggestion). A name the list
+// shows exactly, and any name with the list closed (a custom environment),
+// is closed as before.
+export const isPartialBeginName = (before, suggestion) => {
+    var _a;
+    if (suggestion === null) {
+        return false;
+    }
+    const name = (_a = before.match(/\\begin\{([^{}\r\n]+)\}?$/)) === null || _a === void 0 ? void 0 : _a[1];
+    return Boolean(name) && name !== suggestion;
+};
 export const attachEditorErgonomics = (monaco, editor, group) => {
     var _a, _b, _c;
     const KeyCode = monaco === null || monaco === void 0 ? void 0 : monaco.KeyCode;
@@ -133,9 +272,14 @@ export const attachEditorErgonomics = (monaco, editor, group) => {
     if (!editor || !KeyCode) {
         return;
     }
+    // These helpers edit at the primary cursor and then set a single caret, so
+    // with several cursors they would drop the others; Monaco's own typing
+    // handles every cursor instead. Enter has its own plan for several cursors
+    // (planEnterAtCursors).
+    const hasSeveralCursors = () => { var _a, _b, _c; return ((_c = (_b = (_a = editor.getSelections) === null || _a === void 0 ? void 0 : _a.call(editor)) === null || _b === void 0 ? void 0 : _b.length) !== null && _c !== void 0 ? _c : 1) > 1; };
     (_a = editor.onDidType) === null || _a === void 0 ? void 0 : _a.call(editor, (typed) => {
         var _a, _b, _c;
-        if (group === null || group === void 0 ? void 0 : group.isComposing) {
+        if ((group === null || group === void 0 ? void 0 : group.isComposing) || hasSeveralCursors()) {
             return;
         }
         const model = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor);
@@ -197,7 +341,7 @@ export const attachEditorErgonomics = (monaco, editor, group) => {
         });
     });
     (_b = editor.onKeyDown) === null || _b === void 0 ? void 0 : _b.call(editor, (event) => {
-        var _a, _b;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
         if (event.keyCode !== KeyCode.Enter) {
             return;
         }
@@ -208,14 +352,39 @@ export const attachEditorErgonomics = (monaco, editor, group) => {
             return; // don't fight IME composition
         }
         const model = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor);
-        const pos = (_b = editor.getPosition) === null || _b === void 0 ? void 0 : _b.call(editor);
+        if (hasSeveralCursors()) {
+            const selections = (_c = (_b = editor.getSelections) === null || _b === void 0 ? void 0 : _b.call(editor)) !== null && _c !== void 0 ? _c : [];
+            if (!model || selections.some((selection) => { var _a; return !((_a = selection.isEmpty) === null || _a === void 0 ? void 0 : _a.call(selection)); })) {
+                return;
+            }
+            const primary = (_d = editor.getPosition) === null || _d === void 0 ? void 0 : _d.call(editor);
+            const partial = Boolean(primary) && isPartialBeginName(model.getLineContent(primary.lineNumber).slice(0, primary.column - 1), focusedSuggestion(editor));
+            const plan = planEnterAtCursors(model.getLinesContent(), selections.map((selection) => ({
+                lineNumber: selection.positionLineNumber,
+                column: selection.positionColumn,
+            })), editorSettings.isEnabled("ergo.autoCloseEnvironment") && !partial);
+            if (!plan) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            (_e = editor.pushUndoStop) === null || _e === void 0 ? void 0 : _e.call(editor);
+            editor.executeEdits("ergo-env", plan.edits.map((edit) => ({
+                range: new monaco.Range(edit.lineNumber, edit.startColumn, edit.lineNumber, edit.endColumn),
+                text: edit.text,
+            })), plan.cursors.map((cursor) => new monaco.Selection(cursor.lineNumber, cursor.column, cursor.lineNumber, cursor.column)));
+            (_f = editor.pushUndoStop) === null || _f === void 0 ? void 0 : _f.call(editor);
+            return;
+        }
+        const pos = (_g = editor.getPosition) === null || _g === void 0 ? void 0 : _g.call(editor);
         if (!model || !pos) {
             return;
         }
         const line = model.getLineContent(pos.lineNumber);
         const before = line.slice(0, pos.column - 1);
         const after = line.slice(pos.column - 1);
-        if (after.trim() !== "") {
+        const beforeBrace = isBeforeBeginBrace(before, after);
+        if (after.trim() !== "" && !beforeBrace) {
             return; // only act when the caret is at the end of the line's content
         }
         const indent = leadingWhitespace(line);
@@ -236,23 +405,43 @@ export const attachEditorErgonomics = (monaco, editor, group) => {
             }
         }
         // "\begin{env}" -> insert body + matching "\end{env}".
-        if (editorSettings.isEnabled("ergo.autoCloseEnvironment")) {
-            const environment = planEnvironmentCompletion(before, after, model.getValue());
+        if (editorSettings.isEnabled("ergo.autoCloseEnvironment") && !isPartialBeginName(before, focusedSuggestion(editor))) {
+            const environment = beforeBrace
+                ? planEnvironmentCompletion(`${before}}`, "", model.getValue())
+                : planEnvironmentCompletion(before, after, model.getValue());
             if (environment) {
                 event.preventDefault();
                 event.stopPropagation();
+                // Its own undo step: undo takes back the closing, not the typing.
+                (_h = editor.pushUndoStop) === null || _h === void 0 ? void 0 : _h.call(editor);
                 editor.executeEdits("ergo-env", [
                     {
                         range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, line.length + 1),
-                        text: environment.text,
+                        text: `${beforeBrace ? "}" : ""}${environment.text}`,
                     },
                 ]);
                 editor.setPosition({
                     lineNumber: pos.lineNumber + 1,
                     column: environment.cursorColumn,
                 });
+                (_j = editor.pushUndoStop) === null || _j === void 0 ? void 0 : _j.call(editor);
                 return;
             }
+        }
+        // Nothing to close (an "\end" already pairs with it, or the feature is
+        // off): still break the line after the brace, not before it.
+        if (beforeBrace) {
+            event.preventDefault();
+            event.stopPropagation();
+            (_k = editor.pushUndoStop) === null || _k === void 0 ? void 0 : _k.call(editor);
+            editor.executeEdits("ergo-env", [
+                {
+                    range: new monaco.Range(pos.lineNumber, line.length + 1, pos.lineNumber, line.length + 1),
+                    text: `\n${indent}`,
+                },
+            ]);
+            editor.setPosition({ lineNumber: pos.lineNumber + 1, column: indent.length + 1 });
+            (_l = editor.pushUndoStop) === null || _l === void 0 ? void 0 : _l.call(editor);
         }
     });
     (_c = editor.onDidChangeCursorPosition) === null || _c === void 0 ? void 0 : _c.call(editor, (event) => {

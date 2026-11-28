@@ -58,7 +58,8 @@ module.exports = (SynctexService) => {
         dx: Math.abs(hint.x - x),
         dy: Math.abs(hint.y - y),
       }));
-    if (!bypassHint) {
+    const quick = this.reverseQuick({ pdfPath, page, x, y });
+    if (!bypassHint && !quick?.boxOwner) {
       const hint = this.findForwardHint({
         pdfPath,
         page,
@@ -97,7 +98,6 @@ module.exports = (SynctexService) => {
     }
     // The parsed index answers from memory. The synctex process remains the
     // fallback for a PDF whose SyncTeX data the index cannot read.
-    const quick = this.reverseQuick({ pdfPath, page, x, y });
     if (quick) {
       return {
         ok: true,

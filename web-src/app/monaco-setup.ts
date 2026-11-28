@@ -22,6 +22,7 @@ import type { SpellBridge } from "./types.js";
 import { decodeFigureBlockAt } from "./pro-canvas/figure-codec.js";
 import { installFigureMetaChips } from "./pro-canvas/figure-meta-chip.js";
 import { attachSelectionDragAutoScroll } from "./editor-selection-autoscroll.js";
+import { attachEditorKeyCapture, trackComposition } from "./editor-composition.js";
 import type { VoiceEditController } from "./voice-edit.js";
 
 type FileExcerptResult =
@@ -263,6 +264,10 @@ export const initMonacoSetup = (
         tabCompletion: "off",
         // Enter is a line break in TeX source; Tab accepts a suggestion.
         acceptSuggestionOnEnter: "off",
+        // Among rows that match the typed text equally well, preselect the one
+        // accepted last; a better match is never pushed down. Monaco keeps
+        // this in its in-memory storage: per window, gone on reload.
+        suggestSelection: "recentlyUsed",
         // Render hover/suggest widgets in a fixed layer to avoid clipping
         // at the Monaco viewport edge (especially near the first lines).
         fixedOverflowWidgets: true,
@@ -345,21 +350,11 @@ export const initMonacoSetup = (
         attachSelectionDragAutoScroll(monacoWindow.monaco, editor, host);
         codeCommentManager.attachToEditor(group);
 
-        host.addEventListener(
-          "keydown",
-          (event) => {
-            if (event.key !== "Tab") {
-              return;
-            }
-            if (!document.querySelector(".suggest-widget.visible")) {
-              return;
-            }
-            event.preventDefault();
-            event.stopPropagation();
-            const command = event.shiftKey ? "selectPrevSuggestion" : "selectNextSuggestion";
-            editorAny.trigger?.("tex64", command, {});
-          },
-          true
+        // Tab accepts the focused suggestion (it used to move to the next row,
+        // which left no key that accepts one); no Tab or Enter reaches monaco
+        // while an IME composition is open.
+        attachEditorKeyCapture(editorAny, host, group, () =>
+          Boolean(document.querySelector(".suggest-widget.visible"))
         );
 
         let hoverAnchorRafId: number | null = null;
@@ -388,34 +383,19 @@ export const initMonacoSetup = (
         window.addEventListener("resize", scheduleHoverFixedAnchor);
         updateHoverFixedAnchor();
 
-        host.addEventListener("compositionstart", () => {
-          group.isComposing = true;
-          group.compositionText = "";
-          group.composingFilePath = group.currentFilePath;
-        });
-        host.addEventListener("compositionupdate", (e) => {
-          group.compositionText = (e as CompositionEvent).data || "";
-        });
-        host.addEventListener("compositionend", (e) => {
-          const data = (e as CompositionEvent).data;
-          if (!data && group.compositionText) {
-            if (group.composingFilePath === group.currentFilePath) {
-              const selection = editorAny.getSelection();
-              if (selection) {
-                editorAny.executeEdits("ime-recover", [
-                  {
-                    range: selection,
-                    text: group.compositionText,
-                    forceMoveMarkers: true,
-                  },
-                ]);
-              }
+        trackComposition(editor, host, group, {
+          // A suggestion clicked mid-composition would commit the text twice.
+          onStart: () => editorAny.trigger?.("tex64", "hideSuggestWidget", {}),
+          onEnd: () => deps.editorSession.handleCompositionEnd(group),
+          onCancel: () => deps.editorSession.handleCompositionEnd(group, { cancelled: true }),
+          recover: (text) => {
+            const selection = editorAny.getSelection();
+            if (selection) {
+              editorAny.executeEdits("ime-recover", [
+                { range: selection, text, forceMoveMarkers: true },
+              ]);
             }
-          }
-          group.compositionText = "";
-          group.isComposing = false;
-          group.composingFilePath = null;
-          deps.editorSession.handleCompositionEnd(group);
+          },
         });
         editor.onDidFocusEditorWidget?.(() => {
           deps.editorSession.setActiveGroup(group.key, { focusEditor: false });

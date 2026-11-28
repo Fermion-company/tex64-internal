@@ -3,6 +3,7 @@ import { countMarkedLines, renderBuildLog, segmentBuildLog } from "./build-log-v
 import { hideEditorNotice, showEditorNotice } from "./editor-notice.js";
 import { collabSession } from "./collab/session.js";
 import { explainedHeading } from "./explain.js";
+import { autoJumpAfterBuild, jumpButtonEnabled, needsBuildAction, recheckAllowed, recheckText } from "./jump-build-rules.js";
 export const resolveBuildProgressPhase = (message, cancelRequested = false) => {
     if (cancelRequested || /cancel/i.test(message !== null && message !== void 0 ? message : ""))
         return "cancelling";
@@ -29,11 +30,22 @@ export const initBuildOpsUi = (context, deps) => {
     let currentBuildState = "idle";
     let preparingBuild = false;
     let preparationGeneration = 0;
+    // The Build running now: the tab that started it, and the TeX file it was
+    // started from (the same file, or the one a non-TeX tab builds).
+    let buildSource = null;
     let buildProgressPhase = "building";
     let buildStartedAt = 0;
     let buildCancelRequested = false;
     let buildProgressTimer = null;
     let synctexForwardRequestOrder = 0;
+    // A Jump was asked for while the Build running now was running.
+    let manualJumpDuringBuild = false;
+    // The text that Jump's line was a line of (for its re-check, below).
+    let buildJumpText = null;
+    // The automatic Jump followed the last Build: a re-check would be a second move.
+    let autoJumpedAfterBuild = false;
+    // Re-checks waiting for main: request id -> the viewer's reply.
+    const recheckReplies = new Map();
     let synctexForwardLastAppliedOrder = 0;
     let synctexManualPriorityUntil = 0;
     let synctexForwardInFlight = null;
@@ -91,7 +103,13 @@ export const initBuildOpsUi = (context, deps) => {
             ...(build ? { action: { label: uiText("Build", "ビルド"), run: () => void startBuild() } } : {}),
         });
     };
-    const getBuildButtonIdleTitle = () => uiText("Build", "ビルド");
+    const canBuildFromAnotherTab = () => {
+        var _a;
+        const activeFile = deps.getActiveFilePath();
+        return !preparingBuild && currentBuildState === "building" &&
+            buildSource !== null && buildSource.workspace === ((_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps)) &&
+            Boolean(activeFile && /\.tex$/i.test(activeFile) && activeFile !== buildSource.path && activeFile !== buildSource.file);
+    };
     const buildProgressText = () => {
         if (buildProgressPhase === "cancelling") {
             return uiText("Canceling…", "キャンセル中…");
@@ -104,15 +122,23 @@ export const initBuildOpsUi = (context, deps) => {
             : 0;
         return elapsedSeconds > 0 ? `${phase} ${elapsedSeconds}s` : phase;
     };
-    const renderBuildButtonProgress = () => {
-        if (!(buildButton instanceof HTMLButtonElement) || currentBuildState !== "building")
+    const renderBuildButton = () => {
+        if (!(buildButton instanceof HTMLButtonElement))
             return;
-        const progress = buildProgressText();
-        buildButton.dataset.progressPhase = buildProgressPhase;
-        buildButton.title = progress;
+        const busy = preparingBuild || (currentBuildState === "building" && !canBuildFromAnotherTab());
+        const text = busy ? buildProgressText() : uiText("Build", "ビルド");
+        buildButton.disabled = false;
+        buildButton.classList.toggle("is-busy", busy);
+        buildButton.setAttribute("aria-busy", String(busy));
+        buildButton.setAttribute("aria-label", busy ? uiText("Cancel build", "ビルドをキャンセル") : text);
+        if (busy)
+            buildButton.dataset.progressPhase = buildProgressPhase;
+        else
+            delete buildButton.dataset.progressPhase;
         const label = buildButton.querySelector(".build-button-label");
         if (label)
-            label.textContent = progress;
+            label.textContent = text;
+        buildButton.title = text;
     };
     const stopBuildProgressTimer = () => {
         if (buildProgressTimer !== null)
@@ -122,7 +148,7 @@ export const initBuildOpsUi = (context, deps) => {
     const startBuildProgressTimer = () => {
         if (buildProgressTimer !== null)
             return;
-        buildProgressTimer = window.setInterval(renderBuildButtonProgress, 250);
+        buildProgressTimer = window.setInterval(renderBuildButton, 250);
     };
     const isEnvMissingMessage = (message) => {
         const lower = message.toLowerCase();
@@ -145,37 +171,34 @@ export const initBuildOpsUi = (context, deps) => {
         }
         return key;
     };
-    const resolvePdfSyncGroup = (pdfPath) => {
+    const resolvePdfSyncGroup = () => {
         var _a;
-        if (!pdfPath) {
-            return null;
-        }
-        return ((_a = deps.getEditorGroups().find((group) => group.openTabs.includes(pdfPath))) !== null && _a !== void 0 ? _a : null);
+        const active = deps.getActiveGroup();
+        if (active.viewer.getViewerMode() === "pdf")
+            return active;
+        return (_a = deps.getEditorGroups().find((group) => group.key !== active.key)) !== null && _a !== void 0 ? _a : active;
     };
     const handleBuildPreviewState = (payload) => {
-        var _a, _b;
-        if (payload.state !== "building" || payload.previousPdf !== true || !payload.pdfPath)
-            return;
-        if (deps.settings.getPdfViewerMode() !== "tab")
-            return;
-        const pdfPath = payload.pdfPath;
-        const visible = deps.getEditorGroups().some((group) => group.currentFilePath === pdfPath && group.viewer.getViewerMode() === "pdf");
-        if (visible)
-            return;
-        const openedGroup = (_b = (_a = resolvePdfSyncGroup(pdfPath)) !== null && _a !== void 0 ? _a : deps.getEditorGroups().find((group) => group.key === "secondary")) !== null && _b !== void 0 ? _b : deps.getActiveGroup();
-        if (openedGroup.key === "secondary" && !deps.getSplitViewEnabled()) {
-            deps.setSplitViewEnabled(true);
-        }
-        deps.cacheCurrentBuffer(openedGroup);
-        deps.requestOpenFile(pdfPath, openedGroup.key, true);
+        if (payload.state === "building")
+            buildHasPreviousPdf = payload.previousPdf === true && Boolean(payload.pdfPath);
     };
+    // The Live paper is on screen in a viewer (not a static PDF held under it).
+    const livePaperShown = () => deps.getEditorGroups().some((group) => { var _a, _b; return group.viewer.getViewerMode() === "pdf" && ((_b = (_a = group.viewer).livePaperShown) === null || _b === void 0 ? void 0 : _b.call(_a)) === true; });
+    // The Build running now had a PDF before it (jump-build-rules.ts).
+    let buildHasPreviousPdf = false;
     const updateSynctexButtonState = () => {
+        renderBuildButton();
         if (!(synctexButton instanceof HTMLButtonElement)) {
             return;
         }
         const targetPath = resolveSynctexForwardTarget(null, deps.getActiveFilePath(), deps.getLastBuildMainFile(), deps.getRootFilePath());
-        // A Build rewrites the PDF and its SyncTeX data: no Jump until it is done.
-        const enabled = Boolean(targetPath) && !preparingBuild && currentBuildState !== "building";
+        const enabled = jumpButtonEnabled({
+            hasTarget: Boolean(targetPath),
+            preparingBuild,
+            building: currentBuildState === "building",
+            previousPdf: buildHasPreviousPdf,
+            livePaper: livePaperShown(),
+        });
         synctexButton.disabled = !enabled;
         synctexButton.style.display = "inline-flex";
     };
@@ -265,7 +288,7 @@ export const initBuildOpsUi = (context, deps) => {
         }, 0);
     };
     const requestSynctexForward = (overridePath, options = {}) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
         const activeGroup = deps.getActiveGroup();
         const activePath = deps.getActiveFilePath();
         const lastBuildMainFile = deps.getLastBuildMainFile();
@@ -280,12 +303,21 @@ export const initBuildOpsUi = (context, deps) => {
         const sourceGroup = [activeGroup, ...deps.getEditorGroups()].find((group) => group.currentFilePath === targetPath);
         const editor = sourceGroup === null || sourceGroup === void 0 ? void 0 : sourceGroup.editor;
         const position = (_c = (_b = editor === null || editor === void 0 ? void 0 : editor.getPosition) === null || _b === void 0 ? void 0 : _b.call(editor)) !== null && _c !== void 0 ? _c : null;
+        // The caret's line is a line of this text; main carries it into the
+        // numbering of whatever answers (the last Build read an older text).
+        const editorText = position ? (_d = editor === null || editor === void 0 ? void 0 : editor.getValue) === null || _d === void 0 ? void 0 : _d.call(editor) : undefined;
         const storedPosition = deps.getStoredCursorPosition(targetPath);
-        const line = (_e = (_d = position === null || position === void 0 ? void 0 : position.lineNumber) !== null && _d !== void 0 ? _d : storedPosition === null || storedPosition === void 0 ? void 0 : storedPosition.line) !== null && _e !== void 0 ? _e : 1;
-        const column = (_g = (_f = position === null || position === void 0 ? void 0 : position.column) !== null && _f !== void 0 ? _f : storedPosition === null || storedPosition === void 0 ? void 0 : storedPosition.column) !== null && _g !== void 0 ? _g : 1;
-        const source = (_h = options.source) !== null && _h !== void 0 ? _h : "manual";
+        const line = (_f = (_e = position === null || position === void 0 ? void 0 : position.lineNumber) !== null && _e !== void 0 ? _e : storedPosition === null || storedPosition === void 0 ? void 0 : storedPosition.line) !== null && _f !== void 0 ? _f : 1;
+        const column = (_h = (_g = position === null || position === void 0 ? void 0 : position.column) !== null && _g !== void 0 ? _g : storedPosition === null || storedPosition === void 0 ? void 0 : storedPosition.column) !== null && _h !== void 0 ? _h : 1;
+        const source = (_j = options.source) !== null && _j !== void 0 ? _j : "manual";
         if (source === "manual") {
             synctexManualPriorityUntil = Date.now() + 5000;
+            // This Build's own Jump will not be followed by another when it ends,
+            // and is asked about again on the PDF that Build makes (re-check).
+            if (currentBuildState === "building") {
+                manualJumpDuringBuild = true;
+                buildJumpText = typeof editorText === "string" ? { path: targetPath, line, text: editorText } : null;
+            }
             // The last Jump's note is about another line.
             hideEditorNotice("jump");
         }
@@ -332,6 +364,7 @@ export const initBuildOpsUi = (context, deps) => {
             path: targetPath,
             line,
             column,
+            afterBuild: options.afterBuild === true,
         });
         synctexForwardInFlight = {
             requestId,
@@ -356,22 +389,47 @@ export const initBuildOpsUi = (context, deps) => {
             // main resolves the document (and its real PDF) like a Build would. A
             // document chosen for this file, or the one the post-Build jump follows,
             // is named explicitly.
-            documentMainFile: (_m = (_j = (source === "auto-build" ? lastBuildMainFile : null)) !== null && _j !== void 0 ? _j : chosenTargets.get(`${(_l = (_k = deps.getWorkspaceRootKey) === null || _k === void 0 ? void 0 : _k.call(deps)) !== null && _l !== void 0 ? _l : ""}\0${targetPath}`)) !== null && _m !== void 0 ? _m : undefined,
+            documentMainFile: (_l = (_k = (source === "auto-build" ? lastBuildMainFile : null)) !== null && _k !== void 0 ? _k : chosenTarget(targetPath)) !== null && _l !== void 0 ? _l : undefined,
             line,
             column,
+            ...(typeof editorText === "string" ? { text: editorText } : {}),
+            // Live's page numbers only for the Live paper (a held static PDF has its own)
+            livePaper: livePaperShown(),
             fallbackToTop: options.fallbackToTop === true,
             pdfViewerMode: deps.settings.getPdfViewerMode(),
         });
     };
     const setBuildState = (state, message) => {
-        var _a, _b;
+        var _a, _b, _c, _d;
         const wasBusy = currentBuildState === "building";
+        if (state === "building" && !wasBusy) {
+            manualJumpDuringBuild = false;
+            autoJumpedAfterBuild = false;
+            buildJumpText = null;
+        }
+        const jumpedDuringBuild = manualJumpDuringBuild;
+        if (state !== "building") {
+            manualJumpDuringBuild = false;
+            buildHasPreviousPdf = false;
+        }
         currentBuildState = state;
-        updateSynctexButtonState();
+        // (a Jump that started this Build jumps on its PDF: the automatic one stays out)
+        const jumpFollowsBuild = state === "success" && (pendingJumpAfterBuild === null || pendingJumpAfterBuild === void 0 ? void 0 : pendingJumpAfterBuild.started) === true;
         if (state === "building" && pendingJumpAfterBuild)
             pendingJumpAfterBuild.started = true;
         else if (state === "success" || state === "failed" || state === "idle")
             resumeJumpAfterBuild(state);
+        if (state === "success" || state === "failed" || state === "idle") {
+            const check = pickCheck;
+            pickCheck = null;
+            const built = deps.getLastBuildMainFile();
+            if (check && state === "success" && built && check.workspace === ((_b = (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : null)) {
+                const key = chosenKey(check.file);
+                const pick = chosenTargets.get(key);
+                if (pick && pick !== built)
+                    chosenTargets.delete(key);
+            }
+        }
         const isBusy = state === "building";
         if (isBusy) {
             if (!wasBusy) {
@@ -387,23 +445,7 @@ export const initBuildOpsUi = (context, deps) => {
             buildCancelRequested = false;
             buildProgressPhase = "building";
         }
-        if (buildButton instanceof HTMLButtonElement) {
-            buildButton.disabled = false;
-            buildButton.classList.toggle("is-busy", isBusy);
-            buildButton.setAttribute("aria-busy", isBusy ? "true" : "false");
-            buildButton.setAttribute("aria-label", isBusy
-                ? uiText("Cancel build", "ビルドをキャンセル")
-                : uiText("Build", "ビルド"));
-            const label = buildButton.querySelector(".build-button-label");
-            if (label && !isBusy)
-                label.textContent = uiText("Build", "ビルド");
-            if (isBusy)
-                renderBuildButtonProgress();
-            else {
-                delete buildButton.dataset.progressPhase;
-                buildButton.title = getBuildButtonIdleTitle();
-            }
-        }
+        updateSynctexButtonState();
         if (state === "success") {
             try {
                 localStorage.setItem(firstBuildCompletedKey, "1");
@@ -411,15 +453,16 @@ export const initBuildOpsUi = (context, deps) => {
             catch {
                 // ignore storage failures
             }
-            if (deps.settings.getAutoSynctexOnBuildEnabled()) {
+            if (autoJumpAfterBuild({ enabled: deps.settings.getAutoSynctexOnBuildEnabled(), jumpedDuringBuild, jumpFollowsBuild })) {
                 // Target the .tex the user is actively editing (incl. an \input-ed
                 // sub-file) so SyncTeX jumps to the live cursor; fall back to the built
                 // main file when the active tab isn't a .tex (e.g. the PDF or a .bib).
                 const activePath = deps.getActiveFilePath();
                 const targetPath = activePath && activePath.endsWith(".tex")
                     ? activePath
-                    : (_b = (_a = deps.getLastBuildMainFile()) !== null && _a !== void 0 ? _a : deps.getRootFilePath()) !== null && _b !== void 0 ? _b : null;
+                    : (_d = (_c = deps.getLastBuildMainFile()) !== null && _c !== void 0 ? _c : deps.getRootFilePath()) !== null && _d !== void 0 ? _d : null;
                 if (targetPath && targetPath.endsWith(".tex")) {
+                    autoJumpedAfterBuild = true;
                     requestSynctexForward(targetPath, {
                         fallbackToTop: false,
                         source: "auto-build",
@@ -449,13 +492,32 @@ export const initBuildOpsUi = (context, deps) => {
             if (ok) {
                 buildCancelRequested = true;
                 buildProgressPhase = "cancelling";
-                renderBuildButtonProgress();
+                renderBuildButton();
                 deps.updateIssues(0, uiText("Canceling build…", "ビルドをキャンセル中…"), "info", []);
             }
         }
     };
     // Fragment → document chosen in the chooser, per workspace, for this session.
     const chosenTargets = new Map();
+    const chosenKey = (file) => { var _a, _b; return `${(_b = (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : ""}\0${file}`; };
+    // A pick stands while its document is in the workspace (a renamed or
+    // deleted document drops it, for Build, Jump and the other readers).
+    const chosenTarget = (file) => {
+        const key = chosenKey(file);
+        const target = chosenTargets.get(key);
+        if (!target)
+            return undefined;
+        const files = deps.getWorkspaceFiles();
+        if (files.length > 0 && !files.includes(target)) {
+            chosenTargets.delete(key);
+            return undefined;
+        }
+        return target;
+    };
+    // A Build that main resolved from a file with a pick, without asking: when
+    // it built another document (a % !TEX root line, Settings › Main TeX, the
+    // only owner left), that rule now decides and the pick is dropped.
+    let pickCheck = null;
     let chooserDialog = null;
     // A Jump whose document had no PDF yet: the Build it started, and the file
     // to jump from once that Build succeeds.
@@ -475,13 +537,26 @@ export const initBuildOpsUi = (context, deps) => {
         if (state !== "success" || ((_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps)) !== pending.workspaceKey)
             return;
         const built = deps.getLastBuildMainFile();
-        if (built && built !== pending.target)
+        // (no target: the Build resolved the document itself)
+        if (built && pending.target && built !== pending.target)
             return;
-        window.setTimeout(() => requestSynctexForward(pending.path, { fallbackToTop: true, source: "manual" }), 0);
+        window.setTimeout(() => requestSynctexForward(pending.path, { fallbackToTop: true, source: "manual", afterBuild: true }), 0);
     };
     // Main could not decide which document to build (a fragment included by two
-    // documents, or several documents and no root): one dialog, one answer.
-    const chooseBuildTarget = (payload) => openTargetChooser({ ...payload, onPick: (path) => void startBuild(path) });
+    // documents, or several documents and no root): one dialog, one answer. The
+    // answer is reused for that file while the question stays the same (its
+    // document is still one of the candidates); otherwise it is asked again.
+    const chooseBuildTarget = (payload) => {
+        const requested = typeof (payload === null || payload === void 0 ? void 0 : payload.requested) === "string" ? payload.requested : null;
+        const remembered = requested ? chosenTarget(requested) : undefined;
+        if (remembered && Array.isArray(payload.candidates) && payload.candidates.includes(remembered)) {
+            void startBuild(remembered);
+            return;
+        }
+        if (requested && remembered)
+            chosenTargets.delete(chosenKey(requested));
+        openTargetChooser({ ...payload, onPick: (path) => void startBuild(path) });
+    };
     const openTargetChooser = (payload) => {
         var _a, _b;
         const candidates = Array.isArray(payload === null || payload === void 0 ? void 0 : payload.candidates) ? payload.candidates.filter((c) => typeof c === "string" && c) : [];
@@ -568,9 +643,7 @@ export const initBuildOpsUi = (context, deps) => {
     };
     const startBuild = async (explicitTarget) => {
         var _a, _b, _c, _d, _e, _f, _g;
-        // File-selection actions may outlive the idle state in which their context
-        // menu opened. Only a normal button click is allowed to cancel a build.
-        if (preparingBuild || currentBuildState === "building")
+        if (preparingBuild || (currentBuildState === "building" && !canBuildFromAnotherTab()))
             return;
         const now = buildWithoutWaiting || awaitingFiles !== null;
         buildWithoutWaiting = false;
@@ -613,15 +686,19 @@ export const initBuildOpsUi = (context, deps) => {
         }
         deps.cacheCurrentBuffer(deps.getActiveGroup());
         const buildWorkspace = (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps);
-        const activePath = deps.getActiveFilePath();
-        const activeTex = activePath && /\.tex$/i.test(activePath) ? activePath : undefined;
-        // A plain click names the active file and lets main resolve the document
-        // it belongs to (magic root, the including document, the workspace root).
-        // A chosen file (context menu, or the chooser's answer remembered for this
-        // fragment) is built exactly as named.
-        const remembered = activeTex ? chosenTargets.get(`${buildWorkspace !== null && buildWorkspace !== void 0 ? buildWorkspace : ""}\0${activeTex}`) : undefined;
-        const exactTarget = explicitTarget !== null && explicitTarget !== void 0 ? explicitTarget : remembered;
-        const mainFile = (_f = (_e = (_d = (_b = exactTarget !== null && exactTarget !== void 0 ? exactTarget : activeTex) !== null && _b !== void 0 ? _b : (_c = deps.getEditorGroups().find((group) => group.currentFilePath && /\.tex$/i.test(group.currentFilePath))) === null || _c === void 0 ? void 0 : _c.currentFilePath) !== null && _d !== void 0 ? _d : deps.getLastBuildMainFile()) !== null && _e !== void 0 ? _e : deps.getRootFilePath()) !== null && _f !== void 0 ? _f : undefined;
+        // (another source's Build is still running)
+        const concurrent = currentBuildState === "building";
+        // Both are taken before the saves (the user may switch tabs meanwhile):
+        // the initiating tab, for the button's busy state, and the TeX file main
+        // resolves the document from (magic root, the including document, the
+        // workspace root). A non-TeX tab (.bib, .sty, an image, the PDF) builds,
+        // as in v0.1.32, the other pane's TeX file, else the last document built,
+        // else the workspace root.
+        const initiatingFile = deps.getActiveFilePath();
+        const isTex = (file) => Boolean(file && /\.tex$/i.test(file));
+        const workspaceFiles = deps.getWorkspaceFiles();
+        const present = (file) => isTex(file) && (workspaceFiles.length === 0 || workspaceFiles.includes(file)) ? file : undefined;
+        const mainFile = (_f = (_e = (_d = (_b = (isTex(initiatingFile) ? initiatingFile : undefined)) !== null && _b !== void 0 ? _b : (_c = deps.getEditorGroups().find((group) => isTex(group.currentFilePath))) === null || _c === void 0 ? void 0 : _c.currentFilePath) !== null && _d !== void 0 ? _d : present(deps.getLastBuildMainFile())) !== null && _e !== void 0 ? _e : present(deps.getRootFilePath())) !== null && _f !== void 0 ? _f : undefined;
         if (deps.saveDirtyFiles) {
             const generation = ++preparationGeneration;
             preparingBuild = true;
@@ -643,11 +720,10 @@ export const initBuildOpsUi = (context, deps) => {
                 return;
             }
         }
-        deps.setLastBuildMainFile(mainFile !== null && mainFile !== void 0 ? mainFile : null);
         const engine = localStorage.getItem("tex64.compileEngine") || "lualatex";
         const payload = { type: "build" };
-        if (exactTarget) {
-            payload.targetFile = exactTarget;
+        if (explicitTarget) {
+            payload.targetFile = explicitTarget;
         }
         else if (mainFile) {
             payload.mainFile = mainFile;
@@ -658,6 +734,10 @@ export const initBuildOpsUi = (context, deps) => {
         payload.pdfViewerMode = deps.settings.getPdfViewerMode();
         payload.formatSettings = deps.settings.buildFormatSettingsPayload();
         if (deps.postToNative(payload)) {
+            buildSource = { path: initiatingFile, file: explicitTarget ? initiatingFile : mainFile !== null && mainFile !== void 0 ? mainFile : null, workspace: buildWorkspace };
+            pickCheck = !explicitTarget && !concurrent && mainFile && chosenTarget(mainFile)
+                ? { workspace: buildWorkspace !== null && buildWorkspace !== void 0 ? buildWorkspace : null, file: mainFile }
+                : null;
             setBuildState("building");
             handleBuildLog(null);
             deps.updateIssues(0, uiText("Starting build.", "Start the build."), "info", []);
@@ -763,9 +843,66 @@ export const initBuildOpsUi = (context, deps) => {
             requestFormatCurrentFile((_d = payload.source) !== null && _d !== void 0 ? _d : "auto");
         }
     };
+    // The viewer's re-check (viewer.ts "jump-recheck"): the PDF a Build made is
+    // on screen and a Jump was made while that Build ran. Its line on that PDF,
+    // from main (source "recheck": that PDF only, never a Build, never Live),
+    // goes back to that viewer, which moves only if the line is out of view.
+    // It is not a Jump of the reader's: no notice, no priority over another
+    // Jump, and none after the automatic one.
+    window.addEventListener("tex64:jump-recheck", (event) => {
+        var _a, _b;
+        const detail = event.detail;
+        if (!detail || typeof detail.reply !== "function")
+            return;
+        if (!recheckAllowed({ preparingBuild, building: currentBuildState === "building", autoJumped: autoJumpedAfterBuild }))
+            return;
+        const shown = deps.getEditorGroups().find((group) => group.currentFilePath === detail.file);
+        const current = (_b = (_a = shown === null || shown === void 0 ? void 0 : shown.editor) === null || _a === void 0 ? void 0 : _a.getValue) === null || _b === void 0 ? void 0 : _b.call(_a);
+        const text = recheckText({ jump: buildJumpText, file: detail.file, line: detail.line, current });
+        const requestId = buildSynctexForwardRequestId();
+        recheckReplies.set(requestId, detail.reply);
+        while (recheckReplies.size > 8)
+            recheckReplies.delete(recheckReplies.keys().next().value);
+        deps.postToNative({
+            type: "synctex:forward",
+            requestId,
+            source: "recheck",
+            path: detail.file,
+            line: detail.line,
+            column: detail.column,
+            pdfPath: detail.pdfPath,
+            ...(typeof text === "string" ? { text } : {}),
+            fallbackToTop: false,
+            livePaper: false,
+            pdfViewerMode: "tab",
+        }, true);
+    });
     const handleSynctexForwardResult = (payload) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
         if (!payload) {
+            return;
+        }
+        const recheckReply = typeof payload.requestId === "string" ? recheckReplies.get(payload.requestId) : undefined;
+        if (recheckReply) {
+            recheckReplies.delete(payload.requestId);
+            if (payload.ok !== true || payload.notTypeset === true || typeof payload.page !== "number")
+                return;
+            const place = { page: payload.page, x: (_a = payload.x) !== null && _a !== void 0 ? _a : 0, y: (_b = payload.y) !== null && _b !== void 0 ? _b : 0 };
+            if (typeof payload.blockX === "number")
+                place.blockX = payload.blockX;
+            if (typeof payload.blockY === "number")
+                place.blockY = payload.blockY;
+            if (typeof payload.blockWidth === "number" && payload.blockWidth > 0)
+                place.blockWidth = payload.blockWidth;
+            if (typeof payload.blockHeight === "number" && payload.blockHeight > 0)
+                place.blockHeight = payload.blockHeight;
+            if (Array.isArray(payload.blocks) && payload.blocks.length > 1)
+                place.blocks = payload.blocks.slice(0, 32);
+            if (payload.approximate === true)
+                place.approximate = true;
+            if (payload.direction === "tate")
+                place.direction = "tate";
+            recheckReply(place);
             return;
         }
         const payloadRequestId = typeof payload.requestId === "string" && payload.requestId.trim()
@@ -781,9 +918,9 @@ export const initBuildOpsUi = (context, deps) => {
             synctexForwardInFlight = null;
         }
         const payloadMeta = payloadRequestId
-            ? (_a = synctexForwardOrderByRequestId.get(payloadRequestId)) !== null && _a !== void 0 ? _a : null
+            ? (_c = synctexForwardOrderByRequestId.get(payloadRequestId)) !== null && _c !== void 0 ? _c : null
             : null;
-        const payloadOrder = (_b = payloadMeta === null || payloadMeta === void 0 ? void 0 : payloadMeta.order) !== null && _b !== void 0 ? _b : null;
+        const payloadOrder = (_d = payloadMeta === null || payloadMeta === void 0 ? void 0 : payloadMeta.order) !== null && _d !== void 0 ? _d : null;
         if (payload.cancelled === true) {
             if (matchedInFlight) {
                 flushQueuedSynctexForward();
@@ -809,8 +946,8 @@ export const initBuildOpsUi = (context, deps) => {
         }
         if (payload.ok) {
             if (deps.settings.getPdfViewerMode() === "tab" && typeof payload.page === "number") {
-                const pdfPath = (_c = payload.pdfPath) !== null && _c !== void 0 ? _c : null;
-                const openedGroup = (_e = (_d = resolvePdfSyncGroup(pdfPath)) !== null && _d !== void 0 ? _d : deps.getEditorGroups().find((group) => group.key === "secondary")) !== null && _e !== void 0 ? _e : deps.getActiveGroup();
+                const pdfPath = (_e = payload.pdfPath) !== null && _e !== void 0 ? _e : null;
+                const openedGroup = resolvePdfSyncGroup();
                 const shouldSplit = openedGroup.key === "secondary";
                 if (shouldSplit && !deps.getSplitViewEnabled()) {
                     deps.setSplitViewEnabled(true);
@@ -831,6 +968,10 @@ export const initBuildOpsUi = (context, deps) => {
                 }
                 if (payload.fallback === true)
                     syncPayload.approximate = true;
+                if (payload.liveRevision)
+                    syncPayload.liveRevision = payload.liveRevision;
+                if (payload.direction === "tate")
+                    syncPayload.direction = "tate";
                 if (payload.notTypeset === true) {
                     // The first page stands in for a line that is not typeset.
                     syncPayload.marker = false;
@@ -882,15 +1023,44 @@ export const initBuildOpsUi = (context, deps) => {
         if (code === "NEEDS_BUILD" && (payloadMeta === null || payloadMeta === void 0 ? void 0 : payloadMeta.source) === "manual") {
             // The document has no PDF yet: build it, then jump from the same file.
             const targetFile = String(payload.targetFile || "");
-            if (targetFile) {
+            const action = needsBuildAction({
+                afterBuild: payloadMeta.afterBuild,
+                building: currentBuildState === "building",
+                targetFile,
+            });
+            if (action === "notice") {
+                // That Build succeeded and still left no PDF with SyncTeX where Jump
+                // reads it (SyncTeX turned off in the Build's own options, say):
+                // another Build would only end here again, and again.
+                showSynctexNotice(synctexErrorNotice("SyncTeX data was not found.").message, "error");
+            }
+            else if (action === "follow") {
+                // A Build is running already (this file's document had no PDF yet):
+                // the Jump follows it, from the PDF it makes.
                 pendingJumpAfterBuild = {
                     path: payloadMeta.path,
-                    target: targetFile,
+                    target: targetFile || null,
                     workspaceKey: (_k = (_j = deps.getWorkspaceRootKey) === null || _j === void 0 ? void 0 : _j.call(deps)) !== null && _k !== void 0 ? _k : null,
+                    started: true,
+                };
+            }
+            else if (action === "build") {
+                pendingJumpAfterBuild = {
+                    path: payloadMeta.path,
+                    target: targetFile || null,
+                    workspaceKey: (_m = (_l = deps.getWorkspaceRootKey) === null || _l === void 0 ? void 0 : _l.call(deps)) !== null && _m !== void 0 ? _m : null,
                     started: false,
                 };
-                void startBuild(targetFile);
+                void startBuild(targetFile || undefined);
             }
+            if (matchedInFlight)
+                flushQueuedSynctexForward();
+            return;
+        }
+        if (code === "SYNCTEX_DISABLED" && (payloadMeta === null || payloadMeta === void 0 ? void 0 : payloadMeta.source) === "manual") {
+            // The Build profile writes no SyncTeX: a Build cannot help, so the
+            // notice comes without its Build action (and no Build starts).
+            showSynctexNotice(synctexErrorNotice("SyncTeX data was not found.").message, "error");
             if (matchedInFlight)
                 flushQueuedSynctexForward();
             return;
@@ -906,7 +1076,7 @@ export const initBuildOpsUi = (context, deps) => {
             }
             return;
         }
-        const errorMessage = (_l = payload.error) !== null && _l !== void 0 ? _l : uiText("SyncTeX failed.", "SyncTeXで位置を特定できませんでした。");
+        const errorMessage = (_o = payload.error) !== null && _o !== void 0 ? _o : uiText("SyncTeX failed.", "SyncTeXで位置を特定できませんでした。");
         if (isEnvMissingMessage(errorMessage)) {
             // Missing TeX tools: the Issues entry carries the fix-it action.
             const issue = { severity: "error", message: errorMessage, action: "open-runtime" };
@@ -921,13 +1091,37 @@ export const initBuildOpsUi = (context, deps) => {
         }
     };
     const setupActionButtons = () => {
+        // Mouse activation of an editor command leaves the text input focused.
+        // Keyboard activation keeps the toolbar's normal tab and focus behavior.
+        for (const button of [context.dom.saveButton, buildButton, formatButton, synctexButton]) {
+            if (!(button instanceof HTMLButtonElement))
+                continue;
+            button.addEventListener("mousedown", (event) => {
+                var _a;
+                if (event.button !== 0)
+                    return;
+                const editor = deps.getActiveGroup().editor;
+                if ((_a = editor === null || editor === void 0 ? void 0 : editor.hasTextFocus) === null || _a === void 0 ? void 0 : _a.call(editor))
+                    event.preventDefault();
+            });
+        }
         if (buildButton instanceof HTMLButtonElement) {
-            buildButton.addEventListener("click", () => {
-                if (preparingBuild || currentBuildState === "building") {
+            let lastStart = null;
+            buildButton.addEventListener("click", (event) => {
+                var _a;
+                const file = deps.getActiveFilePath();
+                const workspace = (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps);
+                if (lastStart && lastStart.file === file && lastStart.workspace === workspace &&
+                    event.timeStamp - lastStart.at <= 500)
+                    return;
+                if (preparingBuild || (currentBuildState === "building" && !canBuildFromAnotherTab())) {
                     cancelBuild();
                     return;
                 }
                 void startBuild();
+                if (preparingBuild || (currentBuildState === "building" && (buildSource === null || buildSource === void 0 ? void 0 : buildSource.path) === file && buildSource.workspace === workspace)) {
+                    lastStart = { at: event.timeStamp, file, workspace };
+                }
             });
             buildButton.addEventListener("contextmenu", (event) => {
                 var _a, _b;
@@ -976,7 +1170,7 @@ export const initBuildOpsUi = (context, deps) => {
     };
     return {
         // The document a fragment was last built as, when the user chose it.
-        documentFor: (path) => { var _a, _b; return chosenTargets.get(`${(_b = (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : ""}\0${path}`); },
+        documentFor: (path) => chosenTarget(path),
         updateSynctexButtonState,
         handleBuildPreviewState,
         setBuildState,

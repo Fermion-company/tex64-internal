@@ -1,6 +1,9 @@
 class BuildService {
   constructor(options = {}) {
     this.onPdfBuilt = typeof options.onPdfBuilt === "function" ? options.onPdfBuilt : null;
+    // Realtime preview needs position data: while it runs, a profile's
+    // `-synctex=0` is not passed on (see runLatexmk).
+    this.liveActive = typeof options.liveActive === "function" ? options.liveActive : null;
     this.isBuilding = false;
     this.activeProcess = null;
     this.cancelRequested = false;

@@ -92,6 +92,19 @@ export const collabSession = {
             return false;
         }
     },
+    // Quit and window close: main writes every shared document (also files
+    // this window never opened) and holds peer edits from then on.
+    drain: async () => {
+        if (!bridge)
+            return true;
+        try {
+            const result = await call("drain");
+            return result.flushed !== false;
+        }
+        catch {
+            return false;
+        }
+    },
     send: (docId, kind, bytes) => {
         if (!bridge || !state.active)
             return;

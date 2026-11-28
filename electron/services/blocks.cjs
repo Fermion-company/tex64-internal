@@ -1,3 +1,4 @@
+const { writeProjectFile } = require("./project-file-writes.cjs");
 const path = require("path");
 const fsp = require("fs/promises");
 
@@ -17,7 +18,7 @@ class BlocksStore {
     await fsp.mkdir(directory, { recursive: true });
     const blocksPath = path.join(directory, "blocks.json");
     const payload = JSON.stringify(blocks, null, 2);
-    await fsp.writeFile(blocksPath, payload);
+    await writeProjectFile(blocksPath, payload);
   }
 }
 

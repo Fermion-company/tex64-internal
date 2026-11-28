@@ -1,27 +1,22 @@
 import type { AppContext } from "./context.js";
 import { editorTabLabels } from "./editor-tab-labels.js";
 
-type EditorGroupKey = "primary" | "secondary";
+import { fileTreeDragDataType, getDragData } from "./file-tree-utils.js";
+import type { EditorGroupKey, EditorGroupState } from "./editor-session/types.js";
+import type { TabPosition } from "./editor-session/tab-state-ops.js";
+import type { DragPayload } from "./types.js";
 
-type EditorGroupState = {
-  key: EditorGroupKey;
-  root: HTMLElement | null;
-  tabs: HTMLElement | null;
-  tabsList: HTMLElement | null;
-  openTabs: string[];
-  currentFilePath: string | null;
-  isComposing: boolean;
-};
+type TabDrag = { path: string; group: EditorGroupKey };
 
 type EditorTabsDeps = {
   getGroups: () => EditorGroupState[];
   getGroup: (key: EditorGroupKey) => EditorGroupState;
-  getActiveGroupKey: () => EditorGroupKey;
   isActiveGroup: (group: EditorGroupState) => boolean;
   setActiveGroup: (key: EditorGroupKey, options?: { focusEditor?: boolean }) => void;
-  requestOpenFile: (path: string, groupKey: EditorGroupKey, force?: boolean) => boolean;
+  requestOpenFile: (path: string, groupKey: EditorGroupKey, force?: boolean, position?: TabPosition) => boolean;
+  getTreeDragPayload: () => DragPayload | null;
   closeTab: (group: EditorGroupState, path: string) => void;
-  addOpenTab: (group: EditorGroupState, path: string) => void;
+  addOpenTab: (group: EditorGroupState, path: string, position?: TabPosition) => void;
   scheduleAfterComposition: (group: EditorGroupState, action: () => void) => void;
   getDirtyPaths: () => Set<string>;
   setEditorEmptyState: (group: EditorGroupState, isEmpty: boolean) => void;
@@ -40,11 +35,12 @@ export const initEditorTabsUi = (
   deps: EditorTabsDeps
 ): EditorTabsUiApi => {
   const tabDragDataType = "application/x-tex64-tab";
-  let tabDragPayload: { path: string; group: EditorGroupKey } | null = null;
+  let tabDragPayload: TabDrag | null = null;
+  let dropTarget: HTMLElement | null = null;
 
   const setTabDragData = (
     event: DragEvent,
-    payload: { path: string; group: EditorGroupKey }
+    payload: TabDrag
   ) => {
     if (!event.dataTransfer) {
       return;
@@ -56,7 +52,7 @@ export const initEditorTabsUi = (
 
   const getTabDragData = (
     event: DragEvent
-  ): { path: string; group: EditorGroupKey } | null => {
+  ): TabDrag | null => {
     const raw = event.dataTransfer?.getData(tabDragDataType);
     if (!raw) {
       return null;
@@ -82,157 +78,206 @@ export const initEditorTabsUi = (
       group.key === "primary"
         ? tabs.length <= 1
         : tabs.length === 1 && /\.pdf$/i.test(tabs[0]);
-    group.root?.classList.toggle("has-single-tab", hidden);
+    if (!group.root || group.root.classList.contains("has-single-tab") === hidden) return false;
+    group.root.classList.toggle("has-single-tab", hidden);
+    return true;
+  };
+
+  const createTab = (group: EditorGroupState, path: string) => {
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = "editor-tab";
+    tab.draggable = true;
+    tab.dataset.path = path;
+    tab.dataset.group = group.key;
+    tab.title = path;
+    const label = document.createElement("span");
+    label.className = "editor-tab-label";
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "editor-tab-close";
+    closeButton.textContent = "\u00d7";
+    closeButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deps.scheduleAfterComposition(group, () => deps.closeTab(group, path));
+    });
+    tab.append(label, closeButton);
+    tab.addEventListener("click", () => {
+      deps.setActiveGroup(group.key, { focusEditor: false });
+      // A click on the current tab also cancels a pending switch.
+      const wasCurrent = path === group.currentFilePath;
+      deps.requestOpenFile(path, group.key);
+      if (wasCurrent && group.viewer.getViewerMode() === "hidden") {
+        (group.editor as { focus?: () => void } | null)?.focus?.();
+      }
+    });
+    tab.addEventListener("dragstart", (event) => {
+      tabDragPayload = { path, group: group.key };
+      setTabDragData(event, tabDragPayload);
+      tab.classList.add("is-dragging");
+    });
+    tab.addEventListener("dragend", () => {
+      tabDragPayload = null;
+      tab.classList.remove("is-dragging");
+      showDropTarget(null);
+    });
+    return tab;
   };
 
   const render = (group: EditorGroupState) => {
     const tabsList = group.tabsList;
-    if (!(tabsList instanceof HTMLElement)) {
-      return;
+    if (!(tabsList instanceof HTMLElement)) return;
+    const stripChanged = syncStripVisibility(group);
+    const isEmpty = group.openTabs.length === 0;
+    if (stripChanged || tabsList.classList.contains("is-empty") !== isEmpty) {
+      deps.setEditorEmptyState(group, isEmpty);
     }
-    syncStripVisibility(group);
-    tabsList.innerHTML = "";
-    if (group.openTabs.length === 0) {
-      deps.setEditorEmptyState(group, true);
-      tabsList.classList.add("is-empty");
-      return;
-    }
-    deps.setEditorEmptyState(group, false);
-    tabsList.classList.remove("is-empty");
-    const dirtyPaths = deps.getDirtyPaths();
+    tabsList.classList.toggle("is-empty", isEmpty);
+
+    // Keep existing buttons attached during focus changes, saves and watcher
+    // updates. Replacing the pressed button between down and up loses the click.
+    const existing = new Map(Array.from(tabsList.children, (child) => {
+      const tab = child as HTMLElement;
+      return [tab.dataset.path, tab] as const;
+    }));
     const labels = editorTabLabels(group.openTabs);
-    group.openTabs.forEach((path, index) => {
-      const tab = document.createElement("button");
-      tab.type = "button";
-      tab.className = "editor-tab";
-      tab.draggable = true;
-      tab.dataset.path = path;
-      tab.dataset.group = group.key;
-      const label = document.createElement("span");
-      label.className = "editor-tab-label";
-      const { name, detail } = labels[index];
-      label.textContent = name;
-      if (detail) {
-        // Same name as another open tab: add the folder that tells them apart.
-        const detailEl = document.createElement("span");
-        detailEl.className = "editor-tab-detail";
-        detailEl.textContent = detail;
-        label.appendChild(detailEl);
-        tab.classList.add("has-detail");
-      }
-      tab.title = path;
-      if (dirtyPaths.has(path)) {
-        tab.classList.add("is-dirty");
-      }
-      if (path === group.currentFilePath) {
-        tab.classList.add("is-active");
-      }
-      const closeButton = document.createElement("button");
-      closeButton.type = "button";
-      closeButton.className = "editor-tab-close";
-      closeButton.textContent = "\u00d7";
-      closeButton.addEventListener("click", (event) => {
-        event.stopPropagation();
-        if (group.isComposing) {
-          deps.scheduleAfterComposition(group, () => {
-            deps.closeTab(group, path);
-          });
-          return;
-        }
-        deps.closeTab(group, path);
-      });
-      tab.append(label, closeButton);
-      tab.addEventListener("click", () => {
-        deps.setActiveGroup(group.key, { focusEditor: false });
-        if (path !== group.currentFilePath) {
-          deps.requestOpenFile(path, group.key);
-        }
-      });
-      tab.addEventListener("dragstart", (event) => {
-        const dragEvent = event as DragEvent;
-        const payload = { path, group: group.key };
-        setTabDragData(dragEvent, payload);
-        tabDragPayload = payload;
-        tab.classList.add("is-dragging");
-      });
-      tab.addEventListener("dragend", () => {
-        tabDragPayload = null;
-        tab.classList.remove("is-dragging");
-      });
-      tabsList.appendChild(tab);
-    });
-    if (deps.isActiveGroup(group)) {
-      deps.updateSynctexButtonState();
+    const dirtyPaths = deps.getDirtyPaths();
+    for (const [path, tab] of existing) {
+      if (!group.openTabs.includes(path)) tab.remove();
     }
+    group.openTabs.forEach((path, index) => {
+      const tab = existing.get(path) ?? createTab(group, path);
+      const label = tab.firstElementChild;
+      const { name, detail } = labels[index];
+      const oldDetail = label.querySelector(".editor-tab-detail");
+      if (label.firstChild?.nodeValue !== name || (oldDetail?.textContent ?? "") !== detail) {
+        label.textContent = name;
+        if (detail) {
+          // Same name as another open tab: add the folder that tells them apart.
+          const detailEl = document.createElement("span");
+          detailEl.className = "editor-tab-detail";
+          detailEl.textContent = detail;
+          label.appendChild(detailEl);
+        }
+      }
+      tab.classList.toggle("has-detail", Boolean(detail));
+      tab.classList.toggle("is-dirty", dirtyPaths.has(path));
+      tab.classList.toggle("is-active", path === group.currentFilePath);
+      const next = tabsList.children[index] ?? null;
+      if (tab !== next) tabsList.insertBefore(tab, next);
+    });
+    if (!isEmpty && deps.isActiveGroup(group)) deps.updateSynctexButtonState();
+  };
+
+  const showDropTarget = (tab: HTMLElement | null, position?: TabPosition) => {
+    if (dropTarget !== tab) {
+      dropTarget?.removeAttribute("data-drop-position");
+      dropTarget = tab;
+    }
+    if (tab && position) tab.dataset.dropPosition = position.after ? "after" : "before";
+  };
+
+  const getDragSource = (event: DragEvent) => {
+    const types = event.dataTransfer?.types ?? [];
+    if (types.includes(tabDragDataType)) return tabDragPayload ?? getTabDragData(event);
+    if (types.includes(fileTreeDragDataType)) return deps.getTreeDragPayload() ?? getDragData(event);
+    return null;
+  };
+
+  const resolveDrop = (event: DragEvent, group: EditorGroupState, source: TabDrag | DragPayload) => {
+    const sourceTab = "group" in source ? source : null;
+    if ("kind" in source && source.kind === "dir") return null;
+    const target = event.target instanceof Element ? event.target : null;
+    const onStrip = group.tabs?.contains(target) ?? false;
+    if (sourceTab?.group === group.key && !onStrip) return null;
+
+    const hoveredTab = onStrip ? target?.closest<HTMLElement>(".editor-tab") : null;
+    const targetTab = onStrip
+      ? hoveredTab ?? group.tabsList?.querySelector<HTMLElement>(".editor-tab:last-child")
+      : null;
+    const rect = targetTab?.getBoundingClientRect();
+    const position = rect && targetTab.dataset.path
+      ? { path: targetTab.dataset.path, after: !hoveredTab || event.clientX >= rect.left + rect.width / 2 }
+      : undefined;
+    const { path } = source;
+    if (sourceTab?.group === group.key && (!position || position.path === path)) return null;
+    return { path, sourceTab, targetTab, position };
   };
 
   const moveTabToGroup = (
     path: string,
     sourceKey: EditorGroupKey,
-    targetKey: EditorGroupKey
+    targetKey: EditorGroupKey,
+    position?: TabPosition
   ) => {
-    if (sourceKey === targetKey) {
-      return;
-    }
     const sourceGroup = deps.getGroup(sourceKey);
     const targetGroup = deps.getGroup(targetKey);
     if (!sourceGroup.openTabs.includes(path)) {
       return;
     }
+    if (sourceKey === targetKey) {
+      deps.addOpenTab(targetGroup, path, position);
+      render(targetGroup);
+      return;
+    }
     if (sourceGroup.currentFilePath === path && sourceGroup.isComposing) {
       deps.scheduleAfterComposition(sourceGroup, () => {
-        moveTabToGroup(path, sourceKey, targetKey);
+        moveTabToGroup(path, sourceKey, targetKey, position);
       });
       return;
     }
     deps.closeTab(sourceGroup, path);
-    deps.addOpenTab(targetGroup, path);
+    deps.addOpenTab(targetGroup, path, position);
     render(targetGroup);
-    deps.requestOpenFile(path, targetKey);
+    deps.requestOpenFile(path, targetKey, true);
   };
 
   const setupInteractions = () => {
     deps.setSplitViewEnabled(deps.getSplitViewEnabled());
+    document.addEventListener("dragend", () => showDropTarget(null), true);
     deps.getGroups().forEach((group) => {
-      if (group.root instanceof HTMLElement) {
-        group.root.addEventListener("mousedown", (event) => {
-          const target = event.target;
-          if (target instanceof Element && target.closest(".editor-tab-close")) {
-            return;
-          }
-          deps.setActiveGroup(group.key, { focusEditor: false });
-        });
-      }
-      const dropTargets = [group.tabs, group.root];
-      dropTargets.forEach((target) => {
-        if (!(target instanceof HTMLElement)) {
-          return;
-        }
-        target.addEventListener("dragover", (event) => {
-          const dragEvent = event as DragEvent;
-          const payload = tabDragPayload ?? getTabDragData(dragEvent);
-          if (!payload || payload.group === group.key) {
-            return;
-          }
-          dragEvent.preventDefault();
-          if (dragEvent.dataTransfer) {
-            dragEvent.dataTransfer.dropEffect = "move";
-          }
-        });
-        target.addEventListener("drop", (event) => {
-          const dragEvent = event as DragEvent;
-          const payload = tabDragPayload ?? getTabDragData(dragEvent);
-          if (!payload || payload.group === group.key) {
-            return;
-          }
-          dragEvent.preventDefault();
-          tabDragPayload = null;
-          deps.setActiveGroup(group.key, { focusEditor: false });
-          moveTabToGroup(payload.path, payload.group, group.key);
-        });
+      const root = group.root;
+      if (!(root instanceof HTMLElement)) return;
+      root.addEventListener("mousedown", (event) => {
+        if (event.target instanceof Element && event.target.closest(".editor-tab")) return;
+        deps.setActiveGroup(group.key, { focusEditor: false });
       });
+      root.addEventListener("dragover", (event) => {
+        const source = getDragSource(event);
+        const drop = source && resolveDrop(event, group, source);
+        showDropTarget(drop?.targetTab ?? null, drop?.position);
+        // Monaco handles generic drags as text. Internal file and tab drags
+        // are owned here, including folders and other rejected drop targets.
+        if (source) {
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = drop ? (drop.sourceTab ? "move" : "copy") : "none";
+        }
+        if (!drop) return;
+        event.preventDefault();
+      }, true);
+      root.addEventListener("dragleave", (event) => {
+        if (root.contains(dropTarget) &&
+            (!(event.relatedTarget instanceof Node) || !root.contains(event.relatedTarget))) {
+          showDropTarget(null);
+        }
+      });
+      root.addEventListener("drop", (event) => {
+        showDropTarget(null);
+        const source = getDragSource(event);
+        if (!source) return;
+        event.stopPropagation();
+        const drop = resolveDrop(event, group, source);
+        if (!drop) return;
+        event.preventDefault();
+        tabDragPayload = null;
+        deps.setActiveGroup(group.key, { focusEditor: false });
+        if (drop.sourceTab) {
+          moveTabToGroup(drop.path, drop.sourceTab.group, group.key, drop.position);
+        } else {
+          deps.requestOpenFile(drop.path, group.key, true, drop.position);
+        }
+      }, true);
     });
-
   };
 
   return { render, setupInteractions };
