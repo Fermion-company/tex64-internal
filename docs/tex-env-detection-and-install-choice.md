@@ -14,7 +14,7 @@ managed root は `<base>/<TeX Live の年>` で、base は次のとおり。実�
   base も探すので、以前に入れた tree はそのまま見つかる。
 
 年の違う tree が複数あるときは、いちばん新しい年を使う。install-tl で入れている途中の
-tree には `<base>/.installing-<年>` があり、終わるまで使わない。途中で止まった tree は
+tree には `<base>/.installing-<年>` があり、完了するまでビルドとプレビューの検索対象から外す。アプリが起動時に引き継いだ PATH に含まれる場合も同様。途中で止まった tree は
 次の導入で作り直す。
 
 軽量環境にない `.sty` / `.cls` 等がビルドログに現れた場合、managed `tlmgr` で
@@ -25,6 +25,8 @@ tree には `<base>/.installing-<年>` があり、終わるまで使わない�
 ダウングレードしない。
 
 ## 自動判定
+
+Windows では全ユーザー用の MiKTeX と `%LOCALAPPDATA%\Programs\MiKTeX` のユーザー用インストールを探す。TeX64 内でのインストールが成功した場合は待機中のプレビューが必要なコマンドをすぐに確認する。
 
 `electron/services/tex-detect.cjs` と `EnvService.detectEnvironment()` が次を調べる。
 

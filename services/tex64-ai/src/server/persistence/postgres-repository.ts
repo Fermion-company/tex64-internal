@@ -305,6 +305,16 @@ export class PostgresDocumentRepository implements DocumentRepository {
     });
   }
 
+  async getRevisionByCommitId(userId: string, documentId: string, commitId: string): Promise<StoredRevision | null> {
+    return this.withUser(userId, async (client) => {
+      const result = await client.query<RevisionRow>(
+        "SELECT * FROM public.tex64_document_revisions WHERE user_id = $1 AND document_id = $2 AND commit_id = $3",
+        [userId, documentId, commitId],
+      );
+      return result.rows[0] ? toRevision(result.rows[0]) : null;
+    });
+  }
+
   async listRevisions(
     userId: string,
     documentId: string,
@@ -1041,23 +1051,22 @@ export class PostgresDocumentRepository implements DocumentRepository {
   ): Promise<StoredConversationMessage[]> {
     if (input.messages.length === 0) return [];
     return this.withUser(input.userId, async (client) => {
+      // Keep each turn contiguous when two tabs finish writing to the same conversation.
+      const document = await client.query(
+        "SELECT id FROM public.tex64_documents WHERE user_id = $1 AND id = $2 FOR NO KEY UPDATE",
+        [input.userId, input.documentId],
+      );
+      if (!document.rowCount) throw new DocumentNotFoundError();
       const now = new Date().toISOString();
       const appended: StoredConversationMessage[] = [];
       for (const message of input.messages) {
         const inserted = await client.query<ConversationMessageRow>(
           `INSERT INTO public.tex64_conversation_messages
              (user_id, document_id, sequence, turn_id, role, content, created_at)
-           SELECT $1, $2,
-                  COALESCE(
-                    (SELECT MAX(existing.sequence) + 1
-                     FROM public.tex64_conversation_messages AS existing
-                     WHERE existing.user_id = $1 AND existing.document_id = $2),
-                    1),
-                  $3, $4, $5::jsonb, $6
-           WHERE EXISTS (
-             SELECT 1 FROM public.tex64_documents AS document_row
-             WHERE document_row.user_id = $1 AND document_row.id = $2
-           )
+           VALUES ($1, $2,
+             (SELECT COALESCE(MAX(sequence), 0) + 1 FROM public.tex64_conversation_messages
+              WHERE user_id = $1 AND document_id = $2),
+             $3, $4, $5::jsonb, $6)
            RETURNING *`,
           [
             input.userId,
@@ -1068,9 +1077,7 @@ export class PostgresDocumentRepository implements DocumentRepository {
             now,
           ],
         );
-        const row = inserted.rows[0];
-        if (!row) throw new DocumentNotFoundError();
-        appended.push(mapConversationMessageRow(row));
+        appended.push(mapConversationMessageRow(inserted.rows[0]!));
       }
       await client.query(
         `DELETE FROM public.tex64_conversation_messages AS stale
@@ -1169,15 +1176,15 @@ async function updateRunRecord(
          result_revision = $5,
          error_message = $6,
          result_note = $7,
-         state_version = $9,
-         updated_at = $10,
-         result_artifact_revision = $11,
-         result_artifact_storage_key = $12,
-         result_artifact_sha256 = $13,
-         result_artifact_byte_size = $14,
-         result_artifact_page_count = $15,
-         result_artifact_quality_version = $16
-     WHERE id = $1 AND user_id = $2 AND state_version = $17
+         state_version = $8,
+         updated_at = $9,
+         result_artifact_revision = $10,
+         result_artifact_storage_key = $11,
+         result_artifact_sha256 = $12,
+         result_artifact_byte_size = $13,
+         result_artifact_page_count = $14,
+         result_artifact_quality_version = $15
+     WHERE id = $1 AND user_id = $2 AND state_version = $16
      RETURNING *`,
     [
       current.id,

@@ -1,6 +1,5 @@
 import {
   normalizeLegacyEnvMarkers,
-  normalizeMatrixSyntax,
   shouldWrapAligned,
   stripMathLivePlaceholders,
   unwrapAligned,
@@ -16,7 +15,9 @@ export type MathValueOps = {
 export const createMathValueOps = (runtime: BlockInputRuntime): MathValueOps => {
   const normalizeMathValueForOutput = (value: string) => {
     const resolved = runtime.state.mathFieldWrapped ? unwrapAligned(value).value : value;
-    return stripMathLivePlaceholders(normalizeMatrixSyntax(normalizeLegacyEnvMarkers(resolved)));
+    // Matrix dimensions come from explicit TeX row and cell separators.
+    // Adjacent braced groups can all belong to one mathematical cell.
+    return stripMathLivePlaceholders(normalizeLegacyEnvMarkers(resolved));
   };
 
   const prepareMathValueForField = (value: string) => {

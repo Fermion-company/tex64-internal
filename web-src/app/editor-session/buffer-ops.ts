@@ -20,8 +20,8 @@ export type EditorSessionBufferOps = {
   getLanguageIdForPath: (path: string) => string;
   setEditorLanguage: (group: EditorGroupState, path: string) => void;
   clearEditorView: (group: EditorGroupState) => void;
-  scheduleAfterComposition: (group: EditorGroupState, action: () => void) => void;
-  handleCompositionEnd: (group: EditorGroupState) => void;
+  scheduleAfterComposition: (group: EditorGroupState, action: () => void, cancel?: () => void) => void;
+  handleCompositionEnd: (group: EditorGroupState, options?: { cancelled?: boolean }) => void;
   updateDirtyState: (path: string, content: string, savedContent?: string) => void;
   restoreViewState: (group: EditorGroupState, path: string) => void;
   cacheCurrentBuffer: (group: EditorGroupState) => void;
@@ -29,7 +29,8 @@ export type EditorSessionBufferOps = {
 
 export const createEditorSessionBufferOps = (
   runtime: EditorSessionRuntime,
-  coreOps: EditorSessionCoreOps
+  coreOps: EditorSessionCoreOps,
+  onDirtyChanged?: (path: string, dirty: boolean) => void,
 ): EditorSessionBufferOps => {
   let languageLookup: Map<string, string> | null = null;
   let registeredLanguageIds: Set<string> | null = null;
@@ -121,33 +122,67 @@ export const createEditorSessionBufferOps = (
   };
 
   const clearEditorView = (group: EditorGroupState) => {
-    if (!group.editor) {
-      return;
+    if (group.editor) {
+      // The swap ends a composition on the outgoing model and answers what
+      // waited for it (editor-composition.ts), so it runs first.
+      const editor = group.editor as { setModel?: (model: unknown) => void };
+      const emptyModel = getEmptyEditorModel();
+      if (emptyModel && editor.setModel) {
+        editor.setModel(emptyModel as unknown);
+      }
     }
-    const editor = group.editor as { setModel?: (model: unknown) => void };
-    const emptyModel = getEmptyEditorModel();
-    if (emptyModel && editor.setModel) {
-      editor.setModel(emptyModel as unknown);
-    }
+    // A workspace change can dispose the composing model before Monaco's
+    // compositionend callback. Its candidate and tab action belong to that model.
+    group.isComposing = false;
+    group.compositionText = "";
+    group.composingFilePath = null;
+    delete group.compositionBaseline;
+    handleCompositionEnd(group, { cancelled: true });
   };
 
-  const scheduleAfterComposition = (group: EditorGroupState, action: () => void) => {
+  // Callers waiting on an action queued below, answered instead when the
+  // composition is cancelled (its model replaced: editor-composition.ts).
+  const compositionCancels = new WeakMap<EditorGroupState, Array<() => void>>();
+
+  const scheduleAfterComposition = (group: EditorGroupState, action: () => void, cancel?: () => void) => {
     if (!group.isComposing) {
       action();
       return;
     }
-    // Blur will trigger compositionend which handles recovery
-    group.pendingCompositionAction = action;
-    const input = group.editorHost?.querySelector<HTMLTextAreaElement>("textarea.inputarea");
+    if (cancel) compositionCancels.set(group, [...(compositionCancels.get(group) ?? []), cancel]);
+    // Blurring finishes composition. Keep other waiters, for example a save
+    // already waiting on the same input when the user clicks another tab.
+    const previous = group.pendingCompositionAction;
+    group.pendingCompositionAction = previous ? () => {
+      try {
+        previous();
+      } finally {
+        action();
+      }
+    } : action;
+    // The focused element in the editor is the one composing; otherwise the
+    // editor's input (EditContext or textarea).
+    const focused = typeof document === "undefined" ? null : document.activeElement as HTMLElement | null;
+    const input = focused && group.editorHost?.contains?.(focused)
+      ? focused
+      : group.editorHost?.querySelector<HTMLElement>(".native-edit-context, textarea.inputarea");
     input?.blur();
   };
 
-  const handleCompositionEnd = (group: EditorGroupState) => {
-    if (!group.pendingCompositionAction) {
-      return;
-    }
+  const handleCompositionEnd = (group: EditorGroupState, options: { cancelled?: boolean } = {}) => {
+    const cancels = compositionCancels.get(group) ?? [];
+    compositionCancels.delete(group);
     const action = group.pendingCompositionAction;
     group.pendingCompositionAction = null;
+    if (options.cancelled) {
+      // Queued for the model (and folder) that was replaced: nothing of it
+      // runs against the new one.
+      for (const settle of cancels) settle();
+      return;
+    }
+    if (!action) {
+      return;
+    }
     requestAnimationFrame(() => {
       action();
     });
@@ -162,7 +197,7 @@ export const createEditorSessionBufferOps = (
     const baseSaved = savedContent ?? entry?.savedContent ?? groupSavedContent;
     // Monaco hides the BOM by default. Compare the same complete UTF-8 text
     // that the save path reads, including a BOM when the model carries one.
-    if (entry?.plainText) content = entry.model.getValue(undefined, true);
+    if (entry && (entry.plainText || baseSaved?.charCodeAt(0) === 0xfeff)) content = entry.model.getValue(undefined, true);
     if (baseSaved === undefined) {
       // No saved reference exists — treat content itself as saved baseline
       // but do NOT overwrite an existing entry.savedContent.
@@ -185,7 +220,11 @@ export const createEditorSessionBufferOps = (
         group.isDirty = runtime.dirtyFiles.has(path);
       }
     });
-    if (wasDirty !== runtime.dirtyFiles.has(path)) window.dispatchEvent(new Event("tex64:dirty-state-changed"));
+    const dirty = runtime.dirtyFiles.has(path);
+    if (wasDirty !== dirty) {
+      onDirtyChanged?.(path, dirty);
+      window.dispatchEvent(new Event("tex64:dirty-state-changed"));
+    }
   };
 
   const storeViewState = (group: EditorGroupState, path: string) => {

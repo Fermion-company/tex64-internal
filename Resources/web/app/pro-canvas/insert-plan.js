@@ -1,6 +1,8 @@
 // Where a generated figure should land in a LaTeX document, and what its
 // preamble still needs. Pure functions so the rules are unit-testable: the
 // canvas UI only turns the result into Monaco edits.
+import { isEscapedAt } from "../blocks/tex-utils.js";
+import { getHoverLine } from "../monaco-hover/utils.js";
 import { isFigureHeaderLine } from "./figure-codec.js";
 /** Everything from an unescaped % to the end of the line is a LaTeX comment. */
 const stripComment = (line) => {
@@ -80,6 +82,28 @@ const figureHeaderBlockEnd = (lines, cursorLine) => {
     const wrapped = lines.slice(cursorLine, begin + 1).some((text) => /\\resizebox\s*\{/.test(stripComment(text)));
     return wrapped && ((_a = lines[close]) === null || _a === void 0 ? void 0 : _a.trim()) === "}" ? close + 1 : close;
 };
+const findDocumentEnd = (lines, beginLine) => {
+    let literalEnvironment = "";
+    for (let index = beginLine - 1; index < lines.length; index++) {
+        if (literalEnvironment) {
+            if (lines[index].trimStart().startsWith(`\\end{${literalEnvironment}}`))
+                literalEnvironment = "";
+            continue;
+        }
+        const line = getHoverLine(lines[index]);
+        const tokens = /\\begin\s*\{(verbatim\*?|Verbatim\*?|minted|lstlisting)\}|\\end\s*\{document\}/g;
+        for (let match = tokens.exec(line); match; match = tokens.exec(line)) {
+            if (isEscapedAt(line, match.index))
+                continue;
+            if (match[1]) {
+                literalEnvironment = match[1];
+                break;
+            }
+            return { lineNumber: index + 1, column: match.index + 1 };
+        }
+    }
+    return null;
+};
 /**
  * A figure dropped above \begin{document} breaks the file, and that is exactly
  * where the cursor sits when the canvas is opened without ever clicking the
@@ -89,10 +113,12 @@ const figureHeaderBlockEnd = (lines, cursorLine) => {
 export const planBodyInsert = (text, cursor) => {
     const lines = text.split("\n");
     const beginLine = findLine(lines, /\\begin\s*\{document\}/);
+    const end = beginLine ? findDocumentEnd(lines, beginLine) : null;
     if (beginLine && cursor.lineNumber <= beginLine) {
-        const endLine = findLine(lines, /\\end\s*\{document\}/);
-        const target = endLine > beginLine ? endLine : lines.length + 1;
-        return { point: { lineNumber: target, column: 1 }, moved: "preamble" };
+        return { point: end !== null && end !== void 0 ? end : { lineNumber: lines.length + 1, column: 1 }, moved: "preamble" };
+    }
+    if (end && (cursor.lineNumber > end.lineNumber || (cursor.lineNumber === end.lineNumber && cursor.column > end.column))) {
+        return { point: end, moved: "document-end" };
     }
     const closes = figureHeaderBlockEnd(lines, cursor.lineNumber) || enclosingClosedEnvironment(lines, cursor);
     if (closes)

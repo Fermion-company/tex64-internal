@@ -83,12 +83,12 @@ const rules: Rule[] = [
   {
     id: "undefined-control-sequence",
     pattern: /Undefined control sequence/i,
-    kind: () => uiText("Unknown command", "知らないコマンドです"),
+    kind: () => uiText("Unknown command", "未定義のコマンド"),
     summary: (m) => {
-      const name = m.input?.match(/\\([A-Za-z@]{2,})\s*$/);
+      const name = m.input?.match(/\\([A-Za-z@]+|[^\sA-Za-z@])\s*$/);
       return name
-        ? uiText(`LaTeX does not know the command \\${name[1]}.`, `\\${name[1]}というコマンドをLaTeXが知りません。`)
-        : uiText("LaTeX ran into a command it does not know.", "LaTeXが知らないコマンドが使われています。"
+        ? uiText(`LaTeX does not know the command \\${name[1]}.`, `\\${name[1]} は定義されていません。`)
+        : uiText("LaTeX ran into a command it does not know.", "定義されていないコマンドが使われています。"
           );
     },
     fix: () =>

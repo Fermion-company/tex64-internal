@@ -1,10 +1,13 @@
 import type { MonacoModel, MonacoModelContentChange } from "./types.js";
 
 type Change = { offset: number; text: string; removed: string };
-type Revision = { version: number; length: number; hash: number; changes: Change[]; cost: number };
+type Revision = { version: number; length: number; checksum: number; changes: Change[]; cost: number };
 type History = {
   identity: object;
   version: number;
+  modelVersion?: number;
+  initialChecksum?: number;
+  checksum: number;
   text: string;
   revisions: Revision[];
   cost: number;
@@ -21,15 +24,19 @@ const histories = new WeakMap<MonacoModel, History>();
 const MAX_REVISIONS = 4096;
 const MAX_CHANGE_UNITS = 4 * 1024 * 1024;
 
-const hashText = (text: string) => {
-  let hash = 2166136261;
-  for (let i = 0; i < text.length; i += 1) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
-  return hash;
+// This additive checksum filters old snapshots. Reordering can collide,
+// so a candidate must still reconstruct the exact source before rebasing.
+const textChecksum = (text: string) => {
+  let sum = 0;
+  for (let i = 0; i < text.length; i += 1) sum = (sum + text.charCodeAt(i)) | 0;
+  return sum;
 };
 
 const resetHistory = (history: History, text: string) => {
   history.version += 1;
   history.text = text;
+  history.checksum = 0;
+  history.initialChecksum = undefined;
   history.revisions = [];
   history.cost = 0;
 };
@@ -57,9 +64,12 @@ const recordChanges = (history: History, current: string, edits: MonacoModelCont
   }
   if (previous === current && !changes.length) return;
   const cost = changes.reduce((sum, change) => sum + 32 + change.text.length + change.removed.length, 0);
-  history.revisions.push({ version: history.version, length: previous.length, hash: hashText(previous), changes, cost });
+  history.revisions.push({ version: history.version, length: previous.length, checksum: history.checksum, changes, cost });
   history.version += 1;
   history.text = current;
+  for (const change of changes) {
+    history.checksum = (history.checksum + textChecksum(change.text) - textChecksum(change.removed)) | 0;
+  }
   history.cost += cost;
   while (history.revisions.length > MAX_REVISIONS || history.cost > MAX_CHANGE_UNITS) {
     history.cost -= history.revisions.shift()!.cost;
@@ -68,16 +78,23 @@ const recordChanges = (history: History, current: string, edits: MonacoModelCont
 
 export const trackLiveEditModel = (model: MonacoModel) => {
   let history = histories.get(model);
+  const modelVersion = model.getVersionId?.();
   if (history) {
-    if (history.text !== model.getValue()) resetHistory(history, model.getValue());
+    if (modelVersion === undefined || history.modelVersion !== modelVersion) {
+      const text = model.getValue();
+      if (history.text !== text) resetHistory(history, text);
+      history.modelVersion = modelVersion;
+    }
     return history;
   }
-  history = { identity: {}, version: 0, text: model.getValue(), revisions: [], cost: 0 };
+  const text = model.getValue();
+  history = { identity: {}, version: 0, modelVersion, text, checksum: 0, revisions: [], cost: 0 };
   histories.set(model, history);
   const tracked = history;
   const contentListener = model.onDidChangeContent?.((event) => {
     if (event.isFlush) resetHistory(tracked, model.getValue());
     else recordChanges(tracked, model.getValue(), event.changes);
+    tracked.modelVersion = model.getVersionId?.();
   });
   model.onWillDispose?.(() => {
     contentListener?.dispose();
@@ -124,16 +141,19 @@ export const rebaseLiveEditAnchor = (model: MonacoModel, anchor: LiveEditAnchor)
   return anchorAtCurrent(history, range.startOffset, range.endOffset);
 };
 
-export const anchorFromLiveEditSnapshot = (
+const anchorFromModelText = (
   model: MonacoModel, sourceText: string, startOffset: number, endOffset: number
 ) => {
   const history = trackLiveEditModel(model);
   if (!Number.isInteger(startOffset) || !Number.isInteger(endOffset) ||
       startOffset < 0 || endOffset < startOffset || endOffset > sourceText.length) return null;
   if (history.text === sourceText) return anchorAtCurrent(history, startOffset, endOffset);
-  const hash = hashText(sourceText);
+  // Revisions store deltas from the initial text. Read its absolute sum
+  // only when an older displayed page actually needs to find a revision.
+  history.initialChecksum ??= (textChecksum(history.text) - history.checksum) | 0;
+  const checksum = (textChecksum(sourceText) - history.initialChecksum) | 0;
   const candidates = history.revisions.map((revision, index) =>
-    revision.length === sourceText.length && revision.hash === hash ? index : -1
+    revision.length === sourceText.length && revision.checksum === checksum ? index : -1
   ).filter((index) => index >= 0);
   if (!candidates.length) return null;
 
@@ -149,9 +169,25 @@ export const anchorFromLiveEditSnapshot = (
         text = text.slice(0, change.offset) + change.removed + text.slice(change.offset + change.text.length);
       }
     }
-    if (text !== sourceText) continue; // Hashes only select candidates; equality is exact.
+    if (text !== sourceText) continue; // Checksums only select candidates; equality is exact.
     const version = history.revisions[index]?.version ?? history.version;
     return rebaseLiveEditAnchor(model, { identity: history.identity, version, startOffset, endOffset });
   }
   return null;
+};
+
+
+// Monaco stores a UTF-8 BOM outside its editable text. File-based previews
+// include it in source offsets, while live editor snapshots already omit it.
+export const anchorFromLiveEditSnapshot = (
+  model: MonacoModel, sourceText: string, startOffset: number, endOffset: number
+) => {
+  if (sourceText.charCodeAt(0) === 0xfeff && startOffset > 0) {
+    const current = trackLiveEditModel(model).text;
+    if (sourceText !== current && model.getValue(undefined, true).length === current.length + 1) {
+      const anchor = anchorFromModelText(model, sourceText.slice(1), startOffset - 1, endOffset - 1);
+      if (anchor) return anchor;
+    }
+  }
+  return anchorFromModelText(model, sourceText, startOffset, endOffset);
 };

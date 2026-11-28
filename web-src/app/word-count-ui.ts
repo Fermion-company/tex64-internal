@@ -27,6 +27,7 @@ export const initWordCountUi = (deps: {
   documentFor: (path: string) => string | undefined;
 }) => {
   let dialog: HTMLElement | null = null;
+  let countRequest = 0;
   let anchor: HTMLElement | null = null;
   let returnFocus: HTMLElement | null = null;
   // Changing the scope rebuilds the popover; the title's ▾ stays as the user left it.
@@ -38,7 +39,7 @@ export const initWordCountUi = (deps: {
     node.textContent = text;
     return node;
   };
-  const number = (value: number) => value.toLocaleString();
+  const number = (value: number) => value.toLocaleString(getUiLocale());
 
   // The scope shown when the dialog last rendered; kept across re-renders.
   let scope: "document" | "file" | "selection" = "document";
@@ -62,8 +63,11 @@ export const initWordCountUi = (deps: {
       body.append(el("p", "tool-dialog-note", uiText("Counting…", "集計中…")));
     } else if (!result.ok) {
       body.append(el("p", "tool-dialog-error", result.error || uiText("Could not count.", "数えられませんでした。")));
-    } else if (!result.document && !result.selection) {
-      body.append(el("p", "tool-dialog-note", uiText("Open a .tex file first.", ".texファイルを開いてください。")));
+    } else if (!result.document?.files.length && !result.selection) {
+      const message = result.document
+        ? uiText("No source files were found.", "集計する原稿ファイルが見つかりません。")
+        : uiText("Open a .tex file first.", ".texファイルを開いてください。");
+      body.append(el("p", "tool-dialog-note", message));
     } else {
       const documentCounts = result.document && result.document.files.length ? result.document : null;
       // "This file" only for a part of the document, not for its main file.
@@ -107,7 +111,7 @@ export const initWordCountUi = (deps: {
         const { mainFile } = documentCounts;
         const others = documentCounts.files.length - 1;
         const note = el("p", "tool-dialog-note", others > 0
-          ? uiText(`${mainFile} + ${others} file${others === 1 ? "" : "s"}`, `${mainFile} + ${others}ファイル`)
+          ? `${mainFile} + ${(others === 1 ? uiText("{n} file", "{n}ファイル") : uiText("{n} files", "{n}ファイル")).replace("{n}", number(others))}`
           : mainFile);
         note.dataset.noI18n = "true";
         body.append(note);
@@ -173,6 +177,7 @@ export const initWordCountUi = (deps: {
   // `from`: the control that opened the popover, when there is one.
   const open = async (from: HTMLElement | null = null) => {
     if (!bridge) return;
+    const request = ++countRequest;
     const editorSession = deps.editorSession();
     const activePath = editorSession.getActiveFilePath();
     const selection = editorSession.getActiveSelectionSnapshot();
@@ -203,7 +208,7 @@ export const initWordCountUi = (deps: {
     } catch (error) {
       result = { ok: false, error: error instanceof Error ? error.message : String(error), document: null, selection: null };
     }
-    render(result, activePath);
+    if (request === countRequest) render(result, activePath);
   };
 
   return { open };

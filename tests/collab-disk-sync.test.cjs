@@ -220,31 +220,124 @@ for (const [name, disk] of [
   });
 }
 
-for (const operation of ["ingestDisk", "writeNow"]) {
-  test(`${operation} writes current back and reports a partial-save conflict only once`, async (t) => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-disk-"));
-    const baseline = "Original.\nValue: 10.\n";
-    const current = "Original. ABCDEFG\nValue: 10.\n";
-    const disk = "Original. ABC\nValue: 20.\n";
-    const expected = "Original. ABCDEFG\nValue: 20.\n";
-    const notices = [];
-    const sync = new DiskSync({ rootPath: () => root, onNotice: (...args) => notices.push(args) });
-    sync.paused = true;
-    const doc = new Y.Doc();
-    const text = doc.getText("content");
-    text.insert(0, current);
-    t.after(() => { sync.stop(); doc.destroy(); fs.rmSync(root, { recursive: true, force: true }); });
-    sync.attach("main.tex", text, baseline);
-    fs.writeFileSync(path.join(root, "main.tex"), disk);
-    await sync[operation]("main.tex");
-    assert.equal(text.toString(), expected);
-    assert.deepEqual(notices, [["main.tex", 1]]);
+// An overlap never parks the file: the outside version is kept, byte for
+// byte, as <name>.local-<time><ext> before anything replaces it; its clean
+// hunks are applied; the shared document keeps the name and is written; and
+// only then is the write acknowledged.
+const overlapFixture = (t, { rootPath } = {}) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-disk-"));
+  const file = path.join(root, "main.tex");
+  const baseline = "Original.\nValue: 10.\n";
+  const current = "Original. ABCDEFG\nValue: 10.\n";
+  // (multi-byte text and a CRLF too: the copy holds the file's bytes. A
+  // version that is not UTF-8 is never folded in; see the test below.)
+  const tail = Buffer.from("数式\r\n");
+  const diskBytes = Buffer.concat([Buffer.from("Original. XYZ\nValue: 20.\n"), tail]);
+  const merged = `Original. ABCDEFG\nValue: 20.\n${tail.toString("utf8")}`;
+  const notices = [];
+  const saved = [];
+  const kept = () => fs.readdirSync(root).filter((name) => /^main\.local-[\d-]+T[\d-]+\.tex$/.test(name));
+  const sync = new DiskSync({
+    rootPath: () => rootPath ?? root,
+    onNotice: (...args) => notices.push(args),
+    // the acknowledgement comes after the outside version is safe
+    onSaved: (relative, digest) => saved.push({ relative, digest, kept: kept().length, file: fs.readFileSync(file, "utf8") }),
+  });
+  sync.paused = true;
+  const doc = new Y.Doc();
+  const text = doc.getText("content");
+  text.insert(0, current);
+  t.after(() => {
+    sync.stop();
+    doc.destroy();
+    fs.chmodSync(root, 0o755);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  sync.attach("main.tex", text, baseline);
+  fs.writeFileSync(file, diskBytes);
+  return { root, file, diskBytes, merged, notices, saved, kept, sync, text };
+};
+
+for (const operation of ["ingestDisk", "writeNow", "flush", "flushHeld"]) {
+  test(`${operation}: an overlap with an independent disk edit keeps the outside version and writes the document`, async (t) => {
+    const { file, diskBytes, merged, notices, saved, kept, sync, text, root } = overlapFixture(t);
+    if (operation === "flush" || operation === "flushHeld") assert.equal(await sync[operation](), true);
+    else await sync[operation]("main.tex");
+    if (operation === "ingestDisk") assert.equal(await sync.flush(), true);
+    assert.equal(text.toString(), merged, "the clean disk hunk is applied, the overlapping one gives way");
+    assert.equal(fs.readFileSync(file, "utf8"), merged);
+    assert.equal(sync.baselineOf("main.tex"), merged);
+    assert.equal(sync.isDirty("main.tex"), false);
+    assert.equal(kept().length, 1);
+    assert.deepEqual(fs.readFileSync(path.join(root, kept()[0])), diskBytes);
+    assert.deepEqual(notices, [["main.tex", 1, kept()[0]]]);
+    assert.deepEqual(saved.map(({ kept: copies, file: written }) => [copies, written]), [[1, merged]]);
+
+    // Further typing by a peer is written as usual, with no second copy.
+    text.insert(text.length, "More.\n");
+    sync.noteUpdate("main.tex");
     assert.equal(await sync.flush(), true);
-    assert.equal(fs.readFileSync(path.join(root, "main.tex"), "utf8"), expected);
-    assert.equal(sync.baselineOf("main.tex"), expected);
-    await sync.ingestDisk("main.tex");
-    await sync.writeNow("main.tex");
-    assert.equal(text.toString(), expected);
-    assert.deepEqual(notices, [["main.tex", 1]]);
+    assert.equal(fs.readFileSync(file, "utf8"), `${merged}More.\n`);
+    assert.equal(kept().length, 1);
+    assert.equal(notices.length, 1);
   });
 }
+
+test("a copy that cannot be written fails the flush without touching either version, and a retry completes", async (t) => {
+  const { file, diskBytes, merged, kept, sync, text, saved, root } = overlapFixture(t);
+  fs.chmodSync(root, 0o555);
+  const started = Date.now();
+  assert.equal(await sync.flush(), false);
+  assert.ok(Date.now() - started < 5000, "the failure is reported, not left to the timeout");
+  assert.equal(await sync.flushHeld(), false);
+  assert.deepEqual(fs.readFileSync(file), diskBytes);
+  assert.equal(text.toString(), "Original. ABCDEFG\nValue: 10.\n");
+  assert.equal(sync.isDirty("main.tex"), true);
+  assert.deepEqual(saved, []);
+
+  fs.chmodSync(root, 0o755);
+  assert.equal(await sync.flush(), true);
+  assert.equal(fs.readFileSync(file, "utf8"), merged);
+  assert.equal(kept().length, 1);
+  assert.deepEqual(fs.readFileSync(path.join(root, kept()[0])), diskBytes);
+});
+
+test("an outside version that is not UTF-8 is neither folded in nor written over", async (t) => {
+  const { file, kept, sync, text, saved } = overlapFixture(t);
+  const binary = Buffer.concat([Buffer.from("Original. XYZ\nValue: 20.\n"), Buffer.from([0xff, 0x0a])]);
+  fs.writeFileSync(file, binary);
+  assert.equal(await sync.flush(), false);
+  assert.deepEqual(fs.readFileSync(file), binary);
+  assert.equal(text.toString(), "Original. ABCDEFG\nValue: 10.\n");
+  assert.equal(sync.isDirty("main.tex"), true);
+  assert.equal(kept().length, 0);
+  assert.deepEqual(saved, []);
+});
+
+test("copies made in the same second do not collide", async (t) => {
+  const { keepLocalCopy } = require("../electron/services/collab/disk-sync.cjs");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-keep-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "ch"));
+  const names = [];
+  for (const version of ["one", "two", "three"]) names.push(await keepLocalCopy(root, "ch/a.tex", Buffer.from(version)));
+  assert.equal(new Set(names).size, 3);
+  assert.deepEqual(names.map((name) => fs.readFileSync(path.join(root, name), "utf8")), ["one", "two", "three"]);
+  for (const name of names) assert.match(name, /^ch\/a\.local-\d{4}-\d{2}-\d{2}T[\d-]+\.tex$/);
+});
+
+test("an outside save that lands while the outside version is being kept is merged, not written over", async (t) => {
+  const { file, diskBytes, merged, kept, sync, root } = overlapFixture(t);
+  const newer = Buffer.concat([diskBytes, Buffer.from("Appended outside.\n")]);
+  const mergeDisk = sync.mergeDisk.bind(sync);
+  let saves = 0;
+  sync.mergeDisk = async (...args) => {
+    const result = await mergeDisk(...args);
+    if (saves++ === 0) fs.writeFileSync(file, newer);
+    return result;
+  };
+  assert.equal(await sync.flush(), true);
+  assert.equal(fs.readFileSync(file, "utf8"), `${merged}Appended outside.\n`);
+  assert.equal(kept().length, 1);
+  assert.deepEqual(fs.readFileSync(path.join(root, kept()[0])), diskBytes);
+});

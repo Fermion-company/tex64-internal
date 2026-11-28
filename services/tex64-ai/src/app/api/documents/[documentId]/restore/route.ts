@@ -55,22 +55,26 @@ export async function POST(
     const repository = getDocumentRepository();
     const document = await repository.getDocument(userId, documentId);
     if (!document) throw new DocumentNotFoundError();
-    if (input.revision >= document.currentRevision) {
-      return jsonError("この版には戻せません。", 409, "invalid_restore_target");
-    }
-    const recentRuns = await repository.listRuns(userId, documentId, {
-      limit: 10,
-    });
-    if (
-      recentRuns.some(
-        (run) => run.status === "running",
-      )
-    ) {
-      return jsonError(
-        "執筆の処理中です。完了してからもう一度お試しください。",
-        409,
-        "document_busy",
-      );
+    const previous = requestKey ? await repository.getRevisionByCommitId(userId, documentId, requestKey) : null;
+    const summary = `第${input.revision}版に戻す`;
+    if (!previous) {
+      if (input.revision >= document.currentRevision) {
+        return jsonError("この版には戻せません。", 409, "invalid_restore_target");
+      }
+      const recentRuns = await repository.listRuns(userId, documentId, {
+        limit: 10,
+      });
+      if (
+        recentRuns.some(
+          (run) => run.status === "running",
+        )
+      ) {
+        return jsonError(
+          "執筆の処理中です。完了してからもう一度お試しください。",
+          409,
+          "document_busy",
+        );
+      }
     }
 
     const snapshot = await repository.getRevision(
@@ -85,10 +89,10 @@ export async function POST(
       commitId: requestKey ?? crypto.randomUUID(),
       userId,
       documentId,
-      expectedRevision: document.currentRevision,
+      expectedRevision: previous ? previous.revision - 1 : document.currentRevision,
       document: restored,
       actor: "user",
-      summary: `以前の状態に戻す`,
+      summary: previous?.summary === "以前の状態に戻す" ? previous.summary : summary,
       operations: [],
     });
 

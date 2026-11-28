@@ -17,7 +17,9 @@ const TEXT_COMMANDS = new Set([
 const findMatchingBrace = (value, openIndex) => {
   let depth = 0;
   for (let i = openIndex; i < value.length; i += 1) {
-    if (value[i] === "{") {
+    if (value[i] === "\\") {
+      i += 1;
+    } else if (value[i] === "{") {
       depth += 1;
     } else if (value[i] === "}") {
       depth -= 1;
@@ -72,7 +74,7 @@ const stripEdgeTextBlocks = (value) => {
     if (result.length === 0) break;
     if (result[0] !== "\\") break;
     const cmd = isTextCommand(result, 0);
-    if (!cmd) break;
+    if (!cmd || !/[:：]\s*$/.test(cmd.content)) break;
     result = result.slice(cmd.braceClose + 1);
     changed = true;
   }
@@ -116,6 +118,9 @@ const stripEdgeTextBlocks = (value) => {
     if (nameStart <= 0 || result[nameStart - 1] !== "\\") break;
     const name = result.slice(nameStart, nameEnd);
     if (!TEXT_COMMANDS.has(name)) break;
+    // A trailing label or unit belongs to the formula. Only trim a prose sentence.
+    const prose = result.slice(braceOpen + 1, braceClose);
+    if (!/\s\S+/.test(prose.trim()) || !/[.!?。！？]\s*$/.test(prose)) break;
     result = result.slice(0, nameStart - 1);
     changed = true;
   }
@@ -221,6 +226,23 @@ const stripBareTextFromSegments = (value) => {
   return result.join("");
 };
 
+// Preserve literal words and spacing inside TeX text groups while repairing math tokens.
+const transformOutsideTextBlocks = (value, transform) => {
+  const blocks = [];
+  const pattern = /\\(?:text|mbox|textnormal|textrm|textsf|texttt|textbf|textit)\s*\{/g;
+  let start = 0;
+  let protectedValue = "";
+  for (let match; (match = pattern.exec(value));) {
+    const end = findMatchingBrace(value, pattern.lastIndex - 1);
+    if (end < 0) continue;
+    protectedValue += value.slice(start, match.index) + `\x00TXT${blocks.length}\x00`;
+    blocks.push(value.slice(match.index, end + 1));
+    start = pattern.lastIndex = end + 1;
+  }
+  return transform(protectedValue + value.slice(start))
+    .replace(/\x00TXT(\d+)\x00/g, (match, index) => blocks[index] ?? match);
+};
+
 const stripNonMathText = (raw) => {
   if (!raw || typeof raw !== "string") {
     return raw ?? "";
@@ -234,14 +256,9 @@ const stripNonMathText = (raw) => {
   let output = stripEdgeTextBlocks(trimmed);
 
   // Step 2: Strip bare English text words (not in \text{...} commands)
-  output = stripBareTextFromSegments(output);
-
-  // Step 3: Clean up artifacts from stripping
-  output = output.replace(/\s{2,}/g, " ").trim();
-  // Remove leading punctuation left behind after text stripping (e.g., ": x^{2}" → "x^{2}")
-  output = output.replace(/^[,:;.\s]+/, "").trimStart();
-  // Remove trailing punctuation (e.g., "x^{2} ." → "x^{2}")
-  output = output.replace(/[,:;.\s]+$/, "").trimEnd();
+  output = transformOutsideTextBlocks(output, (tokens) => stripBareTextFromSegments(tokens)
+    .replace(/\s{2,}/g, " ").replace(/^[,:;\s]+|[,:;.\s]+$/g, "")
+    .replace(/^\.(?!\d)/, ""));
 
   // Safety: if stripping produced empty result, return original
   if (!output) {
@@ -253,6 +270,7 @@ const stripNonMathText = (raw) => {
 
 module.exports = {
   stripNonMathText,
+  transformOutsideTextBlocks,
   stripEdgeTextBlocks,
   stripBareTextFromSegments,
   MATH_FUNCTION_NAMES,

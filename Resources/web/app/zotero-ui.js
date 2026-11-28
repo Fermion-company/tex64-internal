@@ -84,7 +84,7 @@ export const describeStatus = (status) => {
     return head;
 };
 const bibHint = (result) => {
-    const file = result.bibPath;
+    const file = result.resourcePath || result.bibPath;
     const stem = file.replace(/\.bib$/i, "");
     const command = result.style === "biblatex" ? `\\addbibresource{${file}}` : `\\bibliography{${stem}}`;
     return uiText(`add ${command} to the document`, `文書に${command}を追加してください`);
@@ -295,7 +295,7 @@ export const openCiteDialog = (editor, getActiveFilePath) => {
     const sameDocument = () => { var _a, _b, _c, _d; return Boolean(model) && ((_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) === model && !((_b = model === null || model === void 0 ? void 0 : model.isDisposed) === null || _b === void 0 ? void 0 : _b.call(model)) && !((_d = (_c = editor.getRawOptions) === null || _c === void 0 ? void 0 : _c.call(editor)) === null || _d === void 0 ? void 0 : _d.readOnly); };
     const insert = async (index) => {
         const item = items[index];
-        if (!item || busy)
+        if (!item || busy || !dialog.open)
             return;
         if (!sameDocument()) {
             setStatus(documentChanged(), true);
@@ -311,6 +311,8 @@ export const openCiteDialog = (editor, getActiveFilePath) => {
                 : result.appended
                     ? uiText(`added to ${result.bibPath}`, `${result.bibPath}に追加`)
                     : uiText(`already in ${result.bibPath}`, `${result.bibPath}に既存`);
+            if (!dialog.open)
+                return;
             // Zotero answered after the editor moved on: the .bib has the entry,
             // the \cite is not placed in another document.
             if (!sameDocument()) {
@@ -392,11 +394,16 @@ export const openCiteDialog = (editor, getActiveFilePath) => {
         arxiv === null || arxiv === void 0 ? void 0 : arxiv.setQuery(search.value);
         if (!zotero)
             return;
+        searchSerial++;
+        items = [];
+        results.replaceChildren();
         if (searchTimer !== null)
             window.clearTimeout(searchTimer);
         searchTimer = window.setTimeout(() => void runSearch(), 250);
     });
     search.addEventListener("keydown", (event) => {
+        if (event.isComposing || event.keyCode === 229)
+            return;
         if (event.key === "ArrowDown") {
             event.preventDefault();
             highlight(highlighted + 1);

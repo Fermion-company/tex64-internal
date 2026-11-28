@@ -116,9 +116,9 @@ function safeValidationMessage(code: string): string {
   }
 }
 
-export async function readDocument(scope: ToolScope): Promise<DocumentModel> {
+export async function readDocument(scope: ToolScope): Promise<DocumentModel & { revision: number }> {
   const document = await requireDocument(scope);
-  return validateDocument(document.document);
+  return { ...validateDocument(document.document), revision: document.currentRevision };
 }
 
 export async function checkDocument(

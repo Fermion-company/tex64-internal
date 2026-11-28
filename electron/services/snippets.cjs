@@ -2,6 +2,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const lockfile = require("proper-lockfile");
 const { atomicWrite, fail } = require("./history-files.cjs");
 
 class SnippetStore {
@@ -21,28 +22,50 @@ class SnippetStore {
   }
   change(action, request) {
     const result = this.tail.catch(() => {}).then(async () => {
-      const data = await this.read();
-      if (request.revision !== data.revision) throw fail("SNIPPETS_STALE", "The snippet library changed. Reload it before saving.");
-      if (action === "save") {
-        const item = { id: request.item?.id || crypto.randomUUID(), name: request.item?.name?.trim(), prefix: request.item?.prefix?.trim(), body: request.item?.body };
-        validateSnippet(item);
-        const index = data.items.findIndex((value) => value.id === item.id);
-        if (request.item?.id && index < 0) throw fail("SNIPPETS_STALE", "This snippet was deleted. Reload the library.");
-        if (data.items.some((value) => value.id !== item.id && value.prefix === item.prefix)) throw fail("SNIPPETS_DUPLICATE", "Another snippet already uses this prefix.");
-        if (index >= 0) data.items[index] = item; else data.items.push(item);
-      } else if (action === "delete") {
-        if (!data.items.some((item) => item.id === request.id)) throw fail("SNIPPETS_STALE", "This snippet was already deleted.");
-        data.items = data.items.filter((item) => item.id !== request.id);
-      } else throw fail("INVALID_ACTION", "Unknown snippet operation.");
-      data.revision++;
-      const bytes = JSON.stringify(data);
-      if (data.items.length > 500 || Buffer.byteLength(bytes) > 4 * 1024 ** 2) throw fail("SNIPPETS_LIMIT", "The snippet library is full.");
       await fs.mkdir(path.dirname(this.file), { recursive: true, mode: 0o700 });
-      await atomicWrite(this.file, bytes);
-      return data;
+      // Each desktop window has its own main process and shares this library.
+      const release = await lockfile.lock(this.file, {
+        realpath: false,
+        stale: 5000,
+        retries: { retries: 30, minTimeout: 20, maxTimeout: 250, randomize: true },
+      });
+      try {
+        return await this.changeLocked(action, request);
+      } finally {
+        await release();
+      }
     });
     this.tail = result.then(() => {}, () => {});
     return result;
+  }
+  async changeLocked(action, request) {
+    const data = await this.read();
+    if (request.revision !== data.revision) {
+      const original = request.original;
+      const current = data.items.find((entry) => entry.id === request.item?.id);
+      const isNew = !request.item?.id && original === null;
+      const isUnchanged = current && original?.id === current.id &&
+        original.name === current.name && original.prefix === current.prefix && original.body === current.body;
+      if (action !== "save" || (!isNew && !isUnchanged)) {
+        throw fail("SNIPPETS_STALE", "The snippet library changed. Reload it before saving.");
+      }
+    }
+    if (action === "save") {
+      const item = { id: request.item?.id || crypto.randomUUID(), name: request.item?.name?.trim(), prefix: request.item?.prefix?.trim(), body: request.item?.body };
+      validateSnippet(item);
+      const index = data.items.findIndex((value) => value.id === item.id);
+      if (request.item?.id && index < 0) throw fail("SNIPPETS_STALE", "This snippet was deleted. Reload the library.");
+      if (data.items.some((value) => value.id !== item.id && value.prefix === item.prefix)) throw fail("SNIPPETS_DUPLICATE", "Another snippet already uses this prefix.");
+      if (index >= 0) data.items[index] = item; else data.items.push(item);
+    } else if (action === "delete") {
+      if (!data.items.some((item) => item.id === request.id)) throw fail("SNIPPETS_STALE", "This snippet was already deleted.");
+      data.items = data.items.filter((item) => item.id !== request.id);
+    } else throw fail("INVALID_ACTION", "Unknown snippet operation.");
+    data.revision++;
+    const bytes = JSON.stringify(data);
+    if (data.items.length > 500 || Buffer.byteLength(bytes) > 4 * 1024 ** 2) throw fail("SNIPPETS_LIMIT", "The snippet library is full.");
+    await atomicWrite(this.file, bytes);
+    return data;
   }
 }
 function validateSnippet(item) {

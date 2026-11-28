@@ -1,25 +1,98 @@
 "use strict";
 
 const path = require("path");
+const { isBuildEngine } = require("../services/agent-build-context.cjs");
+const { findTexCommand } = require("../services/texlive-paths.cjs");
 
 const registerTdomEngineHandlers = ({ ipcMain, getTdomEngineService, getMainWindow,
-  getWorkspaceRoot, pdfWindowManager, isBlocked = () => false }) => {
-  const result = async (operation) => {
+  getWorkspaceRoot, pdfWindowManager, livePdfFallback, synctexService, sendToRenderer, isBlocked = () => false, isBuilding = () => false }) => {
+  const result = async (operation, allowWhileBlocked = false) => {
     try {
-      if (isBlocked()) return { ok: false, error: "Project history is busy." };
+      if (!allowWhileBlocked && isBlocked()) return { ok: false, error: "Project history is busy." };
       return await operation();
     }
     catch (error) { return { ok: false, error: error?.message || String(error) }; }
   };
-  ipcMain.handle("tex64:tdom:start", () => result(() => getTdomEngineService().start()));
+  const ownsMainRenderer = (event) => event.sender === getMainWindow()?.webContents &&
+    event.senderFrame === event.sender.mainFrame;
+  ipcMain.handle("tex64:tdom:start", (event, program = "lualatex") => result(async () => {
+    if (!ownsMainRenderer(event)) return { ok: false };
+    const engine = getTdomEngineService();
+    if (["pdflatex", "xelatex", "uplatex"].includes(program)) {
+      if (engine.getStatus().state !== "stopped") engine.stop();
+      return { ok: true, fallback: true };
+    }
+    if (!engine.needsPdfFallback()) {
+      try {
+        const result = await engine.start();
+        if (result?.ok && result.url) livePdfFallback.inputs.clear();
+        return result;
+      }
+      catch (error) {
+        if (error?.code === "TDOM_CANCELLED" || isBlocked()) throw error;
+        console.warn("[tdom] Using LuaLaTeX PDF preview after startup failed:", error?.message);
+      }
+    }
+    return { ok: true, fallback: true };
+  }));
   ipcMain.handle("tex64:tdom:status", () => getTdomEngineService().getStatus());
-  ipcMain.handle("tex64:tdom:stop", () => result(() => getTdomEngineService().stop()));
+  ipcMain.handle("tex64:tdom:stop", () => {
+    pdfWindowManager.closeUnbuiltWindow();
+    livePdfFallback.stop();
+    pdfWindowManager.setFallbackPreview(null);
+    return result(() => getTdomEngineService().stop());
+  });
+  const previewViewers = new WeakSet();
+  ipcMain.handle("tex64:tdom:fallback-math", (event, request) => result(async () => {
+    if (!(ownsMainRenderer(event) || (pdfWindowManager.ownsSender(event.sender) && event.senderFrame === event.sender.mainFrame)) ||
+        !request) return { ok: false };
+    const senderId = event.sender.id;
+    const owner = request.secondary === true && ownsMainRenderer(event) ? senderId + ":secondary" : senderId;
+    if (isBlocked() || isBuilding()) {
+      if (request.action === "edit" && (request.finish || request.cancel)) {
+        livePdfFallback.endPaperEdit(owner, request.sessionId);
+      }
+      if (isBlocked() || request.action !== "view") return { ok: false };
+    }
+    if (request.action === "view") {
+      if (!previewViewers.has(event.sender)) {
+        previewViewers.add(event.sender);
+        event.sender.once("destroyed", () => {
+          livePdfFallback.releaseViewer(senderId);
+          livePdfFallback.releaseViewer(senderId + ":secondary");
+        });
+      }
+      const emptyCaret = livePdfFallback.setViewerPapers(owner, request.displayed, request.loading);
+      return { ok: true, emptyCaret };
+    }
+    if (request.action === "open") return livePdfFallback.reverse(synctexService, request, owner);
+    if (request.action === "edit") return livePdfFallback.editPaper(owner, request, sendToRenderer);
+    return { ok: false };
+  }, true));
+  ipcMain.handle("tex64:tdom:supersede-pdf", (event, requestId, abandon) => {
+    if (ownsMainRenderer(event)) livePdfFallback.supersede(requestId, abandon === true);
+  });
+  ipcMain.handle("tex64:tdom:command-available", (event, command) =>
+    ownsMainRenderer(event) && (isBuildEngine(command) || ["dvipdfmx", "extractbb", "bibtex", "upbibtex", "biber"].includes(command)) &&
+    Boolean(findTexCommand(command)));
+  ipcMain.handle("tex64:tdom:compile-pdf", (event, payload) => {
+    if (!ownsMainRenderer(event)) return { ok: false };
+    if (isBuilding()) return { ok: false, code: "TDOM_BUILD_IN_PROGRESS" };
+    return result(() => livePdfFallback.compile(payload));
+  });
+  ipcMain.handle("tex64:tdom:show-window-pdf", (event, generation) => {
+    if (!ownsMainRenderer(event)) return { ok: false };
+    const latest = livePdfFallback.latest;
+    if (generation === null) pdfWindowManager.setFallbackPreview(null);
+    else if (latest && generation === latest.generation && latest.root === getWorkspaceRoot()) {
+      pdfWindowManager.setFallbackPreview(latest);
+    }
+    return { ok: true };
+  });
   ipcMain.handle("tex64:tdom:push", (_event, payload) => result(() => getTdomEngineService().push(payload)));
   ipcMain.handle("tex64:tdom:focus", (_event, payload) => result(() => getTdomEngineService().focus(payload)));
   ipcMain.handle("tex64:tdom:snapshot", (_event, payload) =>
     result(() => getTdomEngineService().snapshot(payload)));
-  const ownsMainRenderer = (event) => event.sender === getMainWindow()?.webContents &&
-    event.senderFrame === event.sender.mainFrame;
   ipcMain.handle("tex64:tdom:set-window-preview", (event, payload) => {
     if (!ownsMainRenderer(event)) return { ok: false, error: "Invalid live preview owner." };
     if (payload == null) {
@@ -56,6 +129,17 @@ const registerTdomEngineHandlers = ({ ipcMain, getTdomEngineService, getMainWind
       expectedSrcRev: payload.expectedSrcRev ?? null,
     });
     return { ok: true };
+  });
+  ipcMain.handle("tex64:tdom:set-unbuilt-window", (event, target) => {
+    if (!ownsMainRenderer(event)) return { ok: false };
+    if (target === null) {
+      pdfWindowManager.closeUnbuiltWindow();
+      return { ok: true };
+    }
+    const root = getWorkspaceRoot();
+    if (!root || target?.workspaceRoot !== root ||
+        typeof target.pdfPath !== "string" || isBlocked()) return { ok: false };
+    return { ok: pdfWindowManager.openUnbuiltWindow(path.resolve(root, target.pdfPath)) };
   });
   ipcMain.handle("tex64:tdom:reply-window-anchor", (event, payload) => {
     if (!ownsMainRenderer(event)) return { ok: false, error: "Invalid live preview owner." };

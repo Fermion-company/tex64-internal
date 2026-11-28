@@ -79,7 +79,7 @@ export const setupLsp = async (monaco, deps) => {
     const docSync = new LspDocumentSync(monaco, client);
     docSync.start();
     docSync.openPending();
-    const providerDisposables = registerLspProviders(monaco, client);
+    const providerDisposables = registerLspProviders(monaco, client, undefined, deps.loadResource);
     // Always registered; the diagnostics flag is checked at publish time so it can
     // be toggled live.
     const disposeDiagnostics = registerDiagnostics(monaco, client, "texlab");

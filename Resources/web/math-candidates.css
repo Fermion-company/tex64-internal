@@ -1,0 +1,67 @@
+.math-wysiwyg-panel {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--panel-border-strong);
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+  z-index: 3;
+  overflow-x: auto;
+}
+
+.math-wysiwyg-panel[aria-hidden="true"] {
+  display: none;
+}
+
+.math-wysiwyg-panel::-webkit-scrollbar {
+  height: 6px;
+}
+
+.math-wysiwyg-panel::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 28%, transparent);
+  border-radius: 999px;
+}
+
+.math-wysiwyg-item {
+  border: 1px solid transparent;
+  background: var(--control-bg);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.math-wysiwyg-item.is-active {
+  border-color: var(--accent-strong);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.math-wysiwyg-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.math-wysiwyg-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.math-wysiwyg-label {
+  font-size: 11px;
+  color: var(--text-soft);
+}

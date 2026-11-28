@@ -11,31 +11,27 @@ export const createEditorSessionSplitViewOps = (runtime, coreOps) => {
             width,
         };
     };
-    const clampSplitRatio = (ratio) => {
+    const getMinSplitRatio = () => {
         const { min, handle, width } = getSplitSizing();
         const available = Math.max(width - handle, 1);
         let minRatio = min / available;
         if (!Number.isFinite(minRatio) || minRatio < 0) {
             minRatio = 0;
         }
-        if (minRatio > 0.5) {
-            return 0.5;
-        }
-        const maxRatio = 1 - minRatio;
-        if (!Number.isFinite(ratio)) {
-            return 0.5;
-        }
-        return Math.min(Math.max(ratio, minRatio), maxRatio);
+        return Math.min(0.5, minRatio);
     };
     const applySplitRatio = (ratio, options = {}) => {
         if (!runtime.dom.editorGroupsRootEl) {
             return;
         }
-        const normalized = clampSplitRatio(ratio);
+        const minRatio = getMinSplitRatio();
+        const normalized = Number.isFinite(ratio) ? Math.min(Math.max(ratio, minRatio), 1 - minRatio) : 0.5;
         runtime.state.splitRatio = normalized;
         runtime.dom.editorGroupsRootEl.style.setProperty("--split-primary", `${normalized}fr`);
         runtime.dom.editorGroupsRootEl.style.setProperty("--split-secondary", `${1 - normalized}fr`);
         if (runtime.dom.editorSplitter instanceof HTMLElement) {
+            runtime.dom.editorSplitter.setAttribute("aria-valuemin", String(Math.round(minRatio * 100)));
+            runtime.dom.editorSplitter.setAttribute("aria-valuemax", String(Math.round((1 - minRatio) * 100)));
             runtime.dom.editorSplitter.setAttribute("aria-valuenow", String(Math.round(normalized * 100)));
         }
         if (options.persist && typeof localStorage !== "undefined") {
@@ -63,7 +59,7 @@ export const createEditorSessionSplitViewOps = (runtime, coreOps) => {
             (_a = editor.layout) === null || _a === void 0 ? void 0 : _a.call(editor);
         }
     };
-    const isAnyGroupComposing = () => Object.values(runtime.editorGroups).some((group) => group.isComposing);
+    const isAnyGroupComposing = () => Object.values(runtime.editorGroups).some((group) => { var _a; return group.isComposing || ((_a = group.editor) === null || _a === void 0 ? void 0 : _a.inComposition) === true; });
     const updateBreadcrumbs = () => {
         runtime.deps.editorTabs.render(coreOps.getActiveGroup());
     };
@@ -159,6 +155,22 @@ export const createEditorSessionSplitViewOps = (runtime, coreOps) => {
             window.removeEventListener("pointerup", stopResize, true);
             window.removeEventListener("pointercancel", stopResize, true);
         };
+        runtime.dom.editorSplitter.addEventListener("keydown", (event) => {
+            if (!runtime.state.splitViewEnabled)
+                return;
+            const step = event.shiftKey ? 0.1 : 0.025;
+            const positions = {
+                ArrowLeft: runtime.state.splitRatio - step,
+                ArrowRight: runtime.state.splitRatio + step,
+                Home: 0,
+                End: 1,
+            };
+            if (!Object.prototype.hasOwnProperty.call(positions, event.key))
+                return;
+            event.preventDefault();
+            applySplitRatio(positions[event.key], { persist: true });
+            coreOps.scheduleEditorLayout();
+        });
         runtime.dom.editorSplitter.addEventListener("pointerdown", (event) => {
             var _a, _b;
             if (!runtime.state.splitViewEnabled || event.button !== 0) {

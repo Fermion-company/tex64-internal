@@ -1,10 +1,11 @@
+import type { ParseMode } from '../public/core-types';
 import { _Model } from './model-private';
 import { CompositionAtom } from '../atoms/composition';
 
 /**
  * Create, remove or update a composition atom at the current location
  */
-export function updateComposition(model: _Model, s: string): void {
+export function updateComposition(model: _Model, s: string, mode: ParseMode): void {
   const cursor = model.at(model.position);
 
   // We're creating or updating a composition
@@ -19,7 +20,7 @@ export function updateComposition(model: _Model, s: string): void {
     cursor.caret = undefined;
 
     // Create 'composition' atom, with caret
-    const atom = new CompositionAtom(s, { mode: cursor.mode });
+    const atom = new CompositionAtom(s, { mode });
     atom.caret = caret;
     cursor.parent!.addChildAfter(atom, cursor);
 

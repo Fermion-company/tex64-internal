@@ -1,3 +1,28 @@
+// TeX reports the reference key and source line, but no column. Locate the
+// key in the current buffer only when the corresponding command is unambiguous.
+const warningKeyColumn = (message, source) => {
+    const warning = message === null || message === void 0 ? void 0 : message.match(/\b(Citation|Reference)\s+[`'"]([^'"]+)['"].*\bundefined\b/i);
+    if (!warning)
+        return null;
+    const command = warning[1].toLowerCase() === "citation"
+        ? /\\(?:cite|citet|citep|citeauthor|citeyear|autocite|parencite|textcite|footcite|supercite)\*?\s*(?:\[[^\]]*\]\s*)*\{([^{}]*)\}/gi
+        : /\\(?:eqref|ref|pageref|autoref|cref|namecref|nameref|vref)\*?\s*\{([^{}]*)\}/gi;
+    const uncommented = source.replace(/(^|[^\\])(?:\\\\)*%.*/, "$1");
+    let column = null;
+    let match;
+    while ((match = command.exec(uncommented))) {
+        let offset = match.index + match[0].lastIndexOf("{") + 1;
+        for (const token of match[1].split(",")) {
+            if (token.trim() === warning[2]) {
+                if (column !== null)
+                    return null;
+                column = offset + token.indexOf(warning[2]) + 1;
+            }
+            offset += token.length + 1;
+        }
+    }
+    return column;
+};
 export const createEditorSessionIssueOps = (runtime, coreOps) => {
     const clearJumpHighlight = (group) => {
         const decorations = runtime.jumpDecorations[group.key];
@@ -36,19 +61,19 @@ export const createEditorSessionIssueOps = (runtime, coreOps) => {
     const parseIssueDetail = (issue) => {
         var _a, _b, _c, _d, _e, _f, _g;
         const trimmed = issue.message.trim();
-        const filePattern = String.raw `((?:[A-Za-z]:)?[^:\s]+?\.[A-Za-z0-9]+)`;
+        const filePattern = String.raw `((?:[A-Za-z]:)?[^:\r\n]+?\.[A-Za-z0-9]+)`;
         const match = (_a = trimmed.match(new RegExp(`^${filePattern}:(\\d+):(\\d+):\\s*(.+)$`))) !== null && _a !== void 0 ? _a : trimmed.match(new RegExp(`^${filePattern}:(\\d+):\\s*(.+)$`));
         if (match) {
             const path = (_b = issue.path) !== null && _b !== void 0 ? _b : match[1];
             const line = (_c = issue.line) !== null && _c !== void 0 ? _c : Number.parseInt(match[2], 10);
-            const column = (_d = issue.column) !== null && _d !== void 0 ? _d : (match.length > 4 && match[3] && /^\\d+$/.test(match[3])
+            const column = (_d = issue.column) !== null && _d !== void 0 ? _d : (match.length > 4 && match[3] && /^\d+$/.test(match[3])
                 ? Number.parseInt(match[3], 10)
                 : null);
             let message = match.length > 4 ? match[4].trim() : match[3].trim();
             if (issue.path && issue.line) {
                 const prefix = `${issue.path}:${issue.line}`;
                 if (message.startsWith(prefix)) {
-                    message = message.slice(prefix.length).replace(/^:\\s*/, "");
+                    message = message.slice(prefix.length).replace(/^:\s*/, "");
                 }
             }
             return { path, line: Number.isFinite(line) ? line : null, column, message };
@@ -123,7 +148,7 @@ export const createEditorSessionIssueOps = (runtime, coreOps) => {
         });
     };
     const revealLine = (group, line, options = {}) => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e, _f, _g;
         const monacoApi = runtime.deps.getMonacoApi();
         if (!group.editor || !monacoApi) {
             return;
@@ -143,12 +168,15 @@ export const createEditorSessionIssueOps = (runtime, coreOps) => {
             if (Number.isFinite(maxLine) && maxLine >= 1) {
                 lineNumber = Math.min(normalizedLine, maxLine);
             }
+            if (!options.column && options.issueMessage && normalizedLine === lineNumber) {
+                columnNumber = (_f = warningKeyColumn(options.issueMessage, (_e = (_d = model.getLineContent) === null || _d === void 0 ? void 0 : _d.call(model, lineNumber)) !== null && _e !== void 0 ? _e : "")) !== null && _f !== void 0 ? _f : columnNumber;
+            }
             const maxColumn = model.getLineMaxColumn(lineNumber);
             if (Number.isFinite(maxColumn) && maxColumn >= 1) {
-                columnNumber = Math.min(normalizedColumn, maxColumn);
+                columnNumber = Math.min(columnNumber, maxColumn);
             }
         }
-        const className = (_d = options.className) !== null && _d !== void 0 ? _d : "jump-line-highlight";
+        const className = (_g = options.className) !== null && _g !== void 0 ? _g : "jump-line-highlight";
         runtime.jumpDecorations[group.key] = editor.deltaDecorations(runtime.jumpDecorations[group.key], [
             {
                 range: new monacoApiAny.Range(lineNumber, 1, lineNumber, 1),
@@ -160,8 +188,9 @@ export const createEditorSessionIssueOps = (runtime, coreOps) => {
             },
         ]);
         runtime.jumpDecorationClassNames[group.key] = className;
-        editor.revealLineInCenter(lineNumber);
-        editor.setPosition({ lineNumber, column: columnNumber });
+        const position = { lineNumber, column: columnNumber };
+        editor.setPosition(position);
+        editor.revealPositionInCenter(position);
         if (options.focus !== false) {
             editor.focus();
         }

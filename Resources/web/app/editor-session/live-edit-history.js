@@ -2,15 +2,19 @@ const histories = new WeakMap();
 // Keep minutes of typing without retaining a full document for every key.
 const MAX_REVISIONS = 4096;
 const MAX_CHANGE_UNITS = 4 * 1024 * 1024;
-const hashText = (text) => {
-    let hash = 2166136261;
+// This additive checksum filters old snapshots. Reordering can collide,
+// so a candidate must still reconstruct the exact source before rebasing.
+const textChecksum = (text) => {
+    let sum = 0;
     for (let i = 0; i < text.length; i += 1)
-        hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
-    return hash;
+        sum = (sum + text.charCodeAt(i)) | 0;
+    return sum;
 };
 const resetHistory = (history, text) => {
     history.version += 1;
     history.text = text;
+    history.checksum = 0;
+    history.initialChecksum = undefined;
     history.revisions = [];
     history.cost = 0;
 };
@@ -38,32 +42,43 @@ const recordChanges = (history, current, edits) => {
     if (previous === current && !changes.length)
         return;
     const cost = changes.reduce((sum, change) => sum + 32 + change.text.length + change.removed.length, 0);
-    history.revisions.push({ version: history.version, length: previous.length, hash: hashText(previous), changes, cost });
+    history.revisions.push({ version: history.version, length: previous.length, checksum: history.checksum, changes, cost });
     history.version += 1;
     history.text = current;
+    for (const change of changes) {
+        history.checksum = (history.checksum + textChecksum(change.text) - textChecksum(change.removed)) | 0;
+    }
     history.cost += cost;
     while (history.revisions.length > MAX_REVISIONS || history.cost > MAX_CHANGE_UNITS) {
         history.cost -= history.revisions.shift().cost;
     }
 };
 export const trackLiveEditModel = (model) => {
-    var _a, _b;
+    var _a, _b, _c;
     let history = histories.get(model);
+    const modelVersion = (_a = model.getVersionId) === null || _a === void 0 ? void 0 : _a.call(model);
     if (history) {
-        if (history.text !== model.getValue())
-            resetHistory(history, model.getValue());
+        if (modelVersion === undefined || history.modelVersion !== modelVersion) {
+            const text = model.getValue();
+            if (history.text !== text)
+                resetHistory(history, text);
+            history.modelVersion = modelVersion;
+        }
         return history;
     }
-    history = { identity: {}, version: 0, text: model.getValue(), revisions: [], cost: 0 };
+    const text = model.getValue();
+    history = { identity: {}, version: 0, modelVersion, text, checksum: 0, revisions: [], cost: 0 };
     histories.set(model, history);
     const tracked = history;
-    const contentListener = (_a = model.onDidChangeContent) === null || _a === void 0 ? void 0 : _a.call(model, (event) => {
+    const contentListener = (_b = model.onDidChangeContent) === null || _b === void 0 ? void 0 : _b.call(model, (event) => {
+        var _a;
         if (event.isFlush)
             resetHistory(tracked, model.getValue());
         else
             recordChanges(tracked, model.getValue(), event.changes);
+        tracked.modelVersion = (_a = model.getVersionId) === null || _a === void 0 ? void 0 : _a.call(model);
     });
-    (_b = model.onWillDispose) === null || _b === void 0 ? void 0 : _b.call(model, () => {
+    (_c = model.onWillDispose) === null || _c === void 0 ? void 0 : _c.call(model, () => {
         contentListener === null || contentListener === void 0 ? void 0 : contentListener.dispose();
         resetHistory(tracked, "");
         histories.delete(model);
@@ -109,16 +124,19 @@ export const rebaseLiveEditAnchor = (model, anchor) => {
     }
     return anchorAtCurrent(history, range.startOffset, range.endOffset);
 };
-export const anchorFromLiveEditSnapshot = (model, sourceText, startOffset, endOffset) => {
-    var _a, _b;
+const anchorFromModelText = (model, sourceText, startOffset, endOffset) => {
+    var _a, _b, _c;
     const history = trackLiveEditModel(model);
     if (!Number.isInteger(startOffset) || !Number.isInteger(endOffset) ||
         startOffset < 0 || endOffset < startOffset || endOffset > sourceText.length)
         return null;
     if (history.text === sourceText)
         return anchorAtCurrent(history, startOffset, endOffset);
-    const hash = hashText(sourceText);
-    const candidates = history.revisions.map((revision, index) => revision.length === sourceText.length && revision.hash === hash ? index : -1).filter((index) => index >= 0);
+    // Revisions store deltas from the initial text. Read its absolute sum
+    // only when an older displayed page actually needs to find a revision.
+    (_a = history.initialChecksum) !== null && _a !== void 0 ? _a : (history.initialChecksum = (textChecksum(history.text) - history.checksum) | 0);
+    const checksum = (textChecksum(sourceText) - history.initialChecksum) | 0;
+    const candidates = history.revisions.map((revision, index) => revision.length === sourceText.length && revision.checksum === checksum ? index : -1).filter((index) => index >= 0);
     if (!candidates.length)
         return null;
     let text = history.text;
@@ -134,9 +152,22 @@ export const anchorFromLiveEditSnapshot = (model, sourceText, startOffset, endOf
             }
         }
         if (text !== sourceText)
-            continue; // Hashes only select candidates; equality is exact.
-        const version = (_b = (_a = history.revisions[index]) === null || _a === void 0 ? void 0 : _a.version) !== null && _b !== void 0 ? _b : history.version;
+            continue; // Checksums only select candidates; equality is exact.
+        const version = (_c = (_b = history.revisions[index]) === null || _b === void 0 ? void 0 : _b.version) !== null && _c !== void 0 ? _c : history.version;
         return rebaseLiveEditAnchor(model, { identity: history.identity, version, startOffset, endOffset });
     }
     return null;
+};
+// Monaco stores a UTF-8 BOM outside its editable text. File-based previews
+// include it in source offsets, while live editor snapshots already omit it.
+export const anchorFromLiveEditSnapshot = (model, sourceText, startOffset, endOffset) => {
+    if (sourceText.charCodeAt(0) === 0xfeff && startOffset > 0) {
+        const current = trackLiveEditModel(model).text;
+        if (sourceText !== current && model.getValue(undefined, true).length === current.length + 1) {
+            const anchor = anchorFromModelText(model, sourceText.slice(1), startOffset - 1, endOffset - 1);
+            if (anchor)
+                return anchor;
+        }
+    }
+    return anchorFromModelText(model, sourceText, startOffset, endOffset);
 };

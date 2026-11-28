@@ -133,103 +133,6 @@ export const stripEmptyAlignedRows = (text: string) => {
   return rows.slice(0, lastNonEmpty + 1).join("\\\\");
 };
 
-export const normalizeMatrixSyntax = (value: string) => {
-  if (!value) {
-    return value;
-  }
-  const parseTopLevelBracedCells = (body: string) => {
-    const cells: string[] = [];
-    let i = 0;
-    while (i < body.length) {
-      while (i < body.length && /\s/.test(body[i] ?? "")) {
-        i += 1;
-      }
-      if (i >= body.length) {
-        break;
-      }
-      if (body[i] !== "{" || isEscapedAt(body, i)) {
-        return null;
-      }
-      const start = i + 1;
-      let depth = 0;
-      let closed = false;
-      for (; i < body.length; i += 1) {
-        const ch = body[i];
-        if (ch === "{" && !isEscapedAt(body, i)) {
-          depth += 1;
-          continue;
-        }
-        if (ch === "}" && !isEscapedAt(body, i)) {
-          depth -= 1;
-          if (depth === 0) {
-            cells.push(body.slice(start, i).trim());
-            i += 1;
-            closed = true;
-            break;
-          }
-        }
-      }
-      if (!closed) {
-        return null;
-      }
-    }
-    return cells;
-  };
-  const inferMatrixShape = (cellCount: number) => {
-    if (!Number.isFinite(cellCount) || cellCount < 4) {
-      return null;
-    }
-    let bestRows = 0;
-    let bestCols = 0;
-    let bestDiff = Number.POSITIVE_INFINITY;
-    for (let rows = 2; rows * rows <= cellCount; rows += 1) {
-      if (cellCount % rows !== 0) {
-        continue;
-      }
-      const cols = cellCount / rows;
-      if (cols < 2) {
-        continue;
-      }
-      const diff = Math.abs(cols - rows);
-      if (diff < bestDiff) {
-        bestRows = rows;
-        bestCols = cols;
-        bestDiff = diff;
-      }
-    }
-    if (bestRows > 0 && bestCols > 0) {
-      return { rows: bestRows, cols: bestCols };
-    }
-    return null;
-  };
-  return value.replace(
-    /\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix)\}([\s\S]*?)\\end\{\1\}/g,
-    (match, env: string, body: string) => {
-      if (body.includes("&") || body.includes("\\\\")) {
-        return match;
-      }
-      const cells = parseTopLevelBracedCells(body);
-      if (!cells || cells.length <= 1) {
-        return match;
-      }
-      const filtered = cells.filter((cell) => cell.length > 0);
-      if (filtered.length !== cells.length) {
-        return match;
-      }
-      const shape = inferMatrixShape(filtered.length);
-      if (!shape) {
-        return match;
-      }
-      const rows: string[] = [];
-      for (let r = 0; r < shape.rows; r += 1) {
-        const row = filtered.slice(r * shape.cols, (r + 1) * shape.cols);
-        rows.push(row.join("&"));
-      }
-      return `\\begin{${env}}${rows.join("\\\\")}\\end{${env}}`;
-    }
-  );
-};
-
 const restoreLegacyAlignedProxyEnvs = (value: string) =>
   value.replace(/\\begin\{aligned\}([\s\S]*?)\\end\{aligned\}/g, (match, body: string) => {
     if (body.includes("\\txalnat")) {
@@ -242,7 +145,7 @@ const restoreLegacyAlignedProxyEnvs = (value: string) =>
     }
     if (body.includes("\\txarrcf")) {
       const cleaned = body.replace(/\\txarrcf/g, "").trim();
-      return `\\begin{array}{@{}>r<{}c@{|}l<{}@{}}${cleaned}\\end{array}`;
+      return `\\begin{array}{@{}rc|l@{}}${cleaned}\\end{array}`;
     }
     return match;
   });

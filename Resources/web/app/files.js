@@ -8,7 +8,10 @@ export const LATEX_FILE_EXTENSIONS = new Set([
     "bbx",
     "cbx",
     "cfg",
+    "clo",
     "def",
+    "fd",
+    "ldf",
     "lbx",
     "bst",
 ]);
@@ -51,4 +54,5 @@ export const getFileExtension = (value) => {
     return name.slice(index + 1).toLowerCase();
 };
 export const isImageFilePath = (path) => IMAGE_FILE_EXTENSIONS.has(getFileExtension(path));
+export const isTexFilePath = (path) => typeof path === "string" && getFileExtension(path) === "tex";
 export const isPdfFilePath = (path) => getFileExtension(path) === "pdf";

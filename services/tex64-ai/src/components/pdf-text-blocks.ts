@@ -37,7 +37,8 @@ type Line = {
   pieces: Array<{ left: number; right: number; text: string }>;
 };
 
-export type TextBlock = { rects: TextRect[]; text: string; focusedText: string };
+export type PdfTextHit = { before: string; after: string; word: string };
+export type TextBlock = { rects: TextRect[]; text: string; focusedText: string; textHit?: PdfTextHit };
 
 export const hasSelectableText = (block: TextBlock): boolean =>
   block.rects.length > 0 && block.text.trim().length > 0;
@@ -135,6 +136,15 @@ export function findTextBlock(
     .sort((left, right) => {
       return left.distance - right.distance;
     })[0]?.index;
+  const piece = focusedIndex === undefined ? null : orderedPieces[focusedIndex];
+  const joined = orderedPieces.map((item) => item.text).join("");
+  let textHit: PdfTextHit | undefined;
+  if (piece && piece.text.length && focusedIndex !== undefined) {
+    const fraction = (point.x - piece.left) / Math.max(piece.right - piece.left, 1);
+    const within = Math.min(piece.text.length - 1, Math.max(0, Math.floor(fraction * piece.text.length)));
+    const offset = orderedPieces.slice(0, focusedIndex).map((item) => item.text).join("").length + within;
+    textHit = { before: joined.slice(0, offset), after: joined.slice(offset), word: piece.text.trim() };
+  }
   let focusFirst = focusedIndex ?? 0;
   let focusLast = focusedIndex ?? -1;
   while (focusFirst > 0 && orderedPieces[focusFirst]!.left - orderedPieces[focusFirst - 1]!.right <= FOCUS_GROUP_GAP) focusFirst -= 1;
@@ -153,6 +163,7 @@ export function findTextBlock(
       .join("")
       .trim(),
     focusedText,
+    ...(textHit ? { textHit } : {}),
   };
 }
 

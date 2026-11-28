@@ -7,6 +7,7 @@ const { GitState, activeFilters } = require("./git-state.cjs");
 const fail = (code, message, extra = {}) => Object.assign(new Error(message), { code, ...extra });
 const sha = value => crypto.createHash("sha256").update(value).digest("hex");
 const text = result => result.stdout.toString("utf8").replace(/\n$/, "");
+const { withProjectFileWrites } = require("./project-file-writes.cjs");
 const schema = { stage: ["paths"], unstage: ["paths"], commit: ["message"], "branch-create": ["name", "ref"], "branch-switch": ["ref"], merge: ["ref"], "resolve-stage": ["paths"], "merge-finish": ["message"], "merge-abort": [], "tag-create": ["name", "ref", "message"] };
 const titles = { stage: "コミット対象に追加", unstage: "コミット対象から外す", commit: "コミット", "branch-create": "ブランチを作成して切り替える", "branch-switch": "ブランチを切り替える", merge: "変更を取り込む", "resolve-stage": "解決済みにする", "merge-finish": "統合を完了", "merge-abort": "統合を中止", "tag-create": "タグを付ける" };
 const literalPath = value => {
@@ -121,7 +122,13 @@ class GitService {
     const plan = { action, state, args: {}, paths: [], createdAt: Date.now(), writesWorktree: ["branch-create", "branch-switch", "merge", "merge-abort"].includes(action) };
     if (["stage", "unstage", "resolve-stage"].includes(action)) {
       if (!Array.isArray(args.paths) || !args.paths.length || args.paths.length > 500) throw fail("GIT_PATH_INVALID", "Choose the files for this operation.");
-      plan.paths = [...new Set(args.paths.map(literalPath))].sort();
+      const selected = new Set(args.paths.map(literalPath));
+      plan.paths = [...selected];
+      if (action === "unstage") {
+        for (const entry of state.status.entries) {
+          if (entry.index === "R" && selected.has(entry.path)) plan.paths.push(literalPath(entry.originalPath));
+        }
+      }
       if (action === "resolve-stage" && plan.paths.some(file => !state.status.entries.some(entry => entry.path === file && entry.unmerged))) throw fail("GIT_PATH_INVALID", "Choose an unresolved file.");
       if (action === "unstage" && state.unborn) plan.emptyTree = text(await this.read(["hash-object", "-t", "tree", "--stdin"]));
     }
@@ -163,10 +170,12 @@ class GitService {
         if (plan.mergeMode === "merge") {
           const base = await this.read(["merge-base", state.head, plan.target.oid], { allowFailure: true });
           if (base.code !== 0) throw fail("GIT_UNRELATED_HISTORIES", "These histories cannot be merged automatically.");
+          const incoming = await this.read(["diff", "--name-only", "-z", "--no-ext-diff", "--no-textconv", text(base), plan.target.oid, "--"]);
+          plan.paths.push(...incoming.stdout.toString("utf8").split("\0").filter(Boolean));
         }
       }
     }
-    if (action === "merge-abort") { plan.mergeHeads = await this.mergeHeads(state.gitDir); plan.paths = state.status.entries.map(item => item.path); }
+    if (action === "merge-abort") { plan.mergeHeads = await this.mergeHeads(state.gitDir); plan.paths = state.status.entries.flatMap(item => [item.path, ...(item.originalPath ? [item.originalPath] : [])]); }
     plan.paths = [...new Set(plan.paths)].sort();
     plan.filesFingerprint = await this.filesFingerprint(plan.paths);
     const planId = crypto.randomUUID();
@@ -220,7 +229,7 @@ class GitService {
     this.plans.delete(planId);
     if (typeof this.withMutation !== "function") throw fail("GIT_MUTATION_GUARD_REQUIRED", "Git changes require workspace protection.");
     const verify = async () => this.verify(plan, await this.status());
-    return this.withMutation({ action: plan.action, writesWorktree: plan.writesWorktree, paths: [...plan.paths], verify }, async () => {
+    const execute = async () => {
       const current = await this.status();
       if (current.stateFingerprint !== plan.state.stateFingerprint || await this.filesFingerprint(plan.paths) !== plan.filesFingerprint) throw fail("STATE_CHANGED", "The project changed after confirmation. Review the operation again.");
       await this.assertTrusted(plan.action, current);
@@ -245,7 +254,10 @@ class GitService {
       const completion = await this.verify(plan, state);
       if (result.code !== 0 && !(plan.action === "merge" && state.status?.hasUnmerged && completion === "conflict")) throw fail("GIT_FAILED", result.stderr || "Git operation failed.");
       return { action: plan.action, state, conflict: Boolean(state.status?.hasUnmerged), mergePending: state.operation === "merge", completion };
-    });
+    };
+    const files = plan.writesWorktree ? plan.paths.map((name) => path.join(this.runner.root, name)) : [];
+    return this.withMutation({ action: plan.action, writesWorktree: plan.writesWorktree, paths: [...plan.paths], verify },
+      () => withProjectFileWrites(files, execute, { allowDanglingLinks: true, entryPaths: true }));
   }
 }
 module.exports = { GitService };

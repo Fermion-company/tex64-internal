@@ -92,6 +92,18 @@ export const encodeFigureBlock = (scene: Scene): string => {
   return `%% tex64-figure v2 h=${fnv1a32(body)} ${encoded}\n${code}\n`;
 };
 
+// Earlier versions saved out-of-range numbers typed in the style inspector.
+// Restore the values the controls accept so those figures can be edited again.
+const parseStoredScene = (json: string): Scene | null => validateScene(JSON.parse(json, (key, value) => {
+  if (key === "props" && value && typeof value === "object") {
+    if (Number.isFinite(value.opacity)) value.opacity = Math.min(1, Math.max(0, value.opacity));
+    for (const name of ["roundedCornersPt", "doubleDistancePt"]) {
+      if (Number.isFinite(value[name])) value[name] = Math.max(0, value[name]);
+    }
+  }
+  return value;
+}));
+
 export const decodeFigureBlockAt = (lines: string[], cursorLine: number): { scene: Scene; startLine: number; endLine: number; detached: boolean } | null => {
   if (!Number.isInteger(cursorLine) || cursorLine < 0 || cursorLine >= lines.length) return null;
   let startLine = cursorLine;
@@ -110,7 +122,7 @@ export const decodeFigureBlockAt = (lines: string[], cursorLine: number): { scen
   let bodyStart = startLine + 1;
   let scene: Scene | null = null;
   if (v2) {
-    try { scene = validateScene(JSON.parse(new TextDecoder().decode(lzssDecompress(base64DecodeBytes(v2[2]))))); } catch { return null; }
+    try { scene = parseStoredScene(new TextDecoder().decode(lzssDecompress(base64DecodeBytes(v2[2])))); } catch { return null; }
   } else {
     const chunks: string[] = [];
     while (bodyStart < endLine) {
@@ -120,7 +132,7 @@ export const decodeFigureBlockAt = (lines: string[], cursorLine: number): { scen
       bodyStart++;
     }
     if (!chunks.length) return null;
-    try { scene = validateScene(JSON.parse(base64DecodeUtf8(chunks.join("")))); } catch { return null; }
+    try { scene = parseStoredScene(base64DecodeUtf8(chunks.join(""))); } catch { return null; }
   }
   if (!scene) return null;
   if (scene.outputWidth?.mode === "relative" && lines[endLine + 1]?.trim() === "}") endLine += 1;

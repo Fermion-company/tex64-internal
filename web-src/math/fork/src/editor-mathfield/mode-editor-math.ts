@@ -48,71 +48,74 @@ export class MathModeEditor extends ModeEditor {
     //
     let json =
       typeof data !== 'string' ? data.getData('application/json+mathlive') : '';
+    let atoms: Atom[] = [];
     if (json) {
       try {
         const atomJson: AtomJson | AtomJson[] = JSON.parse(json);
-        if (atomJson && Array.isArray(atomJson)) {
-          mathfield.snapshot();
+        if (Array.isArray(atomJson)) atoms = fromJson(atomJson);
+      } catch {
+        // Other clipboard formats may still have usable content.
+      }
+    }
+    const contentAtoms = atoms.filter((atom) => atom.type !== 'first');
+    if (contentAtoms.length > 0) {
+      // Retain the selection being replaced for Undo, and record the final
+      // position and content for Redo just as a plain LaTeX paste does.
+      mathfield.stopCoalescingUndo();
+      const { model } = mathfield;
+      if (!model.selectionIsCollapsed)
+        model.deleteAtoms(range(model.selection));
+      const cursor = model.at(model.position);
 
-          const atoms = fromJson(atomJson) as unknown as Atom[];
-          const { model } = mathfield;
-          if (!model.selectionIsCollapsed)
-            model.deleteAtoms(range(model.selection));
-          const cursor = model.at(model.position);
-
-          if (cursor.parent instanceof ArrayAtom) {
-            console.assert(cursor.parentBranch !== undefined);
-            // use 'first' atoms as environment column delimiter
-            const columns: Atom[][] = [];
-            let buffer: Atom[] = [];
-            // trim 'first' from array of atoms
-            if (atoms[0].type === 'first') atoms.shift();
-            if (atoms[atoms.length - 1].type === 'first') atoms.pop();
-            for (const atom of atoms) {
-              if (atom.type === 'first' && buffer.length > 0) {
-                columns.push(buffer);
-                buffer = [atom];
-              } else buffer.push(atom);
-            }
-            if (buffer.length > 0) columns.push(buffer);
-
-            // expand environment columns to paste size
-            let currentRow = Number(cursor.parentBranch![0]);
-            let currentColumn = Number(cursor.parentBranch![1]);
-            const maxColumns = cursor.parent.maxColumns;
-            while (
-              cursor.parent.colCount - currentColumn < columns.length &&
-              cursor.parent.colCount < maxColumns
-            )
-              cursor.parent.addColumn();
-
-            // add content to the first cell
-            cursor.parent.addChildrenAfter(columns[0], cursor);
-            // replace the rest of the columns
-            for (let i = 1; i < columns.length; i++) {
-              currentColumn++;
-              if (currentColumn >= maxColumns) {
-                currentColumn = 0;
-                cursor.parent.addRowAfter(currentRow);
-                currentRow++;
-              }
-              cursor.parent.setCell(currentRow, currentColumn, columns[i]);
-            }
-          } else {
-            cursor.parent!.addChildrenAfter(
-              atoms.filter((a) => a.type !== 'first'),
-              cursor
-            );
-          }
-
-          model.position = model.offsetOf(atoms[atoms.length - 1]);
-
-          model.contentDidChange({ inputType: 'insertFromPaste' });
-          requestUpdate(mathfield);
-
-          return true;
+      if (cursor.parent instanceof ArrayAtom) {
+        console.assert(cursor.parentBranch !== undefined);
+        // use 'first' atoms as environment column delimiter
+        const columns: Atom[][] = [];
+        let buffer: Atom[] = [];
+        // trim 'first' from array of atoms
+        if (atoms[0].type === 'first') atoms.shift();
+        if (atoms[atoms.length - 1].type === 'first') atoms.pop();
+        for (const atom of atoms) {
+          if (atom.type === 'first' && buffer.length > 0) {
+            columns.push(buffer);
+            buffer = [atom];
+          } else buffer.push(atom);
         }
-      } catch {}
+        if (buffer.length > 0) columns.push(buffer);
+
+        // expand environment columns to paste size
+        let currentRow = Number(cursor.parentBranch![0]);
+        let currentColumn = Number(cursor.parentBranch![1]);
+        const maxColumns = cursor.parent.maxColumns;
+        while (
+          cursor.parent.colCount - currentColumn < columns.length &&
+          cursor.parent.colCount < maxColumns
+        )
+          cursor.parent.addColumn();
+
+        // add content to the first cell
+        cursor.parent.addChildrenAfter(columns[0], cursor);
+        // replace the rest of the columns
+        for (let i = 1; i < columns.length; i++) {
+          currentColumn++;
+          if (currentColumn >= maxColumns) {
+            currentColumn = 0;
+            cursor.parent.addRowAfter(currentRow);
+            currentRow++;
+          }
+          cursor.parent.setCell(currentRow, currentColumn, columns[i]);
+        }
+      } else {
+        cursor.parent!.addChildrenAfter(contentAtoms, cursor);
+      }
+
+      model.position = model.offsetOf(contentAtoms[contentAtoms.length - 1]);
+      mathfield.snapshot('paste');
+
+      model.contentDidChange({ inputType: 'insertFromPaste' });
+      requestUpdate(mathfield);
+
+      return true;
     }
 
     //
@@ -145,8 +148,17 @@ export class MathModeEditor extends ModeEditor {
     // 4/ If that didn't work, try some plain text
     // (could be LaTeX, could be ASCIIMath)
     //
-    if (!text)
+    if (!text) {
       text = typeof data === 'string' ? data : data.getData('text/plain');
+      // Adjacent Unicode script characters belong to one TeX argument.
+      // Keep explicitly marked LaTeX and ASCIIMath in their own parsers.
+      if (!/[\\$`]/.test(text)) {
+        const script = (value: string) => value.normalize('NFKC').replace(/−/g, '-');
+        text = text
+          .replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹ⁱⁿ⁺⁻⁼⁽⁾]+/gu, (s) => `^{${script(s)}}`)
+          .replace(/[₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎ₐₑₒₓ]+/gu, (s) => `_{${script(s)}}`);
+      }
+    }
 
     if (text) {
       let wasLatex: boolean;
@@ -335,7 +347,12 @@ export class MathModeEditor extends ModeEditor {
       }
 
       const cursor = model.at(model.position);
-      cursor.parent!.addChildrenAfter(newAtoms, cursor);
+      // Successive prime keystrokes share one superscript on the same base.
+      if (/^'+$/.test(data) && cursor.type === 'subsup' &&
+          newAtoms.length === 1 && newAtoms[0].superscript) {
+        cursor.addChildren(newAtoms[0].superscript.slice(1), 'superscript');
+        newAtoms = [cursor];
+      } else cursor.parent!.addChildrenAfter(newAtoms, cursor);
 
       if (format === 'latex' && typeof input === 'string') {
         // If we are given a latex string with no arguments, store it as

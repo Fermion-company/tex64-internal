@@ -377,6 +377,7 @@ class LivePreviewWindow {
     this.readText = readText;
     this.stat = stat;
     this.env = env;
+    this.generation = 0;
     this.states = new Map(); // rootPath -> { paperKey, seeds, sheets, probing, abort, unitPath }
   }
 
@@ -477,8 +478,10 @@ class LivePreviewWindow {
     if (!rootPath || !projectRoot || typeof rootText !== "string" || !paper?.pages) return null;
     const units = rootUnits(rootPath, rootText);
     if (!units.length) return null;
+    const generation = this.generation;
     let auxStat;
     try { auxStat = await this.stat(rootPath.replace(/\.tex$/i, ".aux")); } catch { return null; }
+    if (generation !== this.generation) return null;
     const paperKey = `${paper.mtimeMs}:${paper.size}:${paper.pages}:${auxStat.mtimeMs}`;
     let state = this.states.get(rootPath);
     if (!state) {
@@ -518,6 +521,7 @@ class LivePreviewWindow {
   }
 
   stop() {
+    this.generation += 1;
     for (const state of this.states.values()) state.abort?.abort();
     this.states.clear();
   }

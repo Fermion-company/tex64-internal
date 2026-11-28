@@ -1,6 +1,7 @@
 const { AgentsSessionStore, resolveAgentsApiConfig, maintainManagedSessions } = require("./openprism/agents-api.cjs");
 const crypto = require("crypto");
 const path = require("path");
+const { canonicalPath } = require("./file-identity.cjs");
 const {
   DEFAULT_MAX_ITERATIONS,
   buildAgentPolicy,
@@ -32,6 +33,12 @@ const { executeToolCall } = require("./agent-tool-executor.cjs");
 const { runAgentConversation, completeSingleChat } = require("./openprism/run-loop.cjs");
 const { runCodexConversation } = require("./codex/axiom-adapter.cjs");
 const { recordUndo } = require("./openprism/task-state.cjs");
+const {
+  beginModelViews,
+  endModelViews,
+  deliverPositions,
+  noteUserSaveInTurn,
+} = require("./agent-model-view.cjs");
 
 const abortError = () => {
   const error = new Error("Axiom request aborted.");
@@ -80,8 +87,10 @@ class AgentService {
     synctexService,
     isRendererWorkspaceMutationActive,
     getHistoryBoundary,
+    getLastBuild,
   }) {
     this.workspace = workspace;
+    this.getLastBuild = getLastBuild;
     this.getHistoryBoundary = typeof getHistoryBoundary === "function" ? getHistoryBoundary : () => null;
     this.searchService = searchService;
     this.ensureUserSettings = ensureUserSettings;
@@ -139,7 +148,7 @@ class AgentService {
     };
     this.autoBuildQueue = Promise.resolve();
     this.activeAgentBuildConversationId = null;
-    this.pendingSettingsRequests = new Map();
+    this.pendingRendererRequests = new Map();
     this.applyUndoStack = [];
     this.managedSessionStore = this.sessionsService?.dirPath
       ? new AgentsSessionStore(`${this.sessionsService.dirPath}-managed`) : null;
@@ -228,16 +237,23 @@ class AgentService {
     }
     paths.add(targetPath);
     const conflictRoot =
+      this.runningControllers.get(normalized)?.workspaceIdentity ??
       this.workspaceRootByConversation.get(normalized) ??
       this.contextByConversation.get(normalized)?.workspaceRoot ??
       this.workspace.getRootPath?.() ??
       null;
     if (conflictRoot) {
-      this.contentConflictWorkspaceRootsByConversation.set(normalized, conflictRoot);
+      this.contentConflictWorkspaceRootsByConversation.set(normalized, canonicalPath(conflictRoot));
     }
     const message = `Axiom and unsaved editor changes conflict in ${targetPath}. Choose which version to keep.`;
     this.sendToRenderer("agent:error", { message, conversationId: normalized });
-    this.sendStatus("resumable", message, normalized);
+    // While the turn is still running, a "resumable" status would end it in
+    // the chat (lock released, queued request sent, completion toast) while
+    // it keeps writing. Its own terminal "idle" becomes "resumable" instead
+    // (sendStatus), because the conflict is recorded above.
+    if (!this.runningControllers.has(normalized)) {
+      this.sendStatus("resumable", message, normalized);
+    }
   }
 
   resolveContentConflict(conversationId, relativePath) {
@@ -269,9 +285,10 @@ class AgentService {
         await this.waitForIdle(2 * 60 * 1000);
       }
       if (this.contentConflictsByConversation.has(normalized)) return;
-      if (conflictRoot && this.workspace.getRootPath?.() !== conflictRoot) return;
       let resolutionRun;
       try {
+        const workspaceRoot = this.workspace.getRootPath?.();
+        if (conflictRoot && (!workspaceRoot || canonicalPath(workspaceRoot) !== conflictRoot)) return;
         resolutionRun = this.startConversationRun(normalized);
         const result = await this.executeToolCall({ name: "run_build", args: {} }, normalized);
         if (result?.status === "success") {
@@ -300,11 +317,10 @@ class AgentService {
 
   hasContentConflictInWorkspace(rootPath) {
     if (!rootPath) return false;
+    const identity = canonicalPath(rootPath);
     for (const [conversationId, paths] of this.contentConflictsByConversation) {
-      if (
-        paths.size > 0 &&
-        this.contentConflictWorkspaceRootsByConversation.get(conversationId) === rootPath
-      ) {
+      const conflictRoot = this.contentConflictWorkspaceRootsByConversation.get(conversationId);
+      if (paths.size > 0 && conflictRoot === identity) {
         return true;
       }
     }
@@ -313,10 +329,9 @@ class AgentService {
 
   discardContentConflictsForWorkspace(rootPath) {
     if (!rootPath) return;
-    for (const [conversationId, conflictRoot] of [
-      ...this.contentConflictWorkspaceRootsByConversation,
-    ]) {
-      if (conflictRoot !== rootPath) continue;
+    const identity = canonicalPath(rootPath);
+    for (const [conversationId, conflictRoot] of this.contentConflictWorkspaceRootsByConversation) {
+      if (conflictRoot !== identity) continue;
       this.contentConflictsByConversation.delete(conversationId);
       this.contentConflictWorkspaceRootsByConversation.delete(conversationId);
       this.markSessionDirty(conversationId);
@@ -444,6 +459,7 @@ class AgentService {
         ? proposal.conversationId.trim()
         : "default";
     this.proposals.delete(id);
+    this.releaseFinishedFileSnapshots(conversationId);
     this.markSessionDirty(conversationId);
   }
 
@@ -525,13 +541,14 @@ class AgentService {
       throw error;
     }
     const workspaceRoot = this.workspace.getRootPath?.() ?? null;
+    const workspaceIdentity = workspaceRoot ? canonicalPath(workspaceRoot) : null;
     const boundWorkspaceRoot = this.workspaceRootByConversation.get(
       normalizedConversationId,
     );
     if (
       workspaceRoot &&
       boundWorkspaceRoot &&
-      path.resolve(boundWorkspaceRoot) !== path.resolve(workspaceRoot)
+      canonicalPath(boundWorkspaceRoot) !== workspaceIdentity
     ) {
       const error = new Error(
         "This Axiom chat belongs to another workspace. Start a new chat here.",
@@ -551,8 +568,8 @@ class AgentService {
       error.code = "RENDERER_WORKSPACE_MUTATION_IN_PROGRESS";
       throw error;
     }
-    const workspaceOwner = workspaceRoot
-      ? this.runningWorkspaceRoots.get(workspaceRoot)
+    const workspaceOwner = workspaceIdentity
+      ? this.runningWorkspaceRoots.get(workspaceIdentity)
       : null;
     if (workspaceOwner) {
       const error = new Error(
@@ -570,14 +587,52 @@ class AgentService {
       controller,
       token,
       workspaceRoot,
+      workspaceIdentity,
     });
-    if (workspaceRoot) {
-      this.runningWorkspaceRoots.set(workspaceRoot, {
+    if (workspaceIdentity) {
+      this.runningWorkspaceRoots.set(workspaceIdentity, {
         conversationId: normalizedConversationId,
         token,
       });
     }
-    return { conversationId: normalizedConversationId, controller, token, workspaceRoot };
+    return { conversationId: normalizedConversationId, controller, token, workspaceRoot, workspaceIdentity };
+  }
+
+  // An openprism turn writes only through this process's per-file queue and
+  // re-reads the disk there before each write (agent-proposal-runtime.cjs),
+  // so the editor's saves may continue during it. Codex (a separate process)
+  // and the short Undo / Apply / resolution runs keep the workspace to
+  // themselves (workspace-writer-coordinator.cjs).
+  allowSavesDuringRun(run, context = null) {
+    const owner = run?.workspaceIdentity ? this.runningWorkspaceRoots.get(run.workspaceIdentity) : null;
+    if (!owner || owner.token !== run.token) return;
+    beginModelViews(this, run.conversationId);
+    // The selection's line numbers in the request refer to the editor text
+    // sent with it. Axiom does not receive that text itself: positions only.
+    if (
+      context &&
+      typeof context.activeFilePath === "string" &&
+      typeof context.activeFileContent === "string" &&
+      context.activeFileContentTruncated !== true
+    ) {
+      deliverPositions(this, run.conversationId, context.activeFilePath, context.activeFileContent);
+    }
+    owner.savesAllowed = true;
+  }
+
+  // The editor is about to save the person's typing to `relativePath`
+  // (inside the per-file queue, disk re-read). See agent-model-view.cjs.
+  noteUserSave(rootPath, relativePath, previousText) {
+    const owner = rootPath ? this.runningWorkspaceRoots.get(canonicalPath(rootPath)) : null;
+    if (!owner?.savesAllowed || typeof previousText !== "string") return;
+    noteUserSaveInTurn(this, owner.conversationId, relativePath, previousText);
+  }
+
+  // null (no Axiom run in this folder), "in-process" or "exclusive".
+  activeWriter(rootPath) {
+    const owner = rootPath ? this.runningWorkspaceRoots.get(canonicalPath(rootPath)) : null;
+    if (!owner) return null;
+    return owner.savesAllowed === true ? "in-process" : "exclusive";
   }
 
   isRunCurrent(conversationId, token) {
@@ -591,12 +646,25 @@ class AgentService {
     }
     const current = this.runningControllers.get(conversationId);
     this.runningControllers.delete(conversationId);
-    if (current?.workspaceRoot) {
-      const workspaceOwner = this.runningWorkspaceRoots.get(current.workspaceRoot);
+    endModelViews(this, conversationId);
+    if (current?.workspaceIdentity) {
+      const workspaceOwner = this.runningWorkspaceRoots.get(current.workspaceIdentity);
       if (workspaceOwner?.token === token) {
-        this.runningWorkspaceRoots.delete(current.workspaceRoot);
+        this.runningWorkspaceRoots.delete(current.workspaceIdentity);
       }
     }
+    this.releaseFinishedFileSnapshots(conversationId);
+  }
+
+  releaseFinishedFileSnapshots(conversationId) {
+    if (this.runningControllers.has(conversationId)) return;
+    for (const proposal of this.proposals.values()) {
+      if ((proposal.conversationId || "default") === conversationId) return;
+    }
+    const context = this.contextByConversation.get(conversationId);
+    if (!context) return;
+    delete context.activeFileContent;
+    delete context.openFileSnapshots;
   }
 
   resolveAgentPolicy(settings) {
@@ -627,31 +695,39 @@ class AgentService {
   }
 
   requestAppSettings(action, payload) {
+    return this.requestRenderer("settings:request", { action, ...payload }, "Failed to get settings.");
+  }
+
+  requestRenderer(type, payload, timeoutError) {
     const requestId =
       typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
-        this.pendingSettingsRequests.delete(requestId);
-        resolve({ error: "Failed to get settings." });
+        this.pendingRendererRequests.delete(requestId);
+        resolve({ error: timeoutError });
       }, 3000);
-      this.pendingSettingsRequests.set(requestId, { resolve, timer });
-      this.sendToRenderer("settings:request", {
+      this.pendingRendererRequests.set(requestId, { resolve, timer, type });
+      this.sendToRenderer(type, {
         requestId,
-        action,
         ...payload,
       });
     });
   }
 
   handleSettingsResponse(payload) {
+    this.handleRendererResponse("settings:request", payload);
+  }
+
+  handleRendererResponse(type, payload) {
     const requestId = payload?.requestId;
-    if (!requestId || !this.pendingSettingsRequests.has(requestId)) {
+    if (!requestId || !this.pendingRendererRequests.has(requestId)) {
       return;
     }
-    const entry = this.pendingSettingsRequests.get(requestId);
-    this.pendingSettingsRequests.delete(requestId);
+    const entry = this.pendingRendererRequests.get(requestId);
+    if (entry.type !== type) return;
+    this.pendingRendererRequests.delete(requestId);
     if (entry?.timer) {
       clearTimeout(entry.timer);
     }
@@ -781,11 +857,8 @@ class AgentService {
       return result;
     }
     const context = this.contextByConversation.get(conversationId) ?? {};
-    let mainFile = [context.documentMainFile, context.activeFilePath]
-      .find(
-        (value) =>
-          typeof value === "string" && path.extname(value).toLowerCase() === ".tex",
-      );
+    let mainFile = typeof context.documentMainFile === "string" && /\.tex$/i.test(context.documentMainFile)
+      ? context.documentMainFile : null;
     if (!mainFile && conversationId.startsWith("tex64-ai-mode:")) {
       const suffix = conversationId.slice("tex64-ai-mode:".length);
       const separator = suffix.indexOf(":");
@@ -1049,6 +1122,7 @@ class AgentService {
       if (payload?.forcePlatformAxiom !== true && (settings?.model || "") === "codex") {
         return await runCodexConversation(this, payload, run);
       }
+      this.allowSavesDuringRun(run, payload?.context);
       return await runAgentConversation(this, payload, run);
     } catch (error) {
       if (!isCurrentRun()) return;

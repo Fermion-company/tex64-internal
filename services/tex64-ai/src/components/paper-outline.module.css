@@ -1,0 +1,14 @@
+.outline { min-width: 0; color: var(--ink); }
+.outline h2 { margin: 0 0 6px; padding-inline: 6px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.outline ul { list-style: none; padding: 0; margin: 0; }
+.outline ul ul { margin-inline-start: 16px; }
+.row { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: center; }
+.row button { border: 0; background: transparent; border-radius: 4px; color: inherit; font: inherit; cursor: pointer; }
+.row button:hover, .row button[aria-current="location"] { background: var(--hover); }
+.row button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.heading { grid-column: 2; min-height: 30px; padding: 3px 6px; text-align: start; overflow-wrap: anywhere;  }
+.disclosure { display: grid; place-items: center; width: 20px; height: 26px; padding: 4px; }
+.disclosure svg { width: 11px; height: 11px; }
+.disclosure[aria-expanded="true"] svg { transform: rotate(90deg); }
+
+.row .heading { font-size: 13px; }

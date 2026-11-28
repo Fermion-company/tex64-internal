@@ -1,7 +1,7 @@
 import { Mode } from './modes-utils';
 import { Atom } from './atom';
 
-import { LatexAtom } from '../atoms/latex';
+import { LatexAtom, LatexGroupAtom } from '../atoms/latex';
 import type { ToLatexOptions } from './types';
 
 export class LatexMode extends Mode {
@@ -13,10 +13,11 @@ export class LatexMode extends Mode {
     return new LatexAtom(command);
   }
 
-  serialize(run: Atom[], _options: ToLatexOptions): string[] {
-    return run
-      .filter((x) => x instanceof LatexAtom && !x.isSuggestion)
-      .map((x) => x.value);
+  serialize(run: Atom[], options: ToLatexOptions): string[] {
+    return run.map((atom) => {
+      if (atom instanceof LatexGroupAtom) return atom._serialize(options);
+      return atom instanceof LatexAtom && !atom.isSuggestion ? atom.value : '';
+    });
   }
 
   getFont(): null {

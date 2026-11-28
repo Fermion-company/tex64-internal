@@ -82,7 +82,7 @@ export const initEnvRegistry = (context, deps) => {
         }
         if (typeof value === "string") {
             return value
-                .split(/[,\\n]/)
+                .split(/[,\n]/)
                 .map((entry) => entry.trim())
                 .filter(Boolean)
                 .map((name) => ({ name, kind: fallbackKind, package: "custom" }));
@@ -140,7 +140,7 @@ export const initEnvRegistry = (context, deps) => {
             // fall through to CSV parsing
         }
         return normalizeDisabledEnvNames(raw
-            .split(/[,\\n]/)
+            .split(/[,\n]/)
             .map((name) => name.trim())
             .filter(Boolean));
     };
@@ -375,11 +375,11 @@ export const initEnvRegistry = (context, deps) => {
         const base = getEnvBaseName(normalizeEnvName(name));
         if (!base) {
             setEnvRegistryHint(uiText("Environment name is empty.", "環境名が空です。"));
-            return;
+            return false;
         }
         if (hasRegistryEntryInOtherKind(base, kind)) {
             setEnvRegistryHint(uiText("Already registered in another category.", "既に別カテゴリで登録されています。"));
-            return;
+            return false;
         }
         if (!hasRegistryEntry(base, kind)) {
             customEnvRegistry = customEnvRegistry.concat({
@@ -393,16 +393,18 @@ export const initEnvRegistry = (context, deps) => {
             }
             setCustomEnvRegistry(customEnvRegistry);
             setEnvRegistryHint("");
-            return;
+            return true;
         }
         if (disabledEnvNames.has(base)) {
             disabledEnvNames.delete(base);
+            saveDisabledEnvRegistry();
             rebuildEnvRegistry();
             handleEnvRegistryUpdate(false);
             setEnvRegistryHint("");
-            return;
+            return true;
         }
         setEnvRegistryHint(uiText("Already registered.", "既に登録されています。"));
+        return false;
     };
     const removeCustomEnvEntry = (name, kind) => {
         const base = getEnvBaseName(normalizeEnvName(name));
@@ -448,8 +450,8 @@ export const initEnvRegistry = (context, deps) => {
                 setEnvRegistryHint(uiText("Environment name is empty.", "環境名が空です。"));
                 return;
             }
-            addCustomEnvEntry(name, kind);
-            envRegistryInput.value = "";
+            if (addCustomEnvEntry(name, kind))
+                envRegistryInput.value = "";
             envRegistryInput.focus();
             envRegistryInput.select();
         });

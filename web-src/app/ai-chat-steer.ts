@@ -8,7 +8,7 @@ import type { AiRequestPart } from "./ai-chat-runner.js";
 // does not have) needs a run of its own and waits in the queue instead.
 
 /** What a running turn was started with, as far as a steer has to match it. */
-export type SteerTurnShape = { mode: string; selection: string };
+export type SteerTurnShape = { mode: string; file: string; revision: string; tabs: string; drafts: string; selection: string };
 
 export const steerTurnShape = (contextPayload?: Record<string, unknown> | null): SteerTurnShape => {
   const payload = contextPayload && typeof contextPayload === "object" ? contextPayload : {};
@@ -16,9 +16,18 @@ export const steerTurnShape = (contextPayload?: Record<string, unknown> | null):
   const range = payload.activeSelection as Record<string, unknown> | undefined;
   const selection =
     range && typeof range === "object"
-      ? [range.path, range.startLine, range.startColumn, range.endLine, range.endColumn, range.textLength].join(":")
+      ? JSON.stringify([range.path, range.startLine, range.startColumn, range.endLine, range.endColumn, range.textLength, range.text])
       : "";
-  return { mode, selection };
+  const file = typeof payload.activeFilePath === "string" ? payload.activeFilePath : "";
+  const revision = typeof payload.activeFileRevision === "string"
+    ? payload.activeFileRevision
+    : JSON.stringify([payload.activeFileContentLength, payload.activeFileContent]);
+  const tabs = JSON.stringify(Array.isArray(payload.openFiles) ? payload.openFiles.map(tab => [tab?.path, tab?.isActive, tab?.isDirty]) : null);
+  const drafts = Array.isArray(payload.openFileSnapshots) ? JSON.stringify(
+    payload.openFileSnapshots.filter(entry => entry?.isDirty).map(entry =>
+      [entry.path, entry.modelRevision ?? [entry.contentLength, entry.content]]),
+  ) : "[]";
+  return { mode, file, revision, tabs, drafts, selection };
 };
 
 export type SteerCandidate = {
@@ -42,7 +51,8 @@ export const canSteer = (candidate: SteerCandidate): boolean => {
   if (Array.isArray(paths) && paths.length > 0) return false;
   if (contextPayload?.turnOrigin !== undefined) return false;
   const shape = steerTurnShape(contextPayload);
-  return shape.mode === runningShape.mode && shape.selection === runningShape.selection;
+  return shape.mode === runningShape.mode && shape.file === runningShape.file &&
+    shape.revision === runningShape.revision && shape.tabs === runningShape.tabs && shape.drafts === runningShape.drafts && shape.selection === runningShape.selection;
 };
 
 export type SteerResultPayload = { requestId?: string; conversationId?: string; accepted?: boolean };

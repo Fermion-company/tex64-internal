@@ -21,7 +21,7 @@ function Write-JobStatus {
   Move-Item -LiteralPath $temporaryPath -Destination $Path -Force
 }
 
-$config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+$config = Get-Content -LiteralPath $ConfigPath -Encoding UTF8 -Raw | ConvertFrom-Json
 Remove-Item -LiteralPath $ConfigPath -Force -ErrorAction SilentlyContinue
 
 $source = @'

@@ -65,9 +65,17 @@ const rememberProposalForPages = (service, proposal) => {
   let tail = 0;
   while (tail < Math.min(before.length, after.length) - proposal.scope.line + 1 &&
     before[before.length - 1 - tail] === after[after.length - 1 - tail]) tail += 1;
+  const first = proposal.scope.line;
+  const previousEndLine = before.length - tail;
+  const lineDelta = after.length - before.length;
+  for (const earlier of list) {
+    if (earlier.page || earlier.path !== proposal.path) continue;
+    const line = earlier.currentLine ?? earlier.line;
+    if (line >= first) earlier.currentLine = line > previousEndLine ? Math.max(1, line + lineDelta) : first;
+  }
   list.push({ proposalId: proposal.id, path: proposal.path, line: proposal.scope.line,
     endLine: Math.max(proposal.scope.line, after.length - tail),
-    previousEndLine: before.length - tail, lineDelta: after.length - before.length });
+    previousEndLine, lineDelta });
   if (list.length > 40) list.splice(0, list.length - 40);
 };
 
@@ -96,21 +104,22 @@ const resolveProposalPages = async (service, conversationId, pdfPath) => {
       result = synctex.forwardLinesQuick({
         sourcePath: path.join(rootPath, relativePath),
         pdfPath: absolutePdf,
-        lines: entries.map((entry) => entry.line),
+        lines: [...new Set(entries.map((entry) => entry.currentLine ?? entry.line))],
       });
     } catch {
       continue;
     }
     if (!result?.ok || !Array.isArray(result.results)) continue;
-    for (const hit of result.results) {
-      if (!hit?.found || !Number.isFinite(hit.page)) continue;
-      const entry = entries.find((candidate) => candidate.line === hit.line);
-      if (!entry) continue;
-      entry.page = hit.page;
+    const pages = new Map(result.results.filter((hit) => hit?.found && Number.isFinite(hit.page))
+      .map((hit) => [hit.line, hit.page]));
+    for (const entry of entries) {
+      const page = pages.get(entry.currentLine ?? entry.line);
+      if (!page) continue;
+      entry.page = page;
       service.sendToRenderer("agent:proposalScope", {
         conversationId,
         proposalId: entry.proposalId,
-        page: hit.page,
+        page,
       });
     }
   }

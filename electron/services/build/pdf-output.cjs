@@ -409,6 +409,10 @@ const recreateSourceDirectoryLayout = ({ sourceDir, stagingDir }) => {
 };
 
 module.exports = (BuildService) => {
+  BuildService.prototype.pdfOutputPaths = function (pdfPath) {
+    return [...SYNC_OUTPUT_SUFFIXES.map((suffix) => pdfPath.replace(/\.pdf$/i, suffix)), pdfPath];
+  };
+
   /**
    * Compile every Build into a sibling staging directory. Besides preserving
    * a last-good PDF, this keeps the successful PDF, SyncTeX and recorder files

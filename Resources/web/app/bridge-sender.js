@@ -12,6 +12,15 @@ export const initBridgeSender = (deps) => {
             }
             return false;
         }
+        // The Code renderer owns the app-wide engine preference, including when
+        // the AI webview forwards a turn. Profile overrides are resolved in main.
+        if (payload.type === "agent:run" || payload.type === "agent:resume") {
+            const context = payload.context && typeof payload.context === "object" ? payload.context : {};
+            payload = { ...payload, context: { ...context, appBuildEngine: localStorage.getItem("tex64.compileEngine") || "lualatex" } };
+        }
+        else if (payload.type === "build" && !payload.engine) {
+            payload = { ...payload, engine: localStorage.getItem("tex64.compileEngine") || "lualatex" };
+        }
         handler.postMessage(payload);
         return true;
     };

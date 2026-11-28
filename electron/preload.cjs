@@ -1,5 +1,20 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
+// A window opened with File > New Window has its own storage; it starts from
+// the settings of the window it was opened from (main hands them over once).
+try {
+  const seed = ipcRenderer.sendSync("tex64:windowSettingsSeed");
+  if (Array.isArray(seed)) {
+    for (const entry of seed) {
+      if (Array.isArray(entry) && typeof entry[0] === "string" && typeof entry[1] === "string") {
+        localStorage.setItem(entry[0], entry[1]);
+      }
+    }
+  }
+} catch {
+  // Default settings.
+}
+
 let historyIdentity = {};
 let historyToken = null;
 let gitToken = null;
@@ -111,14 +126,27 @@ const texizeApi = {
   snippet: async (payload) => ipcRenderer.invoke("tex64:texize:snippet", payload),
   status: async () => ipcRenderer.invoke("tex64:texize:status"),
 };
+const onPreviewMessage = (type, handler) => {
+  const listener = (_event, message) => { if (message?.type === type) handler(message.payload); };
+  ipcRenderer.on("tex64:message", listener);
+  return () => ipcRenderer.removeListener("tex64:message", listener);
+};
 const tdomApi = {
-  start: async () => ipcRenderer.invoke("tex64:tdom:start"),
+  start: async (engine) => ipcRenderer.invoke("tex64:tdom:start", engine),
   status: async () => ipcRenderer.invoke("tex64:tdom:status"),
   stop: async () => ipcRenderer.invoke("tex64:tdom:stop"),
   push: async (payload) => ipcRenderer.invoke("tex64:tdom:push", payload),
   focus: async (payload) => ipcRenderer.invoke("tex64:tdom:focus", payload),
   snapshot: async (payload) => ipcRenderer.invoke("tex64:tdom:snapshot", payload),
   setWindowPreview: async (payload) => ipcRenderer.invoke("tex64:tdom:set-window-preview", payload),
+  fallbackMath: (payload) => ipcRenderer.invoke("tex64:tdom:fallback-math", payload),
+  onInputsChanged: handler => onPreviewMessage("preview:inputsChanged", handler),
+  onPaperEditing: handler => onPreviewMessage("preview:paperEditing", handler),
+  supersedePdf: (id, abandon) => ipcRenderer.invoke("tex64:tdom:supersede-pdf", id, abandon),
+  commandAvailable: (command) => ipcRenderer.invoke("tex64:tdom:command-available", command),
+  compilePdf: (payload) => ipcRenderer.invoke("tex64:tdom:compile-pdf", payload),
+  setUnbuiltWindow: (target) => ipcRenderer.invoke("tex64:tdom:set-unbuilt-window", target),
+  showWindowPdf: (generation) => ipcRenderer.invoke("tex64:tdom:show-window-pdf", generation),
   replyWindowAnchor: async (payload) => ipcRenderer.invoke("tex64:tdom:reply-window-anchor", payload),
 };
 const aiApi = {
@@ -412,7 +440,7 @@ contextBridge.exposeInMainWorld("tex64Git", {
   },
   onChange: (handler) => {
     const listener = (_event, message) => {
-      if (["updateWorkspace", "git:state", "workspace:operation", "saveResult", "file:externalChange"].includes(message?.type)) handler(message);
+      if (["updateWorkspace", "history:state", "git:state", "workspace:operation", "saveResult", "file:externalChange"].includes(message?.type)) handler(message);
     };
     ipcRenderer.on("tex64:message", listener);
     return () => ipcRenderer.removeListener("tex64:message", listener);

@@ -21,7 +21,7 @@ export type EditorSessionNavigationOps = {
     path: string,
     line: number,
     groupKey: EditorGroupKey,
-    options?: { force?: boolean; focus?: boolean; className?: string; column?: number }
+    options?: { force?: boolean; focus?: boolean; className?: string; column?: number; issueMessage?: string }
   ) => void;
   jumpToLocation: (entry: IndexEntry) => void;
 };
@@ -72,28 +72,21 @@ export const createEditorSessionNavigationOps = (
     path: string,
     line: number,
     groupKey: EditorGroupKey,
-    options: { force?: boolean; focus?: boolean; className?: string; column?: number } = {}
+    options: { force?: boolean; focus?: boolean; className?: string; column?: number; issueMessage?: string } = {}
   ) => {
     const forceOpen = options.force === true;
-    const focus = options.focus;
-    const className = options.className;
-    const column = options.column;
+    const { focus, className, column, issueMessage } = options;
     const targetGroupKey = forceOpen ? groupKey : coreOps.resolveOpenTargetGroupKey(path, groupKey);
     const targetGroup = coreOps.getEditorGroup(targetGroupKey);
     if (targetGroup.currentFilePath === path) {
-      issueOps.revealLine(targetGroup, line, { focus, className, column });
+      issueOps.revealLine(targetGroup, line, { focus, className, column, issueMessage });
       return;
     }
-    const requested = deps.requestOpenFile(path, targetGroupKey, forceOpen);
-    if (requested) {
-      runtime.fileOpsState.pendingReveal = {
-        path,
-        line,
-        column,
-        group: targetGroupKey,
-        focus,
-        className,
-      };
+    // An open tab can install its model before requestOpenFile returns.
+    const reveal = { path, line, column, issueMessage, group: targetGroupKey, focus, className };
+    runtime.fileOpsState.pendingReveal = reveal;
+    if (!deps.requestOpenFile(path, targetGroupKey, forceOpen) && runtime.fileOpsState.pendingReveal === reveal) {
+      runtime.fileOpsState.pendingReveal = null;
     }
   };
 

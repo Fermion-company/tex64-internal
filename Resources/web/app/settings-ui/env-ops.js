@@ -134,35 +134,6 @@ export const createSettingsEnvOps = (runtime) => {
             renderInstallExplain(button, variant);
         }
     };
-    const hasPromptedRuntimeSetup = () => {
-        try {
-            return localStorage.getItem(runtime.keys.runtimeSetupPromptedKey) === "1";
-        }
-        catch {
-            return false;
-        }
-    };
-    const markRuntimeSetupPrompted = () => {
-        try {
-            localStorage.setItem(runtime.keys.runtimeSetupPromptedKey, "1");
-        }
-        catch {
-            // ignore storage failures
-        }
-    };
-    const maybePromptRuntimeSetup = (summary) => {
-        var _a, _b;
-        if (!summary || !summary.hasAnyResult || summary.runtimeReady) {
-            runtime.state.runtimeSetupPromptInFlight = false;
-            return;
-        }
-        if (runtime.state.runtimeSetupPromptInFlight || hasPromptedRuntimeSetup()) {
-            return;
-        }
-        runtime.state.runtimeSetupPromptInFlight = true;
-        markRuntimeSetupPrompted();
-        (_b = (_a = runtime.deps).onRuntimeSetupNeeded) === null || _b === void 0 ? void 0 : _b.call(_a, summary);
-    };
     const showInstalling = () => {
         installing = true;
         setHeroState("installing");
@@ -181,7 +152,7 @@ export const createSettingsEnvOps = (runtime) => {
         }
         showProgress(false);
         const summary = runtime.state.runtimeStatusSummary;
-        if (!summary || !summary.hasAnyResult) {
+        if (!(summary === null || summary === void 0 ? void 0 : summary.requiredChecksComplete)) {
             setHeroState("checking");
             setHeroText("Checking TeX…");
             setSetupButton({ visible: false });
@@ -210,7 +181,6 @@ export const createSettingsEnvOps = (runtime) => {
             else
                 setHeroText("TeX is ready.");
             setSetupButton({ visible: false });
-            setInstallNote("");
             setChoiceVisible(false);
             // A newer TeX Live year is out. A light tree can no longer add packages, so
             // renewing is urged; a full one keeps working and is only offered it.
@@ -270,9 +240,12 @@ export const createSettingsEnvOps = (runtime) => {
         envDisplayTargets: runtime.config.envDisplayTargets,
         texEngineCommands: runtime.config.texEngineCommands,
         onStatusSummaryChange: (summary) => {
+            var _a, _b;
             runtime.state.runtimeStatusSummary = summary;
             updateRuntimeSetupUi();
-            maybePromptRuntimeSetup(summary);
+            if (!installing && summary.requiredChecksComplete) {
+                (_b = (_a = runtime.deps).onRuntimeDetection) === null || _b === void 0 ? void 0 : _b.call(_a, summary.runtimeReady);
+            }
         },
     });
     const { updateEnvStatus } = envManager;
@@ -287,7 +260,10 @@ export const createSettingsEnvOps = (runtime) => {
         var _a, _b;
         detection = payload && payload.report ? payload.report : null;
         updateRuntimeSetupUi();
-        (_b = (_a = runtime.deps).onRuntimeDetection) === null || _b === void 0 ? void 0 : _b.call(_a, detection, runtime.state.runtimeStatusSummary);
+        const summary = runtime.state.runtimeStatusSummary;
+        if (!installing && !(summary === null || summary === void 0 ? void 0 : summary.requiredChecksComplete) && detection) {
+            (_b = (_a = runtime.deps).onRuntimeDetection) === null || _b === void 0 ? void 0 : _b.call(_a, detection.ready);
+        }
     };
     const startInstall = (variant, renew = false) => {
         showInstalling();

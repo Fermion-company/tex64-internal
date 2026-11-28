@@ -18,136 +18,37 @@ export const findCommandMatchAt = (
   return null;
 };
 
+// For these commands the required argument is the last part of the match.
+// Earlier optional arguments can themselves contain braces.
 export const extractSingleKey = (
   match: RegExpExecArray,
   cursorIndex: number
 ): CommandKeyMatch | null => {
   const command = match[1] ?? "";
   const content = match[2] ?? "";
-  const braceIndex = match[0].indexOf("{");
-  if (braceIndex < 0 || typeof match.index !== "number") {
-    return null;
-  }
-  const contentStart = match.index + braceIndex + 1;
-  const contentEnd = contentStart + content.length;
-  if (cursorIndex < contentStart || cursorIndex > contentEnd) {
-    return null;
-  }
+  const start = match.index + match[0].length - content.length - 1;
   const key = content.trim();
-  if (!key) {
-    return null;
-  }
-  const leading = content.match(/^\s*/)?.[0]?.length ?? 0;
-  return {
-    command,
-    key,
-    startIndex: contentStart + leading,
-    endIndex: contentStart + leading + key.length,
-  };
+  const startIndex = start + content.length - content.trimStart().length;
+  const endIndex = startIndex + key.length;
+  return key && cursorIndex >= startIndex && cursorIndex < endIndex
+    ? { command, key, startIndex, endIndex }
+    : null;
 };
 
-export const extractCiteKey = (
+export const extractListKey = (
   match: RegExpExecArray,
   cursorIndex: number
 ): CommandKeyMatch | null => {
   const command = match[1] ?? "";
   const content = match[2] ?? "";
-  const braceIndex = match[0].indexOf("{");
-  if (braceIndex < 0 || typeof match.index !== "number") {
-    return null;
+  let start = match.index + match[0].length - content.length - 1;
+  for (const item of content.split(",")) {
+    const key = item.trim();
+    const startIndex = start + item.length - item.trimStart().length;
+    const endIndex = startIndex + key.length;
+    if (key && cursorIndex >= startIndex && cursorIndex < endIndex)
+      return { command, key, startIndex, endIndex };
+    start += item.length + 1;
   }
-  const contentStart = match.index + braceIndex + 1;
-  const contentEnd = contentStart + content.length;
-  if (cursorIndex < contentStart || cursorIndex > contentEnd) {
-    return null;
-  }
-  const offset = cursorIndex - contentStart;
-  const beforeComma = content.lastIndexOf(",", Math.max(0, offset - 1));
-  const afterComma = content.indexOf(",", offset);
-  const segStart = beforeComma >= 0 ? beforeComma + 1 : 0;
-  const segEnd = afterComma >= 0 ? afterComma : content.length;
-  const segment = content.slice(segStart, segEnd);
-  const leading = segment.match(/^\s*/)?.[0]?.length ?? 0;
-  const key = segment.trim();
-  if (!key) {
-    return null;
-  }
-  return {
-    command,
-    key,
-    startIndex: contentStart + segStart + leading,
-    endIndex: contentStart + segStart + leading + key.length,
-  };
+  return null;
 };
-
-export const extractCommaSeparatedKey = (
-  command: string,
-  content: string,
-  contentStart: number,
-  cursorIndex: number
-): CommandKeyMatch | null => {
-  const contentEnd = contentStart + content.length;
-  if (cursorIndex < contentStart || cursorIndex > contentEnd) {
-    return null;
-  }
-  const offset = cursorIndex - contentStart;
-  const beforeComma = content.lastIndexOf(",", Math.max(0, offset - 1));
-  const afterComma = content.indexOf(",", offset);
-  const segStart = beforeComma >= 0 ? beforeComma + 1 : 0;
-  const segEnd = afterComma >= 0 ? afterComma : content.length;
-  const segment = content.slice(segStart, segEnd);
-  const leading = segment.match(/^\s*/)?.[0]?.length ?? 0;
-  const key = segment.trim();
-  if (!key) {
-    return null;
-  }
-  return {
-    command,
-    key,
-    startIndex: contentStart + segStart + leading,
-    endIndex: contentStart + segStart + leading + key.length,
-  };
-};
-
-export const extractPackageKey = (
-  match: RegExpExecArray,
-  cursorIndex: number
-): CommandKeyMatch | null => {
-  const command = (match[1] ?? "usepackage").trim();
-  const content = match[2] ?? "";
-  const braceIndex = match[0].indexOf("{");
-  if (braceIndex < 0 || typeof match.index !== "number") {
-    return null;
-  }
-  const contentStart = match.index + braceIndex + 1;
-  return extractCommaSeparatedKey(command, content, contentStart, cursorIndex);
-};
-
-export const extractDocumentClassKey = (
-  match: RegExpExecArray,
-  cursorIndex: number
-): CommandKeyMatch | null => {
-  const command = "documentclass";
-  const content = match[1] ?? "";
-  const braceIndex = match[0].indexOf("{");
-  if (braceIndex < 0 || typeof match.index !== "number") {
-    return null;
-  }
-  const contentStart = match.index + braceIndex + 1;
-  const key = content.trim();
-  if (!key) {
-    return null;
-  }
-  const contentEnd = contentStart + content.length;
-  if (cursorIndex < contentStart || cursorIndex > contentEnd) {
-    return null;
-  }
-  const leading = content.match(/^\s*/)?.[0]?.length ?? 0;
-  return {
-    command,
-    key,
-    startIndex: contentStart + leading,
-    endIndex: contentStart + leading + key.length,
-  };
-};
-

@@ -2,6 +2,7 @@ import type { SettingsUiRuntime } from "./runtime.js";
 import type { FeedbackCategory, FeedbackQueueItem } from "./types.js";
 
 export type FeedbackStatus = { message: string; tone: "neutral" | "success" | "error" };
+export type FeedbackDelivery = "sending" | "delivered" | { retry: () => void };
 
 export type SettingsFeedbackOps = {
   handlePlatformFeedback: (payload: {
@@ -11,7 +12,7 @@ export type SettingsFeedbackOps = {
   }) => void;
   loadStartupFeedbackState: () => void;
   initFeedbackUi: () => void;
-  submit: (category: FeedbackCategory, message: string) => boolean;
+  submit: (category: FeedbackCategory, message: string, onDelivery?: (status: FeedbackDelivery) => void) => boolean;
   onStatus: (listener: (status: FeedbackStatus) => void) => () => void;
 };
 
@@ -27,6 +28,7 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
   // Other UIs (the feedback modal) subscribe to status so they can mirror the
   // shared send queue's progress without owning their own queue.
   const statusListeners = new Set<(status: { message: string; tone: FeedbackTone }) => void>();
+  const deliveryListeners = new Map<string, (status: FeedbackDelivery) => void>();
 
   const setFeedbackStatus = (message: string, tone: FeedbackTone = "neutral") => {
     if (settingsFeedbackStatus instanceof HTMLElement) {
@@ -162,6 +164,11 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
         : "Failed to send feedback. I will resend it.";
     setFeedbackStatus(`${prefix} (retry after ${seconds} seconds)`, "error");
     scheduleFeedbackFlush(delayMs + 60);
+    deliveryListeners.get(item.id)?.({ retry: () => {
+      item.nextRetryAt = 0;
+      saveFeedbackQueue();
+      flushFeedbackQueue();
+    } });
   };
 
   const flushFeedbackQueue = () => {
@@ -195,6 +202,7 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     runtime.state.feedbackInFlightId = nextItem.id;
     updateFeedbackSendState();
     setFeedbackStatus("Sending…");
+    deliveryListeners.get(nextItem.id)?.("sending");
     const posted = runtime.deps.postToNative(
       {
         type: "feedback:send",
@@ -213,7 +221,7 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
 
   // Queue a feedback item (DOM-free) so both the settings form and the modal can
   // submit through the same retry queue. Returns false if the message is empty.
-  const submit = (category: FeedbackCategory, message: string): boolean => {
+  const submit: SettingsFeedbackOps["submit"] = (category, message, onDelivery) => {
     const trimmed = message.trim();
     if (!trimmed) {
       setFeedbackStatus("Please enter your feedback.", "error");
@@ -228,6 +236,7 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
       nextRetryAt: 0,
     };
     runtime.state.feedbackQueue.push(item);
+    if (onDelivery) deliveryListeners.set(item.id, onDelivery);
     saveFeedbackQueue();
     setFeedbackStatus("Queued.");
     flushFeedbackQueue();
@@ -271,6 +280,11 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     updateFeedbackSendState();
     if (payload?.ok) {
       const removed = removeFeedbackQueueItem(inFlightId);
+      if (removed) {
+        const notify = deliveryListeners.get(removed.id);
+        deliveryListeners.delete(removed.id);
+        notify?.("delivered");
+      }
       if (
         removed &&
         settingsFeedbackMessage instanceof HTMLTextAreaElement &&

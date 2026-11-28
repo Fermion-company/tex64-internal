@@ -31,6 +31,11 @@ export const LATEX_MONARCH = {
   tokenizer: {
     root: [
       [/%.*$/, "comment"],
+      [/\\verb(?![A-Za-z@])\*?([^\s]).*?\1/, "string"],
+      [
+        /(\\begin)(\s*)(\{)((?:[Vv]erbatim|BVerbatim|LVerbatim|lstlisting|minted)\*?)(\})/,
+        ["keyword", "white", "delimiter", "type", { token: "delimiter", next: "@literal.$4" }],
+      ],
       [
         /(\\begin)(\s*)(\{)(luacode\*?)(\})/,
         [
@@ -93,6 +98,11 @@ export const LATEX_MONARCH = {
       [/[{}[\]()]/, "delimiter"],
       [/[&^_~]/, "operator"],
       [/\d+(\.\d+)?/, "number"],
+    ],
+    literal: [
+      [/(\\end)(\s*)(\{)($S2)(\})/, ["keyword", "white", "delimiter", "type", { token: "delimiter", next: "@pop" }]],
+      [/[^\\]+/, "string"],
+      [/\\/, "string"],
     ],
     directLua: [
       [/[^{}]+/, ""],

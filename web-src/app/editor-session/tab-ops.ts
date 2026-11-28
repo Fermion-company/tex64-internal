@@ -31,6 +31,7 @@ export const createEditorSessionTabOps = (
     if (path === group.currentFilePath) {
       bufferOps.cacheCurrentBuffer(group);
     }
+    if (group.automaticPreviewPath === path) delete group.automaticPreviewPath;
     group.openTabs = group.openTabs.filter((entry) => entry !== path);
     if (path === group.currentFilePath) {
       if (group.openTabs.length > 0) {

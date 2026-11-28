@@ -125,6 +125,10 @@ const server = http.createServer(async (req, res) => {
   send(res, 404, "Not found", "text/plain");
 });
 
+// A driver-launched mock must also exit if the driver itself is interrupted.
+if (process.connected) process.once("disconnect", () => process.exit(0));
+
 server.listen(PORT, "127.0.0.1", () => {
+  process.send?.("listening");
   log(`mock Zotero on http://127.0.0.1:${PORT}  BBT=${BBT_ON ? "on" : "off"} localAPI=${LOCAL_ON ? "on" : "off"}`);
 });

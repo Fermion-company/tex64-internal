@@ -44,6 +44,7 @@ const STRINGS: Record<string, Entry> = {
 
   // ── Tool activity labels (shown while the agent runs a tool) ──
   tool_read_file: { en: "Reading file", ja: "ファイルを読み取り中", zh: "正在读取文件", ko: "파일 읽는 중", fr: "Lecture du fichier", de: "Datei wird gelesen", es: "Leyendo archivo" },
+  tool_get_editor_context: { en: "Checking open files", ja: "開いているファイルを確認中", zh: "正在查看打开的文件", ko: "열린 파일 확인 중", fr: "Vérification des fichiers ouverts", de: "Geöffnete Dateien werden geprüft", es: "Comprobando los archivos abiertos" },
   tool_list_files: { en: "Checking folder structure", ja: "フォルダ構成を確認中", zh: "正在查看目录结构", ko: "폴더 구조 확인 중", fr: "Analyse des dossiers", de: "Ordnerstruktur wird geprüft", es: "Revisando carpetas" },
   tool_list_sections: { en: "Reading document outline", ja: "文書構成を確認中", zh: "正在读取文档大纲", ko: "문서 개요 읽는 중", fr: "Lecture du plan du document", de: "Dokumentgliederung wird gelesen", es: "Leyendo el esquema" },
   tool_read_section: { en: "Reading section", ja: "セクションを読み取り中", zh: "正在读取章节", ko: "섹션 읽는 중", fr: "Lecture de la section", de: "Abschnitt wird gelesen", es: "Leyendo sección" },
@@ -105,6 +106,7 @@ const STRINGS: Record<string, Entry> = {
   // ── Modes (the pill's words and titles are in the markup + locale dictionary) ──
 
   // ── Queue ──
+  unsent: { en: "Not sent", ja: "未送信", zh: "未发送", ko: "전송되지 않음", fr: "Non envoyé", de: "Nicht gesendet", es: "Sin enviar" },
   queued: { en: "Queued", ja: "待機中", zh: "排队中", ko: "대기 중", fr: "En attente", de: "In Warteschlange", es: "En cola" },
   queue_send_now: { en: "Send now", ja: "今すぐ送る", zh: "立即发送", ko: "지금 보내기", fr: "Envoyer maintenant", de: "Jetzt senden", es: "Enviar ahora" },
   queue_remove: { en: "Remove", ja: "取り消す", zh: "移除", ko: "제거", fr: "Retirer", de: "Entfernen", es: "Quitar" },
@@ -139,6 +141,9 @@ const STRINGS: Record<string, Entry> = {
   // ── Voice ──
   mic_transcribing: { en: "Transcribing…", ja: "文字起こし中…", zh: "正在转写…", ko: "받아쓰는 중…", fr: "Transcription…", de: "Transkribiere…", es: "Transcribiendo…" },
   mic_denied: { en: "Microphone access denied", ja: "マイクが許可されていません", zh: "未授予麦克风权限", ko: "마이크 권한이 없습니다", fr: "Accès au micro refusé", de: "Kein Mikrofonzugriff", es: "Acceso al micrófono denegado" },
+  mic_recording_failed: { en: "Could not record audio", ja: "音声を録音できませんでした", zh: "无法录音", ko: "음성을 녹음하지 못했습니다", fr: "Impossible d’enregistrer le son", de: "Audioaufnahme fehlgeschlagen", es: "No se pudo grabar el audio" },
+  mic_unavailable: { en: "No microphone is available", ja: "使用できるマイクがありません", zh: "没有可用的麦克风", ko: "사용할 수 있는 마이크가 없습니다", fr: "Aucun microphone disponible", de: "Kein Mikrofon verfügbar", es: "No hay ningún micrófono disponible" },
+  mic_interrupted: { en: "Microphone disconnected. Recording stopped.", ja: "マイクからの入力が途切れたため録音を停止しました", zh: "麦克风输入中断，录音已停止", ko: "마이크 입력이 끊겨 녹음을 중지했습니다", fr: "Entrée du microphone interrompue. Enregistrement arrêté.", de: "Mikrofoneingabe unterbrochen. Aufnahme beendet.", es: "Se interrumpió el micrófono. Se detuvo la grabación." },
   mic_empty: { en: "No audio detected", ja: "聞き取れませんでした", zh: "未检测到声音", ko: "소리가 감지되지 않음", fr: "Aucun son détecté", de: "Kein Ton erkannt", es: "No se detectó audio" },
   mic_failed: { en: "Transcription failed", ja: "文字起こしできませんでした", zh: "转写失败", ko: "받아쓰기 실패", fr: "Échec de la transcription", de: "Transkription fehlgeschlagen", es: "Error de transcripción" },
 

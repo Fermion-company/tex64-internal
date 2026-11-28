@@ -204,6 +204,7 @@ export const initOnboardingUi = (deps) => {
         }
     };
     const showFailure = (message) => {
+        eta = initialEtaState();
         setStep("choice");
         setVisible(true);
         if (noteEl instanceof HTMLElement) {

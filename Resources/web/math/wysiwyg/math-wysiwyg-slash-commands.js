@@ -55,11 +55,11 @@ const SLASH_COMMAND_HINT_DISPLAY_MAP = {
 export const SLASH_COMMAND_CANDIDATE_LIMIT = 24;
 export const normalizeSlashCommandToken = (token) => {
     var _a;
-    const normalized = token.trim().toLowerCase();
+    const normalized = token.trim();
     if (!normalized) {
         return "";
     }
-    return (_a = SLASH_COMMAND_ALIAS_MAP[normalized]) !== null && _a !== void 0 ? _a : normalized;
+    return (_a = SLASH_COMMAND_ALIAS_MAP[normalized.toLowerCase()]) !== null && _a !== void 0 ? _a : normalized;
 };
 export const applySlashCommandHint = (candidate) => {
     var _a;
@@ -91,7 +91,7 @@ export const buildSlashCommandFallbackCandidates = () => {
             allowContainsMinLength: Number.MAX_SAFE_INTEGER,
             dedupeByLatex: true,
         });
-        const exact = words.find((candidate) => candidate.hint.toLowerCase() === hint);
+        const exact = words.find((candidate) => candidate.hint.toLowerCase() === hint.toLowerCase());
         if (exact) {
             candidates.push(exact);
         }

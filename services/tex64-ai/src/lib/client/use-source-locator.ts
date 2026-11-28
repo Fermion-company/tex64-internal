@@ -11,12 +11,15 @@ import {
   type NativeWorkspaceIdentity,
 } from "./workspace-identity";
 
+import type { PdfTextHit } from "@/components/pdf-text-blocks";
+
 export type SourceLocation = {
   path: string;
   line: number;
   confident: boolean;
   selectedText: string;
   focusedText: string;
+  textHit?: PdfTextHit;
 };
 
 export type SourceLocatorContext = {
@@ -37,6 +40,7 @@ export type SourceLocator = {
     pdfPath: string | null;
     text?: string;
     focusedText?: string;
+    textHit?: PdfTextHit;
   }) => void;
   clear: () => void;
 };
@@ -99,6 +103,7 @@ export function useSourceLocator(context: SourceLocatorContext = {}): SourceLoca
       pdfPath: string | null;
       text?: string;
       focusedText?: string;
+      textHit?: PdfTextHit;
     }) => {
       const host = getNativeHost();
       if (!host) return;
@@ -117,6 +122,7 @@ export function useSourceLocator(context: SourceLocatorContext = {}): SourceLoca
             resultType: "synctex:reverseResult",
             payload: {
               page: point.page,
+              ...(point.textHit?.word ? { context: { word: point.textHit.word } } : {}),
               x: point.x,
               y: point.y,
               ...(requestedPdf ? { pdfPath: requestedPdf } : {}),
@@ -157,6 +163,7 @@ export function useSourceLocator(context: SourceLocatorContext = {}): SourceLoca
               confident: found.confidence === true,
               selectedText: point.text?.trim() ?? "",
               focusedText: point.focusedText?.trim() ?? "",
+              textHit: point.textHit,
             },
           });
         } catch {

@@ -11,7 +11,8 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { isExtendedTextFileName, looksBinary } = require("../text-file-types.cjs");
+const { isExtendedTextFileName, isUnknownTextBuffer } = require("../text-file-types.cjs");
+const { readFileUpTo } = require("../bounded-file-read.cjs");
 
 const MAX_TEXT_BYTES = 10 * 1024 * 1024;
 // The free limit for one shared file (a paid plan may pass a larger one).
@@ -191,19 +192,16 @@ class WorkspaceManifest {
     const absolute = path.join(this.rootPath, relative);
     if (looksTextByName(relative)) {
       if (stat.size > MAX_TEXT_BYTES) return { kind: "skipped", size: stat.size, mtimeMs: stat.mtimeMs };
-      let sample;
       try {
-        const handle = await fsp.open(absolute, "r");
-        try {
-          sample = Buffer.alloc(Math.min(stat.size, 8192));
-          await handle.read(sample, 0, sample.length, 0);
-        } finally {
-          await handle.close();
+        const buffer = await readFileUpTo(absolute, MAX_TEXT_BYTES);
+        if (!buffer) return null;
+        if (isUnknownTextBuffer(buffer)) return { kind: "text", size: stat.size, mtimeMs: stat.mtimeMs };
+        if (buffer.length <= this.binaryLimit) {
+          return { kind: "binary", size: buffer.length, mtimeMs: stat.mtimeMs, hash: hashBuffer(buffer) };
         }
       } catch {
         return null;
       }
-      if (!looksBinary(sample)) return { kind: "text", size: stat.size, mtimeMs: stat.mtimeMs };
     }
     if (stat.size > this.binaryLimit) {
       if (!REDUCIBLE_EXTENSIONS.has(extensionOf(relative))) return { kind: "skipped", size: stat.size, mtimeMs: stat.mtimeMs };

@@ -113,7 +113,9 @@ const createSynctexReverseHandler = (deps, resolvers) => {
     };
     let result;
     try {
-      result = await synctexService.reverse(reverseOptions);
+      result = message.fallbackGeneration != null
+        ? await deps.livePdfFallback.reverse(synctexService, { ...reverseOptions, generation: message.fallbackGeneration })
+        : await synctexService.reverse(reverseOptions);
     } catch (_error) {
       if (!requestIsCurrent()) {
         sendToRenderer("synctex:reverseResult", withRequestId({
@@ -195,9 +197,9 @@ const createSynctexReverseHandler = (deps, resolvers) => {
     // The words under the click settle which source line it was (see
     // refineReverseByText): SyncTeX alone returns the line above for a
     // line-initial word and can land in another file via a page box.
-    if (message.context && typeof synctexService.refineReverseByText === "function") {
+    if (message.fallbackGeneration == null && message.context && typeof synctexService.refineReverseByText === "function") {
       try {
-        const refined = synctexService.refineReverseByText({ pdfPath, page, y, result, context: message.context });
+        const refined = synctexService.refineReverseByText({ pdfPath, page, x, y, result, context: message.context });
         const refinedPath = refined ? resolveResultSourcePath(refined) : null;
         if (refined && refinedPath) {
           result = { ...result, path: refined.path, line: refined.line, column: 1, refinedByText: true };

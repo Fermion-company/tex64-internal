@@ -6,9 +6,8 @@
  * Measured on the packaged app (16 GB Mac): 49–72 pages put a keystroke on
  * the paper in 81–149 ms; a 389-page book needs 213–270 ms, about 15 minutes
  * to settle after its first open, and its preamble alone holds 1.5 GB per
- * checkpoint. Past the limit the document keeps its Build paper, exactly as
- * with the realtime setting off; editing the source (alone or with others)
- * is not limited.
+ * checkpoint. Past the limit the renderer follows a chapter if possible,
+ * otherwise it requests a PDF preview without retaining resident checkpoints.
  *
  * The length is known from two places:
  *  - the paper of the last Build (beside the root, or the copy the project's
@@ -33,7 +32,9 @@ const readPageCount = async (pdfPath) => {
   const pdfjsPath = require.resolve("pdfjs-dist/legacy/build/pdf.mjs");
   const { getDocument } = await import(pathToFileURL(pdfjsPath).href);
   const loading = getDocument({
-    data: new Uint8Array(await fs.promises.readFile(pdfPath)),
+    url: pathToFileURL(pdfPath).href,
+    disableStream: true,
+    disableAutoFetch: true,
     isEvalSupported: false,
     useSystemFonts: true,
   });
@@ -76,6 +77,7 @@ class LivePreviewPageLimit {
     this.countPages = countPages;
     this.stat = stat;
     this.builds = new Map(); // pdfPath -> { mtimeMs, size, pages }
+    this.counting = new Map();
     this.observed = new Map(); // rootPath -> { pages, atMs }
   }
 
@@ -93,16 +95,38 @@ class LivePreviewPageLimit {
 
   async paperPages(pdfPath) {
     let stats;
-    try { stats = await this.stat(pdfPath); } catch { this.builds.delete(pdfPath); return null; }
-    if (!stats.isFile() || stats.size <= 0 || stats.size > MAX_PDF_BYTES) return null;
+    try { stats = await this.stat(pdfPath); } catch { stats = null; }
+    if (!stats?.isFile() || stats.size <= 0 || stats.size > MAX_PDF_BYTES) {
+      this.builds.delete(pdfPath);
+      this.counting.delete(pdfPath);
+      return null;
+    }
+    const sameFile = (item) => item && item.mtimeMs === stats.mtimeMs && item.size === stats.size;
     const known = this.builds.get(pdfPath);
-    if (known && known.mtimeMs === stats.mtimeMs && known.size === stats.size) return known;
-    let pages = null;
-    try { pages = await this.countPages(pdfPath); } catch { pages = null; }
-    if (!Number.isInteger(pages) || pages <= 0) return null;
-    const entry = { mtimeMs: stats.mtimeMs, size: stats.size, pages };
-    this.builds.set(pdfPath, entry);
-    return entry;
+    if (sameFile(known)) return known;
+    const pending = this.counting.get(pdfPath);
+    if (sameFile(pending)) return pending.promise;
+
+    const count = { mtimeMs: stats.mtimeMs, size: stats.size };
+    this.builds.delete(pdfPath);
+    this.counting.set(pdfPath, count);
+    count.promise = (async () => {
+      try {
+        const pages = await this.countPages(pdfPath);
+        if (this.counting.get(pdfPath) !== count) return this.builds.get(pdfPath) ?? null;
+        if (!Number.isInteger(pages) || pages <= 0) return null;
+        const current = await this.stat(pdfPath);
+        if (this.counting.get(pdfPath) !== count || !sameFile(current)) return null;
+        const entry = { mtimeMs: stats.mtimeMs, size: stats.size, pages };
+        this.builds.set(pdfPath, entry);
+        return entry;
+      } catch {
+        return null;
+      } finally {
+        if (this.counting.get(pdfPath) === count) this.counting.delete(pdfPath);
+      }
+    })();
+    return count.promise;
   }
 
   /** The engine reports `pages` for `rootPath`; true when that is past the limit. */

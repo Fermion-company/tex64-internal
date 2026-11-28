@@ -38,7 +38,7 @@ export const LAYOUTS: Partial<
         '[/]',
         '[separator-5]',
         {
-          latex: '\\exponentialE',
+          latex: '{\\mathrm{e}}',
           shift: '\\ln',
           variants: [
             '\\exp',
@@ -51,8 +51,8 @@ export const LAYOUTS: Partial<
           ],
         },
         {
-          latex: '\\imaginaryI',
-          variants: ['\\Re', '\\Im', '\\imaginaryJ', '\\Vert #0 \\Vert'],
+          latex: '{\\mathrm{i}}',
+          variants: ['\\Re', '\\Im', '{\\mathrm{j}}', '\\Vert #0 \\Vert'],
         },
         {
           latex: '\\pi',
@@ -89,18 +89,18 @@ export const LAYOUTS: Partial<
         '[separator-5]',
         {
           class: 'hide-shift',
-          latex: '#@^2}',
-          shift: '#@^{\\prime}}',
+          latex: '#@^2',
+          shift: '#@^{\\prime}',
         },
         {
-          latex: '#@^{#0}}',
+          latex: '#@^{#?}',
           class: 'hide-shift',
           shift: '#@_{#?}',
         },
         {
           class: 'hide-shift',
           latex: '\\sqrt{#0}',
-          shift: { latex: '\\sqrt[#0]{#?}}' },
+          shift: { latex: '\\sqrt[#?]{#0}' },
         },
       ],
       [
@@ -122,7 +122,7 @@ export const LAYOUTS: Partial<
             { latex: '\\iint', class: 'small' },
             { latex: '\\iiint', class: 'small' },
             { latex: '\\oint', class: 'small' },
-            '\\mathrm{d}x',
+            '{\\mathrm{d}}x',
             { latex: '\\dfrac{\\mathrm{d}}{\\mathrm{d} x}', class: 'small' },
             { latex: '\\frac{\\partial}{\\partial x}', class: 'small' },
 
@@ -175,21 +175,21 @@ export const LAYOUTS: Partial<
           class: 'MLK__tex hide-shift',
           insert: '\\epsilon',
           aside: 'epsilon',
-          shift: '\\char"0190',
+          shift: '{\\mathrm{E}}',
         },
         {
           label: '<i>&rho;</i>',
           class: 'MLK__tex hide-shift',
           insert: '\\rho',
           aside: 'rho',
-          shift: '\\char"3A1',
+          shift: '{\\mathrm{P}}',
         },
         {
           label: '<i>&tau;</i>',
           class: 'MLK__tex hide-shift',
           insert: '\\tau',
           aside: 'tau',
-          shift: '\\char"3A4',
+          shift: '{\\mathrm{T}}',
         },
         {
           label: '<i>&upsilon;</i>',
@@ -210,14 +210,14 @@ export const LAYOUTS: Partial<
           class: 'MLK__tex hide-shift',
           insert: '\\iota',
           aside: 'iota',
-          shift: '\\char"399',
+          shift: '{\\mathrm{I}}',
         },
         {
           label: '<i>&omicron;</i>',
           class: 'MLK__tex hide-shift',
-          insert: '\\omicron',
+          insert: 'o',
           aside: 'omicron',
-          shift: '\\char"39F',
+          shift: '{\\mathrm{O}}',
         },
         {
           label: '<i>&pi;</i>',
@@ -234,7 +234,7 @@ export const LAYOUTS: Partial<
           class: 'MLK__tex hide-shift',
           insert: '\\alpha',
           aside: 'alpha',
-          shift: '\\char"391',
+          shift: '{\\mathrm{A}}',
         },
         {
           label: '<i>&sigma;</i>',
@@ -269,7 +269,7 @@ export const LAYOUTS: Partial<
           class: 'MLK__tex hide-shift',
           insert: '\\eta',
           aside: 'eta',
-          shift: '\\char"397',
+          shift: '{\\mathrm{H}}',
         },
         {
           label: '<i>&xi;</i>',
@@ -283,7 +283,7 @@ export const LAYOUTS: Partial<
           class: 'MLK__tex hide-shift',
           insert: '\\kappa',
           aside: 'kappa',
-          shift: '\\Kappa',
+          shift: '{\\mathrm{K}}',
         },
         {
           label: '<i>&lambda;</i>',
@@ -301,14 +301,14 @@ export const LAYOUTS: Partial<
           class: 'MLK__tex hide-shift',
           insert: '\\zeta',
           aside: 'zeta',
-          shift: '\\char"396',
+          shift: '{\\mathrm{Z}}',
         },
         {
           label: '<i>&chi;</i>',
           class: 'MLK__tex hide-shift',
           insert: '\\chi',
           aside: 'chi',
-          shift: '\\char"3A7',
+          shift: '{\\mathrm{X}}',
         },
         {
           label: '<i>&psi;</i>',
@@ -329,21 +329,21 @@ export const LAYOUTS: Partial<
           class: 'MLK__tex hide-shift',
           insert: '\\beta',
           aside: 'beta',
-          shift: '\\char"392',
+          shift: '{\\mathrm{B}}',
         },
         {
           label: '<i>&nu;</i>',
           class: 'MLK__tex hide-shift',
           insert: '\\nu',
           aside: 'nu',
-          shift: '\\char"39D',
+          shift: '{\\mathrm{N}}',
         },
         {
           label: '<i>&mu;</i>',
           class: 'MLK__tex hide-shift',
           insert: '\\mu',
           aside: 'mu',
-          shift: '\\char"39C',
+          shift: '{\\mathrm{M}}',
         },
 
         '[backspace]',
@@ -452,7 +452,7 @@ export const LAYOUTS: Partial<
             { class: 'small', latex: '\\limsup_{#?}' },
           ],
         },
-        '\\exponentialE',
+        '{\\mathrm{e}}',
       ],
       [
         {
@@ -471,12 +471,12 @@ export const LAYOUTS: Partial<
         },
         '\\left\\vert#0\\right\\vert',
         {
-          latex: '\\larr',
-          shift: '\\lArr',
+          latex: '\\leftarrow',
+          shift: '\\Leftarrow',
           variants: [
             { latex: '\\impliedby', aside: 'implied by' },
             { latex: '\\gets', aside: 'gets' },
-            '\\lArr',
+            '\\Leftarrow',
             '\\vdash',
             { latex: '\\models', aside: 'models' },
           ],
@@ -561,11 +561,11 @@ export const LAYOUTS: Partial<
         {
           latex: '\\exp',
           insert: '\\exp\\left(#0\\right)',
-          variants: ['\\exponentialE^{#0}'],
+          variants: ['{\\mathrm{e}}^{#0}'],
         },
         '\\left\\Vert#0\\right\\Vert',
         {
-          latex: '\\lrArr',
+          latex: '\\Leftrightarrow',
           shift: '\\leftrightarrow',
           variants: [
             { latex: '\\iff', aside: 'if and only if' },
@@ -606,15 +606,15 @@ export const LAYOUTS: Partial<
         },
         {
           latex: '#@^{\\prime}',
-          shift: '#@^{\\doubleprime}',
-          variants: ['#@^{\\doubleprime}', '#@\\degree'],
+          shift: '#@^{\\prime\\prime}',
+          variants: ['#@^{\\prime\\prime}', '#@\\degree'],
         },
         {
-          latex: '\\mathrm{d}',
+          latex: '{\\mathrm{d}}',
           shift: '\\partial',
 
           variants: [
-            '\\mathrm{d}x',
+            '{\\mathrm{d}}x',
             { latex: '\\dfrac{\\mathrm{d}}{\\mathrm{d} x}', class: 'small' },
             { latex: '\\frac{\\partial}{\\partial x}', class: 'small' },
 
@@ -637,9 +637,9 @@ export const LAYOUTS: Partial<
         {
           class: 'box',
           latex: '\\colon',
-          shift: '\\Colon',
+          shift: '\\mathrel{::}',
           variants: [
-            { latex: '\\Colon', aside: 'such that', class: 'box' },
+            { latex: '\\mathrel{::}', aside: 'such that', class: 'box' },
             { latex: ':', aside: 'ratio', class: 'box' },
             { latex: '\\vdots', aside: '', class: 'box' },
             { latex: '\\ddots', aside: '', class: 'box' },

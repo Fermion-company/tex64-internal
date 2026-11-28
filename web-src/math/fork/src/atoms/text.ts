@@ -30,6 +30,10 @@ export class TextAtom extends Atom {
   }
 
   _serialize(_options: ToLatexOptions): string {
-    return this.verbatimLatex ?? charToLatex('text', this.value.codePointAt(0));
+    if (this.verbatimLatex !== undefined) return this.verbatimLatex;
+    const codepoint = this.value.codePointAt(0);
+    if (codepoint !== undefined && this.value !== String.fromCodePoint(codepoint))
+      return this.value;
+    return charToLatex('text', codepoint);
   }
 }

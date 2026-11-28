@@ -155,6 +155,7 @@ const createPlatformHandlers = ({
       const auth = await platformService.getAuthSnapshot();
       sendToRenderer("platform:auth", {
         auth,
+        action: "login",
         error: toErrorPayload(error, "AUTH_START_FAILED"),
       });
     }
@@ -173,6 +174,7 @@ const createPlatformHandlers = ({
       const auth = await platformService.getAuthSnapshot();
       sendToRenderer("platform:auth", {
         auth,
+        action: "login",
         error: toErrorPayload(error, "AUTH_CALLBACK_FAILED"),
       });
     }
@@ -191,6 +193,7 @@ const createPlatformHandlers = ({
       const auth = await platformService.getAuthSnapshot();
       sendToRenderer("platform:auth", {
         auth,
+        action: "logout",
         error: toErrorPayload(error, "AUTH_SIGNOUT_FAILED"),
       });
     }
@@ -209,6 +212,7 @@ const createPlatformHandlers = ({
       const auth = await platformService.getAuthSnapshot();
       sendToRenderer("platform:auth", {
         auth,
+        action: "cancel",
         error: toErrorPayload(error, "AUTH_CANCEL_FAILED"),
       });
     }

@@ -105,28 +105,37 @@ function turnFrameStream(input: {
   abortSignal: AbortSignal;
 }): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
+  const disconnected = new AbortController();
+  const abortSignal = AbortSignal.any([input.abortSignal, disconnected.signal]);
   return new ReadableStream<Uint8Array>({
+    cancel() {
+      disconnected.abort();
+    },
     async start(controller) {
       const write = (frame: TurnFrame) => {
+        if (disconnected.signal.aborted) return;
         controller.enqueue(encoder.encode(`${JSON.stringify(frame)}\n`));
       };
       try {
-        for await (const frame of runDocumentTurn(input)) write(frame);
+        for await (const frame of runDocumentTurn({ ...input, abortSignal })) write(frame);
       } catch (error) {
-        // The turn runner persists its own state; this is the last resort so
-        // the client always sees a terminal frame instead of a dead socket.
-        if (!input.abortSignal.aborted) {
-          write({
-            type: "error",
-            message:
-              error instanceof Error && error.name === "AgentRuntimeConfigurationError"
-                ? error.message
-                : "処理が最後まで進みませんでした。もう一度お試しください。",
+        // Setup can fail before the runner reaches its own finalization.
+        const message = error instanceof Error && error.name === "AgentRuntimeConfigurationError"
+          ? error.message
+          : "処理が最後まで進みませんでした。もう一度お試しください。";
+        const aborted = abortSignal.aborted;
+        try {
+          await getDocumentRepository().updateRun(input.userId, input.turnId, {
+            status: aborted ? "cancelled" : "failed",
+            stage: "failed",
+            ...(aborted ? {} : { errorMessage: message }),
           });
-          write({ type: "done", status: "failed" });
+        } finally {
+          if (!aborted) write({ type: "error", message });
+          write({ type: "done", status: aborted ? "aborted" : "failed" });
         }
       } finally {
-        controller.close();
+        if (!disconnected.signal.aborted) controller.close();
       }
     },
   });

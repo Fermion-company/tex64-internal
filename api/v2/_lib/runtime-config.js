@@ -250,12 +250,12 @@ export const getRuntimeConfig = () => {
       typeof process.env.TEX64_LLM_AXIOM_100_UPSTREAM === "string" &&
       process.env.TEX64_LLM_AXIOM_100_UPSTREAM.trim()
         ? process.env.TEX64_LLM_AXIOM_100_UPSTREAM.trim()
-        : "gpt-5.6-luna",
+        : "gpt-6.1-terra",
     axiomStandardInputUsdPerMillion: Math.max(
       0.000001,
       parseNumber(
         process.env.TEX64_LLM_AXIOM_100_INPUT_USD_PER_MILLION,
-        0.2,
+        1,
       ),
     ),
     axiomStandardCachedInputUsdPerMillion: Math.max(
@@ -264,8 +264,8 @@ export const getRuntimeConfig = () => {
         process.env.TEX64_LLM_AXIOM_100_CACHED_INPUT_USD_PER_MILLION,
         parseNumber(
           process.env.TEX64_LLM_AXIOM_100_INPUT_USD_PER_MILLION,
-          0.2,
-        ) * 0.1,
+          1,
+        ) * 0.05,
       ),
     ),
     axiomStandardCacheWriteUsdPerMillion: Math.max(
@@ -274,7 +274,7 @@ export const getRuntimeConfig = () => {
         process.env.TEX64_LLM_AXIOM_100_CACHE_WRITE_USD_PER_MILLION,
         parseNumber(
           process.env.TEX64_LLM_AXIOM_100_INPUT_USD_PER_MILLION,
-          0.2,
+          1,
         ) * 1.25,
       ),
     ),
@@ -282,7 +282,7 @@ export const getRuntimeConfig = () => {
       0.000001,
       parseNumber(
         process.env.TEX64_LLM_AXIOM_100_OUTPUT_USD_PER_MILLION,
-        1.2,
+        5,
       ),
     ),
     axiomProModel:

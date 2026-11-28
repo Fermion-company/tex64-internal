@@ -470,6 +470,9 @@ class EnvService {
     this.detectCache = null;
     this.detectInFlight = null;
     this.detectEpoch = 0;
+    this.detectionController = new AbortController();
+    this.detectionCommands = new Set();
+    this.remoteYearInFlight = null;
   }
 
   // An install or repair changes the answer: drop the cached report and stop
@@ -540,6 +543,21 @@ class EnvService {
     return findTexCommand(command, this.platform, this.arch, extraDirs);
   }
 
+  async runDetectionCommand(command, args, options) {
+    const pending = runCommand(command, args, { ...options, signal: this.detectionController.signal });
+    this.detectionCommands.add(pending);
+    try {
+      return await pending;
+    } finally {
+      this.detectionCommands.delete(pending);
+    }
+  }
+
+  async stopDetection() {
+    this.detectionController.abort();
+    await Promise.allSettled([...this.detectionCommands, this.remoteYearInFlight]);
+  }
+
   async checkCommand(command) {
     if (shouldForceMissingTool(command)) {
       return false;
@@ -553,7 +571,7 @@ class EnvService {
     }
     try {
       const checker = this.platform === "win32" ? "where" : "which";
-      const result = await runCommand(checker, [command], {
+      const result = await this.runDetectionCommand(checker, [command], {
         timeoutMs: 30000,
         extendPath: true,
       });
@@ -734,22 +752,36 @@ class EnvService {
     if (options.force !== true && cache && Date.now() - cache.at < 12 * 60 * 60 * 1000) {
       return cache.year;
     }
+    // Startup and settings share this machine-wide query, including its result.
+    if (this.remoteYearInFlight) return this.remoteYearInFlight;
+    const query = this.fetchRemoteYear(cache?.year || "");
+    this.remoteYearInFlight = query;
+    try {
+      return await query;
+    } finally {
+      if (this.remoteYearInFlight === query) this.remoteYearInFlight = null;
+    }
+  }
+
+  async fetchRemoteYear(previousYear) {
     for (const repository of RELEASE_REPOSITORIES) {
+      if (this.detectionController.signal.aborted) break;
       try {
         const response = await fetch(`${repository}/tlpkg/texlive.tlpdb`, {
           headers: { Range: "bytes=0-4095" },
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.any([this.detectionController.signal, AbortSignal.timeout(15000)]),
         });
         const year = parseReleaseYear((await response.text()).slice(0, 8192));
         if (year) {
           this.remoteYearCache = { at: Date.now(), year };
+          if (year !== previousYear) this.invalidateDetection();
           return year;
         }
       } catch {
         // try the next repository
       }
     }
-    return cache?.year || "";
+    return previousYear;
   }
 
   installMarkerPath() {
@@ -1221,15 +1253,14 @@ class EnvService {
   // it, and is its package set wide enough" — so the setup screen can decide by
   // itself whether to show an install choice at all.
   async detectEnvironment(options = {}) {
+    this.detectionController.signal.throwIfAborted();
     if (options.remote === true && this.findManagedCommand("tlmgr")) {
       // The settings screen asks whether a newer TeX Live year is out (a 4 KB
       // read, at most twice a day); the report below then carries `renew`.
-      const before = this.remoteYearCache?.year || "";
-      const year = await this.checkRemoteYear();
-      if (year !== before) {
-        this.invalidateDetection();
-      }
+      await this.checkRemoteYear();
+      this.detectionController.signal.throwIfAborted();
     }
+    if (options.force === true) this.invalidateDetection();
     const ttlMs = 10000;
     if (options.force !== true) {
       if (this.detectCache && Date.now() - this.detectCache.at < ttlMs) {
@@ -1240,7 +1271,11 @@ class EnvService {
       // and the installation cannot change in between: share the one running.
       if (this.detectInFlight) return this.detectInFlight;
     }
-    const run = this.probeEnvironment();
+    const epoch = this.detectEpoch;
+    const run = this.probeEnvironment().then(report => {
+      this.detectionController.signal.throwIfAborted();
+      return epoch === this.detectEpoch ? report : this.detectEnvironment();
+    });
     this.detectInFlight = run;
     try {
       return await run;
@@ -1275,13 +1310,13 @@ class EnvService {
       // tlmgr names the tree it is bound to, which beats guessing from a symlink
       // farm like /Library/TeX/texbin; the engine banner is the fallback.
       const probe = tools.tlmgr
-        ? await runCommand(tools.tlmgr, ["--version"], { timeoutMs: 20000 }).catch(() => null)
+        ? await this.runDetectionCommand(tools.tlmgr, ["--version"], { timeoutMs: 20000 }).catch(() => null)
         : null;
       if (probe && probe.output) {
         banner = parseDistributionBanner(probe.output);
       }
       if (banner.kind === "unknown" && primaryEngine) {
-        const engineProbe = await runCommand(primaryEngine, ["--version"], {
+        const engineProbe = await this.runDetectionCommand(primaryEngine, ["--version"], {
           timeoutMs: 20000,
         }).catch(() => null);
         if (engineProbe && engineProbe.output) {
@@ -1310,7 +1345,7 @@ class EnvService {
       found: 0,
     };
     if (tools.kpsewhich) {
-      const probe = await runCommand(tools.kpsewhich, ALL_PROBES, {
+      const probe = await this.runDetectionCommand(tools.kpsewhich, ALL_PROBES, {
         timeoutMs: 30000,
       }).catch(() => null);
       if (probe) {

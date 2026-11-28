@@ -1,20 +1,20 @@
+import { getEditorModelPath } from "../editor-session/model-path.js";
+import { isTexFilePath } from "../files.js";
 import type { IndexEntry } from "../types.js";
 import { pickCitationEntries } from "../index-utils.js";
 
 import type { FileExcerptResult, FilePreviewResult, HoverState } from "./types.js";
 import {
-  extractCiteKey,
-  extractDocumentClassKey,
-  extractPackageKey,
+  extractListKey,
   extractSingleKey,
   findCommandMatchAt,
 } from "./command-key-match.js";
 import { extractBibEntryText, formatBibEntryMarkdown, parseBibFields } from "./bib-utils.js";
 import { renderExcerpt, sliceExcerptAroundLine } from "./excerpt-utils.js";
 import { buildImagePreviewHtml, createHtmlHoverContent } from "./hover-html.js";
-import { buildMathPreviewHtml } from "./math-preview.js";
+import { buildMathPreviewHtml, trackFormulaHoverPointer, typesetMathHover } from "./math-preview.js";
 import { findMathAt } from "./math-scan.js";
-import { extractMathEnvFromExcerpt, extractRefTargetSummary } from "./ref-target-preview.js";
+import { extractMathEnvFromExcerpt, extractRefTargetSummary, findLabelColumn } from "./ref-target-preview.js";
 import {
   buildColorSwatchHtml,
   collectDefinedColors,
@@ -31,7 +31,7 @@ import { renderPdfFirstPageThumbnail } from "./pdf-thumbnail.js";
 import { findCommandTokenAt, findMacroDefinitionInLines } from "./macro-definition.js";
 import { buildPackageHoverMarkdown } from "./package-hover.js";
 import { rememberStableHoverAnchor } from "./stable-hover.js";
-import { findFirstUnescapedPercent, getCursorIndex } from "./utils.js";
+import { getHoverLine, getCursorIndex } from "./utils.js";
 import { getUiLocale } from "../i18n.js";
 
 export const registerHoverProvider = (
@@ -56,6 +56,8 @@ export const registerHoverProvider = (
   deps: {
     getActiveFilePath: () => string | null;
     getWorkspaceFiles: () => string[];
+    getRootFilePath?: () => string | null;
+    getWorkspaceRoot?: () => string | null;
     getIndexLabels: () => IndexEntry[];
     getIndexCitations: () => IndexEntry[];
     requestFilePreview?: (path: string) => Promise<FilePreviewResult>;
@@ -72,7 +74,7 @@ export const registerHoverProvider = (
   }
 
   const hoverResultCache = new Map<string, unknown>();
-  const previewRequestCache = new Map<string, Promise<FilePreviewResult>>();
+  let workspaceRoot: string | null = null;
   const MAX_HOVER_CACHE_SIZE = 512;
 
   const rememberHoverResult = <T>(key: string, value: T): T => {
@@ -124,7 +126,10 @@ export const registerHoverProvider = (
     const safeEndLine = Number.isFinite(endLineNumber)
       ? Math.max(lineNumber, Math.floor(endLineNumber ?? lineNumber))
       : lineNumber;
-    return new monaco.Range(lineNumber, startColumn, safeEndLine, endColumn);
+    const lastColumn = safeEndLine > lineNumber && typeof endIndex === "number"
+      ? Math.max(1, endIndex + 1)
+      : endColumn;
+    return new monaco.Range(lineNumber, startColumn, safeEndLine, lastColumn);
   };
 
   const getModelLineCountSafe = (
@@ -135,50 +140,31 @@ export const registerHoverProvider = (
     return Number.isFinite(count) ? Math.max(1, Math.floor(count as number)) : fallback;
   };
 
-  const getOrCreatePreviewRequest = (path: string) => {
-    const cached = previewRequestCache.get(path);
-    if (cached) {
-      return cached;
-    }
-    const requestPreview = deps.requestFilePreview;
-    if (typeof requestPreview !== "function") {
-      return Promise.resolve({ ok: false, error: "preview unavailable" } as FilePreviewResult);
-    }
-    const pending = requestPreview(path)
-      .then((result) => {
-        if (!(result?.ok && typeof result.dataUrl === "string" && result.dataUrl)) {
-          previewRequestCache.delete(path);
-        }
-        return result;
-      })
-      .catch((error) => {
-        previewRequestCache.delete(path);
-        return {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error ?? "preview failed"),
-        } as FilePreviewResult;
-      });
-    previewRequestCache.set(path, pending);
-    return pending;
-  };
+  const requestPreview = (path: string) =>
+    deps.requestFilePreview?.(path).catch((error) => ({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error ?? "preview failed"),
+    } as FilePreviewResult)) ?? Promise.resolve({ ok: false } as FilePreviewResult);
 
   const provideHover = (
     model: { getLineContent: (lineNumber: number) => string; getLineCount?: () => number },
     position: { lineNumber: number; column: number }
   ) => {
-    const activePath = deps.getActiveFilePath();
-    if (!activePath || !activePath.endsWith(".tex")) {
+    const root = deps.getWorkspaceRoot?.() ?? null;
+    if (root !== workspaceRoot) {
+      workspaceRoot = root;
+      hoverResultCache.clear();
+    }
+    const activePath = getEditorModelPath(model) ?? deps.getActiveFilePath();
+    if (!isTexFilePath(activePath)) {
       return null;
     }
     const line = model.getLineContent(position.lineNumber);
     const cursorIndex = getCursorIndex(position);
-    const commentIndex = findFirstUnescapedPercent(line);
-    if (commentIndex >= 0 && cursorIndex >= commentIndex) {
-      return null;
-    }
-    const effectiveLine = commentIndex >= 0 ? line.slice(0, commentIndex) : line;
+    const effectiveLine = getHoverLine(line, cursorIndex);
+    if (cursorIndex >= effectiveLine.length) return null;
 
-    const mathMatch = findMathAt(model, position, effectiveLine, cursorIndex);
+    const mathMatch = findMathAt(model, position, cursorIndex);
     if (mathMatch) {
       const tokenKey = buildHoverTokenKey({
         activePath,
@@ -187,7 +173,7 @@ export const registerHoverProvider = (
         startIndex: mathMatch.startIndex,
         endIndex: mathMatch.endIndex,
         kind: "math",
-        extra: mathMatch.latex.slice(0, 180),
+        extra: mathMatch.latex,
       });
       rememberStableHoverAnchor({
         filePath: activePath,
@@ -221,7 +207,7 @@ export const registerHoverProvider = (
       effectiveLine,
       cursorIndex,
       /\\(usepackage|RequirePackage)(?:\[[^\]]*\])?\{([^}]+)\}/g,
-      extractPackageKey
+      extractListKey
     );
     if (packageMatch) {
       const tokenKey = buildHoverTokenKey({
@@ -254,8 +240,8 @@ export const registerHoverProvider = (
     const classMatch = findCommandMatchAt(
       effectiveLine,
       cursorIndex,
-      /\\documentclass(?:\[[^\]]*\])?\{([^}]+)\}/g,
-      extractDocumentClassKey
+      /\\(documentclass)(?:\[[^\]]*\])?\{([^}]+)\}/g,
+      extractSingleKey
     );
     if (classMatch) {
       const tokenKey = buildHoverTokenKey({
@@ -295,7 +281,7 @@ export const registerHoverProvider = (
         const command = match[1] ?? "";
         const model = match[2] ?? null;
         const content = match[3] ?? "";
-        const braceIndex = match[0].indexOf("{");
+        const braceIndex = match[0].length - content.length - 2;
         if (braceIndex < 0 || typeof match.index !== "number") {
           return null;
         }
@@ -386,8 +372,9 @@ export const registerHoverProvider = (
     const refMatch = findCommandMatchAt(
       effectiveLine,
       cursorIndex,
-      /\\(eqref|ref|pageref|autoref|cref|Cref|namecref|Namecref|nameref|Nameref)\{([^}]+)\}/g,
-      extractSingleKey
+      /\\(eqref|ref|pageref|autoref|cref|Cref|namecref|Namecref|nameref|Nameref)\*?\{([^}]+)\}/g,
+      (match, index) => /^(?:c|namec)ref$/i.test(match[1])
+        ? extractListKey(match, index) : extractSingleKey(match, index)
     );
     if (refMatch) {
       const tokenKey = buildHoverTokenKey({
@@ -405,10 +392,6 @@ export const registerHoverProvider = (
         endIndex: refMatch.endIndex,
         tokenKey,
       });
-      const cached = getCachedHoverResult(tokenKey);
-      if (cached) {
-        return cached;
-      }
       const entries = deps.getIndexLabels().filter((entry) => entry.key === refMatch.key);
       const seen = new Set<string>();
       const deduped = entries
@@ -437,7 +420,7 @@ export const registerHoverProvider = (
         typeof primary.path === "string" &&
         Number.isFinite(primary.line)
       ) {
-        const pending = deps
+        return deps
           .requestFileExcerpt(primary.path, primary.line, { radius: 48, maxLines: 220 })
           .then((excerpt) => {
             const contents: any[] = [{ value: `\`${primary.path}:${primary.line}\`` }];
@@ -447,6 +430,7 @@ export const registerHoverProvider = (
                   startLine: (excerpt as any).startLine ?? primary.line,
                   lines: (excerpt as any).lines as string[],
                   targetLine: primary.line,
+                  labelColumn: findLabelColumn(excerpt.lines[primary.line - excerpt.startLine] ?? "", refMatch.key),
                 }
               : null;
             // Show WHAT the label points at, not just where: a rendered
@@ -491,20 +475,19 @@ export const registerHoverProvider = (
             }
             return { contents, range };
           });
-        return rememberHoverResult(tokenKey, pending);
       }
 
-      return rememberHoverResult(tokenKey, {
+      return {
         contents: [{ value: `\`${primary.path}:${primary.line}\`` }],
         range,
-      });
+      };
     }
 
     const citeMatch = findCommandMatchAt(
       effectiveLine,
       cursorIndex,
-      /\\(cite|citet|citep|citeauthor|citeyear|autocite|parencite|textcite|footcite|supercite)(?:\[[^\]]*\])*\{([^}]+)\}/g,
-      extractCiteKey
+      /\\(cite|citet|citep|citeauthor|citeyear|autocite|parencite|textcite|footcite|supercite)\*?(?:\[[^\]]*\])*\{([^}]+)\}/g,
+      extractListKey
     );
     if (citeMatch) {
       const tokenKey = buildHoverTokenKey({
@@ -522,10 +505,6 @@ export const registerHoverProvider = (
         endIndex: citeMatch.endIndex,
         tokenKey,
       });
-      const cached = getCachedHoverResult(tokenKey);
-      if (cached) {
-        return cached;
-      }
       const entries = pickCitationEntries(deps.getIndexCitations()).filter(
         (entry) => entry.key === citeMatch.key
       );
@@ -538,10 +517,10 @@ export const registerHoverProvider = (
       if (
         typeof deps.requestFileExcerpt === "function" &&
         typeof primary.path === "string" &&
-        primary.path.endsWith(".bib") &&
+        /\.bib$/i.test(primary.path) &&
         Number.isFinite(primary.line)
       ) {
-        const pending = deps
+        return deps
           .requestFileExcerpt(primary.path, primary.line, { radius: 120, maxLines: 260 })
           .then((excerpt) => {
             const excerptLines = excerpt?.ok ? (excerpt as any).lines : null;
@@ -566,42 +545,19 @@ export const registerHoverProvider = (
             }
             return { contents, range };
           });
-        return rememberHoverResult(tokenKey, pending);
       }
 
-      return rememberHoverResult(tokenKey, {
+      return {
         contents: [{ value: `\`${primary.path}:${primary.line}\`` }],
         range,
-      });
+      };
     }
 
     const includeGraphicsHit = findCommandMatchAt(
       effectiveLine,
       cursorIndex,
-      /\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}/g,
-      (match, index) => {
-        const content = match[1] ?? "";
-        const braceIndex = match[0].indexOf("{");
-        if (braceIndex < 0 || typeof match.index !== "number") {
-          return null;
-        }
-        const contentStart = match.index + braceIndex + 1;
-        const contentEnd = contentStart + content.length;
-        if (index < contentStart || index > contentEnd) {
-          return null;
-        }
-        const key = content.trim();
-        if (!key) {
-          return null;
-        }
-        const leading = content.match(/^\s*/)?.[0]?.length ?? 0;
-        return {
-          command: "includegraphics",
-          key,
-          startIndex: contentStart + leading,
-          endIndex: contentStart + leading + key.length,
-        };
-      }
+      /\\(includegraphics)(?:\[[^\]]*\])?\{([^}]+)\}/g,
+      extractSingleKey
     );
     if (includeGraphicsHit) {
       const tokenKey = buildHoverTokenKey({
@@ -619,15 +575,12 @@ export const registerHoverProvider = (
         endIndex: includeGraphicsHit.endIndex,
         tokenKey,
       });
-      const cached = getCachedHoverResult(tokenKey);
-      if (cached) {
-        return cached;
-      }
 
       const candidates = resolveGraphicsCandidates(
         activePath,
         includeGraphicsHit.key,
-        deps.getWorkspaceFiles()
+        deps.getWorkspaceFiles(),
+        deps.getRootFilePath?.()
       );
       if (candidates.length === 0) {
         return null;
@@ -638,27 +591,25 @@ export const registerHoverProvider = (
         includeGraphicsHit.startIndex,
         includeGraphicsHit.endIndex
       );
-      const locations = candidates.map((p) => `- ${p}`).join("\n");
+      const contents: any[] = [{ value: `\`${previewPath}\`` }];
+      if (candidates.length > 1) {
+        contents.push({ value: candidates.slice(1).map((path) => `- ${path}`).join("\n") });
+      }
 
       if (previewPath && isPreviewableImagePath(previewPath)) {
-        const pending = getOrCreatePreviewRequest(previewPath).then((preview) => {
-          const contents: any[] = [{ value: `\`${previewPath}\`` }];
+        const pending = requestPreview(previewPath).then((preview) => {
           if (preview?.ok && typeof preview.dataUrl === "string" && preview.dataUrl) {
-            contents.push({ value: locations });
             contents.push(createHtmlHoverContent(buildImagePreviewHtml(preview.dataUrl)));
-          } else {
-            contents.push({ value: locations });
           }
           return { contents, range };
         });
-        return rememberHoverResult(tokenKey, pending);
+        return pending;
       }
 
       // PDF figures (the most common \includegraphics format): rasterize the
       // first page into a thumbnail via the vendored pdfjs.
       if (previewPath && isPdfPath(previewPath)) {
-        const pending = getOrCreatePreviewRequest(previewPath).then(async (preview) => {
-          const contents: any[] = [{ value: `\`${previewPath}\`` }, { value: locations }];
+        const pending = requestPreview(previewPath).then(async (preview) => {
           if (
             preview?.ok &&
             typeof preview.dataUrl === "string" &&
@@ -671,13 +622,10 @@ export const registerHoverProvider = (
           }
           return { contents, range };
         });
-        return rememberHoverResult(tokenKey, pending);
+        return pending;
       }
 
-      return rememberHoverResult(tokenKey, {
-        contents: [{ value: locations }],
-        range,
-      });
+      return { contents, range };
     }
 
     const includeHit = findCommandMatchAt(
@@ -702,14 +650,11 @@ export const registerHoverProvider = (
         endIndex: includeHit.endIndex,
         tokenKey,
       });
-      const cached = getCachedHoverResult(tokenKey);
-      if (cached) {
-        return cached;
-      }
       const candidates = resolveTexIncludeCandidates(
         activePath,
         includeHit.key,
-        deps.getWorkspaceFiles()
+        deps.getWorkspaceFiles(),
+        deps.getRootFilePath?.()
       );
       if (candidates.length === 0) {
         return null;
@@ -719,7 +664,7 @@ export const registerHoverProvider = (
       const locations = candidates.map((p) => `- ${p}`).join("\n");
 
       if (candidates.length > 0 && typeof deps.requestFileExcerpt === "function") {
-        const pending = deps.requestFileExcerpt(previewPath, 1, { radius: 8, maxLines: 18 }).then((excerpt) => {
+        return deps.requestFileExcerpt(previewPath, 1, { radius: 8, maxLines: 18 }).then((excerpt) => {
           const contents: any[] = [{ value: `\`${previewPath}:1\`` }];
           if (excerpt?.ok && Array.isArray((excerpt as any).lines)) {
             const slice = sliceExcerptAroundLine({
@@ -739,13 +684,12 @@ export const registerHoverProvider = (
           }
           return { contents, range };
         });
-        return rememberHoverResult(tokenKey, pending);
       }
 
-      return rememberHoverResult(tokenKey, {
+      return {
         contents: [{ value: locations }],
         range,
-      });
+      };
     }
 
     // ── User-defined macro hover ──
@@ -766,7 +710,7 @@ export const registerHoverProvider = (
           startIndex: commandToken.startIndex,
           endIndex: commandToken.endIndex,
           kind: "macro-definition",
-          extra: `${commandToken.name}|${definition.lineNumber}|${definition.text.slice(0, 80)}`,
+          extra: `${commandToken.name}|${definition.lineNumber}|${definition.text}`,
         });
         rememberStableHoverAnchor({
           filePath: activePath,
@@ -801,5 +745,7 @@ export const registerHoverProvider = (
     monaco.languages?.registerHoverProvider?.(languageId, { provideHover });
   });
 
+  document.addEventListener("pointermove", trackFormulaHoverPointer, { capture: true, passive: true });
+  document.addEventListener("load", typesetMathHover, true);
   state.registered = true;
 };

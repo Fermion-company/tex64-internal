@@ -6,6 +6,7 @@ import {
   requestFromHost,
   type HostMessage,
 } from "./native-host";
+import { legacyPaperDisplayText } from "./paper-request";
 import { attachmentKindOf, splitAttachmentBlock } from "./attachments";
 import type { AgentProposal, AgentQuestion, ChatMessage, MessagePart, TurnFrame } from "./types";
 
@@ -224,6 +225,7 @@ export function buildNativeAgentRunPayload(input: NativeTurnInput) {
       ...(input.activeFilePath ? { activeFilePath: input.activeFilePath } : {}),
       ...(input.origin ? { turnOrigin: input.origin } : {}),
       ...(input.origin === "step" && input.stepKind ? { stepKind: input.stepKind } : {}),
+      ...(input.origin !== "step" && input.displayText ? { displayText: input.displayText } : {}),
       ...(input.origin === "step" && input.displayText ? { proposalDisplayText: input.displayText.slice(0, 1000) } : {}),
       workspaceRoot: input.workspaceRoot,
       workspaceId: input.workspaceId,
@@ -397,7 +399,25 @@ type PersistedAgentMessage = {
   question?: unknown;
 };
 
+export interface NativeChangeReviewData {
+  runId: string;
+  count: number;
+  build: "success" | "failure" | "unconfirmed";
+  changes: { path: string; type: string; oldPath?: string; line?: number; before?: string; after?: string }[];
+}
+
+function parseChangeReview(value: unknown): NativeChangeReviewData | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Partial<NativeChangeReviewData>;
+  if (typeof record.runId !== "string" || !record.runId || !Array.isArray(record.changes)) return null;
+  const changes = record.changes.filter(change => change && typeof change.path === "string" && typeof change.type === "string");
+  if (!changes.length) return null;
+  return { runId: record.runId, changes, count: Math.max(changes.length, Number(record.count) || 0),
+    build: record.build === "success" || record.build === "failure" ? record.build : "unconfirmed" };
+}
+
 export type NativeConversationState = {
+  changeReview: NativeChangeReviewData | null;
   messages: ChatMessage[];
   undoCount: number;
   undoUnavailableReason: string | null;
@@ -433,10 +453,14 @@ function parseMessages(value: unknown): ChatMessage[] {
             kind: attachmentKindOf(new File([], name)) ?? ("file" as const),
           }))
         : null;
+    const body = shown && (shown.body || attachments) ? shown.body : text;
+    const displayText = item.role === "user" ? (
+      typeof item.displayText === "string" && item.displayText.trim() ? item.displayText : legacyPaperDisplayText(body)
+    ) : undefined;
     messages.push({
       id: `native-${index}-${text.length}`,
       role: item.role,
-      text: item.role === "user" && typeof item.displayText === "string" && item.displayText.trim() ? item.displayText : shown && (shown.body || attachments) ? shown.body : text,
+      text: displayText ?? body,
       ...(item.role === "user" ? { requestText: text } : {}),
       createdAt:
         typeof item.createdAt === "string"
@@ -458,6 +482,7 @@ export async function loadNativeConversation(
   if (!host) {
     return {
       messages: [],
+      changeReview: null,
       undoCount: 0,
       undoUnavailableReason: null,
       running: false,
@@ -485,6 +510,7 @@ export async function loadNativeConversation(
       : null;
   return {
     messages: parseMessages(session?.messages),
+    changeReview: parseChangeReview(session?.changeReview),
     undoCount: (() => {
       if (!undo || typeof undo !== "object") return 0;
       const values = undo as Record<string, unknown>;
@@ -505,18 +531,29 @@ export async function loadNativeConversation(
   };
 }
 
+export async function acceptNativeChangeReview(conversationId: string, expectedRunId: string): Promise<void> {
+  const host = getNativeHost();
+  if (!host) throw new Error("デスクトップ側に接続できません。");
+  const answer = await requestFromHost(host, {
+    type: "agent:review:accept", resultType: "agent:reviewAccepted",
+    payload: { conversationId, expectedRunId },
+  });
+  if (answer.ok !== true) throw new Error(typeof answer.error === "string" ? answer.error : "採用した結果を保存できませんでした。");
+}
+
 /** Requests one document-scoped undo and waits for the correlated result. */
 export async function undoNativeConversation(
   conversationId: string,
   signal?: AbortSignal,
-): Promise<{ ok: boolean; aborted?: boolean; error?: string }> {
+  expectedRunId?: string,
+): Promise<{ ok: boolean; aborted?: boolean; error?: string; buildStatus?: "success" | "failure" }> {
   const host = getNativeHost();
   if (!host) return { ok: false, error: "デスクトップ側に接続できません。" };
   if (signal?.aborted) return { ok: false, aborted: true };
   const answer = await requestFromHost(host, {
     type: "agent:undoLastRunApply",
     resultType: "agent:undoResult",
-    payload: { conversationId },
+    payload: { conversationId, ...(expectedRunId ? { expectedRunId } : {}) },
     // A real TeX build can legitimately exceed three minutes. Completion is
     // correlated by request id; cancellation below supplies the bounded exit.
     timeoutMs: null,
@@ -546,6 +583,7 @@ export async function undoNativeConversation(
   });
   return {
     ok: answer.ok === true,
+    ...(answer.buildStatus === "success" || answer.buildStatus === "failure" ? { buildStatus: answer.buildStatus } : {}),
     ...(signal?.aborted ? { aborted: true } : {}),
     ...(typeof answer.error === "string" ? { error: answer.error } : {}),
   };

@@ -1,3 +1,4 @@
+import { setLocalizedAttribute } from "../i18n.js";
 export const initDetectedBlockUi = (dom) => {
     const { blocksPanelBody, blockModeToggle } = dom;
     const setAutoDetectedUi = (enabled, _lineNumber) => {
@@ -14,7 +15,7 @@ export const initDetectedBlockUi = (dom) => {
             blockModeToggle.classList.toggle("is-edit", isEdit);
             blockModeToggle.dataset.blockMode = mode;
             blockModeToggle.setAttribute("aria-pressed", isEdit ? "true" : "false");
-            blockModeToggle.setAttribute("aria-label", isEdit ? "Edit mode" : "insert mode");
+            setLocalizedAttribute(blockModeToggle, "aria-label", isEdit ? "Edit mode" : "insert mode");
         }
     };
     const onBlockModeToggle = (handler) => {

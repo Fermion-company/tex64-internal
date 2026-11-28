@@ -62,8 +62,8 @@ const authorsLabel = (authors) => {
     const shown = authors.slice(0, 3).join(", ");
     return authors.length > 3 ? uiText(`${shown} et al.`, `${shown}ほか`) : shown;
 };
-// Latin letters to search with: arXiv indexes English.
-const hasLatin = (text) => /[A-Za-z]/.test(text);
+// English search terms, or a DOI whose entire suffix may be numeric.
+const isSearchable = (text) => /[A-Za-z]/.test(text) || /^10\.\d{4,9}\/\S+$/.test(text);
 /**
  * The arXiv part of the citation dialog, or null when the editor does not show
  * a .tex file (or there is no bridge). `report` writes the dialog's shared
@@ -76,6 +76,12 @@ export const createArxivSection = (editor, getActiveFilePath, report) => {
     const model = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor);
     if (!model)
         return null;
+    const documentPath = getActiveFilePath();
+    const sameDocument = () => {
+        var _a, _b, _c, _d;
+        return getActiveFilePath() === documentPath && ((_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) === model &&
+            !((_b = model.isDisposed) === null || _b === void 0 ? void 0 : _b.call(model)) && !((_d = (_c = editor.getRawOptions) === null || _c === void 0 ? void 0 : _c.call(editor)) === null || _d === void 0 ? void 0 : _d.readOnly);
+    };
     const selection = (_b = editor.getSelection) === null || _b === void 0 ? void 0 : _b.call(editor);
     const selectedText = selection && !((_c = selection.isEmpty) === null || _c === void 0 ? void 0 : _c.call(selection)) ? model.getValueInRange(selection) : "";
     const cursor = (_d = editor.getPosition) === null || _d === void 0 ? void 0 : _d.call(editor);
@@ -114,7 +120,6 @@ export const createArxivSection = (editor, getActiveFilePath, report) => {
     let pending = null;
     let timer = null;
     let wanted = contextQuery;
-    let searched = null;
     const cited = new Map();
     let papers = [];
     const sync = () => { element.hidden = papers.length === 0 && !status.textContent; };
@@ -153,19 +158,25 @@ export const createArxivSection = (editor, getActiveFilePath, report) => {
             return row;
         }
         const cite = button(uiText("Cite", "引用"), () => void (async () => {
-            var _a, _b, _c;
+            var _a;
             cite.disabled = true;
             const activeFilePath = getActiveFilePath();
             try {
+                if (!sameDocument())
+                    throw new Error(documentChanged());
                 const result = await call("cite", {
                     arxivId: paper.arxivId,
                     activeFilePath,
                     documentMainFile: citationDocumentFor(activeFilePath),
                 });
-                if (((_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== model || ((_b = model.isDisposed) === null || _b === void 0 ? void 0 : _b.call(model)) || ((_c = editor.getRawOptions) === null || _c === void 0 ? void 0 : _c.call(editor).readOnly)) {
+                if (disposed || !((_a = element.closest("dialog")) === null || _a === void 0 ? void 0 : _a.open))
+                    return;
+                if (!sameDocument())
+                    throw new Error(documentChanged());
+                const how = insertCitation(editor, result.key);
+                if (how === "unavailable") {
                     throw new Error(documentChanged());
                 }
-                const how = insertCitation(editor, result.key);
                 const inserted = how === "appended" ? `,${result.key}` : `\\cite{${result.key}}`;
                 cited.set(paper.arxivId, { result, inserted });
                 showCited(result, inserted);
@@ -188,7 +199,6 @@ export const createArxivSection = (editor, getActiveFilePath, report) => {
     };
     const search = async (text) => {
         const trimmed = text.trim();
-        searched = trimmed;
         if (!trimmed) {
             searchSeq += 1;
             papers = [];
@@ -243,16 +253,22 @@ export const createArxivSection = (editor, getActiveFilePath, report) => {
     };
     const searchNow = () => {
         cancelTimer();
-        searched = null;
         void search(wanted);
     };
     const setQuery = (text) => {
         const typed = text.trim();
-        // Only Latin words go to arXiv; with nothing typed, the words around the cursor.
-        wanted = typed ? (hasLatin(typed) ? typed : "") : contextQuery;
-        cancelTimer();
-        if (wanted === searched)
+        // With nothing typed, search for the words around the cursor.
+        const next = typed ? (isSearchable(typed) ? typed : "") : contextQuery;
+        if (next === wanted)
             return;
+        wanted = next;
+        searchSeq++;
+        pending = null;
+        papers = [];
+        usedQuery.textContent = "";
+        clearFailure();
+        render();
+        cancelTimer();
         timer = window.setTimeout(() => { timer = null; void search(wanted); }, DEBOUNCE_MS);
     };
     const dispose = () => {

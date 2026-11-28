@@ -34,9 +34,6 @@ export const dedupeSections = (entries) => {
     });
 };
 export const pickCitationEntries = (entries) => {
-    const bibEntries = entries.filter((entry) => entry.path.endsWith(".bib"));
-    if (bibEntries.length > 0) {
-        return dedupeByKey(bibEntries);
-    }
-    return dedupeByKey(entries);
+    const definitions = entries.filter((entry) => /\.bib$/i.test(entry.path) || entry.definition);
+    return dedupeByKey(definitions.length ? definitions : entries);
 };

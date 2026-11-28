@@ -32,10 +32,13 @@ const LAST_PDF_KEY_PREFIX = "tex64.ai.lastBuiltPdf";
 export type WorkspacePdf = {
   issue: { file: string; line: number | null } | null;
   url: string | null;
+  /** Displayed revision whose source map is ready for a new positional lookup. */
+  sourceMapUrl: string | null;
   path: string | null;
   building: boolean;
   native: boolean;
   failure: string | null;
+  retryPdfRead: (() => void) | null;
   hasWorkspace: boolean;
 };
 
@@ -101,21 +104,20 @@ const workspaceSessionKey = (identity: NativeWorkspaceIdentity): string =>
     identity.workspaceGeneration,
   ].join("\u0000");
 
-const pdfFilesFromWorkspace = (value: unknown): string[] => {
+const documentPathsFromWorkspace = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
   const paths = new Set<string>();
   for (const entry of value) {
     const normalized = normalizeWorkspaceRelativePath(entry);
-    if (normalized?.toLowerCase().endsWith(".pdf")) paths.add(normalized);
+    if (normalized && /\.(pdf|tex)$/i.test(normalized)) paths.add(normalized);
   }
   return [...paths];
 };
 
 /**
  * Locate a PDF that already exists on disk before the first AI-mode build.
- * Only the exact sibling is deterministic. A same-named PDF elsewhere could
- * belong to another `main.tex` and must wait for an explicitly correlated
- * successful build event.
+ * Prefer the exact sibling. A case-insensitive fallback must identify one PDF
+ * and one source, even when the workspace is on a case-sensitive volume.
  */
 export const existingPdfForDocument = (
   mainFile: string,
@@ -124,11 +126,23 @@ export const existingPdfForDocument = (
   const normalizedMain = normalizeWorkspaceRelativePath(mainFile);
   if (!normalizedMain?.toLowerCase().endsWith(".tex")) return null;
   const expected = `${normalizedMain.slice(0, -4)}.pdf`;
-  const pdfPaths = workspaceFiles
-    .map((entry) => normalizeWorkspaceRelativePath(entry))
-    .filter((entry): entry is string => Boolean(entry?.toLowerCase().endsWith(".pdf")));
-  const exact = pdfPaths.find((entry) => entry.toLowerCase() === expected.toLowerCase());
-  return exact ?? null;
+  const expectedFolded = expected.toLowerCase();
+  const mainFolded = normalizedMain.toLowerCase();
+  let fallback: string | null = null;
+  let ambiguous = false;
+  for (const item of workspaceFiles) {
+    const path = normalizeWorkspaceRelativePath(item);
+    if (!path) continue;
+    if (path === expected) return path;
+    const folded = path.toLowerCase();
+    if (folded === expectedFolded) {
+      if (fallback && fallback !== path) ambiguous = true;
+      fallback = path;
+    } else if (folded === mainFolded && path !== normalizedMain) {
+      ambiguous = true;
+    }
+  }
+  return ambiguous ? null : fallback;
 };
 
 export const selectWorkspacePdfPage = (input: {
@@ -151,7 +165,7 @@ export const selectWorkspacePdfPage = (input: {
   const rememberedIsListed = Boolean(
     remembered &&
       input.workspaceFiles?.some(
-        (entry) => normalizeWorkspaceRelativePath(entry)?.toLowerCase() === remembered.toLowerCase(),
+        (entry) => normalizeWorkspaceRelativePath(entry) === remembered,
       ),
   );
   // A stale remembered outDir must not hide a sibling PDF that the fresh
@@ -254,8 +268,10 @@ export function useWorkspacePdf(
   const buildsRef = useRef<Record<string, TargetBuildState>>({});
   const [lastBuilt, setLastBuilt] = useState<BuiltPage | null>(null);
   const [pdfCatalog, setPdfCatalog] = useState<WorkspacePdfCatalog | null>(null);
+  const [paperVisible, setPaperVisible] = useState(true);
   const [loadedPdf, setLoadedPdf] = useState<LoadedPdf | null>(null);
   const loadedPdfRef = useRef<LoadedPdf | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [pdfLoadError, setPdfLoadError] = useState<{
     key: string;
     message: string;
@@ -271,11 +287,15 @@ export function useWorkspacePdf(
 
     const unsubscribe = host.onMessage((message: HostMessage) => {
       const body = hostMessageBody(message);
+      if (message.type === "paper:visibility" && typeof body.visible === "boolean") {
+        setPaperVisible(body.visible);
+        return;
+      }
       if (message.type === "updateWorkspace") {
         const next = workspaceIdentityFromHost(body, identityRef.current);
         setPdfCatalog({
           sessionKey: workspaceSessionKey(next),
-          paths: pdfFilesFromWorkspace(body.files),
+          paths: documentPathsFromWorkspace(body.files),
         });
         if (!sameWorkspaceSession(next, identityRef.current)) {
           identityRef.current = next;
@@ -333,7 +353,11 @@ export function useWorkspacePdf(
         };
         nextTarget = { building: false, failure: null, page, requestId };
         setLastBuilt(page);
-        window.localStorage.setItem(rememberedPdfKey(expected, targetFile), pdfPath);
+        try {
+          window.localStorage.setItem(rememberedPdfKey(expected, targetFile), pdfPath);
+        } catch {
+          // Remembering the path for next launch is optional, even at quota.
+        }
       } else if (state === "failed") {
         const issues = Array.isArray(body.issues) ? body.issues : [];
         const issue = issues.find((value) => value && typeof value === "object" && value.severity === "error") ?? issues[0];
@@ -367,6 +391,7 @@ export function useWorkspacePdf(
       }
     });
 
+    host.send("paper:visibility:get", {});
     host.send("workspace:state:get", {});
     return unsubscribe;
   }, []);
@@ -376,10 +401,14 @@ export function useWorkspacePdf(
   const shown = useMemo<BuiltPage | null>(() => {
     const currentCatalog =
       pdfCatalog?.sessionKey === workspaceSessionKey(identity) ? pdfCatalog.paths : null;
-    const remembered =
-      typeof window !== "undefined" && identity.workspaceRoot && currentMainFile
-        ? window.localStorage.getItem(rememberedPdfKey(identity, currentMainFile))
-        : null;
+    let remembered: string | null = null;
+    if (typeof window !== "undefined" && identity.workspaceRoot && currentMainFile) {
+      try {
+        remembered = window.localStorage.getItem(rememberedPdfKey(identity, currentMainFile));
+      } catch {
+        // The workspace snapshot and current build still identify the PDF.
+      }
+    }
     return selectWorkspacePdfPage({
       currentMainFile,
       currentBuild,
@@ -442,7 +471,10 @@ export function useWorkspacePdf(
     ) {
       replaceLoadedPdf(null);
     }
-    let cancelled = false;
+    // Keep the build state and the last displayed paper while Code is open.
+    // When AI is shown again, only the newest missing revision needs a transfer.
+    if (!paperVisible || loadedPdfRef.current?.key === expectedKey) return;
+    const controller = new AbortController();
     // The host streams the PDF through its own scheme: a plain fetch of the
     // file, scoped to the current workspace. The bridge (base64 in a message)
     // is only the fallback for a host without the scheme.
@@ -450,15 +482,6 @@ export function useWorkspacePdf(
       .split("/")
       .map((segment) => encodeURIComponent(segment))
       .join("/")}?workspaceId=${encodeURIComponent(expected.workspaceId)}&workspaceGeneration=${encodeURIComponent(String(expected.workspaceGeneration))}`;
-    const loadThroughScheme = async (): Promise<Uint8Array<ArrayBuffer>> => {
-      const response = await fetch(streamedUrl, { cache: "no-store" });
-      if (!response.ok) throw new Error(`PDF stream failed (${response.status}).`);
-      const buffer = await response.arrayBuffer();
-      if (buffer.byteLength === 0 || buffer.byteLength > MAX_NATIVE_PDF_BYTES) {
-        throw new Error("Invalid PDF payload size.");
-      }
-      return new Uint8Array(buffer);
-    };
     const loadThroughBridge = () =>
       requestFromHost(host, {
         type: "file:bytes",
@@ -470,39 +493,50 @@ export function useWorkspacePdf(
         },
         timeoutMs: 30_000,
       }).then((reply) => {
+        controller.signal.throwIfAborted();
         if (!nativePdfReplyMatches(reply, expected, expectedMainFile, expectedPath)) {
           throw new Error("The PDF response did not match its request.");
         }
-        return decodeNativePdf(reply.base64 as string, reply.byteSize);
+        return new Blob([decodeNativePdf(reply.base64 as string, reply.byteSize)], { type: "application/pdf" });
       });
-    void loadThroughScheme()
-      .catch(() => loadThroughBridge())
-      .then((bytes) => {
-        if (cancelled || !sameWorkspaceSession(identityRef.current, expected)) return;
-        const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-        if (cancelled || !sameWorkspaceSession(identityRef.current, expected)) {
-          URL.revokeObjectURL(url);
-          return;
-        }
+    const loadPdf = async () => {
+      let response: Response;
+      try {
+        response = await fetch(streamedUrl, { cache: "no-store", signal: controller.signal });
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        return loadThroughBridge();
+      }
+      if (!response.ok) throw new Error(`PDF stream failed (${response.status}).`);
+      const blob = await response.blob();
+      if (!blob.size) throw new Error("The PDF is empty.");
+      return blob;
+    };
+    void loadPdf()
+      .then((pdf) => {
+        if (controller.signal.aborted || !sameWorkspaceSession(identityRef.current, expected)) return;
+        const url = URL.createObjectURL(pdf);
         replaceLoadedPdf({ key: expectedKey, scopeKey: expectedScopeKey, url });
         setPdfLoadError(null);
       })
       .catch(() => {
-        if (!cancelled && sameWorkspaceSession(identityRef.current, expected)) {
+        if (!controller.signal.aborted && sameWorkspaceSession(identityRef.current, expected)) {
           setPdfLoadError({
             key: expectedKey,
-            message: "紙面を読み込めませんでした。もう一度ビルドしてください。",
+            message: "PDFを読み込めませんでした。",
           });
         }
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [
     currentMainFile,
     identity,
+    loadAttempt,
     loadKey,
     native,
+    paperVisible,
     replaceLoadedPdf,
     scopeKey,
     shown?.path,
@@ -514,9 +548,15 @@ export function useWorkspacePdf(
   const currentPdfLoadError =
     loadKey && pdfLoadError?.key === loadKey ? pdfLoadError.message : null;
 
+  const readFailed = !currentBuild?.building && !currentBuild?.failure && Boolean(currentPdfLoadError);
   return {
-    issue: currentBuild?.issue ?? null,
+    issue: readFailed ? null : currentBuild?.issue ?? null,
+    retryPdfRead: readFailed ? () => {
+      setPdfLoadError(null);
+      setLoadAttempt(attempt => attempt + 1);
+    } : null,
     url,
+    sourceMapUrl: !currentBuild?.building && !currentBuild?.failure && loadedPdf?.key === loadKey ? url : null,
     path: shown?.path ?? null,
     building: currentBuild?.building ?? false,
     native,

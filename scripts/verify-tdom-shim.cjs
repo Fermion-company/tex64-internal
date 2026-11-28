@@ -17,10 +17,18 @@ function verifyPackagedShim({ appOutDir, electronPlatformName, arch, packager })
   if (fs.readFileSync(`${so}.sha256`, "utf8").trim() !== hash) {
     throw new Error(`Stale packaged TDOM shim: ${so}`);
   }
-  const bytes = fs.readFileSync(so);
+  const helper = path.join(dir, `prebuilt/tdom-synctex-batch-darwin-${target}`);
+  const { syncTeXBatchSourceHash } = require(path.join(dir, "synctex-batch.js"));
+  if (fs.readFileSync(helper + ".sha256", "utf8").trim() !== syncTeXBatchSourceHash()) {
+    throw new Error(`Stale packaged SyncTeX helper: ${helper}`);
+  }
+  fs.accessSync(helper, fs.constants.X_OK);
   const cpu = target === "arm64" ? 0x0100000c : 0x01000007;
-  if (bytes.length < 8 || bytes.readUInt32LE(0) !== 0xfeedfacf || bytes.readUInt32LE(4) !== cpu) {
-    throw new Error(`Wrong architecture or invalid TDOM shim: ${so}`);
+  for (const executable of [so, helper]) {
+    const bytes = fs.readFileSync(executable);
+    if (bytes.length < 8 || bytes.readUInt32LE(0) !== 0xfeedfacf || bytes.readUInt32LE(4) !== cpu) {
+      throw new Error(`Wrong architecture or invalid TDOM native binary: ${executable}`);
+    }
   }
   fs.accessSync(path.join(dir, "forkshim-probe.lua"));
 }

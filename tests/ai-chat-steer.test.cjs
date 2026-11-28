@@ -137,12 +137,14 @@ const setup = async (options = {}) => {
     isCollabGuest: () => host.guest,
   });
   // Typed into the composer and sent, the way Enter and the send button do.
+  // Starting a turn first saves the editor (async); a follow-up to a running
+  // turn is posted at once.
   host.type = (text, extra = {}) => {
     host.input.value = text;
-    api.submitMessage(text, { clearInput: true, steerIfRunning: true, ...extra });
+    return api.submitMessage(text, { clearInput: true, steerIfRunning: true, ...extra });
   };
   host.steers = () => host.posts.filter((post) => post.type === "agent:steer");
-  host.type("Write the introduction");
+  await host.type("Write the introduction");
   assert.equal(host.runs.length, 1, "the first request starts a turn");
   return { api, host, chat };
 };
@@ -284,6 +286,8 @@ test("a refusal after the turn ended sends the follow-up as the next turn", asyn
   api.drainQueue("chat-1");
   assert.equal(host.runs.length, 1, "nothing goes out while the answer is pending");
   api.handleSteerResult({ requestId: steer.requestId, conversationId: "chat-1", accepted: false });
+  // A queued turn is sent after the editor is prepared (async).
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(host.runs.length, 2, "the follow-up starts its own turn");
   assert.equal(host.runs[1].message, "Fix the typo too");
   assert.equal(chat.queue.length, 0);

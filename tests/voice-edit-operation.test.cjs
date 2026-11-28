@@ -10,7 +10,7 @@ const ts = require("typescript");
 // The real voice-edit and composer microphone, transpiled with the small set
 // of modules they import, driven through a fake microphone, MediaRecorder,
 // FileReader, DOM and Monaco editor.
-const MODULES = ["voice-edit", "ai-chat-voice", "voice-recorder", "ai-i18n", "i18n"];
+const MODULES = ["voice-edit", "ai-chat-voice", "voice-recorder", "ai-i18n", "i18n", "files"];
 const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-voice-edit-"));
 fs.writeFileSync(path.join(outDir, "package.json"), JSON.stringify({ type: "module" }));
 for (const name of MODULES) {

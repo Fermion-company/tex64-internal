@@ -6,7 +6,9 @@ export const initSearchUi = (context, deps) => {
     let searchMessage = defaultSearchMessage;
     let lastSearchQuery = "";
     let currentSearchRequestId = 0;
+    let pendingSearchTimer = 0;
     let renameBusy = false;
+    let currentRenameRequestId = 0;
     const defaultRenameMessage = "";
     let renameStatusMessage = defaultRenameMessage;
     let renameStatusState = "idle";
@@ -79,12 +81,13 @@ export const initSearchUi = (context, deps) => {
             icon.style.display = "flex";
             icon.style.opacity = "0.7";
             const name = document.createElement("span");
+            name.dataset.noI18n = "";
             name.textContent = path;
             name.style.marginLeft = "6px";
             name.style.flex = "1 1 auto";
             const count = document.createElement("span");
             count.className = "search-file-count";
-            count.textContent = uiText(`${groupList.length} items`, `${groupList.length}件`);
+            count.textContent = String(groupList.length);
             header.appendChild(icon);
             header.appendChild(name);
             header.appendChild(count);
@@ -95,9 +98,12 @@ export const initSearchUi = (context, deps) => {
                 item.className = "search-match-item";
                 const line = document.createElement("div");
                 line.className = "search-match-line";
-                line.textContent = uiText(`Line ${result.line}`, `行${result.line}`);
+                line.textContent = result.column == null
+                    ? uiText(`Line ${result.line}`, `行${result.line}`)
+                    : `${result.line}:${result.column}`;
                 const preview = document.createElement("div");
                 preview.className = "search-match-preview";
+                preview.dataset.noI18n = "";
                 renderPreviewWithHighlight(preview, result, lastSearchQuery);
                 item.appendChild(line);
                 item.appendChild(preview);
@@ -207,6 +213,8 @@ export const initSearchUi = (context, deps) => {
         const context = deps.buildRenameContext ? deps.buildRenameContext() : undefined;
         deps.postToNative({
             type: "search:renameSymbol",
+            requestId: ++currentRenameRequestId,
+            workspaceRoot: deps.getWorkspaceRootKey(),
             from,
             to,
             kinds,
@@ -216,6 +224,8 @@ export const initSearchUi = (context, deps) => {
     };
     const handleRenameResult = (payload) => {
         var _a, _b, _c, _d;
+        if (payload.requestId !== undefined && payload.requestId !== currentRenameRequestId)
+            return;
         setRenameBusy(false);
         if (!payload.ok) {
             setRenameStatus((_a = payload.error) !== null && _a !== void 0 ? _a : uiText("Rename failed.", "名前を変更できませんでした。"), "error");
@@ -230,12 +240,14 @@ export const initSearchUi = (context, deps) => {
         }
         setRenameStatus(message, "ok");
     };
-    const requestSearch = (query) => {
+    const requestSearch = (query, delay = 0) => {
+        window.clearTimeout(pendingSearchTimer);
         const normalizedQuery = query.trim();
         lastSearchQuery = normalizedQuery;
         currentSearchRequestId += 1;
         const requestId = currentSearchRequestId;
-        if (!deps.getWorkspaceRootKey()) {
+        const workspaceRoot = deps.getWorkspaceRootKey();
+        if (!workspaceRoot) {
             searchResultsData = [];
             searchMessage = uiText("No workspace is selected.", "ワークスペースが未選択です。");
             renderSearchResults();
@@ -250,13 +262,28 @@ export const initSearchUi = (context, deps) => {
         searchResultsData = [];
         searchMessage = uiText("Searching…", "検索中…");
         renderSearchResults();
-        deps.postToNative({
-            type: "search",
-            query: normalizedQuery,
-            requestId,
-        });
+        const run = () => {
+            if (workspaceRoot !== deps.getWorkspaceRootKey())
+                return;
+            deps.postToNative({ type: "search", query: normalizedQuery, requestId, expectedWorkspaceRoot: workspaceRoot, drafts: deps.getSearchDrafts() });
+        };
+        if (delay > 0)
+            pendingSearchTimer = window.setTimeout(run, delay);
+        else
+            run();
     };
     const reset = (message) => {
+        window.clearTimeout(pendingSearchTimer);
+        lastSearchQuery = "";
+        if (searchInput instanceof HTMLInputElement)
+            searchInput.value = "";
+        if (searchRenameFrom instanceof HTMLInputElement)
+            searchRenameFrom.value = "";
+        if (searchRenameTo instanceof HTMLInputElement)
+            searchRenameTo.value = "";
+        currentRenameRequestId += 1;
+        setRenameBusy(false);
+        setRenameStatus(defaultRenameMessage);
         currentSearchRequestId += 1;
         searchResultsData = [];
         searchMessage = message !== null && message !== void 0 ? message : defaultSearchMessage;
@@ -269,8 +296,13 @@ export const initSearchUi = (context, deps) => {
         });
     }
     if (searchInput instanceof HTMLInputElement) {
+        searchInput.addEventListener("input", (event) => {
+            if (!(event instanceof InputEvent && event.isComposing))
+                requestSearch(searchInput.value, 220);
+        });
+        searchInput.addEventListener("compositionend", () => requestSearch(searchInput.value, 220));
         searchInput.addEventListener("keydown", (event) => {
-            if (event.key === "Enter") {
+            if (event.key === "Enter" && !event.isComposing && event.keyCode !== 229) {
                 event.preventDefault();
                 requestSearch(searchInput.value.trim());
             }

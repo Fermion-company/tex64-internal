@@ -1,6 +1,9 @@
 import type {
+  ActiveFileSnapshot,
   EditorGroupKey,
   EditorGroupState,
+  EditorSessionApi,
+  MonacoModel,
 } from "./types.js";
 import type { EditorSessionRuntime } from "./runtime.js";
 
@@ -9,7 +12,7 @@ export type EditorSessionCoreOps = {
   getActiveGroup: () => EditorGroupState;
   getActiveEditorGroupKey: () => EditorGroupKey;
   getActiveFilePath: () => string | null;
-  getActiveFileSnapshot: () => { path: string; content: string; isDirty: boolean } | null;
+  getActiveFileSnapshot: () => ActiveFileSnapshot | null;
   getActiveSelectionSnapshot: () => {
     path: string;
     text: string;
@@ -19,16 +22,7 @@ export type EditorSessionCoreOps = {
     endLine: number;
     endColumn: number;
   } | null;
-  getOpenFileSnapshots: (options?: { maxFiles?: number; maxChars?: number; onlyDirty?: boolean }) => {
-    files: Array<{ path: string; isDirty: boolean; isActive: boolean }>;
-    snapshots: Array<{
-      path: string;
-      content: string;
-      isDirty: boolean;
-      truncated: boolean;
-      contentLength: number;
-    }>;
-  };
+  getOpenFileSnapshots: EditorSessionApi["getOpenFileSnapshots"];
   isActiveGroup: (group: EditorGroupState) => boolean;
   getOtherGroupKey: (key: EditorGroupKey) => EditorGroupKey;
   resolveAutoOpenGroupKey: (preferredKey: EditorGroupKey) => EditorGroupKey;
@@ -37,6 +31,11 @@ export type EditorSessionCoreOps = {
   resolveOpenTargetGroupKey: (path: string, preferredKey: EditorGroupKey) => EditorGroupKey;
   forEachEditorGroup: (handler: (group: EditorGroupState) => void) => void;
   scheduleEditorLayout: () => void;
+};
+
+const revisionOf = (model?: MonacoModel) => {
+  const version = model?.getVersionId?.();
+  return version === undefined ? undefined : `${model.id ?? ""}/${version}`;
 };
 
 export const createEditorSessionCoreOps = (runtime: EditorSessionRuntime): EditorSessionCoreOps => {
@@ -56,7 +55,7 @@ export const createEditorSessionCoreOps = (runtime: EditorSessionRuntime): Edito
     if (content === null) {
       return null;
     }
-    return { path: group.currentFilePath, content, isDirty: group.isDirty };
+    return { path: group.currentFilePath, content, isDirty: group.isDirty, modelRevision: revisionOf(entry?.model) };
   };
 
   const getActiveSelectionSnapshot = () => {
@@ -137,7 +136,7 @@ export const createEditorSessionCoreOps = (runtime: EditorSessionRuntime): Edito
     }
     const otherKey = getOtherGroupKey(preferredKey);
     const other = getEditorGroup(otherKey);
-    if (other.openTabs.length === 0) {
+    if (other.openTabs.length === 0 && !runtime.fileOpsState.pendingOpenRequests.some(request => request.group === otherKey)) {
       return otherKey;
     }
     return preferredKey;
@@ -197,31 +196,18 @@ export const createEditorSessionCoreOps = (runtime: EditorSessionRuntime): Edito
     });
   };
 
-  const getOpenFileSnapshots = (options?: { maxFiles?: number; maxChars?: number; onlyDirty?: boolean }) => {
+  const getOpenFileSnapshots: EditorSessionApi["getOpenFileSnapshots"] = (options) => {
     const rawMaxFiles = options?.maxFiles ?? 8;
     const maxFiles = rawMaxFiles > 0 ? rawMaxFiles : Number.POSITIVE_INFINITY;
     const rawMaxChars = options?.maxChars ?? 20000;
     const maxChars = rawMaxChars > 0 ? rawMaxChars : Number.POSITIVE_INFINITY;
     const files = new Map<string, { path: string; isDirty: boolean; isActive: boolean }>();
-    const snapshots: Array<{
-      path: string;
-      content: string;
-      isDirty: boolean;
-      truncated: boolean;
-      contentLength: number;
-    }> = [];
+    const snapshots: ReturnType<EditorSessionApi["getOpenFileSnapshots"]>["snapshots"] = [];
     const pushSnapshot = (path: string, isDirty: boolean) => {
-      if (snapshots.length >= maxFiles || !runtime.monacoModels.has(path)) {
-        return;
-      }
-      const entry = runtime.monacoModels.get(path);
-      const editorGroupKey = findGroupKeyByPath(path);
-      const group = editorGroupKey ? getEditorGroup(editorGroupKey) : null;
-      const editor = group?.editor as { getValue?: () => string } | null;
-      const rawContent = entry?.model?.getValue?.() ?? editor?.getValue?.() ?? null;
-      if (rawContent === null) {
-        return;
-      }
+      if (path === options?.excludePath || snapshots.length >= maxFiles) return;
+      const model = runtime.monacoModels.get(path)?.model;
+      if (!model) return;
+      const rawContent = options?.readModelText ? options.readModelText(model) : model.getValue();
       const truncated = Number.isFinite(maxChars) && rawContent.length > maxChars;
       const content = truncated ? rawContent.slice(0, maxChars) : rawContent;
       snapshots.push({
@@ -230,6 +216,7 @@ export const createEditorSessionCoreOps = (runtime: EditorSessionRuntime): Edito
         isDirty,
         truncated,
         contentLength: rawContent.length,
+        modelRevision: revisionOf(model),
       });
     };
     forEachEditorGroup((group) => {
@@ -254,7 +241,7 @@ export const createEditorSessionCoreOps = (runtime: EditorSessionRuntime): Edito
     });
     const entries = Array.from(files.values());
     entries.forEach((entry) => {
-      if (entry.isDirty && !entry.isActive) {
+      if (entry.isDirty) {
         pushSnapshot(entry.path, entry.isDirty);
       }
     });
@@ -265,7 +252,7 @@ export const createEditorSessionCoreOps = (runtime: EditorSessionRuntime): Edito
         }
       });
     }
-    return { files: Array.from(files.values()), snapshots };
+    return { files: entries, snapshots };
   };
 
   return {

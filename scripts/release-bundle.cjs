@@ -3,6 +3,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
+const { prepareReleaseDirectories, isReleasePackage } = require("./prepare-release-directories.cjs");
 const {
   isMicrosoftStoreArtifact,
 } = require("./release-artifact-policy.cjs");
@@ -50,14 +51,9 @@ const execInherit = (command, commandArgs, options = {}) => {
   execFileSync(command, commandArgs, { stdio: "inherit", ...options });
 };
 
-const ensureEmptyDir = async (dirPath) => {
-  await fsp.rm(dirPath, { recursive: true, force: true }).catch(() => {});
-  await fsp.mkdir(dirPath, { recursive: true });
-};
-
 const copyFile = async (src, dest) => {
   await fsp.mkdir(path.dirname(dest), { recursive: true });
-  await fsp.copyFile(src, dest);
+  await fsp.copyFile(src, dest, fs.constants.COPYFILE_EXCL);
 };
 
 const resolveReleaseVersion = () => {
@@ -84,6 +80,7 @@ const resolveArtifacts = async (distDir, version, options = {}) => {
       return false;
     }
     const lower = name.toLowerCase();
+    if (!isMicrosoftStoreArtifact(name) && !isReleasePackage(name)) return false;
     if (lower.endsWith(".dmg")) {
       return true;
     }
@@ -162,8 +159,7 @@ const main = async () => {
 
   const releaseDir = path.resolve("release");
   const updateDir = path.resolve("update");
-  await ensureEmptyDir(releaseDir);
-  await ensureEmptyDir(updateDir);
+  prepareReleaseDirectories();
 
   for (const artifactPath of artifacts) {
     await copyFile(artifactPath, path.join(releaseDir, path.basename(artifactPath)));

@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowUp, File as FileIcon, FileSpreadsheet, FileText, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, ChevronDown, ChevronUp, File as FileIcon, FileSpreadsheet, FileText, Paperclip, Square, X } from "lucide-react";
 import katex from "katex";
-import type { ClipboardEvent, DragEvent, RefObject } from "react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ClipboardEvent, DragEvent, ReactNode, RefObject } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   createPendingAttachment,
   formatAttachmentSize,
@@ -21,6 +21,8 @@ import {
   type DocumentElement,
 } from "@/lib/client/types";
 
+import { RunActivity } from "./run-activity";
+import styles from "./desktop-composer.module.css";
 import { agentErrorMessage, defaultNextSteps } from "@/lib/client/agent-next-steps";
 
 function useTextareaHeight(ref: RefObject<HTMLTextAreaElement | null>, value: string) {
@@ -47,10 +49,23 @@ function useTextareaHeight(ref: RefObject<HTMLTextAreaElement | null>, value: st
   }, [ref, value]);
 }
 
+type QuestionAnswer = { values: Record<string, string>; free: string };
+export type QuestionDraft = { identity: string; answer: QuestionAnswer };
+export type ComposerDraft = { prompt: string; attachments: PendingAttachment[] };
+
 interface AgentPanelProps {
   document: DocumentDetail | null;
   /** Overrides the document gate: the desktop mode has no DocumentDetail. */
   ready?: boolean;
+  desktop?: boolean;
+  nativeConversationId?: string | null;
+  drafts?: Map<string, ComposerDraft>;
+  questionDrafts?: Map<string, QuestionDraft>;
+  stopping?: boolean;
+  changeReview?: ReactNode;
+  outlineContent?: ReactNode;
+  recoveryAction?: { label: string; run: () => void };
+  contextSelection?: { page: number; endPage?: number; text: string; previous?: boolean } | null;
   messages: ChatMessage[];
   /** Assistant text of the turn in flight, as it is being written. */
   streamingText: string;
@@ -68,7 +83,7 @@ interface AgentPanelProps {
     options?: { origin?: "step"; stepKind?: "mechanical" | "writing"; displayText?: string },
   ) => void;
   onStop: () => void;
-  onClearSelection: () => void;
+  onClearSelection?: () => void;
   /** A step with a question, picked on the page; `pick` counts each pick. */
   chosenProposal?: { proposal: AgentProposal; pick: number } | null;
   /** The step the reader is on, in the chat or on the page; both highlight it. */
@@ -79,6 +94,15 @@ interface AgentPanelProps {
 export function AgentPanel({
   document,
   ready,
+  desktop = false,
+  nativeConversationId,
+  drafts,
+  questionDrafts,
+  stopping = false,
+  changeReview,
+  outlineContent,
+  recoveryAction,
+  contextSelection = null,
   messages,
   streamingText,
   activityTool,
@@ -94,7 +118,14 @@ export function AgentPanel({
   activeProposalId = null,
   onActiveProposalChange,
 }: AgentPanelProps) {
-  const [prompt, setPrompt] = useState("");
+  const draftId = nativeConversationId ?? document?.id;
+  const initialDraft = () => draftId ? drafts?.get(draftId) : undefined;
+  const [prompt, setPrompt] = useState(() => initialDraft()?.prompt ?? "");
+  const [historyExpanded, setHistoryExpanded] = useState(true);
+  const [minimizedActivity, setMinimizedActivity] = useState<string | null>(null);
+  const historyId = useId();
+  const historyToggle = useRef<HTMLButtonElement>(null);
+  const followingLatest = useRef(true);
   /** Keyboard position among the latest next steps: Tab moves, Enter runs. */
   const [focusedStep, setFocusedStep] = useState<number | null>(null);
   /** The agent's own question the user closed without answering. */
@@ -107,38 +138,44 @@ export function AgentPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** Files waiting in the composer to go with the next message. */
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>(() => initialDraft()?.attachments ?? []);
   const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const canSubmit = ready ?? document !== null;
   useTextareaHeight(composerRef, prompt);
+  useLayoutEffect(() => {
+    if (!drafts || !draftId) return;
+    if (prompt || attachments.length) drafts.set(draftId, { prompt, attachments });
+    else drafts.delete(draftId);
+  }, [drafts, draftId, prompt, attachments]);
 
   const addFiles = (files: Iterable<File>) => {
-    setAttachments((current) => {
-      const next = [...current];
-      let notice: string | null = null;
-      for (const file of files) {
-        const rejected = rejectAttachment(file, next);
-        if (rejected) {
-          notice = rejected;
-          continue;
-        }
-        const pending = createPendingAttachment(file);
-        if (pending) next.push(pending);
+    if (!desktop) {
+      setAttachmentNotice("ファイルの添付はデスクトップアプリで利用できます。");
+      return;
+    }
+    const next = [...attachments];
+    let notice: string | null = null;
+    for (const file of files) {
+      const rejected = rejectAttachment(file, next);
+      if (rejected) {
+        notice = rejected;
+        continue;
       }
-      setAttachmentNotice(notice);
-      return next;
-    });
+      const pending = createPendingAttachment(file);
+      if (pending) next.push(pending);
+    }
+    setAttachments(next);
+    setAttachmentNotice(notice);
   };
   const removeAttachment = (id: string) => {
-    setAttachments((current) => {
-      const target = current.find((attachment) => attachment.id === id);
-      if (target) releasePendingAttachment(target);
-      return current.filter((attachment) => attachment.id !== id);
-    });
+    const target = attachments.find((attachment) => attachment.id === id);
+    if (target) releasePendingAttachment(target);
+    setAttachments(attachments.filter((attachment) => attachment.id !== id));
     setAttachmentNotice(null);
   };
   const onDrop = (event: DragEvent<HTMLElement>) => {
+    if (!event.dataTransfer.files.length) return;
     event.preventDefault();
     setDragging(false);
     if (!canSubmit) return;
@@ -147,19 +184,16 @@ export function AgentPanel({
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(event.clipboardData.files);
     if (files.length === 0) return;
+    if (!desktop && event.clipboardData.getData("text/plain")) return;
     event.preventDefault();
     addFiles(files);
   };
-
-  useEffect(() => {
-    const container = scrollRef.current;
-    if (container) container.scrollTop = container.scrollHeight;
-  }, [messages.length, streamingText, activityTool, isWorking, askingProposal]);
 
   const submit = (value = prompt) => {
     const trimmed = value.trim();
     const files = attachments.length > 0 ? attachments : undefined;
     if (!canSubmit || (!trimmed && !files)) return;
+    if (desktop) setHistoryExpanded(true);
     if (askingProposal) {
       // The answer leads; the step it answers follows as context, so the
       // transcript reads as a conversation and the agent knows what to do.
@@ -207,30 +241,34 @@ export function AgentPanel({
     latestProposals = defaultNextSteps(Boolean(error), failedRequest?.requestText ?? failedRequest?.text, failedRequest?.text);
     latestProposalMessageId = null;
   }
-  useEffect(() => {
-    // A question opened from an earlier proposal must not survive Undo or a
-    // newer response, otherwise its answer can restart a cancelled edit.
+  const [proposalSource, setProposalSource] = useState(latestProposalMessageId);
+  if (proposalSource !== latestProposalMessageId) {
+    // Undo or a newer reply invalidates a question about the previous step.
+    setProposalSource(latestProposalMessageId);
     setAskingProposal(null);
     setFocusedStep(null);
-  }, [latestProposalMessageId]);
+  }
   const stepIndexOf = (id: string | null) =>
     id === null ? -1 : latestProposals.findIndex((proposal) => proposal.id === id);
   const focusStep = (index: number | null) => {
     setFocusedStep(index);
     onActiveProposalChange?.(index === null ? null : (latestProposals[index]?.id ?? null));
   };
-  const cycleStep = (direction: 1 | -1) => {
-    if (latestProposals.length === 0) return;
-    const current = focusedStep ?? (activeProposalId ? stepIndexOf(activeProposalId) : -1);
-    const next =
-      current < 0
-        ? direction > 0 ? 0 : latestProposals.length - 1
-        : (current + direction + latestProposals.length) % latestProposals.length;
+  const moveStep = (direction: 1 | -1) => {
+    const current = focusedStep ?? stepIndexOf(activeProposalId);
+    const next = current < 0
+      ? (direction > 0 ? 0 : latestProposals.length - 1)
+      : current + direction;
+    if (next < 0 || next >= latestProposals.length) {
+      focusStep(null);
+      return false;
+    }
     focusStep(next);
+    return true;
   };
 
   // A pick on the page opens the same question card as a click on its row.
-  const [handledPick, setHandledPick] = useState(0);
+  const [handledPick, setHandledPick] = useState(chosenProposal?.pick ?? 0);
   if (chosenProposal && chosenProposal.pick !== handledPick) {
     setHandledPick(chosenProposal.pick);
     if (chosenProposal.proposal.asks) setAskingProposal(chosenProposal.proposal);
@@ -254,9 +292,43 @@ export function AgentPanel({
         ? { question: agentQuestion.question, proposal: null }
         : null;
 
+  const questionIdentity = activeQuestion && JSON.stringify([
+    messages.filter(message => message.role === "user" && !message.hidden).length,
+    lastMessage?.text, activeQuestion.proposal?.id, activeQuestion.question,
+  ]);
+  const savedQuestion = draftId ? questionDrafts?.get(draftId) : undefined;
+  const questionOpen = Boolean(activeQuestion);
+  const hasTranscript = messages.some((message) => !message.hidden) || Boolean(streamingText || activeQuestion || isWorking || queuedPrompts.length);
+  const compactError = desktop && !hasTranscript && error;
+  const activityKey = activeQuestion
+    ? `question:${activeQuestion.proposal?.id ?? agentQuestion?.id}`
+    : error && !compactError ? `error:${error}` : isWorking ? `run:${lastMessage?.id ?? ""}` : null;
+  const historyOpen = !desktop || hasTranscript && (historyExpanded || Boolean(activityKey && minimizedActivity !== activityKey));
+  const activityLabel = activityTool ? TOOL_ACTIVITY_LABELS[activityTool] ?? DEFAULT_TOOL_ACTIVITY_LABEL : "考えています";
+  const historyLabel = activeQuestion ? "Axiomからの質問" : error ? "依頼のエラー" : "会話履歴";
+  const changeHistory = (open: boolean) => {
+    setHistoryExpanded(open);
+    setMinimizedActivity(open ? null : activityKey);
+    if (open) followingLatest.current = true;
+  };
+
+  useLayoutEffect(() => {
+    const container = scrollRef.current;
+    if (historyOpen && container && (!desktop || followingLatest.current || questionOpen || error)) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [historyOpen, messages.length, streamingText, activityTool, isWorking, askingProposal, desktop, agentQuestion?.id, error, questionOpen]);
+
+  const focusComposer = () => requestAnimationFrame(() => {
+    if (composerRef.current && !composerRef.current.disabled) composerRef.current.focus();
+    else historyToggle.current?.focus();
+  });
+
   const answerQuestion = (answer: string) => {
     const trimmed = answer.trim();
     if (!canSubmit || isWorking || !trimmed) return;
+    if (draftId) questionDrafts?.delete(draftId);
+    if (desktop) { setHistoryExpanded(true); focusComposer(); }
     if (activeQuestion?.proposal) {
       const chosen = activeQuestion.proposal;
       onSubmit(`${trimmed}\n\n（「${chosen.title}」への答え。依頼: ${chosen.request}）`, undefined, { origin: "step", stepKind: chosen.kind, displayText: `${chosen.title}\n${trimmed}` });
@@ -267,13 +339,38 @@ export function AgentPanel({
     }
   };
   const dismissQuestion = () => {
+    if (draftId) questionDrafts?.delete(draftId);
+    if (desktop) focusComposer();
     if (askingProposal) setAskingProposal(null);
     else if (agentQuestion) setDismissedQuestionId(agentQuestion.id);
   };
 
+  const recoveryButton = recoveryAction &&
+    <button type="button" className={styles.recovery} onClick={recoveryAction.run}>{recoveryAction.label}</button>;
   return (
-    <aside className="agent-panel" aria-label="執筆">
-      <div className="agent-panel-scroll" ref={scrollRef}>
+    <aside className={`agent-panel${desktop ? ` ${styles.panel}` : ""}`} aria-label={desktop ? "Axiom" : "執筆"}
+      onKeyDown={(event) => {
+        if (!desktop || !historyOpen || activeQuestion || event.defaultPrevented || event.nativeEvent.isComposing || event.key !== "Escape") return;
+        event.preventDefault();
+        changeHistory(false);
+        focusComposer();
+      }}>
+      {desktop && !hasTranscript && outlineContent ? (
+        <div className={styles.outline}>{outlineContent}</div>
+      ) : null}
+      {desktop && hasTranscript ? (
+        <button className={styles.toggle} type="button" ref={historyToggle}
+          aria-controls={historyId} aria-expanded={historyOpen}
+          onClick={() => changeHistory(!historyOpen)}>
+          <span aria-live="polite">{historyLabel}</span>
+          {historyOpen ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronUp size={15} aria-hidden="true" />}
+        </button>
+      ) : null}
+      <div className="agent-panel-scroll" ref={scrollRef} id={historyId} hidden={!historyOpen}
+        onScroll={desktop ? (event) => {
+          const node = event.currentTarget;
+          followingLatest.current = node.scrollHeight - node.scrollTop - node.clientHeight < 24;
+        } : undefined}>
         {messages.map((message) =>
           message.hidden || (activeQuestion && agentQuestion?.id === message.id) ? null : message.role === "user" ? (
             <div className="agent-user-message" key={message.id}>
@@ -314,8 +411,12 @@ export function AgentPanel({
 
         {activeQuestion ? (
           <QuestionCard
-            key={activeQuestion.proposal?.id ?? agentQuestion?.id ?? "question"}
+            key={questionIdentity}
             question={activeQuestion.question}
+            initialAnswer={savedQuestion?.identity === questionIdentity ? savedQuestion?.answer : undefined}
+            onEdit={answer => {
+              if (draftId && questionIdentity) questionDrafts?.set(draftId, { identity: questionIdentity, answer });
+            }}
             onAnswer={answerQuestion}
             onDismiss={dismissQuestion}
           />
@@ -336,12 +437,8 @@ export function AgentPanel({
           <AssistantMessage streaming>{streamingText}</AssistantMessage>
         ) : null}
 
-        {isWorking ? (
-          <p className="writing-status" role="status" aria-live="polite">
-            {activityTool
-              ? (TOOL_ACTIVITY_LABELS[activityTool] ?? DEFAULT_TOOL_ACTIVITY_LABEL)
-              : "考えています"}
-          </p>
+        {isWorking && !desktop ? (
+          <p className="writing-status" role="status" aria-live="polite">{activityLabel}</p>
         ) : null}
 
         {queuedPrompts.map((queuedPrompt, index) => (
@@ -354,16 +451,19 @@ export function AgentPanel({
           </div>
         ))}
 
-        {error ? <AssistantMessage error>{agentErrorMessage(error)}</AssistantMessage> : null}
+        {error && !compactError ? <div><AssistantMessage error>{agentErrorMessage(error)}</AssistantMessage>{recoveryButton}</div> : null}
       </div>
 
+      {nativeConversationId && isWorking ? <RunActivity conversationId={nativeConversationId} stopping={stopping} writing={Boolean(streamingText)} activity={activityTool} /> : null}
+      {changeReview}
+      {compactError ? <p className={styles.notice} role="alert">{agentErrorMessage(compactError)} {recoveryButton}</p> : null}
       <div
         className={`agent-composer-wrap${dragging ? " is-dragging" : ""}`}
         hidden={activeQuestion !== null}
         onDragOver={(event) => {
           if (!event.dataTransfer.types.includes("Files")) return;
           event.preventDefault();
-          if (!dragging) setDragging(true);
+          if (desktop && !dragging) setDragging(true);
         }}
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -371,7 +471,20 @@ export function AgentPanel({
         }}
         onDrop={onDrop}
       >
-        {selectedElement ? (
+        {desktop && contextSelection ? (
+          <div className={styles.selection} role="status" title={contextSelection.text}>
+            <span className={styles.page}>
+              {contextSelection.previous ? "更新前の引用" : contextSelection.endPage && contextSelection.endPage !== contextSelection.page
+                ? `${contextSelection.page}〜${contextSelection.endPage}ページ` : `${contextSelection.page}ページ`}
+            </span>
+            <span className={styles.excerpt}>{contextSelection.text}</span>
+            {onClearSelection ? (
+              <button type="button" aria-label="紙面の選択を解除" onClick={() => { onClearSelection(); focusComposer(); }}>
+                <X aria-hidden="true" size={13} />
+              </button>
+            ) : null}
+          </div>
+        ) : selectedElement ? (
           <div className="selection-chip" role="status">
             <span className="selection-chip-label">
               選択中: {selectedElement.label}
@@ -411,21 +524,19 @@ export function AgentPanel({
           ) : null}
           <textarea
             ref={composerRef}
-            rows={2}
+            rows={desktop ? 1 : 2}
             value={prompt}
-            disabled={!canSubmit}
+            disabled={!canSubmit && !desktop}
             onPaste={onPaste}
-            placeholder="メッセージ"
-            aria-label="メッセージ"
+            placeholder={desktop ? (isWorking ? "追加の指示を入力" : "Axiomに依頼する") : "メッセージ"}
+            aria-label={desktop ? "Axiomへの依頼" : "メッセージ"}
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return;
               if (event.key === "Enter" && event.repeat) { event.preventDefault(); return; }
-              // The next steps answer to the keyboard like the math suggestions:
-              // Tab moves between them, Enter takes the highlighted one, Esc lets go.
-              if (event.key === "Tab" && latestProposals.length > 0 && !prompt.trim()) {
-                event.preventDefault();
-                cycleStep(event.shiftKey ? -1 : 1);
+              // At either end of the proposal list, Tab resumes normal focus navigation.
+              if (!desktop && event.key === "Tab" && !prompt.trim() && !isWorking && !activeQuestion) {
+                if (latestProposals.length && moveStep(event.shiftKey ? -1 : 1)) event.preventDefault();
                 return;
               }
               if (event.key === "Escape" && (focusedStep !== null || activeProposalId)) {
@@ -444,32 +555,37 @@ export function AgentPanel({
               }
             }}
           />
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            hidden
-            accept="image/*,.pdf,.xlsx,.xls,.csv,.tsv,.txt,.md,.json,.tex,.bib,.dat,.svg"
-            onChange={(event) => {
-              addFiles(Array.from(event.target.files ?? []));
-              event.target.value = "";
-            }}
-          />
-          <button
-            type="button"
-            className="composer-attach"
-            aria-label="ファイルを添付"
-            title="画像・PDF・Excel・CSV・テキストを添付"
-            disabled={!canSubmit}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Paperclip aria-hidden="true" size={15} />
-          </button>
+          {desktop && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                hidden
+                accept="image/*,.pdf,.xlsx,.xls,.csv,.tsv,.txt,.md,.json,.tex,.bib,.dat,.svg"
+                onChange={(event) => {
+                  addFiles(Array.from(event.target.files ?? []));
+                  event.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                className="composer-attach"
+                aria-label="ファイルを添付"
+                title="画像・PDF・Excel・CSV・テキストを添付"
+                disabled={!canSubmit}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip aria-hidden="true" size={15} />
+              </button>
+            </>
+          )}
           {isWorking && !prompt.trim() && attachments.length === 0 ? (
             <button
               type="button"
               className="composer-submit is-stop"
-              aria-label="止める"
+              aria-label={stopping ? "停止中" : "止める"}
+              disabled={stopping}
               onClick={onStop}
             >
               <Square aria-hidden="true" size={14} />
@@ -606,16 +722,23 @@ function ProposalMath({ latex, display = true }: { latex: string; display?: bool
  */
 function QuestionCard({
   question,
+  initialAnswer,
+  onEdit,
   onAnswer,
   onDismiss,
 }: {
   question: AgentQuestion;
+  initialAnswer?: QuestionAnswer;
+  onEdit: (answer: QuestionAnswer) => void;
   onAnswer: (answer: string) => void;
   onDismiss: () => void;
 }) {
   const fields = question.fields ?? [];
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [free, setFree] = useState("");
+  const [{ values, free }, setAnswer] = useState<QuestionAnswer>(() => initialAnswer ?? { values: {}, free: "" });
+  const edit = (answer: QuestionAnswer) => {
+    setAnswer(answer);
+    onEdit(answer);
+  };
   const firstInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const freeInputRef = useRef<HTMLTextAreaElement | null>(null);
   useTextareaHeight(freeInputRef, free);
@@ -695,7 +818,7 @@ function QuestionCard({
                 value={values[field.key] ?? ""}
                 placeholder={field.placeholder ?? ""}
                 onChange={(event) =>
-                  setValues((current) => ({ ...current, [field.key]: event.target.value }))
+                  edit({ values: { ...values, [field.key]: event.target.value }, free })
                 }
                 onKeyDown={(event) => onKey(event, index === fields.length - 1)}
               />
@@ -709,7 +832,7 @@ function QuestionCard({
           rows={2}
           value={free}
           placeholder={question.options?.length ? "別の答えを書く" : "答えを書く"}
-          onChange={(event) => setFree(event.target.value)}
+          onChange={(event) => edit({ values, free: event.target.value })}
           onKeyDown={(event) => onKey(event, true)}
         />
       )}

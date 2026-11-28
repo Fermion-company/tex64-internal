@@ -1,5 +1,6 @@
+import { uiText } from "../i18n.js";
 export const createSettingsPlatformAuthOps = (runtime) => {
-    const { settingsAuthStatus, settingsAuthLogin, settingsAuthLogout } = runtime.context.dom;
+    const { settingsAuthStatus, settingsAuthLogin, settingsAuthCancel, settingsAuthLogout } = runtime.context.dom;
     const updatePlatformAuthUi = () => {
         var _a, _b, _c, _d;
         const authenticated = Boolean((_a = runtime.state.platformAuth) === null || _a === void 0 ? void 0 : _a.authenticated);
@@ -25,6 +26,10 @@ export const createSettingsPlatformAuthOps = (runtime) => {
             settingsAuthLogin.disabled = pending;
             settingsAuthLogin.textContent = pending ? "Signing in…" : "Login";
         }
+        if (settingsAuthCancel instanceof HTMLButtonElement) {
+            settingsAuthCancel.classList.toggle("is-hidden", !pending);
+            settingsAuthCancel.setAttribute("aria-hidden", String(!pending));
+        }
         if (settingsAuthLogout instanceof HTMLButtonElement) {
             settingsAuthLogout.classList.toggle("is-hidden", !authenticated);
             settingsAuthLogout.disabled = !authenticated;
@@ -34,7 +39,17 @@ export const createSettingsPlatformAuthOps = (runtime) => {
         var _a;
         runtime.state.platformAuth = (_a = payload === null || payload === void 0 ? void 0 : payload.auth) !== null && _a !== void 0 ? _a : null;
         updatePlatformAuthUi();
+        if (settingsAuthStatus instanceof HTMLElement && (payload === null || payload === void 0 ? void 0 : payload.action) && payload.error) {
+            const fallback = payload.action === "logout"
+                ? uiText("Could not sign out.", "ログアウトできませんでした。")
+                : payload.action === "cancel" ? uiText("Could not cancel sign-in.", "ログインを中止できませんでした。")
+                    : uiText("Could not sign in.", "ログインできませんでした。");
+            settingsAuthStatus.textContent = [fallback, payload.error.message].filter(Boolean).join(" ");
+        }
     };
+    settingsAuthCancel === null || settingsAuthCancel === void 0 ? void 0 : settingsAuthCancel.addEventListener("click", () => {
+        runtime.deps.postToNative({ type: "auth:google:cancel" });
+    });
     if (settingsAuthLogout instanceof HTMLButtonElement) {
         settingsAuthLogout.addEventListener("click", () => {
             runtime.deps.postToNative({ type: "auth:signout" });

@@ -178,39 +178,50 @@ export const initBottomPanelUi = (
       editorSection.style.setProperty("--bottom-panel-height", `${panelHeight}px`);
     };
 
-    const onMouseMove = (e: MouseEvent) => {
-      e.preventDefault();
-      pendingClientY = e.clientY;
-      if (rafId === null) {
-        rafId = window.requestAnimationFrame(applyResize);
-      }
-    };
-
-    const onMouseUp = () => {
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-      if (rafId !== null) {
-        window.cancelAnimationFrame(rafId);
-        rafId = null;
-      }
+    let draggingPointer: number | null = null;
+    const finishResize = () => {
+      if (draggingPointer === null) return;
+      const pointerId = draggingPointer;
+      draggingPointer = null;
+      if (bottomPanelResizer.hasPointerCapture(pointerId)) bottomPanelResizer.releasePointerCapture(pointerId);
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      applyResize();
       bottomPanelResizer.classList.remove("is-resizing");
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      window.removeEventListener("blur", finishResize);
       saveState();
       window.dispatchEvent(new Event("resize"));
     };
 
-    bottomPanelResizer.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      startY = e.clientY;
-      startHeight = panelHeight;
-      pendingClientY = e.clientY;
+    bottomPanelResizer.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || draggingPointer !== null) return;
+      event.preventDefault();
+      draggingPointer = event.pointerId;
+      bottomPanelResizer.setPointerCapture(event.pointerId);
+      startY = event.clientY;
+      startHeight = bottomPanel?.getBoundingClientRect().height ?? panelHeight;
+      pendingClientY = startY;
       bottomPanelResizer.classList.add("is-resizing");
       document.body.style.cursor = "row-resize";
       document.body.style.userSelect = "none";
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
+      window.addEventListener("blur", finishResize);
     });
+    bottomPanelResizer.addEventListener("pointermove", (event) => {
+      if (event.pointerId !== draggingPointer) return;
+      pendingClientY = event.clientY;
+      if (rafId === null) rafId = window.requestAnimationFrame(applyResize);
+    });
+    bottomPanelResizer.addEventListener("pointerup", (event) => {
+      if (event.pointerId !== draggingPointer) return;
+      pendingClientY = event.clientY;
+      finishResize();
+    });
+    const cancelDrag = (event: PointerEvent) => {
+      if (event.pointerId === draggingPointer) finishResize();
+    };
+    bottomPanelResizer.addEventListener("pointercancel", cancelDrag);
+    bottomPanelResizer.addEventListener("lostpointercapture", cancelDrag);
   };
 
   // --- Event listeners ---

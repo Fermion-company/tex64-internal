@@ -1,5 +1,5 @@
 const path = require("path");
-const fsp = require("fs/promises");
+const { readFileUpTo } = require("./bounded-file-read.cjs");
 const { isUtf8 } = require("node:buffer");
 
 // Legacy editor formats retain their existing decoding and size behaviour.
@@ -55,29 +55,10 @@ const looksBinary = (buffer) => buffer.subarray(0, TEXT_SNIFF_BYTES).includes(0)
 const isUnknownTextBuffer = (buffer) =>
   buffer.length <= MAX_UNKNOWN_TEXT_FILE_BYTES && !looksBinary(buffer) && isUtf8(buffer);
 
-// Check size before allocating/reading, then cap the read too: a file can grow
-// after stat. Validate the entire UTF-8 sequence, including beyond the sample.
 const readUnknownTextFile = async (absolutePath) => {
-  const handle = await fsp.open(absolutePath, "r");
-  try {
-    const stat = await handle.stat();
-    if (!stat.isFile() || stat.size > MAX_UNKNOWN_TEXT_FILE_BYTES) return null;
-    const chunks = [];
-    let size = 0;
-    while (size <= MAX_UNKNOWN_TEXT_FILE_BYTES) {
-      const chunk = Buffer.alloc(Math.min(64 * 1024, MAX_UNKNOWN_TEXT_FILE_BYTES + 1 - size));
-      const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
-      if (bytesRead === 0) break;
-      chunks.push(chunk.subarray(0, bytesRead));
-      size += bytesRead;
-    }
-    if (size > MAX_UNKNOWN_TEXT_FILE_BYTES) return null;
-    const data = Buffer.concat(chunks, size);
-    // Buffer.toString preserves a UTF-8 BOM for round-trip saves.
-    return isUnknownTextBuffer(data) ? data.toString("utf8") : null;
-  } finally {
-    await handle.close();
-  }
+  const data = await readFileUpTo(absolutePath, MAX_UNKNOWN_TEXT_FILE_BYTES);
+  // Buffer.toString preserves a UTF-8 BOM for round-trip saves.
+  return data && isUnknownTextBuffer(data) ? data.toString("utf8") : null;
 };
 
 const isSearchableSourceFile = (name) =>

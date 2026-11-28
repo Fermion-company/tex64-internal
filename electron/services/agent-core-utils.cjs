@@ -80,6 +80,13 @@ const clipText = (value, max = 120) => {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 };
 
+// User-visible wording travels alongside the full request in the transcript.
+const userMessageDisplay = (context) => {
+  const displayText = clipText(context?.displayText, PERSIST_MAX_TEXT_CHARS) ||
+    (context?.turnOrigin === "step" && clipText(context.proposalDisplayText, 1000));
+  return displayText ? { displayText } : {};
+};
+
 const clipLongString = (value, maxChars) => {
   if (typeof value !== "string") {
     return "";
@@ -196,7 +203,7 @@ const sanitizeConversationForPersistence = (conversation) => {
     sanitized.push({
       role,
       content: clipLongString(content, PERSIST_MAX_TEXT_CHARS),
-      ...(role === "user" && typeof message.displayText === "string" && message.displayText.trim() ? { displayText: clipText(message.displayText, 1000) } : {}),
+      ...(role === "user" && typeof message.displayText === "string" && message.displayText.trim() ? { displayText: clipText(message.displayText, PERSIST_MAX_TEXT_CHARS) } : {}),
       // An app-started turn stays hidden after restart; recorded next steps
       // keep their rows.
       ...(role === "user" && message.hidden === true ? { hidden: true } : {}),
@@ -673,6 +680,7 @@ module.exports = {
   parseInteger,
   digestJson,
   clipText,
+  userMessageDisplay,
   clipLongString,
   sanitizeForPersistence,
   sanitizeConversationForPersistence,

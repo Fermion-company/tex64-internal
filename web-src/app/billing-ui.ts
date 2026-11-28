@@ -1,5 +1,6 @@
 import type { AppContext } from "./context.js";
 import type { PlatformUsageSnapshot } from "./types.js";
+import { markFocus, restoreFocus } from "./focus-key.js";
 import { getUiLocale } from "./i18n.js";
 import { aiText } from "./ai-i18n.js";
 
@@ -640,6 +641,7 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     if (rank > currentRank) {
       const btn = document.createElement("button");
       btn.type = "button";
+      btn.dataset.focusKey = plan.key;
       btn.className =
         "plan-cta" +
         (plan.key === preferred || (plan.highlight && preferred === null)
@@ -685,17 +687,18 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     const line = document.createElement("div");
     line.className = "plans-usage-line";
     const label = document.createElement("span");
-    label.textContent = `${aiText("usage_title")}: ${formatter.format(used)} / ${formatter.format(limit)} ${aiText("usage_tokens")}`;
+    label.textContent = `${aiText("usage_month")}: ${formatter.format(used)} / ${formatter.format(limit)} ${aiText("usage_tokens")}`;
     line.appendChild(label);
     if (typeof summary.periodEnd === "string" && summary.periodEnd) {
       const resetAt = Date.parse(summary.periodEnd);
       if (Number.isFinite(resetAt)) {
         const reset = document.createElement("span");
         reset.className = "plans-usage-reset";
-        reset.textContent = `${aiText("usage_reset")}: ${new Intl.DateTimeFormat(locale, {
+        const date = new Intl.DateTimeFormat(locale, {
           month: "short",
           day: "numeric",
-        }).format(new Date(resetAt))}`;
+        }).format(new Date(resetAt));
+        reset.textContent = aiText("usage_resets").replace("{date}", date);
         line.appendChild(reset);
       }
     }
@@ -723,6 +726,7 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     const currentRank = PLAN_RANK[current] ?? 0;
     const onPaidPlan = current === "basic" || current === "pro";
 
+    const focus = markFocus(plansList);
     plansList.innerHTML = "";
     const usageBanner = buildUsageBanner();
     if (usageBanner) {
@@ -739,10 +743,12 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
       const manage = document.createElement("button");
       manage.type = "button";
       manage.className = "plans-manage";
+      manage.dataset.focusKey = "manage";
       manage.textContent = copy.manage;
       manage.addEventListener("click", () => openPortal());
       plansList.appendChild(manage);
     }
+    if (focus && !restoreFocus(plansList, focus)) focusWithoutScroll(plansModalClose);
   };
 
   const isVisible = () => Boolean(plansModal?.classList.contains("is-open"));
@@ -825,7 +831,16 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
   window.addEventListener(
     "keydown",
     (event) => {
-      if (event.key === "Escape" && plansModal?.classList.contains("is-open")) {
+      if (!plansModal?.classList.contains("is-open")) return;
+      if (event.key === "Tab") {
+        const buttons = Array.from(plansModal.querySelectorAll<HTMLButtonElement>("button:enabled"));
+        const first = buttons[0];
+        const last = buttons[buttons.length - 1];
+        if (first && (!plansModal.contains(document.activeElement) || document.activeElement === (event.shiftKey ? first : last))) {
+          event.preventDefault();
+          (event.shiftKey ? last : first).focus();
+        }
+      } else if (event.key === "Escape") {
         event.stopPropagation();
         close();
       }

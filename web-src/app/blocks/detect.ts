@@ -104,6 +104,15 @@ export const createLatexBlockDetector = (deps: DetectorDeps) => {
       }
 
       if (ch === "\\" && !isEscapedAt(text, i)) {
+        if (text.startsWith("\\verb", i) && !/[a-zA-Z]/.test(text[i + 5] ?? "")) {
+          const marker = i + (text[i + 5] === "*" ? 6 : 5);
+          const delimiter = text[marker];
+          if (delimiter && !/\s/.test(delimiter)) {
+            i = marker + 1;
+            while (i < text.length && text[i] !== delimiter && text[i] !== "\n" && text[i] !== "\r") i += 1;
+            continue;
+          }
+        }
         if (text.startsWith("\\begin{", i)) {
           const endBrace = text.indexOf("}", i + 7);
           if (endBrace !== -1) {
@@ -202,7 +211,7 @@ export const createLatexBlockDetector = (deps: DetectorDeps) => {
           i += 1;
           continue;
         }
-        if (openMath.kind === "dollar" && !isDouble) {
+        if (openMath.kind === "dollar") {
           const end = i + 1;
           pushMathBlock(openMath.start, end, openMath.kind);
           openMath = null;

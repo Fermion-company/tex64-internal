@@ -15,6 +15,7 @@
 //                     numbers, citations, page count)
 //   comparePdfOutlines pure: the difference list shown after the first build
 
+const { withProjectFileWrites, writeProjectFile } = require("./project-file-writes.cjs");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
@@ -30,7 +31,6 @@ const MAX_ENTRY_COUNT = 50000;
 // into memory once, so its size is checked before that read.
 const MAX_CENTRAL_DIRECTORY_BYTES = 64 * 1024 * 1024;
 const MAX_TEX_READ_BYTES = 4 * 1024 * 1024;
-const TEXT_EXTENSIONS = new Set([".tex", ".ltx", ".sty", ".cls", ".bib", ".bbl", ".txt", ".md", ".json"]);
 const IGNORED_SEGMENTS = new Set(["__MACOSX", ".git", "node_modules", ".tex64"]);
 
 // ---------------------------------------------------------------------------
@@ -248,19 +248,29 @@ const writeEntry = async (zip, zipSize, entry, target, { signal, onCreated }) =>
       callback(written > entry.uncompressedSize ? invalidZip(`entry larger than declared: ${target}`) : null, chunk);
     },
   });
-  const output = await fsp.open(target, "wx");
-  onCreated(target);
-  try {
-    const source = entry.compressedSize > 0
-      ? zip.createReadStream({ start, end: start + entry.compressedSize - 1, autoClose: false })
-      : Readable.from([]);
-    const stages = entry.method === 8 ? [source, zlib.createInflateRaw(), counter] : [source, counter];
-    await pipeline(...stages, output.createWriteStream(), ...(signal ? [{ signal }] : []));
-  } finally {
-    await output.close().catch(() => {});
-  }
-  if (written !== entry.uncompressedSize) throw invalidZip(`entry smaller than declared: ${target}`);
-  return written;
+  return withProjectFileWrites([target], async () => {
+    const staging = await fsp.mkdtemp(path.join(path.dirname(target), ".tex64-import-"));
+    const temporary = path.join(staging, "entry");
+    try {
+      const output = await fsp.open(temporary, "wx");
+      try {
+        const source = entry.compressedSize > 0
+          ? zip.createReadStream({ start, end: start + entry.compressedSize - 1, autoClose: false })
+          : Readable.from([]);
+        const stages = entry.method === 8 ? [source, zlib.createInflateRaw(), counter] : [source, counter];
+        await pipeline(...stages, output.createWriteStream(), ...(signal ? [{ signal }] : []));
+      } finally {
+        await output.close().catch(() => {});
+      }
+      if (written !== entry.uncompressedSize) throw invalidZip(`entry smaller than declared: ${target}`);
+      await fsp.link(temporary, target);
+      onCreated(target);
+      if (entry.mtime) await fsp.utimes(target, entry.mtime, entry.mtime).catch(() => {});
+      return written;
+    } finally {
+      await fsp.rm(staging, { recursive: true, force: true }).catch(() => {});
+    }
+  });
 };
 
 const extractZip = async (zipPath, destinationDir, { onProgress = () => {}, signal } = {}) => {
@@ -303,7 +313,6 @@ const extractZip = async (zipPath, destinationDir, { onProgress = () => {}, sign
         throw new Error(`Unsafe path inside the zip: ${relativePath}`);
       }
       const size = await writeEntry(zip, stat.size, entry, target, { signal, onCreated: (file) => createdFiles.push(file) });
-      if (entry.mtime) await fsp.utimes(target, entry.mtime, entry.mtime).catch(() => {});
       written += 1;
       files.push({ relativePath, size, mtime: entry.mtime ? entry.mtime.getTime() : stat.mtimeMs });
       onProgress({ current: written, total: planned.length, relativePath });
@@ -445,7 +454,7 @@ const sortCandidates = (candidates, includedBaseNames) => {
 /**
  * Analyze a project from its file list. Every entry: `{ path, size?, mtime?, content? }`,
  * paths relative to the project root with `/` separators; `content` holds
- * the text of .tex/.bib files. The result is deterministic and does not touch
+ * the text of .tex/.ltx files. The result is deterministic and does not touch
  * the file system.
  */
 const analyzeProject = (files) => {
@@ -572,12 +581,26 @@ const conversationToMarkdown = (json, name) => {
 
 const safeNoteName = (value) => String(value || "conversation").replace(/\.json$/i, "").replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "conversation";
 
+// Each caller creates the file exclusively. An existing file from the archive
+// or another import step keeps its name and contents.
+const writeUniqueSibling = async (target, create) => {
+  const { dir, name, ext } = path.parse(target);
+  for (let number = 1; ; number += 1) {
+    const candidate = number === 1 ? target : path.join(dir, `${name}-${number}${ext}`);
+    try {
+      await create(candidate);
+      return candidate;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+  }
+};
+
 const writeConversationNotes = async (projectRoot, conversationPaths) => {
   const written = [];
   if (!Array.isArray(conversationPaths) || conversationPaths.length === 0) return written;
   const notesDir = path.join(projectRoot, "notes", "prism-conversations");
   await fsp.mkdir(notesDir, { recursive: true });
-  const used = new Set();
   for (const relativePath of conversationPaths) {
     const source = path.join(projectRoot, ...relativePath.split("/"));
     let json = null;
@@ -586,13 +609,10 @@ const writeConversationNotes = async (projectRoot, conversationPaths) => {
     } catch {
       continue;
     }
-    let base = safeNoteName(path.posix.basename(relativePath));
-    let counter = 2;
-    while (used.has(base)) base = `${safeNoteName(path.posix.basename(relativePath))}-${counter++}`;
-    used.add(base);
-    const target = path.join(notesDir, `${base}.md`);
-    await fsp.writeFile(target, conversationToMarkdown(json, base), "utf8");
-    written.push(path.posix.join("notes", "prism-conversations", `${base}.md`));
+    const base = safeNoteName(path.posix.basename(relativePath));
+    const target = await writeUniqueSibling(path.join(notesDir, `${base}.md`), candidate =>
+      writeProjectFile(candidate, conversationToMarkdown(json, path.basename(candidate, ".md")), { exclusive: true }));
+    written.push(path.posix.join("notes", "prism-conversations", path.basename(target)));
   }
   return written;
 };
@@ -617,7 +637,7 @@ const walkProject = async (projectRoot) => {
       const stat = await fsp.stat(absolute);
       const extension = path.extname(entry.name).toLowerCase();
       let content;
-      if ((extension === ".tex" || extension === ".ltx" || extension === ".bib") && stat.size <= MAX_TEX_READ_BYTES) {
+      if ((extension === ".tex" || extension === ".ltx") && stat.size <= MAX_TEX_READ_BYTES) {
         content = await fsp.readFile(absolute, "utf8").catch(() => undefined);
       }
       files.push({ path: relativePath, size: stat.size, mtime: stat.mtimeMs, content });
@@ -792,6 +812,7 @@ module.exports = {
   packageNamesOf,
   conversationToMarkdown,
   writeConversationNotes,
+  writeUniqueSibling,
   walkProject,
   readPdfOutline,
   outlineOfLines,

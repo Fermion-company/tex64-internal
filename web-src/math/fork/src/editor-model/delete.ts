@@ -731,6 +731,10 @@ export function deleteRange(
           specialAtom.type === 'enclose' ||
           specialAtom.type === 'leftright'
         ) {
+          // An indexed radical still owns any unselected part of its index.
+          if (specialAtom.type === 'surd' && !specialAtom.hasEmptyBranch('above'))
+            continue;
+
           const body = specialAtom.branch('body');
           const bodyEmpty =
             !body ||
@@ -797,24 +801,6 @@ export function deleteRange(
 
             specialAtom.parent.removeChild(specialAtom);
             model.position = Math.max(0, pos);
-          } else if (
-            isBoundaryCrossing &&
-            !info.containsStart &&
-            info.containsEnd
-          ) {
-            // Selection started outside and ended inside - hoist whatever remains
-            // For fractions, we need to check which branch has content and hoist it
-            if (!aboveEmpty && !belowEmpty) {
-              // Both have content - this is a more complex case
-              // For now, just hoist the numerator
-              const pos = model.offsetOf(specialAtom.leftSibling);
-              const content = specialAtom.removeBranch('above');
-              if (content && content.length > 0)
-                specialAtom.parent.addChildrenAfter(content, specialAtom);
-
-              specialAtom.parent.removeChild(specialAtom);
-              model.position = Math.max(0, pos);
-            }
           }
         }
       }
@@ -838,7 +824,10 @@ function deleteRow(
 ): boolean {
   if (!(atom instanceof ArrayAtom)) return false;
   if (!atom.isMultiline) return false;
-  if (atom.rows.length === 1) return false;
+  // A row can only be merged with its neighbour. At the outer edge the
+  // keystroke must leave the first or last row intact.
+  if (direction === 'backward' ? row <= 0 : row >= atom.rows.length - 1)
+    return false;
 
   // @fixme: we currently only handle the case where there is only one column
   // but in some cases (e.g. `align`) there could be more than one column

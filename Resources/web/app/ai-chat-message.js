@@ -13,7 +13,7 @@ const renderMathInText = (html) => {
             return katex.renderToString(expr.trim(), { displayMode, throwOnError: false });
         }
         catch {
-            return `<code>${expr}</code>`;
+            return `<code>${escapeHtml(expr)}</code>`;
         }
     };
     // Display math first: $$...$$ and \[...\]
@@ -177,6 +177,7 @@ const stripFileCitations = (text) => {
         return name;
     });
 };
+const inline = (context, token) => token.tokens && context.parser ? context.parser.parseInline(token.tokens) : escapeHtml(token.text);
 const configureMarked = () => {
     const renderer = {
         code(token) {
@@ -201,11 +202,9 @@ const configureMarked = () => {
             return escapeHtml(token.text);
         },
         link(token) {
-            var _a, _b;
-            const label = token.tokens && typeof ((_a = this.parser) === null || _a === void 0 ? void 0 : _a.parseInline) === "function"
-                ? this.parser.parseInline(token.tokens)
-                : escapeHtml(token.text);
-            const href = (_b = token.href) !== null && _b !== void 0 ? _b : "";
+            var _a;
+            const label = inline(this, token);
+            const href = (_a = token.href) !== null && _a !== void 0 ? _a : "";
             if (href.startsWith(FILE_LINK_SCHEME)) {
                 const encoded = href.slice(FILE_LINK_SCHEME.length);
                 let filePath = encoded;
@@ -226,7 +225,7 @@ const configureMarked = () => {
         },
         heading(token) {
             const level = Math.min(3, token.depth);
-            return `<h${level} class="ai-md-heading ai-md-heading-${level}">${token.text}</h${level}>`;
+            return `<h${level} class="ai-md-heading ai-md-heading-${level}">${inline(this, token)}</h${level}>`;
         },
         list(token) {
             const tag = token.ordered ? "ol" : "ul";
@@ -237,7 +236,7 @@ const configureMarked = () => {
             const ths = token.header
                 .map((h) => {
                 const align = h.align ? ` style="text-align:${h.align}"` : "";
-                return `<th${align}>${h.text}</th>`;
+                return `<th${align}>${inline(this, h)}</th>`;
             })
                 .join("");
             const bodyRows = token.rows
@@ -245,7 +244,7 @@ const configureMarked = () => {
                 const tds = row
                     .map((cell) => {
                     const align = cell.align ? ` style="text-align:${cell.align}"` : "";
-                    return `<td${align}>${cell.text}</td>`;
+                    return `<td${align}>${inline(this, cell)}</td>`;
                 })
                     .join("");
                 return `<tr>${tds}</tr>`;
@@ -654,7 +653,7 @@ export const createMessageElement = (message, options = {}) => {
             bar.className = "ai-queued-bar";
             const label = document.createElement("span");
             label.className = "ai-queued-label";
-            label.textContent = aiText("queued");
+            label.textContent = aiText(message.manualRetry ? "unsent" : "queued");
             const sendNow = document.createElement("button");
             sendNow.type = "button";
             sendNow.className = "ai-queued-action";

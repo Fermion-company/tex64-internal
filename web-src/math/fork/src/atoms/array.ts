@@ -819,23 +819,19 @@ export class ArrayAtom extends Atom {
         makeEmptyCell(this, !this.isMultiline)
       )
     );
+    // A \\[gap] belongs to the preceding row. Keep existing gaps with their rows.
+    if (row < this.rowGaps.length)
+      this.rowGaps = [
+        ...this.rowGaps.slice(0, row),
+        { dimension: 0 },
+        ...this.rowGaps.slice(row),
+      ];
     adjustBranches(this);
     this.isDirty = true;
   }
 
   addRowAfter(row: number): void {
-    console.assert(this.type === 'array' && Array.isArray(this._rows));
-
-    this._rows.splice(
-      row + 1,
-      0,
-      Array.from({ length: this.colCount }, () =>
-        makeEmptyCell(this, !this.isMultiline)
-      )
-    );
-
-    adjustBranches(this);
-    this.isDirty = true;
+    this.addRowBefore(row + 1);
   }
 
   removeRow(row: number): void {
@@ -844,6 +840,9 @@ export class ArrayAtom extends Atom {
     );
 
     const deleted = this._rows.splice(row, 1);
+    this.rowGaps = this.rowGaps
+      .filter((_, index) => index !== row)
+      .slice(0, Math.max(0, this.rowCount - 1));
     for (const column of deleted) {
       for (const cell of column) {
         if (cell) {

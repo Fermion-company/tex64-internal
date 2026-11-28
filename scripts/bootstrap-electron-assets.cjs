@@ -2,6 +2,7 @@
 const { execFileSync } = require("node:child_process");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
+const plist = require("plist");
 
 const projectRoot = process.cwd();
 
@@ -72,19 +73,11 @@ const hasMagic = async (filePath, magic) => {
 
 const isPngFile = (filePath) => hasMagic(filePath, PNG_MAGIC);
 
-const ENTITLEMENTS_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>com.apple.security.cs.allow-jit</key>
-    <true/>
-    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-    <true/>
-    <key>com.apple.security.cs.disable-library-validation</key>
-    <true/>
-  </dict>
-</plist>
-`;
+const DEFAULT_ENTITLEMENTS = {
+  "com.apple.security.cs.allow-jit": true,
+  "com.apple.security.cs.allow-unsigned-executable-memory": true,
+  "com.apple.security.cs.disable-library-validation": true,
+};
 
 const DEFAULT_LICENSE_TEXT = `Copyright (c) 2026 TeX64 contributors.
 All rights reserved.
@@ -97,16 +90,18 @@ sublicense, or sell this software except as expressly authorized in writing.
 `;
 
 const ensureEntitlements = async () => {
-  const createdMain = await writeFileIfMissing(
-    resolvePath("build", "entitlements.mac.plist"),
-    ENTITLEMENTS_PLIST
-  );
-  const createdInherit = await writeFileIfMissing(
-    resolvePath("build", "entitlements.mac.inherit.plist"),
-    ENTITLEMENTS_PLIST
-  );
-  if (createdMain || createdInherit) {
-    console.log("Created macOS entitlements plists.");
+  const audioInput = "com.apple.security.device.audio-input";
+  for (const filename of ["entitlements.mac.plist", "entitlements.mac.inherit.plist"]) {
+    const target = resolvePath("build", filename);
+    const existing = await fsp.readFile(target, "utf8").catch((error) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    const settings = existing === null ? { ...DEFAULT_ENTITLEMENTS } : plist.parse(existing);
+    if (settings[audioInput] === true) continue;
+    settings[audioInput] = true;
+    await ensureDir(path.dirname(target));
+    await fsp.writeFile(target, plist.build(settings), "utf8");
   }
 };
 

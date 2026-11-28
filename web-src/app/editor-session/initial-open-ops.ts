@@ -36,10 +36,15 @@ export const createEditorSessionInitialOpenOps = (
   const requestInitialOpen = () => {
     const activeGroup = coreOps.getActiveGroup();
     const workspaceFiles = runtime.deps.getWorkspaceFiles();
+    // A file still open in the editor though missing from the listing (it
+    // vanished and may come back, or it has unsaved typing) stays the active
+    // file: the tree sync kept its tab on purpose.
     const hasValidCurrent =
       activeGroup.currentFilePath !== null &&
-      workspaceFiles.includes(activeGroup.currentFilePath);
-    if (hasValidCurrent) {
+      (workspaceFiles.includes(activeGroup.currentFilePath) ||
+        runtime.monacoModels.has(activeGroup.currentFilePath) ||
+        activeGroup.viewer.getUnbuiltPdfPath() === activeGroup.currentFilePath);
+    if (hasValidCurrent || runtime.fileOpsState.pendingOpenRequests.some(request => request.group === activeGroup.key && !request.background)) {
       return;
     }
     const path = pickInitialFilePath();
@@ -59,7 +64,7 @@ export const createEditorSessionInitialOpenOps = (
     if (!runtime.state.pendingAutoOpenPath || !activeGroup.editor) {
       return;
     }
-    if (activeGroup.currentFilePath) {
+    if (activeGroup.currentFilePath || runtime.fileOpsState.pendingOpenRequests.some(request => request.group === activeGroup.key && !request.background)) {
       runtime.state.pendingAutoOpenPath = null;
       return;
     }

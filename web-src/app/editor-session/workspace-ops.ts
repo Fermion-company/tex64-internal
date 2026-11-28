@@ -8,6 +8,10 @@ import { rememberEditorModelPath } from "./model-path.js";
 export type EditorSessionWorkspaceOps = {
   handleRenameResult: (payload: { oldPath: string; newPath: string; isDirectory: boolean }) => void;
   syncWorkspaceFiles: (payload: { workspaceFiles: string[]; rootChanged: boolean }) => void;
+  /** Apply the last file list again (a file kept through a grace period). */
+  resyncWorkspaceFiles: () => void;
+  /** Open files missing from the tree that keep their tab for now. */
+  setKeepMissingPath: (keep: (path: string) => boolean) => void;
   getDirtyPaths: () => Set<string>;
 };
 
@@ -94,13 +98,30 @@ export const createEditorSessionWorkspaceOps = (
     coreOps.forEachEditorGroup((group) => runtime.deps.editorTabs.render(group));
   };
 
+  // A file that vanished from disk may be coming back (an editor or git
+  // replacing it): while `keepMissingPath` says so (outside-edits.ts), its tab
+  // and buffer stay as if it were still listed.
+  let keepMissingPath: (path: string) => boolean = () => false;
+  let lastWorkspaceFiles: string[] | null = null;
+
   const syncWorkspaceFiles = (payload: { workspaceFiles: string[]; rootChanged: boolean }) => {
-    const { workspaceFiles, rootChanged } = payload;
+    const { rootChanged } = payload;
+    lastWorkspaceFiles = payload.workspaceFiles;
+    const listed = new Set(payload.workspaceFiles);
+    const workspaceFiles = rootChanged
+      ? payload.workspaceFiles
+      : [
+        ...payload.workspaceFiles,
+        ...Array.from(runtime.monacoModels.keys()).filter((path) => !listed.has(path) && keepMissingPath(path)),
+      ];
     if (rootChanged) {
+      runtime.fileOpsState.pendingOpenRequests = [];
+      runtime.state.pendingAutoOpenPath = null;
       runtime.fileOpsState.pendingReveal = null;
       runtime.lastCursorPositions.clear();
       runtime.deps.fileTree.clearSelection();
       coreOps.forEachEditorGroup((group) => {
+        delete group.automaticPreviewPath;
         group.currentFilePath = null;
         group.currentFileSavedContent = null;
         group.isDirty = false;
@@ -118,6 +139,19 @@ export const createEditorSessionWorkspaceOps = (
       runtime.dirtyFiles.clear();
     }
     const workspaceFileSet = new Set(workspaceFiles);
+    // The first live paper is a real open pane before the first Build
+    // creates its PDF. Directory notifications must not close it.
+    coreOps.forEachEditorGroup(group => {
+      const preview = group.currentFilePath;
+      if (!preview || workspaceFileSet.has(preview) || group.viewer.getViewerMode() !== "pdf") return;
+      if (group.viewer.getUnbuiltPdfPath() !== preview && !runtime.deps.isLivePaper(preview)) return;
+      if (workspaceFiles.some(path => /\.tex$/i.test(path) && path.replace(/\.tex$/i, ".pdf") === preview)) {
+        // The user can remove Build outputs while typing. Keep the mounted
+        // page and its scroll position until the next live revision arrives.
+        group.viewer.markSavedPdfRemoved();
+        workspaceFileSet.add(preview);
+      }
+    });
     const missingDirtyPaths = new Set<string>();
     if (runtime.monacoModels.size > 0) {
       Array.from(runtime.monacoModels.keys()).forEach((path) => {
@@ -191,6 +225,12 @@ export const createEditorSessionWorkspaceOps = (
   return {
     handleRenameResult,
     syncWorkspaceFiles,
+    resyncWorkspaceFiles: () => {
+      if (lastWorkspaceFiles) syncWorkspaceFiles({ workspaceFiles: lastWorkspaceFiles, rootChanged: false });
+    },
+    setKeepMissingPath: (keep) => {
+      keepMissingPath = keep;
+    },
     getDirtyPaths,
   };
 };

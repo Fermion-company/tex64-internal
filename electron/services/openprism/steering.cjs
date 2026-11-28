@@ -1,5 +1,7 @@
 "use strict";
 
+const { userMessageDisplay } = require("../agent-core-utils.cjs");
+
 // An accepted correction belongs to the active run and is persisted immediately.
 // The id survives the run so an acknowledgement retry cannot submit it twice.
 const acceptSteering = (service, id, input) => {
@@ -11,7 +13,7 @@ const acceptSteering = (service, id, input) => {
   const run = service.runningControllers.get(id);
   if (!run?.acceptingSteering || run.controller.signal.aborted || run.workspaceRoot !== service.workspace.getRootPath()) return false;
   if (run.steering.length >= 20) return false;
-  conversation.push({ role: "user", content: text, steeringId: key });
+  conversation.push({ role: "user", content: text, steeringId: key, ...userMessageDisplay(input.context) });
   service.markSessionDirty(id);
   run.steering.push(text);
   return true;

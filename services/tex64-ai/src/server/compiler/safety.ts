@@ -221,11 +221,15 @@ export function parseLatexDiagnostics(output: string): CompileDiagnostic[] {
 
     if (!diagnostic) continue;
     const key = `${diagnostic.severity}:${diagnostic.line ?? ""}:${diagnostic.message}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      diagnostics.push(diagnostic);
+    if (seen.has(key)) continue;
+    if (diagnostics.length === 12) {
+      if (diagnostic.severity === "warning") continue;
+      const lastWarning = diagnostics.map((entry) => entry.severity).lastIndexOf("warning");
+      if (lastWarning < 0) break;
+      diagnostics.splice(lastWarning, 1);
     }
-    if (diagnostics.length >= 12) break;
+    seen.add(key);
+    diagnostics.push(diagnostic);
   }
 
   return diagnostics;

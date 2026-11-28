@@ -13,7 +13,7 @@ export const configureMathfield = (field) => {
     field.mathVirtualKeyboardPolicy = "manual";
     field.macros = { ...((_a = field.macros) !== null && _a !== void 0 ? _a : {}), mathds: { def: "\\mathbb{#1}", args: 1 } };
 };
-export const attachMathfieldController = (mathfield, api, insertMathKey, onEscape) => {
+export const attachMathfieldController = (mathfield, api, insertMathKey, onEscape, onCommit) => {
     configureMathfield(mathfield);
     const controller = new AbortController();
     const { signal } = controller;
@@ -83,7 +83,11 @@ export const attachMathfieldController = (mathfield, api, insertMathKey, onEscap
         readMathFieldLatex,
     });
     const handleMathFieldKeydown = (event) => {
-        if (event.isComposing) {
+        var _a;
+        const target = event.composedPath()[0];
+        if (target instanceof Element && target.closest('[part="ui-menu-container"]'))
+            return;
+        if (event.isComposing || mathfield.mode === "latex") {
             return;
         }
         const isEnter = event.key === "Enter" ||
@@ -114,6 +118,13 @@ export const attachMathfieldController = (mathfield, api, insertMathKey, onEscap
             return;
         }
         if (isEnter && !event.metaKey && !event.shiftKey && !event.altKey) {
+            const field = mathfield;
+            if (onCommit && !event.ctrlKey && !((_a = field.getEnvironmentContext) === null || _a === void 0 ? void 0 : _a.call(field).nearestArray)) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                onCommit();
+                return;
+            }
             if (!event.metaKey && !event.ctrlKey) {
                 const handled = matrixOps.tryInsertMatrixRow();
                 if (handled) {
@@ -136,6 +147,8 @@ export const attachMathfieldController = (mathfield, api, insertMathKey, onEscap
                 // Column insertion failed — do nothing rather than falling back to submit,
                 // which would be surprising when the user intended to add a column.
             }
+            if (!event.ctrlKey)
+                onCommit === null || onCommit === void 0 ? void 0 : onCommit();
             // Outside an array, Enter has no structural meaning in a math field.
             // In an AI paragraph it must not insert a line break into the editable
             // prose surrounding the field.

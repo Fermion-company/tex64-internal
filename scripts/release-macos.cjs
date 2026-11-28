@@ -2,6 +2,7 @@
 const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { prepareReleaseDirectories } = require("./prepare-release-directories.cjs");
 
 function exec(command, args, options = {}) {
   return execFileSync(command, args, { stdio: "pipe", encoding: "utf8", ...options });
@@ -282,17 +283,12 @@ function buildArtifactsFromApp(appPath, arch, productName, version) {
   ]);
 }
 
-function ensureEmptyDir(dirPath) {
-  fs.rmSync(dirPath, { recursive: true, force: true });
-  fs.mkdirSync(dirPath, { recursive: true });
-}
-
 function linkOrCopy(src, dest) {
-  fs.rmSync(dest, { force: true });
   try {
     fs.linkSync(src, dest);
-  } catch {
-    fs.copyFileSync(src, dest);
+  } catch (error) {
+    if (error.code === "EEXIST") throw error;
+    fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
   }
 }
 
@@ -393,8 +389,7 @@ function main() {
   }
 
   // Prepare upload bundle (no upload yet).
-  ensureEmptyDir(path.resolve("release"));
-  ensureEmptyDir(path.resolve("update"));
+  prepareReleaseDirectories();
 
   for (const item of artifacts) {
     linkOrCopy(item.dmgPath, path.resolve("release", path.basename(item.dmgPath)));

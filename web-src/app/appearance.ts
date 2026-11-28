@@ -5,6 +5,19 @@ export type AppearanceThemePreference = AppearanceTheme | "system";
 
 export const APPEARANCE_THEME_STORAGE_KEY = "tex64.appearance.theme";
 
+export const DARK_PDF_PAGES_KEY = "tex64.appearance.darkPdfPages";
+export const DARK_PDF_PAGES_EVENT = "tex64:dark-pdf-pages";
+
+export function getDarkPdfPages(): boolean {
+  return document.documentElement.dataset.darkPdfPages === "true";
+}
+
+export function setDarkPdfPages(enabled: boolean): void {
+  document.documentElement.dataset.darkPdfPages = String(enabled);
+  try { localStorage.setItem(DARK_PDF_PAGES_KEY, String(enabled)); } catch { /* Window-only preference. */ }
+  window.dispatchEvent(new Event(DARK_PDF_PAGES_EVENT));
+}
+
 const DARK_SCHEME_QUERY = "(prefers-color-scheme: dark)";
 
 let currentPreference: AppearanceThemePreference = "system";
@@ -87,6 +100,15 @@ const watchSystemTheme = () => {
 export const initAppearanceTheme = () => {
   // No saved choice: follow the OS. A saved dark or light choice is kept.
   currentPreference = getStoredAppearanceThemePreference() ?? "system";
+  try {
+    document.documentElement.dataset.darkPdfPages = String(localStorage.getItem(DARK_PDF_PAGES_KEY) === "true");
+  } catch { /* The default paper is white. */ }
+  window.addEventListener("storage", (event) => {
+    if (event.key === DARK_PDF_PAGES_KEY) {
+      document.documentElement.dataset.darkPdfPages = String(event.newValue === "true");
+      window.dispatchEvent(new Event(DARK_PDF_PAGES_EVENT));
+    }
+  });
   watchSystemTheme();
   currentTheme = resolveTheme(currentPreference);
   document.documentElement.dataset.theme = currentTheme;

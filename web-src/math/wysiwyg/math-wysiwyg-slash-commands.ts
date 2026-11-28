@@ -63,11 +63,11 @@ const SLASH_COMMAND_HINT_DISPLAY_MAP: Record<string, string> = {
 export const SLASH_COMMAND_CANDIDATE_LIMIT = 24;
 
 export const normalizeSlashCommandToken = (token: string) => {
-  const normalized = token.trim().toLowerCase();
+  const normalized = token.trim();
   if (!normalized) {
     return "";
   }
-  return SLASH_COMMAND_ALIAS_MAP[normalized] ?? normalized;
+  return SLASH_COMMAND_ALIAS_MAP[normalized.toLowerCase()] ?? normalized;
 };
 
 export const applySlashCommandHint = (candidate: Candidate): Candidate => {
@@ -101,7 +101,7 @@ export const buildSlashCommandFallbackCandidates = (): Candidate[] => {
       allowContainsMinLength: Number.MAX_SAFE_INTEGER,
       dedupeByLatex: true,
     });
-    const exact = words.find((candidate) => candidate.hint.toLowerCase() === hint);
+    const exact = words.find((candidate) => candidate.hint.toLowerCase() === hint.toLowerCase());
     if (exact) {
       candidates.push(exact);
     }

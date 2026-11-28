@@ -3,6 +3,7 @@
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { withProjectFileWrites } = require("./project-file-writes.cjs");
 const { HistoryStore } = require("./history-store.cjs");
 const { hash, fail, validId, safePath, readRegular, atomicWrite, syncDirectory } = require("./history-files.cjs");
 
@@ -50,6 +51,15 @@ class HistoryTransaction {
     if (current.id !== plan.currentTreeId) throw fail("PLAN_STALE", "The project changed after the restore preview. Review the updated changes first.");
     const target = await this.store.tree(plan.targetTreeId);
     const operations = HistoryStore.changes(current, target);
+    const paths = await Promise.all(operations.map(({ path: file }) => safePath(this.store.root, file)));
+    return withProjectFileWrites(paths, async () => {
+      const locked = await this.store.capture({ rootFile: plan.rootFile, persist: false });
+      if (locked.id !== plan.currentTreeId) throw fail("PLAN_STALE", "The project changed after the restore preview. Review the updated changes first.");
+      return this.applyRestore(plan, current, target, operations);
+    });
+  }
+
+  async applyRestore(plan, current, target, operations) {
     // A safety version is fully published before the first workspace change.
     const safety = await this.store.publish(current, { kind: "safety", label: "Before restore" });
     const stageRelative = `.tex64/history-transactions/${plan.id}`;
@@ -131,6 +141,11 @@ class HistoryTransaction {
     const before = await this.store.tree(journal.before);
     const target = await this.store.tree(journal.target);
     const operations = HistoryStore.changes(before, target);
+    const paths = await Promise.all(operations.map(({ path: file }) => safePath(this.store.root, file)));
+    return withProjectFileWrites(paths, () => this.rollbackFiles(journal, before, operations));
+  }
+
+  async rollbackFiles(journal, before, operations) {
     const stage = await safePath(this.store.root, `.tex64/history-transactions/${journal.id}`);
     journal.phase = "rolling-back";
     await this.writeJournal(journal);

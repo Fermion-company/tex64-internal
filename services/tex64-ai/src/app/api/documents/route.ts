@@ -106,7 +106,7 @@ export async function POST(request: Request) {
     const repository = getDocumentRepository();
     const existing = await repository.getDocument(userId, documentId);
     if (existing) {
-      assertDocumentCreationReplay(existing.document, document);
+      await assertDocumentCreationReplay(userId, document);
       return NextResponse.json({ document: await loadDocumentDetail(userId, documentId) });
     }
     try {
@@ -114,7 +114,7 @@ export async function POST(request: Request) {
     } catch (error) {
       const raced = await repository.getDocument(userId, documentId);
       if (!raced) throw error;
-      assertDocumentCreationReplay(raced.document, document);
+      await assertDocumentCreationReplay(userId, document);
     }
     return NextResponse.json({ document: await loadDocumentDetail(userId, document.id) }, { status: 201 });
   } catch (error) {
@@ -128,13 +128,15 @@ export async function POST(request: Request) {
   }
 }
 
-function assertDocumentCreationReplay(
-  existing: ReturnType<typeof createEmptyDocument>,
+async function assertDocumentCreationReplay(
+  userId: string,
   requested: ReturnType<typeof createEmptyDocument>,
-): void {
+): Promise<void> {
+  const first = await getDocumentRepository().getRevision(userId, requested.id, 1);
   if (
-    existing.metadata.title !== requested.metadata.title ||
-    existing.metadata.documentType !== requested.metadata.documentType
+    !first ||
+    first.document.metadata.title !== requested.metadata.title ||
+    first.document.metadata.documentType !== requested.metadata.documentType
   ) {
     throw new DocumentCreationReplayError();
   }

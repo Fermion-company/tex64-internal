@@ -89,14 +89,17 @@ const createPdfDocumentOptions = (source: Record<string, unknown>) => ({
 // existing image pipeline. Respects the caller's remaining count/byte budget.
 const renderPdfToImageAttachments = async (
   file: File,
-  budget: { remainingCount: number; remainingBytes: number }
+  budget: { remainingCount: number; remainingBytes: number },
+  isCurrent: () => boolean
 ): Promise<{ attachments: AiImageAttachment[]; truncatedPages: boolean }> => {
   const attachments: AiImageAttachment[] = [];
   if (budget.remainingCount <= 0 || budget.remainingBytes <= 0) {
     return { attachments, truncatedPages: true };
   }
   const pdfjsLib = await loadPdfjs();
+  if (!isCurrent()) return { attachments, truncatedPages: false };
   const buffer = await file.arrayBuffer();
+  if (!isCurrent()) return { attachments, truncatedPages: false };
   const doc = await pdfjsLib.getDocument(
     createPdfDocumentOptions({ data: new Uint8Array(buffer) })
   ).promise;
@@ -104,14 +107,15 @@ const renderPdfToImageAttachments = async (
   const maxPages = Math.min(doc.numPages, budget.remainingCount);
   let truncatedPages = doc.numPages > maxPages;
   let usedBytes = 0;
+  const canvas = document.createElement("canvas");
   try {
     for (let pageNum = 1; pageNum <= maxPages; pageNum += 1) {
+      if (!isCurrent()) break;
       const page = await doc.getPage(pageNum);
       const base = page.getViewport({ scale: 1 });
       const maxSide = Math.max(base.width, base.height) || PDF_RENDER_TARGET_MAX_SIDE;
-      const scale = Math.min(2, Math.max(0.75, PDF_RENDER_TARGET_MAX_SIDE / maxSide));
+      const scale = Math.min(2, PDF_RENDER_TARGET_MAX_SIDE / maxSide);
       const viewport = page.getViewport({ scale });
-      const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.ceil(viewport.width));
       canvas.height = Math.max(1, Math.ceil(viewport.height));
       const ctx = canvas.getContext("2d");
@@ -140,9 +144,9 @@ const renderPdfToImageAttachments = async (
       usedBytes += sizeBytes;
     }
   } finally {
+    canvas.width = canvas.height = 0;
     try {
-      await doc.cleanup?.();
-      doc.destroy?.();
+      await doc.destroy();
     } catch {
       // ignore cleanup errors
     }
@@ -162,6 +166,9 @@ export const createAiChatAttachmentsController = (
     appendMessage,
   } = options;
   let pendingAttachments: AiImageAttachment[] = [];
+  let batchGeneration = 0;
+  let pendingRead = Promise.resolve();
+  let readsInCurrentBatch = 0;
 
   const renderAttachmentBar = () => {
     if (!(aiAttachments instanceof HTMLElement)) return;
@@ -211,6 +218,8 @@ export const createAiChatAttachmentsController = (
   };
 
   const clearPendingAttachments = (resetInput = true) => {
+    batchGeneration++;
+    readsInCurrentBatch = 0;
     pendingAttachments = [];
     renderAttachmentBar();
     if (resetInput && aiAttachInput instanceof HTMLInputElement) {
@@ -218,17 +227,17 @@ export const createAiChatAttachmentsController = (
     }
   };
 
-  const addImageFiles = async (fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0) return;
-    const files = Array.from(fileList);
+  const readFiles = async (files: File[], generation: number) => {
+    const isCurrent = () => generation === batchGeneration;
     let rejectedUnsupported = 0;
     let rejectedTooLarge = 0;
     let rejectedByCount = 0;
     let rejectedByTotal = 0;
     let rejectedUnreadable = 0;
     let truncatedPages = false;
-    let totalBytes = pendingAttachments.reduce((sum, item) => sum + item.size, 0);
     for (const file of files) {
+      if (!isCurrent()) return;
+      let totalBytes = pendingAttachments.reduce((sum, item) => sum + item.size, 0);
       const isImage = file.type.startsWith("image/");
       const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
       if (!isImage && !isPdf) {
@@ -249,12 +258,12 @@ export const createAiChatAttachmentsController = (
           continue;
         }
         const attachment = await readImageAttachment(file);
+        if (!isCurrent()) return;
         if (!attachment) {
           rejectedUnreadable += 1;
           continue;
         }
         pendingAttachments.push(attachment);
-        totalBytes += attachment.size;
         continue;
       }
       // PDF → rasterize pages to images via pdfjs, then attach as images.
@@ -267,11 +276,12 @@ export const createAiChatAttachmentsController = (
         rendered = await renderPdfToImageAttachments(file, {
           remainingCount: MAX_IMAGE_ATTACHMENTS - pendingAttachments.length,
           remainingBytes: MAX_IMAGE_ATTACHMENT_TOTAL_BYTES - totalBytes,
-        });
+        }, isCurrent);
       } catch {
         rejectedUnreadable += 1;
         continue;
       }
+      if (!isCurrent()) return;
       if (rendered.truncatedPages) truncatedPages = true;
       if (rendered.attachments.length === 0) {
         rejectedUnreadable += 1;
@@ -290,6 +300,7 @@ export const createAiChatAttachmentsController = (
         totalBytes += att.size;
       }
     }
+    if (!isCurrent()) return;
     renderAttachmentBar();
     const notices: string[] = [];
     if (rejectedTooLarge > 0) {
@@ -320,13 +331,28 @@ export const createAiChatAttachmentsController = (
     }
   };
 
+  const addImageFiles = (fileList: FileList | null) => {
+    if (!fileList?.length) return Promise.resolve();
+    const files = Array.from(fileList);
+    const generation = batchGeneration;
+    readsInCurrentBatch++;
+    const read = pendingRead.then(() => readFiles(files, generation)).finally(() => {
+      if (generation === batchGeneration) readsInCurrentBatch--;
+    });
+    pendingRead = read.catch(() => {});
+    return read;
+  };
+
   const setPendingAttachments = (attachments: AiImageAttachment[]) => {
+    batchGeneration++;
+    readsInCurrentBatch = 0;
     pendingAttachments = attachments.slice(0, MAX_IMAGE_ATTACHMENTS);
     renderAttachmentBar();
   };
 
   return {
     getPendingAttachments: () => pendingAttachments,
+    hasPendingReads: () => readsInCurrentBatch > 0,
     renderAttachmentBar,
     clearPendingAttachments,
     addImageFiles,

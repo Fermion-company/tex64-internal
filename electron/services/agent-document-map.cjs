@@ -4,7 +4,7 @@
  * The map is what a careful co-author keeps in their head: which files make
  * up the document, where every section starts and ends, which labels, figures
  * and citations exist, and which bib files hold the entries. It is computed
- * from the files on disk (no model call), handed to the model with every turn
+ * from workspace files and any current editor drafts, handed to the model with every turn
  * so it edits by section instead of re-reading whole files, and reused by the
  * consistency tools (check_references / check_bibliography) and the @ picker.
  */
@@ -15,11 +15,13 @@ const path = require("path");
 const fsp = require("fs/promises");
 const crypto = require("crypto");
 
-const MAX_FILES = 40;
+// Keep the optional prompt profile within its former memory ceiling.
+const MAX_PROFILE_BYTES = 80 * 1024 * 1024;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_PROMPT_CHARS = 6_000;
 
-const INCLUDE_PATTERN = /\\(?:input|include|subfile|InputIfFileExists)\s*\{([^}]+)\}/g;
+const { activeTexSource, parseTexIncludes, includeCandidates } = require("./tex-build-target.cjs");
+const { parseLatexStructure, cleanTitle } = require("./agent-tools-latex.cjs");
 const BIB_RESOURCE_PATTERN = /\\(?:bibliography|addbibresource)\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/g;
 const LABEL_PATTERN = /\\label\s*\{([^}]+)\}/g;
 const REF_PATTERN =
@@ -34,7 +36,6 @@ const FLOAT_BEGIN_PATTERN = /\\begin\{(figure|table|algorithm|listing)\*?\}/;
 const FLOAT_END_PATTERN = /\\end\{(figure|table|algorithm|listing)\*?\}/;
 const MATH_ENV_PATTERN =
   /\\begin\{(equation|align|gather|multline|eqnarray|flalign|alignat)\*?\}/;
-const BIB_ENTRY_PATTERN = /^\s*@([A-Za-z]+)\s*[{(]\s*([^,\s]+)\s*,/;
 const GRAPHIC_EXTENSIONS = ["", ".pdf", ".png", ".jpg", ".jpeg", ".eps", ".svg", ".tikz"];
 
 const stripComment = (line) => {
@@ -58,13 +59,6 @@ const splitKeys = (raw) =>
     .map((key) => key.trim())
     .filter(Boolean);
 
-const cleanTitle = (title) =>
-  String(title || "")
-    .replace(/\\[a-zA-Z]+\*?(?:\[[^\]]*\])?/g, "")
-    .replace(/[{}]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
 const normalizeRelative = (value) =>
   String(value || "")
     .trim()
@@ -72,37 +66,27 @@ const normalizeRelative = (value) =>
     .replace(/^\.\/+/, "")
     .replace(/\/{2,}/g, "/");
 
-/**
- * The document's main file: the AI-mode document, else the workspace root
- * file, else the active .tex file. Null when the workspace has no TeX file.
- */
+// Read and compile the same document: AI's paper has an explicit target;
+// Code follows the same standalone/chapter/magic-root decision as Build.
 const resolveMainTexFile = async (service, context) => {
-  const candidates = [];
-  if (typeof context?.documentMainFile === "string") candidates.push(context.documentMainFile);
   try {
-    const info = await service.workspace.rootInfo();
-    if (info && typeof info.path === "string") candidates.push(info.path);
+    const target = context?.documentMainFile ||
+      await service.workspace.resolveBuildTarget(context?.activeFilePath || null);
+    if (!target || !/\.tex$/i.test(target)) return null;
+    const resolved = service.workspace.resolvePath(target);
+    if (!(await fsp.stat(resolved)).isFile()) return null;
+    return normalizeRelative(path.relative(service.workspace.getRootPath(), resolved));
   } catch {
-    // no root info
+    // A missing file or an ambiguous chapter has no authoritative map.
+    return null;
   }
-  if (typeof context?.activeFilePath === "string") candidates.push(context.activeFilePath);
-  for (const candidate of candidates) {
-    const normalized = normalizeRelative(candidate);
-    if (!normalized || !normalized.toLowerCase().endsWith(".tex")) continue;
-    try {
-      const resolved = service.workspace.resolvePath(normalized);
-      const stat = await fsp.stat(resolved);
-      if (stat.isFile()) return normalized;
-    } catch {
-      // try the next candidate
-    }
-  }
-  return null;
 };
 
-const readWorkspaceText = async (service, relativePath) => {
+const readWorkspaceText = async (service, relativePath, getSnapshot) => {
   try {
     const resolved = service.workspace.resolvePath(relativePath);
+    const draft = getSnapshot?.(relativePath);
+    if (draft?.isDirty) return draft.contentLength > MAX_FILE_BYTES ? null : draft.content;
     const stat = await fsp.stat(resolved);
     if (!stat.isFile() || stat.size > MAX_FILE_BYTES) return null;
     return await fsp.readFile(resolved, "utf8");
@@ -122,34 +106,40 @@ const fileExists = async (service, relativePath) => {
 };
 
 /** Section outline of one .tex source, from the shared LaTeX parser. */
-const outlineOf = (content) => {
-  const { parseLatexStructure } = require("./agent-tools-latex.cjs");
-  const structure = parseLatexStructure(content);
-  return structure.nodes.map((node) => ({
-    id: node.id,
-    type: node.type,
-    level: node.level,
-    title: cleanTitle(node.title),
-    line: node.headerLine,
-    startLine: node.startLine,
-    endLine: node.endLine,
-  }));
-};
+const mapOutline = (structure) => structure.nodes.map((node) => ({
+  id: node.id,
+  type: node.type,
+  level: node.level,
+  title: cleanTitle(node.title),
+  line: node.headerLine,
+  startLine: node.startLine,
+  endLine: node.endLine,
+}));
+const outlineOf = (content) => mapOutline(parseLatexStructure(content));
 
 const scanTexFile = (relativePath, content) => {
-  const lines = content.split(/\r?\n/);
+  const masked = activeTexSource(content);
+  const structure = parseLatexStructure(content, masked);
+  const active = masked.slice(0, structure.docEnd);
+  const lines = active.split(/\r?\n/);
   const labels = [];
   const refs = [];
   const cites = [];
   const graphics = [];
-  const includes = [];
+  let previousOffset = 0;
+  let includeLine = 1;
+  const includes = parseTexIncludes(active, { masked: true, withPosition: true }).map(({ offset, ...entry }) => {
+    for (let i = previousOffset; i < offset; i++) if (active[i] === "\n") includeLine++;
+    previousOffset = offset;
+    return { ...entry, target: entry.file, line: includeLine };
+  });
   const bibResources = [];
+  const bibItems = [];
   const floats = [];
   const graphicsPaths = [];
   let mathEnvironments = 0;
   let openFloat = null;
-  lines.forEach((rawLine, index) => {
-    const line = stripComment(rawLine);
+  lines.forEach((line, index) => {
     const lineNumber = index + 1;
     for (const match of line.matchAll(LABEL_PATTERN)) {
       labels.push({ key: match[1].trim(), line: lineNumber });
@@ -171,11 +161,11 @@ const scanTexFile = (relativePath, content) => {
         graphicsPaths.push(normalizeRelative(dir[1]));
       }
     }
-    for (const match of line.matchAll(INCLUDE_PATTERN)) {
-      includes.push({ target: match[1].trim(), line: lineNumber });
-    }
     for (const match of line.matchAll(BIB_RESOURCE_PATTERN)) {
       splitKeys(match[1]).forEach((target) => bibResources.push({ target, line: lineNumber }));
+    }
+    for (const match of line.matchAll(/\\bibitem\s*(?:\[[^\]]*\]\s*)?\{([^}]+)\}/g)) {
+      bibItems.push({ key: match[1].trim(), line: lineNumber, title: "", type: "bibitem", fields: [] });
     }
     if (MATH_ENV_PATTERN.test(line)) mathEnvironments += 1;
     const floatBegin = line.match(FLOAT_BEGIN_PATTERN);
@@ -195,8 +185,8 @@ const scanTexFile = (relativePath, content) => {
   });
   return {
     path: relativePath,
-    lines: lines.length,
-    sections: outlineOf(content),
+    lines: structure.total,
+    sections: mapOutline(structure),
     labels,
     refs,
     cites,
@@ -204,54 +194,31 @@ const scanTexFile = (relativePath, content) => {
     graphicsPaths,
     includes,
     bibResources,
+    bibItems,
     floats,
     mathEnvironments,
-    hasDocumentEnv: /\\begin\{document\}/.test(content),
+    hasDocumentEnv: /\\begin\{document\}/.test(active),
   };
 };
 
 const scanBibFile = (relativePath, content) => {
-  const lines = content.split(/\r?\n/);
+  // The import and citation tools already parse nested groups, quoted fields
+  // and multiple fields on one line. Use their entry offsets for the picker.
+  const { parseBibEntries, bibFields } = require("./bib-append.cjs");
   const entries = [];
-  let current = null;
-  const finish = () => {
-    if (current) entries.push(current);
-    current = null;
-  };
-  lines.forEach((rawLine, index) => {
-    const entryMatch = rawLine.match(BIB_ENTRY_PATTERN);
-    if (entryMatch) {
-      finish();
-      const type = entryMatch[1].toLowerCase();
-      if (type === "comment" || type === "string" || type === "preamble") return;
-      current = { key: entryMatch[2].trim(), type, line: index + 1, fields: new Set(), title: "" };
-      return;
-    }
-    if (!current) return;
-    const field = rawLine.match(/^\s*([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(.*)$/);
-    if (field) {
-      const name = field[1].toLowerCase();
-      current.fields.add(name);
-      if (name === "title" && !current.title) {
-        current.title = cleanTitle(field[2].replace(/^[{"]|[}",]+$/g, "")).slice(0, 80);
-      }
-    }
-  });
-  finish();
-  return {
-    path: relativePath,
-    entries: entries.map((entry) => ({ ...entry, fields: [...entry.fields] })),
-  };
-};
-
-const resolveIncludeTarget = (target, fromFile) => {
-  const cleaned = normalizeRelative(target);
-  if (!cleaned) return [];
-  const withExt = cleaned.toLowerCase().endsWith(".tex") ? cleaned : `${cleaned}.tex`;
-  const fromDir = path.posix.dirname(fromFile);
-  const candidates = [withExt];
-  if (fromDir && fromDir !== ".") candidates.push(path.posix.join(fromDir, withExt));
-  return candidates;
+  let line = 1;
+  let previousOffset = 0;
+  for (const entry of parseBibEntries(content)) {
+    for (let i = previousOffset; i < entry.bodyStart; i++) if (content[i] === "\n") line++;
+    previousOffset = entry.bodyStart;
+    const lineStart = content.lastIndexOf("\n", entry.bodyStart - 1) + 1;
+    if (content.slice(lineStart, entry.bodyStart).trimStart().startsWith("%")) continue;
+    if (entry.type === "string" || entry.type === "preamble") continue;
+    const fields = bibFields(entry.body);
+    entries.push({ key: entry.key, type: entry.type, line, fields: [...fields.keys()],
+      title: cleanTitle(fields.get("title") ?? "").slice(0, 80) });
+  }
+  return { path: relativePath, entries };
 };
 
 /**
@@ -259,32 +226,59 @@ const resolveIncludeTarget = (target, fromFile) => {
  * \include, reads the bib files it names plus any other .bib in the
  * workspace, and returns everything the prompt, tools and pickers need.
  */
-const scanDocument = async (service, mainFile) => {
+const scanDocument = async (service, mainFile, { includeWorkspaceBibs = false, includeProfile = true, getSnapshot } = {}) => {
+  const partialDrafts = new Set();
+  const unreadFiles = new Set();
+  const readSource = (file) => readWorkspaceText(service, file, path => {
+    const snapshot = getSnapshot?.(path);
+    if (snapshot?.isDirty && (snapshot.truncated || snapshot.contentLength > MAX_FILE_BYTES)) partialDrafts.add(path);
+    return snapshot;
+  });
   const main = normalizeRelative(mainFile);
   if (!main) return null;
   const texFiles = [];
-  const texSources = [];
-  const seen = new Set();
-  const queue = [main];
-  while (queue.length > 0 && texFiles.length < MAX_FILES) {
-    const relativePath = queue.shift();
-    if (!relativePath || seen.has(relativePath)) continue;
-    seen.add(relativePath);
-    const content = await readWorkspaceText(service, relativePath);
-    if (content === null) continue;
-    const scanned = scanTexFile(relativePath, content);
-    texFiles.push(scanned);
-    texSources.push({ path: relativePath, content });
+  let profileSources = includeProfile ? [] : null;
+  let profileBytes = 0;
+  const workspaceRoot = service.workspace.getRootPath?.();
+  const generation = service.workspace.rootGeneration;
+  const assertCurrent = () => {
+    if (service.workspace.getRootPath?.() !== workspaceRoot || service.workspace.rootGeneration !== generation) {
+      throw new Error("Workspace changed during the document scan.");
+    }
+  };
+  const mainDir = path.posix.dirname(main);
+  const queue = [{ file: main, base: mainDir }];
+  const visited = new Set();
+  const scannedFiles = new Map();
+  for (let i = 0; i < queue.length; i++) {
+    assertCurrent();
+    const { file, base } = queue[i];
+    const key = file + "\0" + base;
+    if (visited.has(key)) continue;
+    visited.add(key);
+    let scanned = scannedFiles.get(file);
+    if (!scanned) {
+      const content = await readSource(file);
+      if (content === null) { unreadFiles.add(file); continue; }
+      scanned = scanTexFile(file, content);
+      scannedFiles.set(file, scanned);
+      texFiles.push(scanned);
+      if (profileSources) {
+        profileBytes += Buffer.byteLength(content, "utf8");
+        if (profileBytes <= MAX_PROFILE_BYTES) profileSources.push({ path: file, content });
+        else profileSources = null;
+      }
+    }
     for (const include of scanned.includes) {
-      for (const candidate of resolveIncludeTarget(include.target, relativePath)) {
-        if (!seen.has(candidate) && (await fileExists(service, candidate))) {
-          queue.push(candidate);
+      for (const child of includeCandidates(include, file, base, mainDir)) {
+        if (await fileExists(service, child.file)) {
+          queue.push(child);
           break;
         }
       }
     }
   }
-  if (texFiles.length === 0) return null;
+  assertCurrent();
 
   const bibCandidates = new Set();
   for (const file of texFiles) {
@@ -292,32 +286,44 @@ const scanDocument = async (service, mainFile) => {
       const cleaned = normalizeRelative(resource.target);
       if (!cleaned) continue;
       const withExt = cleaned.toLowerCase().endsWith(".bib") ? cleaned : `${cleaned}.bib`;
-      bibCandidates.add(withExt);
-      const fromDir = path.posix.dirname(file.path);
-      if (fromDir && fromDir !== ".") bibCandidates.add(path.posix.join(fromDir, withExt));
+      const directories = new Set([mainDir, ".", path.posix.dirname(file.path)]);
+      for (const directory of directories) {
+        const candidate = path.posix.join(directory, withExt);
+        if (await fileExists(service, candidate)) {
+          bibCandidates.add(candidate);
+          break;
+        }
+      }
     }
   }
-  try {
-    const listed = await service.workspace.listFiles();
-    listed
-      .filter((entry) => typeof entry === "string" && entry.toLowerCase().endsWith(".bib"))
-      .slice(0, 20)
-      .forEach((entry) => bibCandidates.add(normalizeRelative(entry)));
-  } catch {
-    // The named resources are enough.
-  }
   const bibFiles = [];
+  const otherBibFiles = [];
+  const readBib = async (candidate, destination) => {
+    const content = await readSource(candidate);
+    if (content !== null) destination.push(scanBibFile(candidate, content));
+    else if (destination === bibFiles) unreadFiles.add(candidate);
+  };
   for (const candidate of bibCandidates) {
-    if (bibFiles.length >= 10) break;
-    const content = await readWorkspaceText(service, candidate);
-    if (content === null) continue;
-    bibFiles.push(scanBibFile(candidate, content));
+    assertCurrent();
+    await readBib(candidate, bibFiles);
+  }
+  // Extra libraries are available to the @ picker; they are not citations
+  // compiled into the current document and cannot satisfy a missing key.
+  if (includeWorkspaceBibs) {
+    const listed = await service.workspace.listFiles().catch(() => []);
+    for (const file of listed) {
+      assertCurrent();
+      if (typeof file === "string" && /\.bib$/i.test(file) && !bibCandidates.has(normalizeRelative(file))) {
+        await readBib(normalizeRelative(file), otherBibFiles);
+      }
+    }
   }
 
+  assertCurrent();
   // What kind of document this is (Japanese text, teaching material), in one line.
   let profile = "";
   try {
-    profile = require("./agent-teaching-checks.cjs").describeProfile(texSources);
+    if (profileSources) profile = require("./agent-teaching-checks.cjs").describeProfile(profileSources);
   } catch {
     profile = "";
   }
@@ -326,6 +332,9 @@ const scanDocument = async (service, mainFile) => {
     mainFile: main,
     files: texFiles,
     bibFiles,
+    otherBibFiles,
+    partialDrafts: [...partialDrafts],
+    unreadFiles: [...unreadFiles],
     profile,
     scannedAt: Date.now(),
   };
@@ -344,36 +353,19 @@ const sectionAtLine = (file, line) => {
   return best;
 };
 
-const sectionNumberLabel = (file) => {
-  // Numbers sections the way the compiled document would, for the map only:
-  // chapters/sections count from 1, sub-levels restart under their parent.
-  const counters = [0, 0, 0, 0, 0, 0];
-  const labels = new Map();
-  for (const section of file.sections) {
-    if (section.level < 0 || section.level > 5) continue;
-    counters[section.level] += 1;
-    for (let deeper = section.level + 1; deeper < counters.length; deeper += 1) counters[deeper] = 0;
-    const parts = [];
-    for (let level = 0; level <= section.level; level += 1) {
-      if (counters[level] > 0) parts.push(counters[level]);
-    }
-    labels.set(section.id, parts.join("."));
-  }
-  return labels;
-};
-
 /**
  * The map as the model reads it: one line per section with its line range,
  * then labels, floats and citations per file, then the bib files.
  */
 const formatDocumentMapForPrompt = (map, maxChars = MAX_PROMPT_CHARS) => {
-  if (!map || !Array.isArray(map.files) || map.files.length === 0) return "";
+  if (!map || !Array.isArray(map.files) || (!map.files.length && !map.unreadFiles?.length)) return "";
   const out = [];
-  out.push(`DOCUMENT MAP (from disk; main file ${map.mainFile}). Line numbers are current.`);
+  out.push(`DOCUMENT MAP (main file ${map.mainFile}).`);
+  if (map.partialDrafts?.length) out.push("Only the available draft was scanned for: " + map.partialDrafts.join(", "));
+  if (map.unreadFiles?.length) out.push("Could not scan these source files: " + map.unreadFiles.join(", "));
   if (map.profile) out.push(map.profile);
   for (const file of map.files) {
     out.push(`${file.path} (${file.lines} lines)`);
-    const numbers = sectionNumberLabel(file);
     for (const section of file.sections) {
       if (section.type === "preamble") {
         out.push(`  preamble L${section.startLine}-${section.endLine}`);
@@ -384,9 +376,8 @@ const formatDocumentMapForPrompt = (map, maxChars = MAX_PROMPT_CHARS) => {
         continue;
       }
       const indent = "  ".repeat(Math.min(3, Math.max(0, section.level)));
-      const number = numbers.get(section.id);
       out.push(
-        `  ${indent}§${number ? `${number} ` : ""}${section.title || "(untitled)"} L${section.line}-${section.endLine} [id ${section.id}]`,
+        `  ${indent}§${section.title || "(untitled)"} L${section.line}-${section.endLine} [id ${section.id}]`,
       );
     }
     if (file.floats.length > 0) {
@@ -409,6 +400,7 @@ const formatDocumentMapForPrompt = (map, maxChars = MAX_PROMPT_CHARS) => {
       const keys = [...new Set(file.cites.map((c) => c.key))];
       out.push(`  cites: ${keys.slice(0, 30).join(", ")}${keys.length > 30 ? ", …" : ""}`);
     }
+    if (file.bibItems?.length) out.push(`  bibitems: ${file.bibItems.slice(0, 30).map(item => item.key).join(", ")}`);
     if (file.mathEnvironments > 0) out.push(`  display math environments: ${file.mathEnvironments}`);
   }
   for (const bib of map.bibFiles) {
@@ -444,12 +436,13 @@ const computeSourceFingerprint = async (service, map) => {
     ...(map?.files ?? []).map((file) => file.path),
     ...(map?.bibFiles ?? []).map((file) => file.path),
   ];
-  if (files.length === 0) return null;
+  if (files.length === 0 || map.unreadFiles?.length || map.partialDrafts?.length) return null;
   for (const relativePath of files.sort()) {
     const content = await readWorkspaceText(service, relativePath);
+    if (content === null) return null;
     hash.update(relativePath);
     hash.update("\0");
-    hash.update(content ?? "");
+    hash.update(content);
     hash.update("\0");
   }
   return hash.digest("hex");
@@ -577,7 +570,9 @@ const REQUIRED_BIB_FIELDS = {
 const checkBibliography = (map) => {
   const problems = [];
   const entries = new Map();
-  for (const bib of map.bibFiles) {
+  const inline = map.files.filter(file => file.bibItems?.length)
+    .map(file => ({ path: file.path, entries: file.bibItems }));
+  for (const bib of [...map.bibFiles, ...inline]) {
     for (const entry of bib.entries) {
       const existing = entries.get(entry.key);
       if (existing) {
@@ -620,6 +615,7 @@ const checkBibliography = (map) => {
         message: `Entry ${key} is never cited.`,
       });
     }
+    if (entry.type === "bibitem") continue;
     const required = REQUIRED_BIB_FIELDS[entry.type] ?? ["title"];
     const fields = new Set(entry.fields);
     const missing = required.filter((field) => {
@@ -662,14 +658,12 @@ const buildMentionIndex = (map) => {
   const sections = [];
   const labels = [];
   for (const file of map.files) {
-    const numbers = sectionNumberLabel(file);
     for (const section of file.sections) {
       if (section.type === "preamble") continue;
       sections.push({
         path: file.path,
         id: section.id,
         type: section.type,
-        number: numbers.get(section.id) ?? "",
         title: section.type === "abstract" ? "abstract" : section.title,
         line: section.line,
         endLine: section.endLine,
@@ -680,7 +674,9 @@ const buildMentionIndex = (map) => {
     }
   }
   const bibKeys = [];
-  for (const bib of map.bibFiles) {
+  const inline = map.files.filter(file => file.bibItems?.length)
+    .map(file => ({ path: file.path, entries: file.bibItems }));
+  for (const bib of [...map.bibFiles, ...inline, ...(map.otherBibFiles ?? [])]) {
     for (const entry of bib.entries) {
       bibKeys.push({ key: entry.key, path: bib.path, line: entry.line, title: entry.title });
     }

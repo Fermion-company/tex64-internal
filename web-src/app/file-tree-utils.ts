@@ -1,7 +1,7 @@
 import type { DragPayload, FileNode } from "./types.js";
 import { getUiLocale } from "./i18n.js";
 
-const dragDataType = "application/x-tex64-item";
+export const fileTreeDragDataType = "application/x-tex64-item";
 
 export const normalizeInputPath = (value: string) => {
   return value.trim().replace(/\\/g, "/");
@@ -29,16 +29,18 @@ export const getParentPath = (value: string) => {
   return parts.join("/");
 };
 
-const sortNodes = (nodes: FileNode[]) => {
+const sortNodes = (nodes: FileNode[], collator: Intl.Collator) => {
   nodes.sort((a, b) => {
     if (a.type !== b.type) {
       return a.type === "dir" ? -1 : 1;
     }
-    return a.name.localeCompare(b.name, getUiLocale());
+    // Equivalent case and digit spellings can coexist on disk.
+    if (a.name === b.name) return 0;
+    return collator.compare(a.name, b.name) || (a.name < b.name ? -1 : 1);
   });
   nodes.forEach((node) => {
     if (node.children.length > 0) {
-      sortNodes(node.children);
+      sortNodes(node.children, collator);
     }
   });
 };
@@ -85,7 +87,7 @@ export const buildFileTree = (files: string[], folders: string[]): FileNode[] =>
       cursor = child;
     });
   });
-  sortNodes(root.children);
+  sortNodes(root.children, new Intl.Collator(getUiLocale(), { numeric: true, sensitivity: "base" }));
   return root.children;
 };
 
@@ -115,12 +117,12 @@ export const setDragData = (event: DragEvent, payload: DragPayload) => {
     return;
   }
   event.dataTransfer.clearData();
-  event.dataTransfer.setData(dragDataType, JSON.stringify(payload));
-  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData(fileTreeDragDataType, JSON.stringify(payload));
+  event.dataTransfer.effectAllowed = payload.kind === "file" ? "copyMove" : "move";
 };
 
 export const getDragData = (event: DragEvent) => {
-  const raw = event.dataTransfer?.getData(dragDataType);
+  const raw = event.dataTransfer?.getData(fileTreeDragDataType);
   if (!raw) {
     return null;
   }

@@ -166,7 +166,7 @@ class MathOcrService {
       });
       await worker.setParameters({
         tessedit_char_whitelist:
-          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789=+-*/()^_{}",
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.=+-*/()^_{}",
         tessedit_pageseg_mode: "7",
       });
       this.tesseractWorker = worker;
@@ -226,7 +226,6 @@ class MathOcrService {
     const maxSeqLen = Number.isFinite(effectiveMaxSeqLen)
       ? effectiveMaxSeqLen
       : config.maxSeqLen;
-    const minTokens = Math.max(5, Math.round(width / 90));
     const seedOffset = Number.isFinite(decodeCandidate?.seedOffset)
       ? decodeCandidate.seedOffset
       : 0;
@@ -284,25 +283,15 @@ class MathOcrService {
         nextToken = sampleFromProbs(probs, rng);
       } else {
         let maxValue = -Infinity;
-        let secondValue = -Infinity;
         let maxIndex = 0;
-        let secondIndex = 0;
         for (let i = 0; i < vocabSize; i += 1) {
           const value = logits[offset + i];
           if (value > maxValue) {
-            secondValue = maxValue;
-            secondIndex = maxIndex;
             maxValue = value;
             maxIndex = i;
-          } else if (value > secondValue) {
-            secondValue = value;
-            secondIndex = i;
           }
         }
         nextToken = maxIndex;
-        if (nextToken === eosToken && tokens.length < minTokens && secondIndex !== eosToken) {
-          nextToken = secondIndex;
-        }
       }
 
       tokens.push(nextToken);

@@ -11,17 +11,25 @@ import { createEditorSessionInitialOpenOps } from "./initial-open-ops.js";
 import { createEditorSessionWorkspaceOps } from "./workspace-ops.js";
 import { createEditorSessionCursorOps } from "./cursor-ops.js";
 import { createEditorSessionIssueFocusOps } from "./issue-focus.js";
+import { createOutsideEdits } from "./outside-edits.js";
 import { uiText } from "../i18n.js";
 import { contentDigest } from "../collab/digest.js";
-import { anchorFromLiveEditSnapshot, captureLiveEditAnchor, rebaseLiveEditAnchor, } from "./live-edit-history.js";
+import { anchorFromLiveEditSnapshot, captureLiveEditAnchor, rebaseLiveEditAnchor, trackLiveEditModel, } from "./live-edit-history.js";
 export const initEditorSession = (context, deps) => {
     const runtime = createEditorSessionRuntime(context, deps);
     const coreOps = createEditorSessionCoreOps(runtime);
     const splitViewOps = createEditorSessionSplitViewOps(runtime, coreOps);
     const issueOps = createEditorSessionIssueOps(runtime, coreOps);
-    const bufferOps = createEditorSessionBufferOps(runtime, coreOps);
+    const bufferOps = createEditorSessionBufferOps(runtime, coreOps, (path, dirty) => {
+        var _a, _b, _c;
+        const match = `[data-path="${CSS.escape(path)}"]`;
+        (_b = (_a = context.dom.fileTree) === null || _a === void 0 ? void 0 : _a.querySelector(`.file-item${match}`)) === null || _b === void 0 ? void 0 : _b.classList.toggle("is-dirty", dirty);
+        (_c = runtime.dom.editorGroupsRootEl) === null || _c === void 0 ? void 0 : _c.querySelectorAll(`.editor-tab${match}`).forEach(tab => {
+            tab.classList.toggle("is-dirty", dirty);
+        });
+    });
     const tabStateOps = createEditorSessionTabStateOps(runtime);
-    const { applyFormattedContent, requestOpenFile, requestOpenFileInBackground, saveCurrentFile, saveDirtyFiles, scheduleAutoSave, getSaveStatus, handleOpenFileResult, handleSaveResult, clearContentConflicts, } = createEditorSessionFileOps({
+    const { applyFormattedContent, cancelPendingFirstPreview, openFirstPreview, requestOpenFile, requestOpenFileInBackground, captureFormatTarget, saveCurrentFile, saveDirtyFiles, scheduleAutoSave, getSaveStatus, handleOpenFileResult, clearOpenRequests, handleSaveResult, clearContentConflicts, holdSaves, unholdSaves, lastTypedAt, mergesCleanly, disturbsTyping, } = createEditorSessionFileOps({
         deps: runtime.deps,
         editorGroups: runtime.editorGroups,
         monacoModels: runtime.monacoModels,
@@ -44,7 +52,6 @@ export const initEditorSession = (context, deps) => {
         updateBreadcrumbs: splitViewOps.updateBreadcrumbs,
         updateMiniOutline: splitViewOps.updateMiniOutline,
         revealLine: issueOps.revealLine,
-        forEachEditorGroup: coreOps.forEachEditorGroup,
         scheduleAfterComposition: bufferOps.scheduleAfterComposition,
         getLanguageIdForPath: bufferOps.getLanguageIdForPath,
     });
@@ -109,13 +116,13 @@ export const initEditorSession = (context, deps) => {
         return { lineNumber: lines.length, column: ((_b = (_a = lines[lines.length - 1]) === null || _a === void 0 ? void 0 : _a.length) !== null && _b !== void 0 ? _b : 0) + 1 };
     };
     const replaceModelRange = (path, startOffset, endOffset, replacement) => {
-        var _a;
+        var _a, _b, _c, _d, _e, _f, _g;
         const entry = runtime.monacoModels.get(path);
         if (!entry)
             return false;
-        const current = entry.model.getValue();
-        const start = positionAt(current, startOffset);
-        const end = positionAt(current, endOffset);
+        const current = trackLiveEditModel(entry.model).text;
+        const start = (_c = (_b = (_a = entry.model).getPositionAt) === null || _b === void 0 ? void 0 : _b.call(_a, startOffset)) !== null && _c !== void 0 ? _c : positionAt(current, startOffset);
+        const end = (_f = (_e = (_d = entry.model).getPositionAt) === null || _e === void 0 ? void 0 : _e.call(_d, endOffset)) !== null && _f !== void 0 ? _f : positionAt(current, endOffset);
         const range = {
             startLineNumber: start.lineNumber,
             startColumn: start.column,
@@ -137,8 +144,8 @@ export const initEditorSession = (context, deps) => {
                 entry.model.setValue(current.slice(0, startOffset) + replacement + current.slice(endOffset));
             }
         }
-        bufferOps.updateDirtyState(path, entry.model.getValue(), entry.savedContent);
-        (_a = deps.onLivePreviewSourceChanged) === null || _a === void 0 ? void 0 : _a.call(deps);
+        bufferOps.updateDirtyState(path, trackLiveEditModel(entry.model).text, entry.savedContent);
+        (_g = deps.onLivePreviewSourceChanged) === null || _g === void 0 ? void 0 : _g.call(deps);
         scheduleAutoSave();
         return true;
     };
@@ -150,7 +157,7 @@ export const initEditorSession = (context, deps) => {
         const existing = liveEditSessions.get(payload.sessionId);
         if (existing && existing.path !== payload.path)
             return false;
-        const current = entry.model.getValue();
+        const current = trackLiveEditModel(entry.model).text;
         const expected = (_a = existing === null || existing === void 0 ? void 0 : existing.lastReplacement) !== null && _a !== void 0 ? _a : payload.baseValue;
         let anchor;
         if (existing) {
@@ -207,7 +214,7 @@ export const initEditorSession = (context, deps) => {
         return true;
     };
     const loadedLivePreviewSourceAnchor = (payload) => {
-        var _a, _b;
+        var _a, _b, _c, _d, _e, _f, _g, _h;
         const entry = runtime.monacoModels.get(payload.path);
         if (!entry)
             return null;
@@ -221,7 +228,7 @@ export const initEditorSession = (context, deps) => {
         const existing = (_a = liveEditSessions.get(payload.sessionId)) !== null && _a !== void 0 ? _a : previous;
         if (existing && existing.path !== payload.path)
             return null;
-        const current = entry.model.getValue();
+        const current = trackLiveEditModel(entry.model).text;
         const expected = (_b = existing === null || existing === void 0 ? void 0 : existing.lastReplacement) !== null && _b !== void 0 ? _b : payload.baseValue;
         let anchor;
         if (existing) {
@@ -239,8 +246,8 @@ export const initEditorSession = (context, deps) => {
         }
         if (!anchor || current.slice(anchor.startOffset, anchor.endOffset) !== expected)
             return null;
-        const start = positionAt(current, anchor.startOffset);
-        const end = positionAt(current, anchor.endOffset);
+        const start = (_e = (_d = (_c = entry.model).getPositionAt) === null || _d === void 0 ? void 0 : _d.call(_c, anchor.startOffset)) !== null && _e !== void 0 ? _e : positionAt(current, anchor.startOffset);
+        const end = (_h = (_g = (_f = entry.model).getPositionAt) === null || _g === void 0 ? void 0 : _g.call(_f, anchor.endOffset)) !== null && _h !== void 0 ? _h : positionAt(current, anchor.endOffset);
         // Read-only: returning this immutable pair neither creates an edit
         // session nor alters the model or its undo boundaries.
         return { sourceText: current, baseValue: expected,
@@ -287,8 +294,12 @@ export const initEditorSession = (context, deps) => {
         });
     };
     const applyLivePreviewEdit = (payload) => {
+        var _a;
         if (!(payload === null || payload === void 0 ? void 0 : payload.sessionId) || !payload.path || !payload.start || !payload.end)
             return false;
+        const queuedSource = (_a = pendingLiveEdits.get(payload.sessionId)) === null || _a === void 0 ? void 0 : _a.sourceText;
+        if (payload.sourceText === undefined && queuedSource !== undefined)
+            payload = { ...payload, sourceText: queuedSource };
         if (applyLoadedLiveEdit(payload)) {
             pendingLiveEdits.delete(payload.sessionId);
             return true;
@@ -313,8 +324,31 @@ export const initEditorSession = (context, deps) => {
         }
         return true;
     };
+    const modelLoads = new Map();
+    const loadWorkspaceTextModel = (path) => {
+        if (runtime.monacoModels.has(path))
+            return Promise.resolve(true);
+        if (!deps.getWorkspaceFiles().includes(path))
+            return Promise.resolve(false);
+        return new Promise((resolve) => {
+            const waiting = modelLoads.get(path);
+            if (waiting) {
+                waiting.push(resolve);
+                return;
+            }
+            modelLoads.set(path, [resolve]);
+            if (!requestOpenFileInBackground(path, "primary", false)) {
+                modelLoads.delete(path);
+                resolve(false);
+            }
+        });
+    };
     const handleOpenFileResultWithLiveEdit = (payload) => {
-        handleOpenFileResult(payload);
+        if (!handleOpenFileResult(payload))
+            return;
+        const waiting = modelLoads.get(payload.path);
+        modelLoads.delete(payload.path);
+        waiting === null || waiting === void 0 ? void 0 : waiting.forEach((resolve) => resolve(!payload.error && runtime.monacoModels.has(payload.path)));
         if (payload.error) {
             openingLivePaths.delete(payload.path);
             for (const [sessionId, pending] of pendingLiveEdits) {
@@ -344,43 +378,31 @@ export const initEditorSession = (context, deps) => {
         pendingLiveAnchors.clear();
         openingLivePaths.clear();
     };
-    const pendingExternalChanges = new Map();
-    const handleExternalFileChange = (payload) => {
-        const entry = runtime.monacoModels.get(payload.path);
-        const groupKey = coreOps.findGroupKeyByPath(payload.path);
-        if (!entry || !groupKey)
-            return;
-        const group = coreOps.getEditorGroup(groupKey);
-        pendingExternalChanges.set(payload.path, payload);
-        const apply = () => {
-            var _a, _b, _c;
-            if (pendingExternalChanges.get(payload.path) !== payload)
-                return;
-            if (runtime.monacoModels.get(payload.path) !== entry) {
-                pendingExternalChanges.delete(payload.path);
-                return;
-            }
-            if (group.isComposing) {
-                window.setTimeout(apply, 100);
-                return;
-            }
-            pendingExternalChanges.delete(payload.path);
-            if (!payload.fileDeleted && payload.content === entry.savedContent)
-                return;
-            if (!payload.fileDeleted && ((_a = runtime.fileOpsState.pendingSave) === null || _a === void 0 ? void 0 : _a.path) === payload.path &&
-                runtime.fileOpsState.pendingSave.content === payload.content)
-                return;
-            applyFormattedContent(group, payload.path, (_b = payload.content) !== null && _b !== void 0 ? _b : "", {
-                updateSaved: true,
-                showAiDiff: false,
-                expectedContent: entry.savedContent,
-                fileDeleted: payload.fileDeleted,
-                externalChange: true,
-            });
-            (_c = deps.onLivePreviewSourceChanged) === null || _c === void 0 ? void 0 : _c.call(deps);
-        };
-        apply();
-    };
+    // Disk changes from another program and Axiom's writes; both wait for an
+    // open IME composition on their file, and an Axiom edit to the paragraph
+    // being typed waits for a pause in typing (outside-edits.ts).
+    const outsideEdits = createOutsideEdits({
+        editorGroups: runtime.editorGroups,
+        monacoModels: runtime.monacoModels,
+        findGroupKeyByPath: coreOps.findGroupKeyByPath,
+        getEditorGroup: coreOps.getEditorGroup,
+        getPendingSave: () => runtime.fileOpsState.pendingSave,
+        applyFormattedContent,
+        onLivePreviewSourceChanged: () => { var _a; return (_a = deps.onLivePreviewSourceChanged) === null || _a === void 0 ? void 0 : _a.call(deps); },
+        disturbsTyping,
+        mergesCleanly,
+        lastTypedAt,
+        holdSaves,
+        unholdSaves,
+        // A deletion became final: close its clean tab and, as a tree update
+        // would, open another file if the editor is left empty.
+        onDeletionSettled: () => {
+            workspaceOps.resyncWorkspaceFiles();
+            initialOpenOps.requestInitialOpen();
+        },
+    });
+    workspaceOps.setKeepMissingPath((path) => outsideEdits.isDeletionPending(path));
+    const handleExternalFileChange = outsideEdits.handleExternalFileChange;
     const markSavedExternally = (path, digest) => {
         const entry = runtime.monacoModels.get(path);
         if (!entry)
@@ -466,14 +488,18 @@ export const initEditorSession = (context, deps) => {
         clearJumpHighlight: issueOps.clearJumpHighlight,
         scheduleAutoSave,
         getSaveStatus,
+        loadWorkspaceTextModel,
+        cancelPendingFirstPreview,
+        openFirstPreview,
         requestOpenFile,
         jumpToFileLine: navigationOps.jumpToFileLine,
         jumpToLocation: navigationOps.jumpToLocation,
         applyFormattedContent,
-        applyContentToOpenFile: navigationOps.applyContentToOpenFile,
+        applyContentToOpenFile: outsideEdits.applyContentToOpenFile,
         applyLivePreviewEdit,
         getLivePreviewSourceAnchor,
         handleExternalFileChange,
+        captureFormatTarget,
         saveCurrentFile,
         saveDirtyFiles,
         requestInitialOpen: initialOpenOps.requestInitialOpen,
@@ -487,9 +513,13 @@ export const initEditorSession = (context, deps) => {
         handleRenameResult: workspaceOps.handleRenameResult,
         syncWorkspaceFiles: (payload) => {
             if (payload.rootChanged) {
+                clearOpenRequests();
+                for (const waiting of modelLoads.values())
+                    waiting.forEach((resolve) => resolve(false));
+                modelLoads.clear();
                 clearContentConflicts();
                 clearLivePreviewEdits();
-                pendingExternalChanges.clear();
+                outsideEdits.clear();
             }
             workspaceOps.syncWorkspaceFiles(payload);
         },

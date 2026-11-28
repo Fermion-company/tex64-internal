@@ -241,6 +241,7 @@ export interface DocumentRepository {
   createDocument(userId: string, document: DocumentModel): Promise<StoredDocument>;
   getDocument(userId: string, documentId: string): Promise<StoredDocument | null>;
   getRevision(userId: string, documentId: string, revision: number): Promise<StoredRevision | null>;
+  getRevisionByCommitId(userId: string, documentId: string, commitId: string): Promise<StoredRevision | null>;
   listRevisions(
     userId: string,
     documentId: string,

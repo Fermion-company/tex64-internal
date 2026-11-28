@@ -50,7 +50,7 @@ const resolveLocalized = (value) => {
     return "";
 };
 export const initAnnouncementsUi = (deps) => {
-    var _a;
+    var _a, _b;
     const modal = document.getElementById("announcement-modal");
     const titleEl = document.getElementById("announcement-modal-title");
     const bodyEl = document.getElementById("announcement-modal-body");
@@ -67,10 +67,15 @@ export const initAnnouncementsUi = (deps) => {
         modal.inert = true;
     const queue = [];
     const seenInThisSession = new Set();
+    // The walkthrough is available from Account even before announcements arrive.
+    let axiomExamples = {
+        id: "axiom-examples", kind: "info", template: "axiom-try", title: "Axiom", body: "",
+    };
     let activeId = null;
     let activeEntry = null;
     let isOpen = false;
     let isSubmitting = false;
+    let retryFeedback = null;
     let axiomView = null;
     // Where focus was before the first announcement opened; it goes back there
     // when the last one closes.
@@ -114,6 +119,7 @@ export const initAnnouncementsUi = (deps) => {
             submitBtn.classList.toggle("is-hidden", !enabled);
             submitBtn.setAttribute("aria-hidden", enabled ? "false" : "true");
             submitBtn.disabled = false;
+            submitBtn.textContent = uiText("Send", "送信");
         }
         if (inputEl instanceof HTMLTextAreaElement) {
             inputEl.value = "";
@@ -151,6 +157,7 @@ export const initAnnouncementsUi = (deps) => {
             delete modal.dataset.kind;
         }
         isSubmitting = false;
+        retryFeedback = null;
         setInputMode(false);
         setLinkButton(null, null);
         setAxiomTemplate(null);
@@ -221,9 +228,7 @@ export const initAnnouncementsUi = (deps) => {
             giveFocusBack();
     };
     const closeAndDismiss = () => {
-        if (isSubmitting)
-            return;
-        if (activeId) {
+        if (activeId && !isAxiomTryAnnouncement(activeEntry)) {
             persistDismiss(activeId);
         }
         hide();
@@ -249,6 +254,10 @@ export const initAnnouncementsUi = (deps) => {
     const submitFeedback = () => {
         if (isSubmitting || !(inputEl instanceof HTMLTextAreaElement))
             return;
+        if (retryFeedback) {
+            retryFeedback();
+            return;
+        }
         const message = inputEl.value.trim();
         if (!message) {
             setStatus(uiText("Please enter your feedback.", "内容を入力してください。"), "error");
@@ -260,14 +269,27 @@ export const initAnnouncementsUi = (deps) => {
             submitBtn.disabled = true;
         inputEl.disabled = true;
         setStatus(uiText("Sending…", "送信中…"));
-        deps.postToNative({ type: "feedback:send", category: "general", message }, true);
-        // We don't wait for the platform:feedback ack here — the queued
-        // pipeline in feedback-ops will retry on failure. Dismiss immediately
-        // so the modal never reappears for this announcement.
-        if (activeId)
-            persistDismiss(activeId);
-        hide();
-        showNextOrReturn();
+        const submittedId = activeId;
+        deps.submitFeedback("general", message, (delivery) => {
+            if (!submittedId || activeId !== submittedId)
+                return;
+            if (delivery === "delivered") {
+                closeAndDismiss();
+                return;
+            }
+            isSubmitting = delivery === "sending";
+            retryFeedback = typeof delivery === "object" ? delivery.retry : null;
+            if (submitBtn instanceof HTMLButtonElement) {
+                submitBtn.disabled = isSubmitting;
+                submitBtn.textContent = retryFeedback ? uiText("Retry now", "今すぐ再送") : uiText("Send", "送信");
+            }
+            if (retryFeedback) {
+                setStatus(uiText("Your feedback is saved and will be sent again.", "送信できませんでした。投稿は保存されており自動で再送します。"), "error");
+            }
+            else {
+                setStatus(uiText("Sending…", "送信中…"));
+            }
+        });
     };
     if (closeBtn instanceof HTMLButtonElement) {
         closeBtn.addEventListener("click", () => closeAndDismiss());
@@ -288,11 +310,10 @@ export const initAnnouncementsUi = (deps) => {
         primaryBtn.addEventListener("click", () => {
             // Focus goes to the Axiom chat. Another announcement opening now would
             // lose it at once, so the rest stay undismissed for the next check.
-            if (activeId)
-                persistDismiss(activeId);
             hide();
             returnFocus = null;
             deps.openAxiom();
+            showNext();
         });
     }
     if (inputEl instanceof HTMLTextAreaElement) {
@@ -325,11 +346,21 @@ export const initAnnouncementsUi = (deps) => {
             renderActiveEntry();
         }
     });
+    (_b = document.getElementById("settings-axiom-examples")) === null || _b === void 0 ? void 0 : _b.addEventListener("click", () => {
+        if (isOpen)
+            return;
+        queue.push(axiomExamples);
+        showNext();
+    });
     const handleAnnouncements = (payload) => {
         const incoming = Array.isArray(payload === null || payload === void 0 ? void 0 : payload.announcements) ? payload.announcements : [];
         incoming.forEach((entry) => {
             if (!entry || typeof entry.id !== "string" || !entry.id)
                 return;
+            if (isAxiomTryAnnouncement(entry)) {
+                axiomExamples = entry;
+                return;
+            }
             if (seenInThisSession.has(entry.id))
                 return;
             if (activeId === entry.id)
@@ -337,6 +368,8 @@ export const initAnnouncementsUi = (deps) => {
             seenInThisSession.add(entry.id);
             queue.push(entry);
         });
+        if (queue.length && isAxiomTryAnnouncement(activeEntry))
+            hide();
         showNext();
     };
     return { handleAnnouncements };

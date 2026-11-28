@@ -23,6 +23,7 @@ type Monaco = any;
 
 export type SetupLspDeps = {
   getWorkspaceRoot: () => string | null;
+  loadResource: (resource: { scheme: string; fsPath: string }) => Promise<boolean>;
 };
 
 export type LspHandle = {
@@ -103,7 +104,7 @@ export const setupLsp = async (monaco: Monaco, deps: SetupLspDeps): Promise<LspH
   docSync.start();
   docSync.openPending();
 
-  const providerDisposables = registerLspProviders(monaco, client);
+  const providerDisposables = registerLspProviders(monaco, client, undefined, deps.loadResource);
   // Always registered; the diagnostics flag is checked at publish time so it can
   // be toggled live.
   const disposeDiagnostics = registerDiagnostics(monaco, client, "texlab");

@@ -1,12 +1,24 @@
-const path = require("path");
+const fs = require("node:fs");
+const path = require("node:path");
+
+// Quoted file names may contain spaces. TeX leaves balanced parentheses in
+// unquoted file names, e.g. (./chapter(first)/part.tex.
+const LOG_FILE_TOKEN = /\("([^"]+)"|\(((?:[^()\s"]|\([^()\s"]*\))+\.[\w-]+)(?=[\s()]|$)|[()]/g;
 
 module.exports = (BuildService) => {
-  BuildService.prototype.parseIssues = function (output, rootPath) {
+  BuildService.prototype.parseIssues = function (output, rootPath, mainFileName) {
+    const documentDir = mainFileName && rootPath ? path.dirname(path.resolve(rootPath, mainFileName)) : null;
     const lines = output.split(/\r?\n/);
     const parsed = [];
     const seen = new Set();
     const maxIssues = 20;
-    let activeTexPath = null;
+    const fileStack = [];
+    let rootTexPath = null;
+    // latexmk can run TeX several times to resolve labels. Keep the final TeX
+    // pass and the output of separate tools such as BibTeX and makeindex.
+    const texPass = /^Run number \d+ of rule '(?:latex|pdflatex|lualatex|xelatex)'/i;
+    const lastTexPass = lines.findLastIndex((line) => texPass.test(line));
+    let supersededPass = false;
     const pushIssue = (issue) => {
       const token =
         issue.code === "missing-glyph"
@@ -22,10 +34,18 @@ module.exports = (BuildService) => {
     };
     for (let index = 0; index < lines.length; index += 1) {
       let line = lines[index] ?? "";
+      if (texPass.test(line)) {
+        supersededPass = index < lastTexPass;
+        fileStack.length = 0;
+        rootTexPath = null;
+      } else if (/^Latexmk:|^Run number \d+ of rule /i.test(line)) {
+        supersededPass = false;
+      }
+      if (supersededPass) continue;
       // A log written with the default max_print_line (79) wraps file:line
       // diagnostics, even in the middle of "Undefined control sequence".
       // Builds now widen it, so only a line cut at exactly 79 continues.
-      if (this.extractIssueLocation(line, rootPath)) {
+      if (this.extractIssueLocation(line, rootPath, documentDir)) {
         let physicalLine = line;
         let offset = 1;
         while (physicalLine.length === 79 && offset <= 8) {
@@ -43,10 +63,25 @@ module.exports = (BuildService) => {
       if (this.isLatexmkMetaLine(line)) {
         continue;
       }
-      const contextPath = this.extractContextTexPath(line, rootPath);
-      if (contextPath) {
-        activeTexPath = contextPath;
+      // TeX prints nested inputs as "(file" and emits ")" on return. Several
+      // files may open on the same line, including transient .aux/.sty files.
+      // Ignore diagnostic prose and source excerpts which can contain literal parentheses.
+      const location = this.extractIssueLocation(line, rootPath, documentDir);
+      const severity = this.extractIssueSeverity(line) ?? (location ? "error" : null);
+      if (!severity && !/^\s*l\.\d+\b/.test(line)) {
+        if (line.startsWith("**")) rootTexPath = this.extractContextTexPath(line, rootPath, documentDir);
+        for (const token of line.matchAll(LOG_FILE_TOKEN)) {
+          if (token[0] === ")") {
+            fileStack.pop();
+            continue;
+          }
+          const file = token[1] ?? token[2];
+          const projectTex = file && /\.tex$/i.test(file) ? this.normalizeIssuePath(file, rootPath, documentDir) : null;
+          rootTexPath ??= projectTex;
+          fileStack.push(projectTex ?? fileStack.at(-1) ?? rootTexPath);
+        }
       }
+      const activeTexPath = fileStack.at(-1) ?? rootTexPath;
       const missingGlyphIssues = this.extractMissingGlyphIssues(line, activeTexPath);
       if (missingGlyphIssues.length > 0) {
         for (const issue of missingGlyphIssues) {
@@ -54,15 +89,13 @@ module.exports = (BuildService) => {
         }
         continue;
       }
-      const location = this.extractIssueLocation(line, rootPath);
-      const severity = this.extractIssueSeverity(line) ?? (location ? "error" : null);
       if (!severity) {
         continue;
       }
       const wrappedLineNumber = this.extractWrappedLineNumber(lines, index, line);
-      const message = this.composeIssueMessage(line, wrappedLineNumber);
+      const message = this.composeIssueMessage(line, wrappedLineNumber, lines[index + 1]);
       const shouldSearchNearby = severity === "error";
-      const nearbyLocation = shouldSearchNearby ? this.extractNearbyIssueLocation(lines, index, rootPath) : null;
+      const nearbyLocation = shouldSearchNearby ? this.extractNearbyIssueLocation(lines, index, rootPath, documentDir) : null;
       const directLineNumber = this.extractLineNumber(line);
       const lineNumber =
         location?.line ?? directLineNumber ?? wrappedLineNumber ?? nearbyLocation?.line ?? null;
@@ -132,7 +165,7 @@ module.exports = (BuildService) => {
     // "./main.tex:31: Package luatex.def Error: ...". Without dropping that
     // prefix the anchored patterns below never fire and a fatal error is
     // silently downgraded to nothing.
-    const text = raw.replace(/^(?:\.[\\/])?[^\s:]+:\d+(?::\d+)?:\s*/, "") || raw;
+    const text = raw.replace(/^(?:[A-Za-z]:)?[^:\r\n]+?\.[A-Za-z0-9]+:\d+(?::\d+)?:\s*/, "") || raw;
     const lower = text.toLowerCase();
     if (
       text.startsWith("!") ||
@@ -219,8 +252,14 @@ module.exports = (BuildService) => {
     return null;
   };
 
-  BuildService.prototype.composeIssueMessage = function (line, wrappedLineNumber) {
+  BuildService.prototype.composeIssueMessage = function (line, wrappedLineNumber, sourceLine) {
     const message = typeof line === "string" ? line.trim() : "";
+    // TeX breaks its source excerpt immediately after the undefined token.
+    // A macro expansion has different context lines, so leave those verbatim.
+    if (/Undefined control sequence\.?$/i.test(message) && /^\s*l\.\d+\s/.test(sourceLine ?? "")) {
+      const command = sourceLine.match(/(\\(?:[A-Za-z@]+|[^\sA-Za-z@]))\s*$/)?.[1];
+      if (command) return `${message} ${command}`;
+    }
     if (!message || !Number.isFinite(wrappedLineNumber)) {
       return message;
     }
@@ -233,36 +272,46 @@ module.exports = (BuildService) => {
     return message;
   };
 
-  BuildService.prototype.normalizeIssuePath = function (filePath, rootPath) {
-    if (!filePath || typeof filePath !== "string") {
-      return null;
+  BuildService.prototype.normalizeIssuePath = function (filePath, rootPath, documentDir) {
+    if (typeof filePath !== "string") return null;
+    const reported = filePath.trim().replace(/^\(+|\)+$/g, "").replace(/^"(.*)"$/, "$1");
+    if (!reported) return null;
+    const inside = (relative) =>
+      relative && relative !== "." && relative !== ".." &&
+      !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+    const workspacePath = (absolute) => {
+      const relative = path.relative(rootPath, absolute);
+      return inside(relative) ? relative : null;
+    };
+    if (rootPath && path.isAbsolute(reported)) {
+      // TeX may report an absolute path under the real spelling of the workspace.
+      let relative = workspacePath(reported);
+      if (!relative) {
+        try {
+          const real = path.relative(fs.realpathSync(rootPath), fs.realpathSync(reported));
+          if (inside(real)) relative = real;
+        } catch { /* leave distribution and missing files outside the project */ }
+      }
+      return relative?.split(path.sep).join("/") ?? null;
     }
-    let normalized = filePath.trim();
-    if (!normalized) {
-      return null;
+    if (rootPath && documentDir && documentDir !== rootPath) {
+      // TeX runs in the workspace. A ./ prefix is explicitly relative to its
+      // working directory; bare source paths may come from the document folder.
+      const bases = /^\.[\\/]/.test(reported) ? [rootPath, documentDir] : [documentDir, rootPath];
+      for (const base of bases) {
+        const candidate = path.resolve(base, reported);
+        const relative = workspacePath(candidate);
+        if (!relative) continue;
+        try {
+          if (fs.statSync(candidate).isFile()) return relative.split(path.sep).join("/");
+        } catch { /* try the other base */ }
+      }
     }
-    normalized = normalized
-      .replace(/^\(+/, "")
-      .replace(/\)+$/, "")
-      .replace(/^\.([\\/])/, "");
-    if (rootPath && path.isAbsolute(normalized)) {
-      normalized = path.relative(rootPath, normalized);
-    }
-    if (!normalized || normalized === ".") {
-      return null;
-    }
-    // A distribution file (TeX Live's keyval.tex and friends) is not something
-    // the user can open and fix, and TeX names them constantly while loading
-    // packages. Treating one as the issue's location sends the reader into
-    // /usr/local/texlive instead of their own document, so refuse it and let
-    // the caller fall back to a path inside the project.
-    if (normalized.startsWith("..") || path.isAbsolute(normalized)) {
-      return null;
-    }
-    return normalized;
+    const relative = path.normalize(reported);
+    return inside(relative) ? relative.split(path.sep).join("/") : null;
   };
 
-  BuildService.prototype.extractIssueLocation = function (line, rootPath) {
+  BuildService.prototype.extractIssueLocation = function (line, rootPath, documentDir) {
     if (typeof line !== "string") {
       return null;
     }
@@ -272,7 +321,7 @@ module.exports = (BuildService) => {
     if (!match) {
       return null;
     }
-    const filePath = this.normalizeIssuePath(match[1], rootPath);
+    const filePath = this.normalizeIssuePath(match[1], rootPath, documentDir);
     if (!filePath) {
       return null;
     }
@@ -283,7 +332,7 @@ module.exports = (BuildService) => {
     };
   };
 
-  BuildService.prototype.extractContextTexPath = function (line, rootPath) {
+  BuildService.prototype.extractContextTexPath = function (line, rootPath, documentDir) {
     if (typeof line !== "string") {
       return null;
     }
@@ -293,16 +342,16 @@ module.exports = (BuildService) => {
     }
     const starMatch = trimmed.match(/^\*\*([^\r\n]+?\.tex)\s*$/i);
     if (starMatch) {
-      return this.normalizeIssuePath(starMatch[1], rootPath);
+      return this.normalizeIssuePath(starMatch[1], rootPath, documentDir);
     }
     const openMatch = trimmed.match(/^\(([^()\r\n]+?\.tex)\b/i);
     if (openMatch) {
-      return this.normalizeIssuePath(openMatch[1], rootPath);
+      return this.normalizeIssuePath(openMatch[1], rootPath, documentDir);
     }
     return null;
   };
 
-  BuildService.prototype.extractNearbyIssueLocation = function (lines, index, rootPath) {
+  BuildService.prototype.extractNearbyIssueLocation = function (lines, index, rootPath, documentDir) {
     if (!Array.isArray(lines)) {
       return null;
     }
@@ -314,7 +363,7 @@ module.exports = (BuildService) => {
       if (typeof nextLine !== "string") {
         break;
       }
-      const location = this.extractIssueLocation(nextLine, rootPath);
+      const location = this.extractIssueLocation(nextLine, rootPath, documentDir);
       if (location) {
         return location;
       }
@@ -325,7 +374,7 @@ module.exports = (BuildService) => {
         }
       }
       if (!nearbyPath) {
-        nearbyPath = this.extractContextTexPath(nextLine, rootPath);
+        nearbyPath = this.extractContextTexPath(nextLine, rootPath, documentDir);
       }
     }
     if (nearbyLine === null && !nearbyPath) {

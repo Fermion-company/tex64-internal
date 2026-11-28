@@ -38,17 +38,11 @@ module.exports = (SynctexService) => {
     env.PATH = this.extendPath(env.PATH);
     const cwd = path.dirname(pdfPath);
     const normalizedPdfForHint = this.normalizeComparePath(pdfPath);
-    const hintCandidateCount = this.forwardHints.filter((hint) => {
-      if (!hint || hint.page !== Math.floor(page)) {
-        return false;
-      }
-      if (!normalizedPdfForHint) {
-        return true;
-      }
-      return hint.pdfPath === normalizedPdfForHint;
-    }).length;
-    const hintPreview = this.forwardHints
-      .filter((hint) => hint && hint.page === Math.floor(page))
+    const pageHints = this.forwardHints.filter((hint) =>
+      hint?.page === Math.floor(page) && hint.pdfPath === normalizedPdfForHint
+    );
+    const hintCandidateCount = pageHints.length;
+    const hintPreview = pageHints
       .slice(0, 3)
       .map((hint) => ({
         line: hint.line,
@@ -58,7 +52,8 @@ module.exports = (SynctexService) => {
         dx: Math.abs(hint.x - x),
         dy: Math.abs(hint.y - y),
       }));
-    if (!bypassHint) {
+    const quick = this.reverseQuick({ pdfPath, page, x, y });
+    if (!bypassHint && !quick?.boxOwner) {
       const hint = this.findForwardHint({
         pdfPath,
         page,
@@ -79,25 +74,9 @@ module.exports = (SynctexService) => {
           hintPreview,
         };
       }
-      const recentHint = this.findRecentPageHint({ page, x, y });
-      if (recentHint) {
-        return {
-          ok: true,
-          path: recentHint.sourcePath,
-          line: recentHint.line,
-          column: recentHint.column,
-          confidence: true,
-          scoreGap: null,
-          distance: 0,
-          hinted: true,
-          hintCandidateCount,
-          hintPreview,
-        };
-      }
     }
     // The parsed index answers from memory. The synctex process remains the
     // fallback for a PDF whose SyncTeX data the index cannot read.
-    const quick = this.reverseQuick({ pdfPath, page, x, y });
     if (quick) {
       return {
         ok: true,

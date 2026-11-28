@@ -110,6 +110,7 @@ export function NativePlatformControls({
 
   const chooseModel = (model: NativeAgentModel) => {
     setModelMenuOpen(false);
+    modelTriggerRef.current?.focus();
     if (nativeModelAction(model, platform.isPro) === "plans") {
       platform.openPlans("pro");
       return;

@@ -17,6 +17,8 @@ import {
   type NativeWorkspaceIdentity,
 } from "./workspace-identity";
 
+import type { PdfTextHit } from "@/components/pdf-text-blocks";
+
 export type ParagraphEditorContext = {
   workspaceId?: string;
   workspaceRoot?: string | null;
@@ -37,6 +39,7 @@ export type EditableParagraph = {
   workspaceGeneration: number;
   segments: ParagraphSegment[];
   focusText: string;
+  textHit?: PdfTextHit;
 };
 
 export type ParagraphEditor = {
@@ -49,7 +52,7 @@ export type ParagraphEditor = {
   acceptCurrent: () => void;
   updateDraft: (text: string) => void;
   discard: () => void;
-  open: (location: { path: string; line: number; selectedText?: string; focusedText?: string }) => void;
+  open: (location: { path: string; line: number; selectedText?: string; focusedText?: string; textHit?: PdfTextHit }) => void;
   save: (replacementText: string) => Promise<boolean>;
   close: () => void;
 };
@@ -80,6 +83,7 @@ const draftKey = (target: EditableParagraph) => `${target.path}:${target.startLi
 /** Direct paragraph editing with whole-file CAS and workspace-generation guards. */
 export function useParagraphEditor(context: ParagraphEditorContext = {}): ParagraphEditor {
   const requestEpochRef = useRef(0);
+  const pendingSave = useRef<{ epoch: number; latestText: string } | null>(null);
   const workspaceId = context.workspaceId ?? "";
   const workspaceRoot = context.workspaceRoot ?? null;
   const workspaceGeneration =
@@ -140,7 +144,7 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
   );
 
   const open = useCallback(
-    (location: { path: string; line: number; selectedText?: string; focusedText?: string }) => {
+    (location: { path: string; line: number; selectedText?: string; focusedText?: string; textHit?: PdfTextHit }) => {
       const host = getNativeHost();
       if (!host) return;
       const requestEpoch = ++requestEpochRef.current;
@@ -226,11 +230,12 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
               workspaceGeneration: expected.workspaceGeneration,
               segments,
               focusText: location.focusedText?.trim() ?? "",
+              textHit: location.textHit,
           };
           const draft = drafts()[draftKey(target)];
           updateCurrentState({
             paragraph: draft
-              ? { ...draft.target, workspaceId: expected.workspaceId, workspaceGeneration: expected.workspaceGeneration, focusText: target.focusText,
+              ? { ...draft.target, workspaceId: expected.workspaceId, workspaceGeneration: expected.workspaceGeneration, focusText: target.focusText, textHit: target.textHit,
                   // Edits elsewhere in the file do not invalidate this draft.
                   ...(draft.target.originalText === range.text ? { baseContentHash: target.baseContentHash } : {}) }
               : target,
@@ -257,7 +262,7 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
   const save = useCallback(
     async (replacementText: string): Promise<boolean> => {
       const target = paragraph;
-      if (!target) return false;
+      if (!target || pendingSave.current?.epoch === requestEpochRef.current) return false;
       if (
         target.workspaceId !== expected.workspaceId ||
         target.workspaceGeneration !== expected.workspaceGeneration ||
@@ -274,6 +279,8 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
       const host = getNativeHost();
       if (!host) return false;
       const requestEpoch = ++requestEpochRef.current;
+      const submitted = { epoch: requestEpoch, latestText: replacementText };
+      pendingSave.current = submitted;
       updateCurrentState({ saving: true, error: null });
       try {
         const result = await requestFromHost(host, {
@@ -311,6 +318,21 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
           return false;
         }
         delete drafts()[draftKey(target)];
+        if (submitted.latestText !== replacementText) {
+          // Keep typing that arrived after submission. The next save must
+          // compare against the revision the host has just written.
+          const savedTarget: EditableParagraph = {
+            ...target,
+            originalText: replacementText,
+            endLine: target.startLine + replacementText.split(/\r?\n/).length - 1,
+            baseContentHash: typeof result.contentHash === "string" ? result.contentHash : null,
+            segments: target.kind === "math" ? segmentDisplayMath(replacementText) : segmentParagraph(replacementText),
+          };
+          drafts()[draftKey(savedTarget)] = { target: savedTarget, text: submitted.latestText };
+          persistDrafts();
+          updateCurrentState({ paragraph: savedTarget, draftText: submitted.latestText, currentTarget: null });
+          return true;
+        }
         persistDrafts();
         updateCurrentState({ paragraph: null, draftText: null });
         return true;
@@ -320,6 +342,7 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
         }
         return false;
       } finally {
+        if (pendingSave.current === submitted) pendingSave.current = null;
         if (requestEpoch === requestEpochRef.current) {
           updateCurrentState({ saving: false });
         }
@@ -330,6 +353,7 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
 
   const updateDraft = useCallback((text: string) => {
     if (!paragraph) return;
+    if (pendingSave.current?.epoch === requestEpochRef.current) pendingSave.current.latestText = text;
     if (text === paragraph.originalText) delete drafts()[draftKey(paragraph)];
     else drafts()[draftKey(paragraph)] = { target: paragraph, text };
     persistDrafts();

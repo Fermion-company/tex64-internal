@@ -18,6 +18,8 @@ export type DetectedBlockSnapshot = {
 };
 
 export type PendingBlockApply = {
+  sourceModel: object | null;
+  sourceVersion?: number;
   mode: BlockApplyMode;
   draft: { snippet: string; content: BlockContent };
   detectedSnapshot?: DetectedBlockSnapshot | null;

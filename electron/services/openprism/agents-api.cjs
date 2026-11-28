@@ -21,7 +21,7 @@ const resolveAgentsApiConfig = (settings = {}) => {
   const selected = migrateLegacyAxiomModel(settings.model || "Axiom1.0");
   if (selected === "codex") return null;
   const models = {
-    "Axiom1.0": process.env.TEX64_LLM_AXIOM_100_UPSTREAM || process.env.TEX64_LLM_AXIOM_091_UPSTREAM || "gpt-5.6-luna",
+    "Axiom1.0": process.env.TEX64_LLM_AXIOM_100_UPSTREAM || process.env.TEX64_LLM_AXIOM_091_UPSTREAM || "gpt-6.1-terra",
     "Axiom1.0-pro": process.env.TEX64_LLM_AXIOM_100_PRO_UPSTREAM || process.env.TEX64_LLM_AXIOM_091_PRO_UPSTREAM || "gpt-5.6-terra",
   };
   if (!models[selected]) throw new Error(`Unsupported Axiom model: ${selected}`);
@@ -286,14 +286,19 @@ class AgentsApiTurn {
       for (const item of result.data || []) {
         if (item.turn_id !== this.record.turnId) { previousTurn = true; continue; }
         if (item.type !== "message" || item.role !== "assistant" || item.phase === "commentary") continue;
+        const parts = [];
         (item.content || []).forEach((part, index) => {
-          if (part.type === "output_text" && !this.seenTextKeys.has(`${item.id}:${index}`)) collected.set(`${item.id}:${index}`, part.text || "");
+          const key = `${item.id}:${index}`;
+          if (part.type === "output_text" && !this.seenTextKeys.has(key)) parts.push([key, part.text || ""]);
         });
+        collected.set(item.id, parts);
       }
       if (previousTurn || !result.has_more) break;
       after = result.last_id;
     }
-    return new Map([...collected].reverse());
+    // The API lists messages newest first. Parts within a message already
+    // follow reading order and must stay together on stream recovery.
+    return new Map([...collected.values()].reverse().flat());
   }
 
   async consume(response, onText, onProgress) {
@@ -533,9 +538,13 @@ const maintainManagedSessions = async (store, { apiKey, fetchImpl = fetch, conve
         record.toolResults = {};
         record.retired = (record.retired || []).map((entry) => ({ ...entry, deleted: true }));
       } else {
-        const state = await (await turn.request(turn.path, { signal: AbortSignal.timeout(10_000) })).json();
-        record.state = state.status === "idle" ? "idle" : "cancel_pending";
-        record.usage = state.usage ?? record.usage;
+        const response = await turn.request(turn.path, { signal: AbortSignal.timeout(10_000) })
+          .catch((error) => { if (error.status === 404) return null; throw error; });
+        const state = response ? await response.json() : null;
+        // A deleted session cannot still be running. Keep its ID and usage
+        // receipt for the existing history/deletion path.
+        record.state = !response || state?.status === "idle" ? "idle" : "cancel_pending";
+        record.usage = state?.usage ?? record.usage;
       }
       await turn.persist();
     } catch (error) { failures.push(`${record.sessionId}: ${error.message}`); }

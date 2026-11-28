@@ -7,7 +7,8 @@ const { WorkspaceFileWatcher } = require("../electron/services/workspace-file-wa
 test("history pause retains watcher baseline and reconciles external edits on release", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "tex64-watch-history-"));
   let paused = true; const changes = []; let trees = 0;
-  const watcher = new WorkspaceFileWatcher({ resolvePath: (file) => path.join(root, file), isPaused: () => paused, onChange: (change) => changes.push(change), onTree: () => trees++ });
+  // settleMs 0: this test is about the pause, not about waiting out a write in progress.
+  const watcher = new WorkspaceFileWatcher({ resolvePath: (file) => path.join(root, file), isPaused: () => paused, onChange: (change) => changes.push(change), onTree: () => trees++, settleMs: 0 });
   t.after(async () => { watcher.stop(); await fs.rm(root, { recursive: true, force: true }); });
   watcher.root = root; watcher.generation = 3;
   watcher.track("main.tex", "old"); watcher.treeDirty = true;

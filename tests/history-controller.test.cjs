@@ -195,3 +195,24 @@ test("begin tells quiescence what the operation is for, so a record can leave bu
   }
   assert.deepEqual(purposes, ["record", "restore"]);
 });
+
+test("History acknowledgements match editor and restored paths by file identity", async (t) => {
+  const f = await fixture(t);
+  const alias = "Main.tex";
+  if (!await fs.stat(path.join(f.root, alias)).catch(() => null)) {
+    t.skip("This volume distinguishes case.");
+    return;
+  }
+  let token = (await f.request("begin", { purpose: "record" })).token;
+  const first = await f.request("record", { token });
+  await f.request("release", { token });
+  await fs.writeFile(path.join(f.root, "main.tex"), "second");
+  token = (await f.request("begin", { purpose: "restore" })).token;
+  const { plan } = await f.request("plan", { token, id: first.record.id });
+  const restored = await f.request("restore", { token, planId: plan.id });
+  assert.equal(f.controller.boundary(path.join(path.dirname(f.root), "Project")), restored.record.id);
+  await assert.rejects(f.request("ack", {
+    token, buffers: [{ path: alias, content: "second", savedContent: "second" }],
+  }), { code: "SYNC_REQUIRED" });
+  await f.request("ack", { token, buffers: [{ path: alias, content: "first", savedContent: "first" }] });
+});

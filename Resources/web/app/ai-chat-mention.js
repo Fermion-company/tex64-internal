@@ -77,7 +77,38 @@ const toRef = (candidate) => {
 export const createMentionController = (deps) => {
     var _a;
     const { aiInput, getCandidates, onOpen } = deps;
-    const refs = [];
+    let mentions = [];
+    let previousValue = aiInput.value;
+    // A mention belongs to its selected text. Editing elsewhere moves its
+    // range; replacing or deleting the selection removes the structured context.
+    const reconcileMentions = () => {
+        const value = aiInput.value;
+        if (value === previousValue)
+            return;
+        let prefix = 0;
+        while (prefix < previousValue.length && prefix < value.length && previousValue[prefix] === value[prefix])
+            prefix++;
+        let oldEnd = previousValue.length;
+        let newEnd = value.length;
+        while (oldEnd > prefix && newEnd > prefix && previousValue[oldEnd - 1] === value[newEnd - 1]) {
+            oldEnd--;
+            newEnd--;
+        }
+        const shift = newEnd - oldEnd;
+        mentions = mentions.flatMap(mention => {
+            if (mention.end <= prefix)
+                return [mention];
+            if (mention.start >= oldEnd)
+                return [{ ...mention, start: mention.start + shift, end: mention.end + shift }];
+            return [];
+        });
+        previousValue = value;
+    };
+    const activeRefs = () => {
+        reconcileMentions();
+        const refs = new Map(mentions.map(({ ref }) => [JSON.stringify(ref), ref]));
+        return [...refs.values()];
+    };
     // ── Popover DOM ──
     const popover = document.createElement("div");
     popover.className = "ai-mention-popover";
@@ -187,9 +218,7 @@ export const createMentionController = (deps) => {
         const newPos = before.length + handle.length + 1;
         aiInput.setSelectionRange(newPos, newPos);
         aiInput.dispatchEvent(new Event("input", { bubbles: true }));
-        const ref = toRef(candidate);
-        if (!refs.some((existing) => JSON.stringify(existing) === JSON.stringify(ref)))
-            refs.push(ref);
+        mentions.push({ ref: toRef(candidate), start: before.length - 1, end: before.length + handle.length });
         hide();
         aiInput.focus();
     };
@@ -240,21 +269,27 @@ export const createMentionController = (deps) => {
         onOpen === null || onOpen === void 0 ? void 0 : onOpen();
     };
     const onInput = () => {
-        // IME fallback: detect @ insertion via input event when keydown didn't trigger
-        if (mentionStart < 0) {
-            const cursorPos = aiInput.selectionStart;
-            if (cursorPos > 0 && aiInput.value[cursorPos - 1] === "@")
-                open(cursorPos);
-            return;
-        }
+        reconcileMentions();
         const cursorPos = aiInput.selectionStart;
+        if (mentionStart < 0) {
+            const before = aiInput.value.slice(0, cursorPos);
+            if (before.endsWith("@"))
+                open(cursorPos);
+            else {
+                const pasted = /(?:^|\s)@([^\s@]+)$/u.exec(before);
+                if (pasted)
+                    open(cursorPos - pasted[1].length);
+            }
+            if (mentionStart < 0)
+                return;
+        }
         if (cursorPos < mentionStart) {
             hide();
             return;
         }
         query = aiInput.value.slice(mentionStart, cursorPos);
-        // A space or a newline after @ cancels the mention
-        if (query.includes(" ") || query.includes("\n")) {
+        // A section title or filename may itself contain spaces.
+        if (/^\s|[\r\n]/u.test(query) || aiInput.value[mentionStart - 1] !== "@") {
             hide();
             return;
         }
@@ -263,6 +298,8 @@ export const createMentionController = (deps) => {
         renderItems();
     };
     const onKeyDown = (e) => {
+        if (e.isComposing || e.keyCode === 229)
+            return;
         if (mentionStart < 0) {
             // Check for @ trigger
             if (e.key === "@" || (e.key === "2" && e.shiftKey)) {
@@ -316,10 +353,19 @@ export const createMentionController = (deps) => {
     aiInput.addEventListener("keydown", onKeyDown, true); // capture phase to intercept Enter
     aiInput.addEventListener("blur", onBlur);
     return {
-        getExplicitPaths: () => refs.flatMap((ref) => (ref.kind === "file" ? [ref.path] : ref.kind === "section" ? [ref.path] : [])),
-        getExplicitRefs: () => refs.map((ref) => ({ ...ref })),
+        saveDraft: () => {
+            reconcileMentions();
+            return mentions.slice();
+        },
+        restoreDraft: (saved) => {
+            hide();
+            mentions = saved.slice();
+            previousValue = aiInput.value;
+        },
+        getExplicitPaths: () => activeRefs().flatMap((ref) => (ref.kind === "file" ? [ref.path] : ref.kind === "section" ? [ref.path] : [])),
+        getExplicitRefs: () => activeRefs().map((ref) => ({ ...ref })),
         clearExplicitPaths: () => {
-            refs.length = 0;
+            mentions = [];
         },
         refresh: () => {
             if (mentionStart < 0)

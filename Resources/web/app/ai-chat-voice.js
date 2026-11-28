@@ -6,21 +6,19 @@
  */
 import { aiText } from "./ai-i18n.js";
 import { getUiLocale, setLocalizedAttribute } from "./i18n.js";
-import { createVoiceRecorder, formatVoiceClock, isVoiceRecordingSupported } from "./voice-recorder.js";
+import { createVoiceRecorder, formatVoiceClock, isVoiceRecordingSupported, voiceRecorderMessage } from "./voice-recorder.js";
 export const createVoiceController = (deps) => {
     const { aiMic, aiMicTimer, aiInput, postToNative, notify, onTextInserted } = deps;
     const button = aiMic instanceof HTMLButtonElement ? aiMic : null;
     const timerEl = aiMicTimer instanceof HTMLElement ? aiMicTimer : null;
     const input = aiInput instanceof HTMLTextAreaElement ? aiInput : null;
     let pendingRequestId = null;
-    // While the microphone is being asked for, another press waits: a second
-    // request would open a second stream that nothing ever stops.
-    let starting = false;
-    if (!button || !input || typeof navigator === "undefined" || !navigator.mediaDevices) {
+    if (!button || !input || !isVoiceRecordingSupported()) {
         if (button)
             button.hidden = true;
         return {
             toggle: () => { },
+            cancel: () => { },
             isBusy: () => false,
             handleTranscribeResult: () => { },
             syncLabels: () => { },
@@ -84,29 +82,25 @@ export const createVoiceController = (deps) => {
             }
         },
         onError: (code) => {
-            if (code === "short") {
-                setState("idle");
-                return;
-            }
-            if (code === "denied") {
-                notify(aiText("mic_denied"));
-                return;
-            }
-            // The clip could not be read after recording: the button has to leave
-            // its recording look as well.
             setState("idle");
-            notify(aiText("mic_failed"));
+            if (code === "short")
+                return;
+            notify(aiText(voiceRecorderMessage[code]));
         },
     });
     const toggle = () => {
         if (recorder.isRecording())
             recorder.stop();
-        else if (!pendingRequestId && !starting && isVoiceRecordingSupported()) {
-            starting = true;
-            void recorder.start().finally(() => {
-                starting = false;
-            });
-        }
+        else if (!pendingRequestId)
+            void recorder.start();
+    };
+    const cancel = () => {
+        if (!recorder.isBusy() && !pendingRequestId)
+            return;
+        pendingRequestId = null;
+        recorder.cancel();
+        setState("idle");
+        notify("");
     };
     const handleTranscribeResult = (payload) => {
         if (!pendingRequestId || (payload === null || payload === void 0 ? void 0 : payload.requestId) !== pendingRequestId)
@@ -127,7 +121,8 @@ export const createVoiceController = (deps) => {
     setState("idle");
     return {
         toggle,
-        isBusy: () => starting || recorder.isRecording() || pendingRequestId !== null,
+        cancel,
+        isBusy: () => recorder.isBusy() || pendingRequestId !== null,
         handleTranscribeResult,
         syncLabels,
     };

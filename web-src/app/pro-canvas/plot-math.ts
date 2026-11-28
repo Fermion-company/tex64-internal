@@ -34,4 +34,15 @@ export const sampleParametric=(fx:(t:number)=>number,fy:(t:number)=>number,min:n
 export const parsePoints=(src:string):Vec[]=>src.replace(/\r/g,"").split("\n").flatMap(line=>{const parts=line.trim().split(/[\s,]+/);if(parts.length!==2)return[];const x=Number(parts[0]),y=Number(parts[1]);return Number.isFinite(x)&&Number.isFinite(y)?[{x,y}]:[];});
 export const niceTicks=(min:number,max:number,target=5):number[]=>{if(!Number.isFinite(min)||!Number.isFinite(max)||max<=min)return[];const raw=(max-min)/Math.max(1,target),power=Math.pow(10,Math.floor(Math.log10(raw))),fraction=raw/power,nice=fraction<=1?1:fraction<=2?2:fraction<=2.5?2.5:fraction<=5?5:10,step=nice*power,out:number[]=[];for(let value=Math.ceil(min/step)*step;value<=max+step*1e-9;value+=step)out.push(Math.abs(value)<step*1e-10?0:Number(value.toPrecision(12)));return out;};
 export const snapRangeToNice=(min:number,max:number):{min:number;max:number}=>{if(!Number.isFinite(min)||!Number.isFinite(max)||max<=min)return{min,max};const width=max-min,raw=width/5,power=Math.pow(10,Math.floor(Math.log10(raw))),fraction=raw/power,nice=fraction<=1?1:fraction<=2?2:fraction<=2.5?2.5:fraction<=5?5:10,grid=nice*power/10,limit=width*.02,isNice=(value:number)=>{if(value===0)return true;const magnitude=Math.pow(10,Math.floor(Math.log10(Math.abs(value)))),scaled=Math.abs(value)/magnitude;return[1,2,2.5,5,10].some(mark=>Math.abs(scaled-mark)<1e-10);},snap=(value:number)=>{if(isNice(value))return value;const candidate=Math.round(value/grid)*grid;return Math.abs(candidate-value)<=limit?Number(candidate.toPrecision(12)):value;};return{min:snap(min),max:snap(max)};};
-export const autoRange=(ys:number[]):{min:number;max:number}=>{const finite=ys.filter(Number.isFinite);if(!finite.length)return{min:-1,max:1};const min=Math.min(...finite),max=Math.max(...finite);if(min===max)return{min:-1,max:1};const pad=(max-min)*.05;return{min:min-pad,max:max+pad};};
+export const autoRange = (values: number[]): { min: number; max: number } => {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const value of values) {
+    if (!Number.isFinite(value)) continue;
+    min = Math.min(min, value);
+    max = Math.max(max, value);
+  }
+  if (min > max) return { min: -1, max: 1 };
+  const pad = min === max ? Math.max(1, Math.abs(min) * 0.05) : (max - min) * 0.05;
+  return { min: min - pad, max: max + pad };
+};

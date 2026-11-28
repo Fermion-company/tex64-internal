@@ -41,10 +41,8 @@ export const createFileExcerptBroker = (
 ): FileExcerptBroker => {
   const pending = new Map<
     string,
-    { resolve: (value: ExcerptResult) => void; timeoutId: number; cacheKey: string }
+    { resolve: (value: ExcerptResult) => void; timeoutId: number }
   >();
-  const cache = new Map<string, { result: ExcerptResult; updatedAt: number }>();
-  const cacheTtlMs = 30_000;
   let workspaceScopeKey = "none:0";
 
   const setWorkspaceScope = (scope: WorkspaceFileCacheScope) => {
@@ -55,7 +53,6 @@ export const createFileExcerptBroker = (
     const nextScopeKey = `${workspace}:${generation}`;
     if (nextScopeKey === workspaceScopeKey) return;
     workspaceScopeKey = nextScopeKey;
-    cache.clear();
     for (const entry of pending.values()) {
       window.clearTimeout(entry.timeoutId);
       entry.resolve({ ok: false, error: "Workspace changed." });
@@ -82,18 +79,13 @@ export const createFileExcerptBroker = (
     const maxLines = Number.isFinite(options.maxLines)
       ? Math.min(360, Math.max(1, Math.floor(options.maxLines ?? 0)))
       : Math.min(2 * radius + 1, 25);
-    const cacheKey = `${workspaceScopeKey}\0${trimmed}:${lineNumber}:${radius}:${maxLines}`;
-    const cached = cache.get(cacheKey);
-    if (cached && Date.now() - cached.updatedAt < cacheTtlMs) {
-      return Promise.resolve(cached.result);
-    }
     const requestId = buildRequestId();
     return new Promise((resolve) => {
       const timeoutId = window.setTimeout(() => {
         pending.delete(requestId);
         resolve({ ok: false, error: "Excerpt timed out." });
       }, 1400);
-      pending.set(requestId, { resolve, timeoutId, cacheKey });
+      pending.set(requestId, { resolve, timeoutId });
       postToNative(
         {
           type: "file:excerpt",
@@ -134,7 +126,6 @@ export const createFileExcerptBroker = (
       lines,
       ...(payload.truncated ? { truncated: true } : {}),
     };
-    cache.set(entry.cacheKey, { result, updatedAt: Date.now() });
     entry.resolve(result);
   };
 

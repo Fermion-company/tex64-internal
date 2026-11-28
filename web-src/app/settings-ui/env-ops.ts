@@ -184,35 +184,6 @@ export const createSettingsEnvOps = (
     }
   };
 
-  const hasPromptedRuntimeSetup = () => {
-    try {
-      return localStorage.getItem(runtime.keys.runtimeSetupPromptedKey) === "1";
-    } catch {
-      return false;
-    }
-  };
-
-  const markRuntimeSetupPrompted = () => {
-    try {
-      localStorage.setItem(runtime.keys.runtimeSetupPromptedKey, "1");
-    } catch {
-      // ignore storage failures
-    }
-  };
-
-  const maybePromptRuntimeSetup = (summary: EnvStatusSummary | null) => {
-    if (!summary || !summary.hasAnyResult || summary.runtimeReady) {
-      runtime.state.runtimeSetupPromptInFlight = false;
-      return;
-    }
-    if (runtime.state.runtimeSetupPromptInFlight || hasPromptedRuntimeSetup()) {
-      return;
-    }
-    runtime.state.runtimeSetupPromptInFlight = true;
-    markRuntimeSetupPrompted();
-    runtime.deps.onRuntimeSetupNeeded?.(summary);
-  };
-
   const showInstalling = () => {
     installing = true;
     setHeroState("installing");
@@ -232,7 +203,7 @@ export const createSettingsEnvOps = (
     }
     showProgress(false);
     const summary = runtime.state.runtimeStatusSummary;
-    if (!summary || !summary.hasAnyResult) {
+    if (!summary?.requiredChecksComplete) {
       setHeroState("checking");
       setHeroText("Checking TeX…");
       setSetupButton({ visible: false });
@@ -261,7 +232,6 @@ export const createSettingsEnvOps = (
       if (detection?.hasEngine) setHeroText(describeDetection(detection), describeDetectionSource(detection));
       else setHeroText("TeX is ready.");
       setSetupButton({ visible: false });
-      setInstallNote("");
       setChoiceVisible(false);
       // A newer TeX Live year is out. A light tree can no longer add packages, so
       // renewing is urged; a full one keeps working and is only offered it.
@@ -326,7 +296,9 @@ export const createSettingsEnvOps = (
     onStatusSummaryChange: (summary) => {
       runtime.state.runtimeStatusSummary = summary;
       updateRuntimeSetupUi();
-      maybePromptRuntimeSetup(summary);
+      if (!installing && summary.requiredChecksComplete) {
+        runtime.deps.onRuntimeDetection?.(summary.runtimeReady);
+      }
     },
   });
 
@@ -346,7 +318,10 @@ export const createSettingsEnvOps = (
   }) => {
     detection = payload && payload.report ? payload.report : null;
     updateRuntimeSetupUi();
-    runtime.deps.onRuntimeDetection?.(detection, runtime.state.runtimeStatusSummary);
+    const summary = runtime.state.runtimeStatusSummary;
+    if (!installing && !summary?.requiredChecksComplete && detection) {
+      runtime.deps.onRuntimeDetection?.(detection.ready);
+    }
   };
 
   const startInstall = (variant: TexInstallVariant, renew = false) => {

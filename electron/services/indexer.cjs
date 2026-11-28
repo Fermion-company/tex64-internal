@@ -2,6 +2,9 @@ const path = require("path");
 const fsp = require("fs/promises");
 const { normalizeRelativePath } = require("./workspace.cjs");
 
+const { activeTexSource } = require("./tex-build-target.cjs");
+const { parseLatexStructure, cleanTitle } = require("./agent-tools-latex.cjs");
+
 const IGNORED_DIRECTORIES = new Set([
   ".git",
   ".tex64",
@@ -16,27 +19,28 @@ const IGNORED_DIRECTORIES = new Set([
 class IndexerService {
   constructor() {
     this.isIndexing = false;
-    this.pendingRootPath = null;
+    this.pendingRequest = null;
   }
 
-  requestIndex(rootPath, callback) {
-    this.pendingRootPath = rootPath;
-    if (this.isIndexing) {
-      return;
-    }
+  async requestIndex(rootPath, callback) {
+    if (!rootPath) return;
+    this.pendingRequest = { rootPath, callback };
+    if (this.isIndexing) return;
     this.isIndexing = true;
-
-    const run = async () => {
-      while (this.pendingRootPath) {
-        const target = this.pendingRootPath;
-        this.pendingRootPath = null;
-        const snapshot = await this.buildIndex(target);
-        callback(snapshot);
+    try {
+      while (this.pendingRequest) {
+        const request = this.pendingRequest;
+        this.pendingRequest = null;
+        try {
+          const snapshot = await this.buildIndex(request.rootPath);
+          request.callback(snapshot);
+        } catch (error) {
+          console.warn("[indexer] Could not refresh the project index:", error.message);
+        }
       }
+    } finally {
       this.isIndexing = false;
-    };
-
-    run();
+    }
   }
 
   async buildIndex(rootPath) {
@@ -44,8 +48,7 @@ class IndexerService {
     const refRegex = /\\ref\{([^}]+)\}/g;
     const citeRegex = /\\cite\{([^}]+)\}/g;
     const bibRegex = /@\w+\s*\{\s*([^,\s]+)/g;
-    const sectionRegex =
-      /\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\{([^}]+)\}/g;
+    const bibItemRegex = /\\bibitem\s*(?:\[[^\]]*\]\s*)?\{([^}]+)\}/g;
     const beginEnvRegex = /\\begin\{(figure\*?|table\*?)\}/g;
     const endEnvRegex = /\\end\{(figure\*?|table\*?)\}/g;
     const captionRegex = /\\caption\*?\{([^}]+)\}/g;
@@ -61,7 +64,15 @@ class IndexerService {
     const todos = [];
 
     const walk = async (dirPath) => {
-      const entries = await fsp.readdir(dirPath, { withFileTypes: true });
+      let entries;
+      try {
+        entries = await fsp.readdir(dirPath, { withFileTypes: true });
+      } catch (error) {
+        // A chapter folder may have been moved or be unreadable. Keep the
+        // outline for the rest of the project available.
+        if (["ENOENT", "ENOTDIR", "EACCES", "EPERM"].includes(error.code)) return;
+        throw error;
+      }
       for (const entry of entries) {
         if (entry.name.startsWith(".")) {
           continue;
@@ -86,15 +97,19 @@ class IndexerService {
         const lines = content.split(/\r?\n/);
         if (ext === ".tex") {
           const envStack = [];
-          lines.forEach((line, index) => {
+          const active = activeTexSource(content);
+          const structure = parseLatexStructure(content, active);
+          for (const node of structure.nodes) {
+            if (node.type === "abstract" || node.type === "preamble") continue;
+            sections.push({ title: cleanTitle(node.title), path: relPath, line: node.headerLine, level: this.sectionLevel(node.type) });
+          }
+          active.slice(0, structure.docEnd).split(/\r?\n/).forEach((line, index) => {
             const lineNumber = index + 1;
-            const todoTextMatch = line.match(todoTextRegex);
+            const todoTextMatch = lines[index].match(todoTextRegex);
             if (todoTextMatch) {
               todos.push({ key: todoTextMatch[1], path: relPath, line: lineNumber });
             }
-            if (line.trimStart().startsWith("%")) {
-              return;
-            }
+            if (!line.trim()) return;
             this.matchAll(labelRegex, line, (match) => {
               labels.push({ key: match[1], path: relPath, line: lineNumber });
             });
@@ -110,15 +125,8 @@ class IndexerService {
             this.matchAll(refRegex, line, (match) => {
               references.push({ key: match[1], path: relPath, line: lineNumber });
             });
-            this.matchAll(sectionRegex, line, (match) => {
-              const command = match[1];
-              const title = match[2];
-              sections.push({
-                title,
-                path: relPath,
-                line: lineNumber,
-                level: this.sectionLevel(command),
-              });
+            this.matchAll(bibItemRegex, line, (match) => {
+              citations.push({ key: match[1].trim(), path: relPath, line: lineNumber, definition: true });
             });
             this.matchAll(beginEnvRegex, line, (match) => {
               envStack.push(match[1].replace("*", ""));

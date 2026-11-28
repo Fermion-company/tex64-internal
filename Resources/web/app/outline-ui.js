@@ -2,6 +2,7 @@ import { getUiLocale, onUiLocaleChange } from "./i18n.js";
 import { dedupeByKey, dedupeByKeyAndLocation, dedupeSections, pickCitationEntries, } from "./index-utils.js";
 export const initOutlineUi = (context, deps) => {
     const { outlineEmpty, outlineModeCurrent, outlineModeProject, outlineSections, outlineTodos, outlineLabels, outlineCitations, } = context.dom;
+    const modeControls = outlineModeCurrent === null || outlineModeCurrent === void 0 ? void 0 : outlineModeCurrent.parentElement;
     const outlineModeKey = "tex64.outline.mode";
     let outlineMode = "current";
     try {
@@ -180,6 +181,10 @@ export const initOutlineUi = (context, deps) => {
             !(outlineSections instanceof HTMLElement) ||
             !(outlineTodos instanceof HTMLElement)) {
             return;
+        }
+        if (modeControls) {
+            const current = deps.getActiveFilePath();
+            modeControls.hidden = !deps.getWorkspaceFiles().some(path => path !== current && /\.tex$/i.test(path));
         }
         const sectionEntries = dedupeSections(filterEntries(deps.getIndexSections()));
         const todoEntries = dedupeByKeyAndLocation(filterEntries(deps.getIndexTodos()));

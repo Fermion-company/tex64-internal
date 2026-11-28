@@ -30,6 +30,7 @@ import {
   FONT_SCALE,
 } from './font-metrics';
 import { Context } from './context';
+import { MATH_SYMBOLS } from '../latex-commands/definitions-utils';
 import type { MathstyleName, ParseMode, Style } from '../public/core-types';
 import type { BoxType, FontName } from './types';
 
@@ -73,7 +74,6 @@ function getSymbolValue(symbol: string): number {
       '|': 0x2223,
       '\u2223': 0x2223, // DIVIDES
       '\u2225': 0x2225, // PARALLEL TO
-      '\\|': 0x2223,
       '\\{': 0x7b, // '{',
       '\\}': 0x7d, // '}',
       '\\lbrace': 0x7b, // '{',
@@ -107,7 +107,7 @@ function getSymbolValue(symbol: string): number {
       '\\lmoustache': 0x23b0,
       '\\rmoustache': 0x23b1,
       '\\surd': 0x221a,
-    }[symbol] ?? symbol.codePointAt(0)!
+    }[symbol] ?? MATH_SYMBOLS[symbol]?.codepoint ?? symbol.codePointAt(0)!
   );
 }
 

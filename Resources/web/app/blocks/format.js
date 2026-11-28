@@ -156,6 +156,5 @@ export const formatSnippetForInsert = (snippet, model, position, options) => {
     const formattedLines = (options === null || options === void 0 ? void 0 : options.alignEnv)
         ? formatBlockLinesForInsert(lines, prefix, indentUnit)
         : normalizeLinesForInsert(lines, prefix);
-    const result = formattedLines.join("\n");
-    return normalized.endsWith("\n") ? result + "\n" : result;
+    return formattedLines.join("\n");
 };

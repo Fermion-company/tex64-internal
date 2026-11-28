@@ -202,9 +202,9 @@ export const MANUAL_TRIGGERS_PART_4 = [
                 displayLatex: "\\begin{array}{rcl}a&=&b\\\\c&=&d\\end{array}",
             },
             {
-                latex: "\\begin{array}{@{}>r<{}c@{|}l<{}@{}}#?&#?&#?\\\\#?&#?&#?\\end{array}",
+                latex: "\\begin{array}{@{}rc|l@{}}#?&#?&#?\\\\#?&#?&#?\\end{array}",
                 label: "array{...}",
-                displayLatex: "\\begin{array}{@{}>r<{}c@{|}l<{}@{}}a&b&c\\\\d&e&f\\end{array}",
+                displayLatex: "\\begin{array}{@{}rc|l@{}}a&b&c\\\\d&e&f\\end{array}",
             },
         ],
     },

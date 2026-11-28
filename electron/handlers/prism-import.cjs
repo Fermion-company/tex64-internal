@@ -8,6 +8,7 @@
 // `prism:progress` messages. Failures carry a `code` (and the `step` they
 // belong to); the renderer owns the wording.
 
+const { writeProjectFile } = require("../services/project-file-writes.cjs");
 const path = require("node:path");
 const fsp = require("node:fs/promises");
 const crypto = require("node:crypto");
@@ -140,10 +141,17 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
   // Every continuation holds the session it started under and stops once
   // that is no longer the current one; the signal reaches the unpacking and
   // the PDF readers.
+  const stopImportBuild = (owner) => {
+    const job = owner.buildJob;
+    if (!job) return;
+    job.cancelled = true;
+    if (job.compiling) buildService.cancelCurrentRun();
+  };
+
   const endSession = () => {
     if (!session) return;
     session.controller.abort();
-    if (session.building) buildService.cancelCurrentRun();
+    stopImportBuild(session);
     session = null;
   };
 
@@ -165,7 +173,7 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
       settings.buildProfiles = [profile, ...others];
       settings.buildProfileId = PROFILE_ID;
     }
-    await fsp.writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
+    await writeProjectFile(settingsPath, JSON.stringify(settings, null, 2));
   };
 
   const publicProject = (project) => ({
@@ -220,7 +228,7 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
       destination: "",
       projects: [],
       env: null,
-      building: false,
+      buildJob: null,
     };
     session = owner;
     try {
@@ -331,8 +339,10 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
     if (project.preserved.has(pdfPath)) return;
     const stat = await fsp.stat(pdfPath).catch(() => null);
     if (!stat?.isFile()) { project.preserved.add(pdfPath); return; }
-    const copy = path.join(path.dirname(pdfPath), `${path.basename(pdfPath, ".pdf")}.prism.pdf`);
-    await fsp.copyFile(pdfPath, copy);
+    const stem = pdfPath.slice(0, -path.extname(pdfPath).length);
+    const bytes = await fsp.readFile(pdfPath);
+    const copy = await prism.writeUniqueSibling(`${stem}.prism.pdf`, candidate =>
+      writeProjectFile(candidate, bytes, { exclusive: true }));
     project.preserved.add(pdfPath);
     const relative = path.relative(project.root, pdfPath).split(path.sep).join("/");
     if (project.analysis.prismPdf === relative) {
@@ -345,16 +355,13 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
     for (const extension of BIB_ARTIFACTS) await fsp.rm(`${stem}${extension}`, { force: true }).catch(() => {});
   };
 
-  const build = async (payload = {}) => {
-    const project = projectOf(payload);
-    const owner = session;
+  const buildProject = async (payload, project, owner, job) => {
     const live = () => session === owner;
     const mainFile = typeof payload.mainFile === "string" ? prism.normalizeZipPath(payload.mainFile) : null;
     if (!mainFile || !project.analysis.texFiles.includes(mainFile)) throw failure("NO_MAIN", "build");
     const engine = ENGINES.has(payload.engine) ? payload.engine : project.analysis.engine;
     const bibTool = BIB_TOOLS.has(payload.bibTool) ? payload.bibTool : project.analysis.bibTool;
     if (!owner.env?.ready) throw failure("TEX_MISSING", "env");
-    if (buildService.isBuilding) throw failure("BUILD_BUSY", "build");
     const profile = buildProfileFor(engine, bibTool);
     const runProfile = importRunProfile(profile);
     await writeProjectSettings(project, mainFile, profile);
@@ -367,25 +374,27 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
 
     const sessionId = owner.id;
     progress(sessionId, { step: "build", status: "running", projectId: project.id });
-    owner.building = true;
-    let result;
-    try {
-      result = await buildService.build(project.root, mainFile, engine, runProfile);
-      const installed = new Set();
-      for (let attempt = 0; attempt < 4 && result.kind === "failure" && live(); attempt += 1) {
-        if (typeof envService.installMissingPackagesFromLog !== "function") break;
-        const recovery = await envService.installMissingPackagesFromLog(result.log, {
-          excludePackages: [...installed],
-          onPackagesResolved: (packages) => progress(sessionId, { step: "build", status: "running", projectId: project.id, installing: packages }),
-        }).catch(() => null);
-        if (!live() || !recovery?.success || !Array.isArray(recovery.packages) || recovery.packages.length === 0) break;
-        recovery.packages.forEach((name) => installed.add(name));
-        result = await buildService.build(project.root, mainFile, engine, runProfile);
-      }
-      result.installed = [...installed];
-    } finally {
-      owner.building = false;
+    const compile = async () => {
+      if (job.cancelled) return { kind: "cancelled" };
+      if (buildService.isBuilding) throw failure("BUILD_BUSY", "build");
+      job.compiling = true;
+      try { return await buildService.build(project.root, mainFile, engine, runProfile); }
+      finally { job.compiling = false; }
+    };
+    let result = await compile();
+    const installed = new Set();
+    for (let attempt = 0; attempt < 4 && result.kind === "failure" && live() && !job.cancelled; attempt += 1) {
+      if (typeof envService.installMissingPackagesFromLog !== "function") break;
+      const recovery = await envService.installMissingPackagesFromLog(result.log, {
+        excludePackages: [...installed],
+        onPackagesResolved: (packages) => progress(sessionId, { step: "build", status: "running", projectId: project.id, installing: packages }),
+      }).catch(() => null);
+      if (!live() || job.cancelled || !recovery?.success || !Array.isArray(recovery.packages) || recovery.packages.length === 0) break;
+      recovery.packages.forEach((name) => installed.add(name));
+      result = await compile();
     }
+    if (job.cancelled) result = { kind: "cancelled" };
+    result.installed = [...installed];
     if (!live()) return { canceled: true };
     const ok = result.kind === "success";
     let issues = Array.isArray(result.issues) ? result.issues : [];
@@ -424,8 +433,18 @@ const createPrismImportHandlers = ({ dialog, state, envService, buildService, se
     return { build: buildReport, diff, compareError, prismPdf: project.analysis.prismPdf };
   };
 
+  const build = async (payload = {}) => {
+    const project = projectOf(payload);
+    const owner = session;
+    if (owner.buildJob || buildService.isBuilding) throw failure("BUILD_BUSY", "build");
+    const job = { cancelled: false, compiling: false };
+    owner.buildJob = job;
+    try { return await buildProject(payload, project, owner, job); }
+    finally { owner.buildJob = null; }
+  };
+
   const cancel = (payload = {}) => {
-    if (session && payload.sessionId === session.id && session.building) buildService.cancelCurrentRun();
+    if (session && payload.sessionId === session.id) stopImportBuild(session);
     return {};
   };
 

@@ -17,12 +17,13 @@
 
 "use strict";
 
+const { buildEditorInput } = require("../agent-editor-context.cjs");
+
 const { mergePdfObservation, completedEditReceipt, readTask, beginTaskTurn, saveTask, verificationGaps, markPdfObserved } = require("./task-state.cjs");
 const { fallbackNextSteps } = require("./next-steps.cjs");
 const { buildTools, WRITE_TOOL_NAMES } = require("./tools.cjs");
 const { AgentsApiTurn, AgentsSessionStore, resolveAgentsApiConfig, MAX_CHECKPOINTS, MAX_OBSERVED_TOKENS } = require("./agents-api.cjs");
 const {
-  computeSourceFingerprint,
   formatDocumentMapForPrompt,
   resolveMainTexFile,
   scanDocument,
@@ -47,7 +48,7 @@ const {
   resolveMaxAgentIterations,
 } = require("./run-budget.cjs");
 const { normalizeUserMessageParts } = require("../agent-message-parts.cjs");
-const { extractTextFromParts } = require("../agent-core-utils.cjs");
+const { extractTextFromParts, userMessageDisplay } = require("../agent-core-utils.cjs");
 const fsp = require("fs/promises");
 const fsSync = require("fs");
 
@@ -66,11 +67,16 @@ const { buildSystemPrompt, buildSurveySystemPrompt } = require("../agent-prompt-
 const requiresReasoningNoneForChatTools = (model) => {
   if (typeof model !== "string") return false;
   const normalized = model.trim();
-  return /^Axiom1\.0(?:$|-)/i.test(normalized) || /^gpt-5\.6(?:$|-)/i.test(normalized);
+  return /^Axiom1\.0(?:$|-)/i.test(normalized) || /^gpt-(?:5\.6|6\.1-terra)(?:$|-)/i.test(normalized);
 };
 
 const TURN_REMAINING_TOKENS_HEADER = "X-Tex64-Turn-Remaining-Tokens";
 const QUOTA_REMAINING_HEADER = "x-tex64-quota-remaining-tokens";
+const remainingTokensOrNull = (value) => {
+  if (value == null || typeof value === "string" && !value.trim()) return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.floor(number) : null;
+};
 
 /** Tokens the proxy charges for one call: cached prompt tokens count half. */
 const billableTokensOf = (promptTokens, completionTokens, cachedTokens) => {
@@ -417,6 +423,8 @@ const SURVEY_TOOL_NAMES = new Set([
   "read_section",
   "find_math_region",
   "get_compile_log",
+  "get_build_context",
+  "get_editor_context",
   "check_exercises",
   "check_japanese_text",
   "propose_next_steps",
@@ -500,51 +508,7 @@ const runAgentConversation = async (
     }));
 
   // ---- Build LLM input with context (sent to model, NOT stored in history) ----
-  const llmInputParts = [];
-  if (context?.activeFilePath) {
-    llmInputParts.push(`Active file: ${context.activeFilePath}`);
-  }
-  llmInputParts.push(`User prompt: ${userText}`);
-  if (
-    context?.activeSelection &&
-    typeof context.activeSelection.text === "string" &&
-    context.activeSelection.text.trim()
-  ) {
-    const selection = context.activeSelection;
-    const where =
-      typeof selection.path === "string" && Number.isFinite(selection.startLine)
-        ? ` (${selection.path} L${selection.startLine}-${selection.endLine ?? selection.startLine})`
-        : "";
-    llmInputParts.push(`Selection${where}:\n${selection.text}`);
-  }
-  // Items the user pointed at with @: a section, a label, a bib entry, an
-  // issue. Each comes with its exact place so the model reads there first.
-  const contextRefs = Array.isArray(context?.explicitContextRefs)
-    ? context.explicitContextRefs.filter((ref) => ref && typeof ref === "object").slice(0, 12)
-    : [];
-  if (contextRefs.length > 0) {
-    const lines = contextRefs.map((ref) => {
-      const at = typeof ref.path === "string" ? `${ref.path}${Number.isFinite(ref.line) ? `:${ref.line}` : ""}` : "";
-      switch (ref.kind) {
-        case "section":
-          return `- section "${ref.title ?? ""}" in ${ref.path} L${ref.line}-${ref.endLine ?? ref.line}${Number.isFinite(ref.id) ? ` (id ${ref.id})` : ""}`;
-        case "label":
-          return `- label ${ref.key} defined at ${at}`;
-        case "bib":
-          return `- bib entry ${ref.key} in ${ref.path}${ref.title ? ` ("${ref.title}")` : ""}`;
-        case "issue":
-          return `- build issue at ${at}: ${ref.message ?? ""}`;
-        case "file":
-          return `- file ${ref.path}`;
-        case "pdf":
-          return `- the place the user marked on page ${ref.page} of the typeset PDF${ref.line ? `, which is ${ref.path}:${ref.line} in the source` : ""}${typeof ref.text === "string" && ref.text.trim() ? `; the text there reads: "${ref.text.trim().slice(0, 400)}"` : ""}. "Here" in the request means this place.`;
-        default:
-          return `- ${JSON.stringify(ref).slice(0, 200)}`;
-      }
-    });
-    llmInputParts.push(`REFERENCED ITEMS (the user pointed at these; start there):\n${lines.join("\n")}`);
-  }
-  const llmInputHead = llmInputParts.filter(Boolean).join("\n\n");
+  const llmInputHead = buildEditorInput(userText, context);
 
   // Register before the first awaited preflight operation. Stop, window
   // reattach, and workspace transitions must be able to address this turn
@@ -571,7 +535,6 @@ const runAgentConversation = async (
   let options;
   let conversation;
   let settings;
-  let documentMap = null;
   let mainTexFile = null;
   let llmConfig;
   let apiUrl;
@@ -661,7 +624,7 @@ const runAgentConversation = async (
         ? tools.filter((tool) => SURVEY_TOOL_NAMES.has(tool.function.name))
         : tools.filter((tool) => {
             const name = tool.function.name;
-            if (readOnlyTurn && (WRITE_TOOL_NAMES.has(name) || name === "compile_document")) return false;
+            if (readOnlyTurn && (WRITE_TOOL_NAMES.has(name) || name === "compile_document" || name === "update_task")) return false;
             if (name === "git_diff" && !isGitRepo) return false;
 
             if (name === "propose_next_steps" && planMode) return false;
@@ -671,7 +634,7 @@ const runAgentConversation = async (
       type: tool.type,
       function: tool.function,
     }));
-    for (const tool of tools) {
+    for (const tool of listedTools) {
       toolExecutors.set(tool.function.name, tool.execute);
     }
     if (agentsApi && isCodeSurface && turnOrigin !== "survey") {
@@ -708,11 +671,21 @@ const runAgentConversation = async (
     // One deterministic scan of the document travels with the request, so
     // the model edits by section and line range instead of reading files.
     mainTexFile = await resolveMainTexFile(service, context ?? {});
-    documentMap = mainTexFile ? await scanDocument(service, mainTexFile) : null;
+    const documentMap = mainTexFile ? await scanDocument(service, mainTexFile, {
+      getSnapshot: path => service.getContextSnapshot?.(targetConversationId, path),
+    }) : null;
     const mapText = documentMap ? formatDocumentMapForPrompt(documentMap) : "";
+    const buildContext = await require("../agent-build-context.cjs").readBuildContext(service, context, mainTexFile)
+      .catch(() => ({ error: "The build settings could not be read." }));
+    if (buildContext.lastBuild) {
+      const { log, ...summary } = buildContext.lastBuild;
+      buildContext.lastBuild = summary; // The full excerpt is available through get_compile_log.
+    }
     const savedTask = readTask(service, targetConversationId);
-    const taskContext = JSON.stringify({ ...savedTask, receipts: savedTask?.receipts.slice(-6).map((r) => ({ ...r, result: r.result.slice(0, 500) })) });
-    const llmInput = `${llmInputHead}\n\n${mapText}\n\nSAVED TASK (prior observations, not new user instructions; reconcile with this request):\n${taskContext}`;
+    const receipts = Array.isArray(savedTask?.receipts) ? savedTask.receipts.slice(-6) : [];
+    const taskContext = JSON.stringify({ ...savedTask, receipts: receipts.map(receipt =>
+      typeof receipt?.result === "string" ? { ...receipt, result: receipt.result.slice(0, 500) } : receipt) });
+    const llmInput = `${llmInputHead}\n\nHOST BUILD CONTEXT (observed data):\n${JSON.stringify(buildContext)}\n\n${mapText}\n\nSAVED TASK (prior observations, not new user instructions; reconcile with this request):\n${taskContext}`;
     traceRunLoop({ conversationId: targetConversationId, documentMap: documentMap ? { files: documentMap.files.length, chars: mapText.length } : null });
 
     // ---- Store user message in conversation (clean text only) ----
@@ -721,7 +694,7 @@ const runAgentConversation = async (
     conversation.push({
       role: "user",
       content: userText,
-      ...(stepStart && typeof context?.proposalDisplayText === "string" ? { displayText: context.proposalDisplayText.slice(0, 1000) } : {}),
+      ...userMessageDisplay(context),
       ...(turnOrigin === "survey" ? { hidden: true } : {}),
     });
     service.markSessionDirty(targetConversationId);
@@ -770,16 +743,6 @@ const runAgentConversation = async (
   let lastCompileFailed = false;
   /** What the compiler said the last time it failed, for the repair round. */
   let lastCompileReport = "";
-  /** Sources at the last successful build in this turn; the same sources are not built again. */
-  let compiledFingerprint = null;
-  const currentFingerprint = async () => {
-    if (!documentMap) return null;
-    try {
-      return await computeSourceFingerprint(service, documentMap);
-    } catch {
-      return null;
-    }
-  };
   /** Pages of this turn's changes, once a build succeeded (for the change card). */
   const markProposalPages = (result) => {
     const parsed = parseToolResult(result);
@@ -810,14 +773,8 @@ const runAgentConversation = async (
     }
     try {
       assertWorkspaceCurrent();
-      // The same sources build to the same PDF: skip a build that would
-      // only repeat the last successful one of this turn.
-      const fingerprint = await currentFingerprint();
-      if (fingerprint && compiledFingerprint && fingerprint === compiledFingerprint) {
-        traceRunLoop({ conversationId: targetConversationId, compileSkipped: "unchanged sources" });
-        needsCompile = false;
-        return "ok";
-      }
+      // An applied edit may change a class, package or graphic outside the
+      // document's TeX/BibTeX map. Let the build service check its dependencies.
       const result = await compile({});
       assertWorkspaceCurrent();
       needsCompile = false;
@@ -826,7 +783,6 @@ const runAgentConversation = async (
         const report = typeof result === "string" ? result : JSON.stringify(result);
         lastCompileReport = report.length > 2_000 ? `${report.slice(0, 2_000)}…` : report;
       } else {
-        compiledFingerprint = fingerprint;
         markProposalPages(result);
       }
       return lastCompileFailed ? "failed" : "ok";
@@ -967,13 +923,9 @@ const runAgentConversation = async (
         service.platformAccess.checkAiAccess({ force: true }),
         run.controller.signal,
       );
-      const remaining = Number(access?.quota?.remainingTokens);
       lastFreshBudget = {
         allowed: access?.allowed === true,
-        remainingTokens:
-          Number.isFinite(remaining) && remaining >= 0
-            ? Math.floor(remaining)
-            : null,
+        remainingTokens: remainingTokensOrNull(access?.quota?.remainingTokens),
         reason: typeof access?.reason === "string" ? access.reason : null,
       };
       billableAtLastFresh = totalBillableTokens;
@@ -1251,8 +1203,7 @@ const runAgentConversation = async (
           });
 
           if (response.ok) {
-            const headerRemaining = Number(response.headers.get(QUOTA_REMAINING_HEADER));
-            quotaRemainingFromHeader = Number.isFinite(headerRemaining) ? Math.max(0, headerRemaining) : null;
+            quotaRemainingFromHeader = remainingTokensOrNull(response.headers.get(QUOTA_REMAINING_HEADER));
             break;
           }
 
@@ -1310,6 +1261,8 @@ const runAgentConversation = async (
       let iterationCompletionTokens = 0;
       let iterationCachedTokens = 0;
       let iterationUsageSeen = false;
+      let finishReason = null;
+      let streamCompleted = false;
 
       const contentType = response.headers.get("content-type") || "";
       const isSSE = contentType.includes("text/event-stream");
@@ -1324,21 +1277,24 @@ const runAgentConversation = async (
           if (!isCurrentRun()) return;
           assertWorkspaceCurrent();
           const { done, value } = await reader.read();
-          if (done) break;
-          sseBuffer += decoder.decode(value, { stream: true });
+          sseBuffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
 
           const lines = sseBuffer.split("\n");
-          sseBuffer = lines.pop();
+          sseBuffer = done ? "" : lines.pop();
 
           for (const line of lines) {
             const trimmed = line.trim();
             if (!trimmed || trimmed.startsWith(":")) continue;
-            if (trimmed === "data: [DONE]") continue;
-            if (!trimmed.startsWith("data: ")) continue;
+            if (!trimmed.startsWith("data:")) continue;
+            const data = trimmed.slice(5).trimStart();
+            if (data === "[DONE]") {
+              streamCompleted = true;
+              continue;
+            }
 
             let chunk;
             try {
-              chunk = JSON.parse(trimmed.slice(6));
+              chunk = JSON.parse(data);
             } catch {
               continue;
             }
@@ -1357,7 +1313,9 @@ const runAgentConversation = async (
               iterationCachedTokens = Math.max(0, Number(chunk.usage.prompt_tokens_details?.cached_tokens) || 0);
             }
 
-            const delta = chunk.choices?.[0]?.delta;
+            const choice = chunk.choices?.[0];
+            if (choice?.finish_reason) finishReason = choice.finish_reason;
+            const delta = choice?.delta;
             if (!delta) continue;
 
             // Text content delta
@@ -1385,6 +1343,7 @@ const runAgentConversation = async (
               }
             }
           }
+          if (done) break;
         }
       } else {
         // ---- JSON fallback (non-streaming response) ----
@@ -1402,6 +1361,7 @@ const runAgentConversation = async (
           iterationCachedTokens = Math.max(0, Number(data.usage.prompt_tokens_details?.cached_tokens) || 0);
         }
         const choice = data.choices?.[0];
+        finishReason = choice?.finish_reason ?? null;
         if (choice?.message) {
           assistantContent = choice.message.content || "";
           if (assistantContent && !agentsApi) replyStream.push(assistantContent);
@@ -1432,6 +1392,14 @@ const runAgentConversation = async (
       // throughout a turn. The managed adapter reserves unconfirmed usage and
       // persists it separately; it must never be recorded as zero.
       usageWasMeasurable = iterationUsageSeen || Boolean(agentsApi);
+      if ((isSSE && !streamCompleted && !finishReason) ||
+          finishReason === "length" || finishReason === "content_filter" ||
+          (!assistantContent.trim() && !toolCallAccumulators.size)) {
+        service.sendToRenderer("agent:messageReset", { conversationId: targetConversationId });
+        throw new Error(finishReason === "length"
+          ? (context?.uiLocale === "ja" ? "返答が出力上限に達したため途中で止まりました。" : "The reply reached its output limit before it was complete.")
+          : (context?.uiLocale === "ja" ? "返答を最後まで受信できませんでした。" : "The model did not return a complete reply."));
+      }
 
       // ---- Assemble complete assistant message ----
       assertWorkspaceCurrent();
@@ -1618,7 +1586,9 @@ const runAgentConversation = async (
           (WRITE_TOOL_NAMES.has(fnName) || fnName === "compile_document");
         const refusedInAskMode =
           readOnlyTurn && (WRITE_TOOL_NAMES.has(fnName) || fnName === "compile_document");
-        if (hasSteering() && (WRITE_TOOL_NAMES.has(fnName) || fnName === "compile_document" || fnName === "update_task")) {
+        if (service.pendingQuestionByConversation?.has(targetConversationId)) {
+          toolResult = JSON.stringify({ error: "Waiting for the user's answer. No further action was taken." });
+        } else if (hasSteering() && (WRITE_TOOL_NAMES.has(fnName) || fnName === "compile_document" || fnName === "update_task")) {
           toolResult = JSON.stringify({ error: "The user changed the request. Read the new instructions before proceeding." });
         } else if (replay?.cached) {
           toolResult = replay.result;
@@ -1649,6 +1619,8 @@ const runAgentConversation = async (
             "read_section",
             "find_math_region",
             "get_compile_log",
+            "get_build_context",
+            "get_editor_context",
             "arxiv_search",
             "arxiv_bibtex",
             "check_environment",
@@ -1722,11 +1694,6 @@ const runAgentConversation = async (
           writeToolInvocations.push({ name: fnName });
           needsCompile = true;
           lastCompileFailed = false;
-          // A write can add an \input or a bib file; the map (and the build
-          // fingerprint drawn from it) follows the document as it grows.
-          if (mainTexFile) {
-            documentMap = await scanDocument(service, mainTexFile).catch(() => documentMap);
-          }
         }
         if (fnName === "compile_document") {
           const parsedCompileResult = parseToolResult(toolResult);
@@ -1734,14 +1701,17 @@ const runAgentConversation = async (
             parsedCompileResult?.status === "success" ||
             parsedCompileResult?.status === "failure" ||
             parsedCompileResult?.status === "cancelled";
-          if (buildWasAttempted) {
+          // The user may explicitly compile another paper in the same
+          // workspace. That result cannot settle a pending build of this one.
+          const otherTarget = (needsCompile || lastCompileFailed) && mainTexFile &&
+            parsedCompileResult?.targetFile && parsedCompileResult.targetFile !== mainTexFile;
+          if (buildWasAttempted && !otherTarget) {
             needsCompile = false;
             lastCompileFailed = !compileResultSucceeded(toolResult);
             if (lastCompileFailed) {
               lastCompileReport =
                 toolResultStr.length > 2_000 ? `${toolResultStr.slice(0, 2_000)}…` : toolResultStr;
             } else {
-              compiledFingerprint = await currentFingerprint();
               markProposalPages(toolResult);
             }
           }

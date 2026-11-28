@@ -18,6 +18,9 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const { getCodexService } = require('./index.cjs');
+const { normalizeUserMessageParts } = require('../agent-message-parts.cjs');
+const { extractTextFromParts, userMessageDisplay } = require('../agent-core-utils.cjs');
+const { buildEditorInput } = require('../agent-editor-context.cjs');
 const { isExtendedTextFileName, looksBinary } = require('../text-file-types.cjs');
 
 const LOGIN_TIMEOUT_MS = 3 * 60 * 1000;
@@ -126,19 +129,6 @@ const normalizeConversationId = (conversationId) =>
     ? conversationId.trim()
     : 'default';
 
-const extractText = (message, parts) => {
-  const chunks = [];
-  if (typeof message === 'string' && message.trim()) chunks.push(message);
-  if (Array.isArray(parts)) {
-    for (const part of parts) {
-      if (part && typeof part.text === 'string' && part.text.trim()) {
-        chunks.push(part.text);
-      }
-    }
-  }
-  return chunks.join('\n\n').trim();
-};
-
 const extractImageDataUrls = (parts) => {
   if (!Array.isArray(parts)) return [];
   return parts
@@ -173,23 +163,10 @@ const buildRestoredConversationContext = (conversation) => {
   ].join('\n');
 };
 
-const buildLlmInput = (userText, context, restoredConversation = []) => {
-  const partsList = [];
-  const restoredContext = buildRestoredConversationContext(restoredConversation);
-  if (restoredContext) partsList.push(restoredContext);
-  if (context?.activeFilePath) {
-    partsList.push(`Active file: ${context.activeFilePath}`);
-  }
-  partsList.push(`User prompt: ${userText}`);
-  if (
-    context?.activeSelection &&
-    typeof context.activeSelection.text === 'string' &&
-    context.activeSelection.text.trim()
-  ) {
-    partsList.push(`Selection:\n${context.activeSelection.text}`);
-  }
-  return partsList.filter(Boolean).join('\n\n');
-};
+const buildLlmInput = (userText, context, restoredConversation = []) =>
+  [buildRestoredConversationContext(restoredConversation), buildEditorInput(userText, context)]
+    .filter(Boolean)
+    .join('\n\n');
 
 // ChatGPT ログインが必要なら開始し、完了を待つ。
 const ensureCodexAuth = async (service, codex, conversationId, signal) => {
@@ -568,8 +545,9 @@ const runCodexConversation = async (
     return;
   }
 
-  const userText = extractText(message, parts);
-  const images = extractImageDataUrls(parts);
+  const userParts = normalizeUserMessageParts(message, parts);
+  const userText = extractTextFromParts(userParts);
+  const images = extractImageDataUrls(userParts);
   if (!userText && images.length === 0) {
     service.sendToRenderer('agent:error', {
       message: 'Input is empty.',
@@ -774,7 +752,7 @@ const runCodexConversation = async (
     const conversation = service.buildConversation(targetConversationId);
     const conversationBeforeTurn = conversation.slice();
     // 会話履歴（永続セッション用）にはクリーンなユーザーテキストのみ保存
-    conversation.push({ role: 'user', content: userText });
+    conversation.push({ role: 'user', content: userText, ...userMessageDisplay(context) });
     service.markSessionDirty(targetConversationId);
 
     // ---- 認証（未ログインならブラウザで ChatGPT ログイン） ----

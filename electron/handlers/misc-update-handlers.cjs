@@ -30,6 +30,7 @@ const createUpdateHandlers = ({
   defaultUpdateChannel,
   updateDownloadDir,
   storeManagedUpdates = false,
+  backgroundChecks = true,
   fetchImpl = fetch,
 }) => {
   const isStoreManagedUpdates = storeManagedUpdates === true;
@@ -41,6 +42,7 @@ const createUpdateHandlers = ({
   // The version the verified installer on disk belongs to, so a later check
   // for the same version keeps it instead of fetching it again.
   let downloadedVersion = null;
+  let downloadedDigest = null;
   let downloadInFlight = null;
   let updateStatus =
     initialStoreUpdateState?.status ??
@@ -245,6 +247,7 @@ const createUpdateHandlers = ({
     if (isStoreManagedUpdates) {
       return emitMicrosoftStoreUpdateState(source);
     }
+    if (source === "background" && !backgroundChecks) return null;
     if (!platformService || typeof platformService.fetchUpdateManifest !== "function") {
       return null;
     }
@@ -291,7 +294,9 @@ const createUpdateHandlers = ({
       if (
         downloadedInstallerPath &&
         downloadedVersion &&
-        downloadedVersion === (update.latestVersion ?? null)
+        downloadedVersion === (update.latestVersion ?? null) &&
+        downloadedDigest === resolveExpectedArtifactDigest(update)?.hex &&
+        await fsp.access(downloadedInstallerPath).then(() => true, () => false)
       ) {
         setUpdateStatus(
           {
@@ -347,13 +352,36 @@ const createUpdateHandlers = ({
     const fileName = resolveUpdateFileName(artifactUrl, latestVersion);
     await fsp.mkdir(updateDownloadDir, { recursive: true });
     let finalPath = path.join(updateDownloadDir, fileName);
-    const tempPath = `${finalPath}.part`;
+    // Per process: another TeX64 process may download the same file.
+    const tempPath = `${finalPath}.part-${process.pid}`;
     if (!expectedDigest || expectedDigest.algorithm !== "sha256") {
       throw {
         code: "UPDATE_VERIFY_METADATA_MISSING",
         message: "Update file verification info is missing.",
       };
     }
+    // Redirect endpoints can supply a different installer name in the response.
+    // The receipt locates it across restarts. The manifest digest verifies the bytes.
+    const receiptPath = path.join(updateDownloadDir, "ready.json");
+    let candidate = finalPath;
+    try {
+      const receipt = JSON.parse(await fsp.readFile(receiptPath, "utf8"));
+      if (receipt.digest === expectedDigest.hex && typeof receipt.name === "string" &&
+          path.basename(receipt.name) === receipt.name && INSTALLER_NAME.test(receipt.name)) {
+        candidate = path.join(updateDownloadDir, receipt.name);
+      }
+    } catch { /* First download or an interrupted receipt write. */ }
+    try {
+      const stat = await fsp.lstat(candidate);
+      if (stat.isFile()) {
+        const hash = crypto.createHash("sha256");
+        for await (const chunk of fs.createReadStream(candidate)) hash.update(chunk);
+        if (hash.digest("hex") === expectedDigest.hex) {
+          downloadedInstallerPath = candidate;
+          return { path: candidate, totalBytes: stat.size };
+        }
+      }
+    } catch { /* A missing or unreadable installer must be downloaded again. */ }
     let completed = false;
     try {
       const response = await fetchImpl(artifactUrl);
@@ -369,12 +397,16 @@ const createUpdateHandlers = ({
       const totalBytesRaw = Number.parseInt(response.headers.get("content-length") || "", 10);
       const totalBytes = Number.isFinite(totalBytesRaw) && totalBytesRaw > 0 ? totalBytesRaw : null;
       let transferredBytes = 0;
+      let lastProgressAt = 0;
       const hash = crypto.createHash("sha256");
       responseStream.on("data", (chunk) => {
         transferredBytes += chunk?.length ?? 0;
         if (chunk) {
           hash.update(chunk);
         }
+        const now = Date.now();
+        if (now - lastProgressAt < 200) return;
+        lastProgressAt = now;
         const progressPercent =
           totalBytes && totalBytes > 0
             ? Math.max(0, Math.min(100, (transferredBytes / totalBytes) * 100))
@@ -403,6 +435,10 @@ const createUpdateHandlers = ({
       await fsp.rename(tempPath, finalPath);
       downloadedInstallerPath = finalPath;
       completed = true;
+      await fsp.writeFile(receiptPath, JSON.stringify({
+        name: path.basename(finalPath),
+        digest: expectedDigest.hex,
+      })).catch(() => {});
       return {
         path: finalPath,
         totalBytes,
@@ -511,6 +547,7 @@ const createUpdateHandlers = ({
         expectedDigest
       );
       downloadedVersion = update.latestVersion ?? null;
+      downloadedDigest = expectedDigest.hex;
       setUpdateStatus(
         {
           phase: "downloaded",

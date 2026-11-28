@@ -60,9 +60,10 @@ type Session = {
   disposed: boolean;
   disposers: Array<() => void>;
 };
-type Group = { number: number; panes: Session[] };
+type Group = { number: number; workspace: string | null; panes: Session[] };
 
 export type TerminalUiApi = {
+  setWorkspace: (root: string | null) => void;
   show: () => void;
   hide: () => void;
   create: (cwd?: string) => void;
@@ -76,6 +77,8 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
   const bridge = (window as unknown as { tex64Terminal?: TerminalBridge }).tex64Terminal;
   const globals = window as unknown as { Terminal?: any; FitAddon?: { FitAddon?: any } };
   const groups: Group[] = [];
+  let workspace: string | null = null;
+  const lastPane = new Map<string | null, Session>();
   const sessionsById = new Map<string, Session>();
   // PTY output can arrive before invoke(create) resolves. Subscribe once, before
   // any spawn, and replay those early events when its id becomes known.
@@ -123,6 +126,10 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
   const render = () => {
     tabs.replaceChildren();
     for (const group of groups) {
+      if (group.workspace !== workspace) {
+        group.panes.forEach((pane) => { pane.element.hidden = true; });
+        continue;
+      }
       const item = document.createElement("div");
       item.className = "terminal-tab";
       item.classList.toggle("is-active", group === activeGroup);
@@ -313,7 +320,10 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
     if (!group.panes.length) {
       const index = groups.indexOf(group);
       groups.splice(index, 1);
-      if (activeGroup === group) activeGroup = groups[Math.max(0, index - 1)] ?? null;
+      if (activeGroup === group) {
+        activeGroup = groups.slice(0, index).reverse().find((entry) => entry.workspace === workspace)
+          ?? groups.find((entry) => entry.workspace === workspace) ?? null;
+      }
     }
     if (activeSession === session) activeSession = activeGroup?.panes[0] ?? null;
     render();
@@ -321,9 +331,9 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
   };
   const create = (cwd?: string) => {
     if (disposed) return;
-    const session = makeSession(cwd);
+    const session = makeSession(cwd ?? workspace ?? undefined);
     if (!session) return;
-    const group = { number: nextNumber++, panes: [session] };
+    const group = { number: nextNumber++, workspace, panes: [session] };
     groups.push(group);
     activeGroup = group;
     activeSession = session;
@@ -335,7 +345,7 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
   const split = () => {
     if (!activeGroup) { create(); return; }
     if (activeGroup.panes.length >= 2) return;
-    const session = makeSession();
+    const session = makeSession(activeSession?.cwd ?? workspace ?? undefined);
     if (!session) return;
     activeGroup.panes.push(session);
     activeSession = session;
@@ -399,11 +409,24 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
     if (rafId !== null) cancelAnimationFrame(rafId);
     for (const session of allSessions()) destroySession(session);
     groups.length = 0;
+    lastPane.clear();
     early.clear();
   };
   window.addEventListener("beforeunload", dispose);
   return {
-    show: () => { visible = true; if (!groups.length) create(); scheduleFit(); focus(); },
+    setWorkspace: (root) => {
+      if (root === workspace || disposed) return;
+      if (activeSession) lastPane.set(workspace, activeSession);
+      workspace = root;
+      const previous = lastPane.get(root);
+      lastPane.delete(root);
+      activeGroup = groups.find((group) => group.workspace === root && previous && group.panes.includes(previous))
+        ?? groups.find((group) => group.workspace === root) ?? null;
+      activeSession = activeGroup && previous && activeGroup.panes.includes(previous) ? previous : activeGroup?.panes[0] ?? null;
+      render();
+      if (visible && root && !activeGroup) create();
+    },
+    show: () => { visible = true; if (!activeGroup) create(); scheduleFit(); focus(); },
     hide: () => { visible = false; bridge?.setFocused(false); },
     create, split, restart, dispose,
   };

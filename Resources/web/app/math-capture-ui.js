@@ -85,7 +85,9 @@ export const initMathCaptureUi = (context, deps = {}) => {
     };
     const handleKeyDown = (event) => {
         var _a, _b;
-        if (event.key === "Enter") {
+        if (event.isComposing || event.defaultPrevented)
+            return;
+        if (event.key === "Enter" && !(event.target instanceof HTMLButtonElement)) {
             event.preventDefault();
             (_a = handlers.onCropApply) === null || _a === void 0 ? void 0 : _a.call(handlers);
         }
@@ -103,16 +105,12 @@ export const initMathCaptureUi = (context, deps = {}) => {
             mathCaptureCropSize.textContent = options.sizeLabel;
         }
         setModalOpen(mathCaptureCropModal, true);
+        mathCaptureCropApply === null || mathCaptureCropApply === void 0 ? void 0 : mathCaptureCropApply.focus();
         window.addEventListener("keydown", handleKeyDown);
     };
     const closeCropper = () => {
         setModalOpen(mathCaptureCropModal, false);
         window.removeEventListener("keydown", handleKeyDown);
-    };
-    const setCropSizeLabel = (label) => {
-        if (mathCaptureCropSize instanceof HTMLElement) {
-            mathCaptureCropSize.textContent = label;
-        }
     };
     const setCropBusy = (busy, message) => {
         if (mathCaptureCropApply instanceof HTMLElement) {
@@ -121,19 +119,6 @@ export const initMathCaptureUi = (context, deps = {}) => {
                 ? (message !== null && message !== void 0 ? message : uiText("Recognizing…", "認識中…"))
                 : uiText("Confirm", "確定");
             mathCaptureCropApply.disabled = busy;
-        }
-        if (mathCaptureCropRetry instanceof HTMLElement) {
-            mathCaptureCropRetry.disabled = busy;
-        }
-        if (mathCaptureCropCancel instanceof HTMLElement) {
-            mathCaptureCropCancel.disabled = busy;
-        }
-        // Disable Esc/Enter during processing
-        if (busy) {
-            window.removeEventListener("keydown", handleKeyDown);
-        }
-        else {
-            window.addEventListener("keydown", handleKeyDown);
         }
     };
     const setCropError = (message) => {
@@ -253,7 +238,6 @@ export const initMathCaptureUi = (context, deps = {}) => {
         closeWindowPicker,
         openCropper,
         closeCropper,
-        setCropSizeLabel,
         setCropBusy,
         setCropError,
         showPermissionGuide,

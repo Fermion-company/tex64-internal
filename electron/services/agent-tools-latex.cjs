@@ -31,12 +31,17 @@
 "use strict";
 
 const {
+  handleReadFile,
   readCurrentTextContent,
   submitEditedContent,
 } = require("./agent-tools-file.cjs");
 const { normalizePath, isBlockedPath, isTextExtension } = require("./agent-policy.cjs");
+const { deliverPositions } = require("./agent-model-view.cjs");
+
+const { activeTexSource } = require("./tex-build-target.cjs");
 
 const HEADING_COMMANDS = [
+  { name: "part", level: -1 },
   { name: "chapter", level: 0 },
   { name: "section", level: 1 },
   { name: "subsection", level: 2 },
@@ -45,177 +50,188 @@ const HEADING_COMMANDS = [
   { name: "subparagraph", level: 5 },
 ];
 
-const HEADING_PATTERN = (() => {
-  const names = HEADING_COMMANDS.map((h) => h.name).join("|");
-  // Matches \section{title}, \section*{title}, with optional leading whitespace
-  return new RegExp("^\\s*\\\\(" + names + ")\\*?\\s*(?:\\[[^\\]]*\\])?\\s*\\{([^}]*)\\}");
-})();
+// Offsets refer to the original text. activeTexSource blanks comments and
+// verbatim material without shifting offsets, including CRLF line endings.
+const headingLevels = new Map(HEADING_COMMANDS.map(({ name, level }) => [name, level]));
+const trailers = new Set(["bibliographystyle", "bibliography", "printbibliography", "appendix", "frontmatter", "mainmatter", "backmatter"]);
+const skipSpace = (source, pos) => {
+  while (pos < source.length && /\s/.test(source[pos])) pos++;
+  return pos;
+};
 
-const ABSTRACT_BEGIN_PATTERN = /^\s*\\begin\{abstract\}/;
-const ABSTRACT_END_PATTERN = /^\s*\\end\{abstract\}/;
-const TRAILER_PATTERN =
-  /^\s*\\(?:bibliographystyle|bibliography|printbibliography|appendix|backmatter)\b/;
-const DOC_BEGIN_PATTERN = /^\s*\\begin\{document\}/;
-const DOC_END_PATTERN = /^\s*\\end\{document\}/;
+const groupEnd = (source, start) => {
+  const optional = source[start] === "[";
+  if (!optional && source[start] !== "{") return -1;
+  let braces = optional ? 0 : 1;
+  for (let i = start + 1; i < source.length; i++) {
+    if (source[i] === "\\") i++;
+    else if (source[i] === "{") braces++;
+    else if (source[i] === "}" && --braces === 0 && !optional) return i + 1;
+    else if (source[i] === "]" && optional && braces === 0) return i + 1;
+  }
+  return -1;
+};
 
-const normalizeTitleKey = (s) =>
-  String(s || "")
-    .toLowerCase()
+const cleanTitle = (title) =>
+  String(title || "")
+    .replace(/\\[a-zA-Z]+\*?(?:\[[^\]]*\])?/g, "")
+    .replace(/[{}]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 
-/**
- * Parse a LaTeX document into a flat list of structure nodes.
- *
- * Each node has:
- *   id         : 1-based index (stable within a single parse call)
- *   type       : "chapter" | "section" | ... | "abstract" | "preamble" | "document"
- *   level      : numeric level (0 for chapter, 1 for section, ...; abstract = 100)
- *   title      : the title text (for headings), "" for abstract/preamble/document
- *   headerLine : 1-based line where the \section{...} or \begin{abstract} starts
- *   startLine  : 1-based line where the body content starts (headerLine + 1)
- *   endLine    : 1-based line where the body content ends (inclusive)
- *                — for headings, this is the line BEFORE the next heading of
- *                  equal or higher rank (or \end{document} / EOF).
- *                — for abstract, this is the line BEFORE \end{abstract}.
- */
-const parseLatexStructure = (content) => {
-  const lines = (content || "").split(/\r?\n/);
-  const total = lines.length;
-  const nodes = [];
+const normalizeTitleKey = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
 
-  // Identify document zone and abstract
-  let docBeginLine = null;
-  let docEndLine = null;
-  let abstractBeginLine = null;
-  let abstractEndLine = null;
-
-  for (let i = 0; i < total; i += 1) {
-    const line = lines[i];
-    if (docBeginLine === null && DOC_BEGIN_PATTERN.test(line)) {
-      docBeginLine = i + 1;
-    } else if (docEndLine === null && DOC_END_PATTERN.test(line)) {
-      docEndLine = i + 1;
+const parseLatexStructure = (content = "", active = activeTexSource(content)) => {
+  const lines = content.split(/\r?\n/);
+  const lineStarts = [0];
+  for (let i = 0; i < content.length; i++) if (content[i] === "\n") lineStarts.push(i + 1);
+  const lineAt = (pos) => {
+    let low = 0, high = lineStarts.length;
+    while (low + 1 < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (lineStarts[mid] <= pos) low = mid;
+      else high = mid;
     }
-    if (abstractBeginLine === null && ABSTRACT_BEGIN_PATTERN.test(line)) {
-      abstractBeginLine = i + 1;
-    } else if (abstractEndLine === null && ABSTRACT_END_PATTERN.test(line)) {
-      abstractEndLine = i + 1;
-    }
-  }
-
-  // Preamble node: from line 1 to the line before \begin{document}.
-  if (docBeginLine !== null && docBeginLine > 1) {
-    nodes.push({
-      id: 0, // assigned below
-      type: "preamble",
-      level: -1,
-      title: "",
-      headerLine: 1,
-      startLine: 1,
-      endLine: docBeginLine - 1,
-    });
-  }
-
-  // Abstract node
-  if (abstractBeginLine !== null && abstractEndLine !== null && abstractEndLine > abstractBeginLine) {
-    nodes.push({
-      id: 0,
-      type: "abstract",
-      level: 100,
-      title: "abstract",
-      headerLine: abstractBeginLine,
-      startLine: abstractBeginLine + 1,
-      endLine: abstractEndLine - 1,
-    });
-  }
-
-  // Scan for heading commands
-  const headingHits = [];
-  for (let i = 0; i < total; i += 1) {
-    const line = lines[i];
-    const m = line.match(HEADING_PATTERN);
-    if (!m) continue;
-    const cmdName = m[1];
-    const title = m[2];
-    const heading = HEADING_COMMANDS.find((h) => h.name === cmdName);
-    if (!heading) continue;
-    headingHits.push({
-      type: cmdName,
-      level: heading.level,
-      title,
-      headerLine: i + 1,
-    });
-  }
-
-  // Compute endLine for each heading: it's the line before the next heading
-  // at equal or higher rank (lower numeric level), or \end{document}, or EOF.
-  // The bibliography commands and \appendix that follow the last section
-  // are not part of its body either: a body replacement keeps them.
-  const hardEnd = docEndLine !== null ? docEndLine - 1 : total;
-  const trailerLines = [];
-  for (let i = 0; i < total; i += 1) {
-    if (TRAILER_PATTERN.test(lines[i])) trailerLines.push(i + 1);
-  }
-  for (let idx = 0; idx < headingHits.length; idx += 1) {
-    const cur = headingHits[idx];
-    let end = hardEnd;
-    for (let j = idx + 1; j < headingHits.length; j += 1) {
-      if (headingHits[j].level <= cur.level) {
-        end = headingHits[j].headerLine - 1;
-        break;
-      }
-    }
-    const trailer = trailerLines.find((line) => line > cur.headerLine && line <= end);
-    if (trailer) end = trailer - 1;
-    nodes.push({
-      id: 0,
-      type: cur.type,
-      level: cur.level,
-      title: cur.title,
-      headerLine: cur.headerLine,
-      startLine: cur.headerLine + 1,
-      endLine: end,
-    });
-  }
-
-  // Sort by headerLine and assign 1-based ids
-  nodes.sort((a, b) => a.headerLine - b.headerLine);
-  nodes.forEach((node, idx) => {
-    node.id = idx + 1;
-  });
-
-  return {
-    lines,
-    total,
-    docBeginLine,
-    docEndLine,
-    nodes,
+    return low + 1;
   };
+  const tokens = /\\(?:[A-Za-z@]+|[\s\S])|[{}]/g;
+  const env = /\s*\{([\w@*-]+)\}/y;
+  const label = /\s*\\label\s*\{/y;
+  const trailingComment = /[ \t]*%[^\r\n]*/y;
+  let depth = 0, docBegin = null, docEnd = content.length, docEndLine = null, abstract = null;
+  const nodes = [], openHeadings = [], environments = [];
+  const add = (type, level, title, headerStart, headerEnd) => {
+    const node = { type, level, title, headerStart, headerEnd, limit: content.length };
+    nodes.push(node);
+    return node;
+  };
+  const closeHeadings = (level, limit) => {
+    while (openHeadings.length && openHeadings.at(-1).level >= level) {
+      const heading = openHeadings.pop();
+      const enclosingNext = environments[heading.scopeDepth];
+      heading.limit = enclosingNext ? Math.min(limit, enclosingNext.start) : limit;
+    }
+  };
+  let token;
+  while ((token = tokens.exec(active))) {
+    if (token[0] === "{") { depth++; continue; }
+    if (token[0] === "}") { depth = Math.max(0, depth - 1); continue; }
+    if (depth) continue;
+    const name = token[0].slice(1);
+    if (name === "endinput") {
+      docEnd = token.index;
+      break;
+    }
+    if (name === "begin" || name === "end") {
+      env.lastIndex = tokens.lastIndex;
+      const match = env.exec(active);
+      if (!match) continue;
+      tokens.lastIndex = env.lastIndex;
+      if (match[1] === "document") {
+        if (name === "end") {
+          docEnd = token.index;
+          docEndLine = lineAt(docEnd);
+          break;
+        }
+        if (docBegin === null) {
+          docBegin = token.index;
+          // Commands before the document belong to its preamble.
+          nodes.length = 0;
+          openHeadings.length = 0;
+          environments.length = 0;
+          abstract = null;
+          if (docBegin > 0 && content.slice(0, docBegin).trim()) add("preamble", -1, "", 0, 0).limit = docBegin;
+        }
+      } else if (name === "begin") {
+        if (match[1] === "thebibliography" || match[1] === "theindex") closeHeadings(-Infinity, token.index);
+        environments.push({ name: match[1], start: token.index });
+        if (match[1] === "abstract") abstract = add("abstract", 100, "abstract", token.index, tokens.lastIndex);
+      } else if (environments.at(-1)?.name === match[1]) {
+        // A heading inside a wrapper must never consume its closing command.
+        while (openHeadings.length && openHeadings.at(-1).scopeDepth >= environments.length) {
+          openHeadings.pop().limit = token.index;
+        }
+        environments.pop();
+        if (match[1] === "abstract" && abstract) {
+          abstract.limit = token.index;
+          abstract = null;
+        }
+      }
+      continue;
+    }
+    if (trailers.has(name)) { closeHeadings(-Infinity, token.index); continue; }
+    const level = headingLevels.get(name);
+    if (level === undefined) continue;
+    let start = skipSpace(active, tokens.lastIndex);
+    if (active[start] === "*") start = skipSpace(active, start + 1);
+    if (active[start] === "[") {
+      const end = groupEnd(active, start);
+      if (end < 0) continue;
+      start = skipSpace(active, end);
+    }
+    if (active[start] !== "{") continue;
+    const titleEnd = groupEnd(active, start);
+    if (titleEnd < 0) continue;
+    const title = active.slice(start + 1, titleEnd - 1).replace(/\s+/g, " ").trim();
+    let headerEnd = titleEnd;
+    for (;;) {
+      label.lastIndex = headerEnd;
+      if (!label.test(active)) break;
+      const end = groupEnd(active, label.lastIndex - 1);
+      if (end < 0) break;
+      headerEnd = end;
+    }
+    // Keep any comment on the heading line attached to that heading.
+    trailingComment.lastIndex = headerEnd;
+    if (trailingComment.test(content)) headerEnd = trailingComment.lastIndex;
+    closeHeadings(level, token.index);
+    const heading = add(name, level, title, token.index, headerEnd);
+    heading.scopeDepth = environments.length;
+    openHeadings.push(heading);
+    tokens.lastIndex = headerEnd;
+  }
+  closeHeadings(-Infinity, docEnd);
+  // An unclosed abstract cannot be safely edited as a section.
+  if (abstract) nodes.splice(nodes.indexOf(abstract), 1);
+  for (const [i, node] of nodes.entries()) {
+    const raw = content.slice(node.headerEnd, node.limit);
+    const first = raw.search(/\S/);
+    node.bodyStart = first < 0 ? node.headerEnd : node.headerEnd + first;
+    node.bodyEnd = first < 0 ? node.headerEnd : node.headerEnd + raw.trimEnd().length;
+    node.id = i + 1;
+    node.headerLine = lineAt(node.headerStart);
+    node.startLine = first < 0 ? lineAt(node.headerEnd) + 1 : lineAt(node.bodyStart);
+    node.endLine = first < 0 ? node.startLine - 1 : lineAt(node.bodyEnd - 1);
+  }
+  return { lines, total: lines.length, docBeginLine: docBegin === null ? null : lineAt(docBegin), docEndLine, docEnd, nodes };
 };
 
 const findNode = (structure, query) => {
   if (!query || typeof query !== "object") return null;
-  if (Number.isFinite(query.sectionId)) {
-    const id = Math.round(query.sectionId);
+  const desiredTitleKey = normalizeTitleKey(query.title);
+  const titleMatches = node => !desiredTitleKey ||
+    desiredTitleKey === normalizeTitleKey(node.title) ||
+    desiredTitleKey === normalizeTitleKey(cleanTitle(node.title));
+  if (query.sectionId !== undefined) {
+    if (!Number.isInteger(query.sectionId)) return null;
+    const id = query.sectionId;
     const node = structure.nodes.find((n) => n.id === id);
-    if (!node || (query.title && normalizeTitleKey(query.title) !== normalizeTitleKey(node.title)) ||
+    if (!node || !titleMatches(node) ||
         (query.type && String(query.type).toLowerCase() !== node.type)) return null;
     return node;
   }
   const desiredType = typeof query.type === "string" ? query.type.toLowerCase() : null;
-  const desiredTitleKey = normalizeTitleKey(query.title || "");
   if (!desiredTitleKey && !desiredType) return null;
-  const occurrenceRaw = Number(query.occurrence);
-  const occurrence = Number.isFinite(occurrenceRaw) && occurrenceRaw >= 1 ? Math.round(occurrenceRaw) : 1;
   const matches = structure.nodes.filter((node) => {
     if (desiredType && node.type !== desiredType) return false;
-    if (desiredTitleKey && normalizeTitleKey(node.title) !== desiredTitleKey) return false;
-    return true;
+    return titleMatches(node);
   });
-  if (matches.length === 0) return null;
-  return matches[occurrence - 1] || null;
+  if (query.occurrence === undefined) return matches.length === 1 ? matches[0] : null;
+  if (!Number.isInteger(query.occurrence) || query.occurrence < 1) return null;
+  return matches[query.occurrence - 1] || null;
 };
+
+const sectionLookupError = "The section selector must match exactly one section. Call list_sections and use its sectionId, or specify the type, title and 1-based occurrence for repeated headings.";
 
 const formatOutline = (structure) => {
   return structure.nodes.map((node) => ({
@@ -232,13 +248,25 @@ const formatOutline = (structure) => {
 
 // ---- Tool handlers ----
 
+// `partialRead`: the caller hands Axiom only part of the text (a section).
+const readSectionSource = async (service, path, policy, conversationId, { partialRead = false } = {}) => {
+  const read = await handleReadFile(service, { path }, policy, conversationId);
+  if (read.error) return read;
+  if (read.binary) return { error: "Cannot read sections from a binary file." };
+  if (read.partial) return { error: "Save the complete editor draft before looking up its sections." };
+  // An outline or a section: positions in this text, not the text itself
+  // (agent-model-view.cjs).
+  deliverPositions(service, conversationId, path, read.content, { truncatedRead: partialRead });
+  return read;
+};
+
 const handleListSections = async (service, args, policy, conversationId) => {
   const targetPath = normalizePath(args?.path);
   if (!targetPath) return { error: "path is empty." };
   if (isBlockedPath(targetPath, policy)) return { error: "Target path is read-protected." };
   if (!isTextExtension(targetPath, policy)) return { error: "Only text files can be read." };
-  const read = await readCurrentTextContent(service, policy, conversationId, targetPath);
-  if (!read.ok) return { error: read.error };
+  const read = await readSectionSource(service, targetPath, policy, conversationId);
+  if (read.error) return read;
   const structure = parseLatexStructure(read.content);
   return {
     path: targetPath,
@@ -256,17 +284,13 @@ const handleReadSection = async (service, args, policy, conversationId) => {
   if (!targetPath) return { error: "path is empty." };
   if (isBlockedPath(targetPath, policy)) return { error: "Target path is read-protected." };
   if (!isTextExtension(targetPath, policy)) return { error: "Only text files can be read." };
-  const read = await readCurrentTextContent(service, policy, conversationId, targetPath);
-  if (!read.ok) return { error: read.error };
+  const read = await readSectionSource(service, targetPath, policy, conversationId, { partialRead: true });
+  if (read.error) return read;
   const structure = parseLatexStructure(read.content);
   const node = findNode(structure, args || {});
   if (!node) {
-    return {
-      error:
-        "No section matched. Call list_sections to see the available outline, then retry with a matching type+title or sectionId.",
-    };
+    return { error: sectionLookupError };
   }
-  const bodyLines = structure.lines.slice(node.startLine - 1, node.endLine);
   return {
     path: targetPath,
     section: {
@@ -277,63 +301,51 @@ const handleReadSection = async (service, args, policy, conversationId) => {
       startLine: node.startLine,
       endLine: node.endLine,
     },
-    body: bodyLines.join("\n"),
+    body: read.content.slice(node.bodyStart, node.bodyEnd).replace(/\r\n/g, "\n"),
   };
+};
+
+// A final TeX comment in a replacement must not consume a peer heading
+// or the end of the document when it originally shared the same line.
+const spliceSection = (source, start, end, replacement, newline) => {
+  const rest = source.slice(end);
+  if (rest && !/^[ \t]*[\r\n]/.test(rest)) {
+    const lastLine = replacement.slice(replacement.lastIndexOf("\n") + 1);
+    if (/^(?:\\.|[^%\\])*%/.test(lastLine)) replacement += newline;
+  }
+  return source.slice(0, start) + replacement + rest;
 };
 
 const handleReplaceSection = async (service, args, policy, conversationId) => {
   const targetPath = normalizePath(args?.path);
   if (!targetPath) return { error: "path is empty." };
-  const read = await readCurrentTextContent(service, policy, conversationId, targetPath);
-  if (!read.ok) return { error: read.error };
+  const read = await readCurrentTextContent(service, policy, conversationId, targetPath, { forEdit: true });
+  if (!read.ok) return read;
   const structure = parseLatexStructure(read.content);
   const node = findNode(structure, args || {});
   if (!node) {
-    return {
-      error:
-        "No section matched. Call list_sections to see the outline, then retry with a matching type+title or sectionId.",
-    };
+    return { error: sectionLookupError };
   }
   const includeHeader = args?.includeHeader === true;
-  const replacementText = typeof args?.content === "string" ? args.content : "";
+  if (typeof args?.content !== "string") return { error: "Supply the replacement content as text." };
+  const replacementText = args.content;
+  if (includeHeader && node.type === "abstract") {
+    return { error: "To edit the abstract, supply its body with includeHeader=false. The environment boundaries are preserved." };
+  }
   if (!includeHeader && HEADING_COMMANDS.some((heading) => heading.name === node.type)) {
-    const peerHeader = replacementText.split(/\r?\n/).some((line) => {
-      const match = line.match(HEADING_PATTERN);
-      return match && HEADING_COMMANDS.find((heading) => heading.name === match[1]).level <= node.level;
-    });
+    const peerHeader = parseLatexStructure(replacementText).nodes.some((other) =>
+      headingLevels.has(other.type) && other.level <= node.level);
     if (peerHeader) return {
       error: `replace_section preserves the ${node.type} header. Supply only its body; the replacement contains an equal or higher-level heading. Use includeHeader=true only when intentionally replacing the header too.`,
     };
   }
-  const startLine = includeHeader ? node.headerLine : node.startLine;
-  const endLine = node.endLine;
-  if (startLine > endLine && !includeHeader) {
-    // Empty-body section: treat as insertion after the header line.
-    const afterLine = node.headerLine;
-    return handleInsertIntoFile(
-      service,
-      policy,
-      conversationId,
-      targetPath,
-      structure.lines,
-      afterLine,
-      replacementText,
-      `Fill in ${node.type} "${node.title}"`,
-    );
-  }
   const newline = read.content.includes("\r\n") ? "\r\n" : "\n";
-  const originalLines = read.content.replace(/\r\n/g, "\n").split("\n");
-  const normalizedReplacement = replacementText.replace(/\r\n/g, "\n");
-  const replacementLines = normalizedReplacement.split("\n");
-  const updatedLines = [
-    ...originalLines.slice(0, startLine - 1),
-    ...replacementLines,
-    ...originalLines.slice(endLine),
-  ];
-  let updatedContent = updatedLines.join("\n");
-  if (newline === "\r\n") {
-    updatedContent = updatedContent.replace(/\n/g, "\r\n");
+  let replacement = replacementText.replace(/\r?\n/g, newline);
+  const start = includeHeader ? node.headerStart : node.bodyStart;
+  if (!includeHeader && node.bodyStart === node.bodyEnd && replacement && node.type !== "preamble") {
+    replacement = newline + replacement;
   }
+  const updatedContent = spliceSection(read.content, start, node.bodyEnd, replacement, newline);
   return submitEditedContent({
     service,
     policy,
@@ -353,89 +365,23 @@ const handleReplaceSection = async (service, args, policy, conversationId) => {
   });
 };
 
-const handleInsertIntoFile = async (
-  service,
-  policy,
-  conversationId,
-  targetPath,
-  originalLines,
-  afterLine,
-  insertionText,
-  summary,
-) => {
-  const newline = originalLines.join("\n").includes("\r\n") ? "\r\n" : "\n";
-  const normalizedInsertion = (insertionText || "").replace(/\r\n/g, "\n");
-  const insertionLines = normalizedInsertion.split("\n");
-  if (
-    insertionLines.length > 0 &&
-    insertionLines[insertionLines.length - 1] === "" &&
-    normalizedInsertion.endsWith("\n")
-  ) {
-    insertionLines.pop();
-  }
-  const updatedLines = [
-    ...originalLines.slice(0, afterLine),
-    ...insertionLines,
-    ...originalLines.slice(afterLine),
-  ];
-  const originalContent = originalLines.join("\n");
-  let updatedContent = updatedLines.join("\n");
-  if (newline === "\r\n") {
-    updatedContent = updatedContent.replace(/\n/g, "\r\n");
-  }
-  return submitEditedContent({
-    service,
-    policy,
-    conversationId,
-    targetPath,
-    originalContent,
-    updatedContent,
-    baseContentHash: null,
-    baseSource: null,
-    summary: summary || `Insert content into ${targetPath}`,
-    allowFullRewrite: true,
-    proposalType: "patch",
-  });
-};
-
 const handleAppendToSection = async (service, args, policy, conversationId) => {
   const targetPath = normalizePath(args?.path);
   if (!targetPath) return { error: "path is empty." };
-  const read = await readCurrentTextContent(service, policy, conversationId, targetPath);
-  if (!read.ok) return { error: read.error };
+  const read = await readCurrentTextContent(service, policy, conversationId, targetPath, { forEdit: true });
+  if (!read.ok) return read;
   const structure = parseLatexStructure(read.content);
   const node = findNode(structure, args || {});
   if (!node) {
-    return {
-      error:
-        "No section matched. Call list_sections to see the outline, then retry with a matching type+title or sectionId.",
-    };
+    return { error: sectionLookupError };
   }
   const appendText = typeof args?.content === "string" ? args.content : "";
   if (!appendText) return { error: "content is empty — nothing to append." };
   const newline = read.content.includes("\r\n") ? "\r\n" : "\n";
-  const originalLines = read.content.replace(/\r\n/g, "\n").split("\n");
-  // Insert after the last line of the body that has text, so the blank
-  // lines that separate the section from what follows stay where they are.
-  let afterLine = Math.max(node.headerLine, node.endLine);
-  while (afterLine > node.headerLine && originalLines[afterLine - 1].trim() === "") afterLine -= 1;
-  const normalizedAppend = appendText.replace(/\r\n/g, "\n");
-  const appendLines = normalizedAppend.split("\n");
-  while (appendLines.length > 0 && appendLines[0].trim() === "") appendLines.shift();
-  while (appendLines.length > 0 && appendLines[appendLines.length - 1].trim() === "") appendLines.pop();
-  if (appendLines.length === 0) return { error: "content is empty — nothing to append." };
-  // A paragraph break before the new text, unless it continues a line.
-  const previousLine = originalLines[afterLine - 1] ?? "";
-  const insertLines = previousLine.trim() !== "" && afterLine > node.headerLine ? ["", ...appendLines] : appendLines;
-  const updatedLines = [
-    ...originalLines.slice(0, afterLine),
-    ...insertLines,
-    ...originalLines.slice(afterLine),
-  ];
-  let updatedContent = updatedLines.join("\n");
-  if (newline === "\r\n") {
-    updatedContent = updatedContent.replace(/\n/g, "\r\n");
-  }
+  const addition = appendText.replace(/^(?:[^\S\n]*\n)+|(?:\r?\n[^\S\n]*)+$/g, "").replace(/\r?\n/g, newline);
+  if (!addition.trim()) return { error: "content is empty — nothing to append." };
+  const separator = node.bodyEnd > node.bodyStart ? newline + newline : newline;
+  const updatedContent = spliceSection(read.content, node.bodyEnd, node.bodyEnd, separator + addition, newline);
   return submitEditedContent({
     service,
     policy,
@@ -452,6 +398,7 @@ const handleAppendToSection = async (service, args, policy, conversationId) => {
 };
 
 module.exports = {
+  cleanTitle,
   parseLatexStructure,
   formatOutline,
   findNode,

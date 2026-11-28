@@ -2,7 +2,8 @@ export type TableCell = { start: number; end: number };
 
 /** Locate cells without rewriting delimiters, rules, commands or whitespace. */
 export function tableCells(source: string): TableCell[][] | null {
-  const environment = /\\begin\{(tabular\*?|tabularx)\}/u.exec(source);
+  const environment = /^\s*\\begin\{(tabular\*?|tabularx)\}/u.exec(source);
+  let bodyStart = 0, bodyEnd = source.length;
   if (environment) {
     let offset = environment.index + environment[0].length;
     const argumentsCount = environment[1] === "tabular" ? 1 : 2;
@@ -20,16 +21,29 @@ export function tableCells(source: string): TableCell[][] | null {
     }
     const end = source.lastIndexOf(`\\end{${environment[1]}}`);
     if (end < offset) return null;
-    return tableCells(source.slice(offset, end))?.map((row) => row.map((cell) => ({ start: cell.start + offset, end: cell.end + offset }))) ?? null;
+    bodyStart = offset;
+    bodyEnd = end;
   }
   const rows: TableCell[][] = [];
   let cells: TableCell[] = [];
-  let start = 0;
+  let start = bodyStart;
   let braces = 0;
   let environmentDepth = 0;
   let hasColumns = false;
-  for (let i = 0; i < source.length; i += 1) {
+  for (let i = bodyStart; i < bodyEnd; i += 1) {
+    if (source[i] === "%") {
+      const newline = source.indexOf("\n", i);
+      i = newline < 0 ? bodyEnd : newline;
+      continue;
+    }
     if (source[i] === "\\") {
+      const verb = /^\\verb(?![A-Za-z])\*?([^\s])/u.exec(source.slice(i));
+      if (verb) {
+        const close = source.indexOf(verb[1]!, i + verb[0].length);
+        const newline = source.indexOf("\n", i);
+        i = close >= 0 && (newline < 0 || close < newline) ? close : newline >= 0 ? newline : bodyEnd;
+        continue;
+      }
       const env = /^\\(begin|end)\{([^}]+)\}/u.exec(source.slice(i));
       if (env) {
         environmentDepth += env[1] === "begin" ? 1 : -1;
@@ -41,7 +55,8 @@ export function tableCells(source: string): TableCell[][] | null {
         rows.push(cells);
         cells = [];
         i += 1;
-        const spacing = /^(?:\*?\[[^\]]*\])/u.exec(source.slice(i + 1));
+        if (source[i + 1] === "*") i += 1;
+        const spacing = /^\[[^\]]*\]/u.exec(source.slice(i + 1));
         if (spacing) i += spacing[0].length;
         start = i + 1;
       } else if (/[^a-zA-Z]/u.test(source[i + 1] ?? "")) i += 1;
@@ -55,7 +70,7 @@ export function tableCells(source: string): TableCell[][] | null {
       start = i + 1;
     }
   }
-  if (cells.length) { cells.push({ start, end: source.length }); rows.push(cells); }
+  if (cells.length) { cells.push({ start, end: bodyEnd }); rows.push(cells); }
   return hasColumns ? rows : null;
 }
 

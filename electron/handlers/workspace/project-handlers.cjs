@@ -7,42 +7,56 @@ const DIALOG_STRINGS = {
     selectButton: "選択",
     newTitle: "新規プロジェクト",
     newButton: "作成",
+    missingFolder: "選択したフォルダが見つかりません。",
+    inaccessibleFolder: "選択したフォルダを開けません。アクセス権を確認してください。",
   },
   en: {
     selectTitle: "Project",
     selectButton: "Select",
     newTitle: "New project",
     newButton: "Create",
+    missingFolder: "The selected folder could not be found.",
+    inaccessibleFolder: "The selected folder could not be opened. Check its permissions.",
   },
   zh: {
     selectTitle: "项目",
     selectButton: "选择",
     newTitle: "新建项目",
     newButton: "创建",
+    missingFolder: "找不到所选文件夹。",
+    inaccessibleFolder: "无法打开所选文件夹。请检查访问权限。",
   },
   ko: {
     selectTitle: "프로젝트",
     selectButton: "선택",
     newTitle: "새 프로젝트",
     newButton: "생성",
+    missingFolder: "선택한 폴더를 찾을 수 없습니다.",
+    inaccessibleFolder: "선택한 폴더를 열 수 없습니다. 접근 권한을 확인하세요.",
   },
   de: {
     selectTitle: "Projekt",
     selectButton: "Auswählen",
     newTitle: "Neues Projekt",
     newButton: "Erstellen",
+    missingFolder: "Der ausgewählte Ordner wurde nicht gefunden.",
+    inaccessibleFolder: "Der ausgewählte Ordner lässt sich nicht öffnen. Prüfen Sie die Zugriffsrechte.",
   },
   fr: {
     selectTitle: "Projet",
     selectButton: "Sélectionner",
     newTitle: "Nouveau projet",
     newButton: "Créer",
+    missingFolder: "Le dossier sélectionné est introuvable.",
+    inaccessibleFolder: "Impossible d’ouvrir le dossier sélectionné. Vérifiez les autorisations.",
   },
   es: {
     selectTitle: "Proyecto",
     selectButton: "Seleccionar",
     newTitle: "Nuevo proyecto",
     newButton: "Crear",
+    missingFolder: "No se encuentra la carpeta seleccionada.",
+    inaccessibleFolder: "No se puede abrir la carpeta seleccionada. Comprueba los permisos.",
   },
 };
 
@@ -78,13 +92,15 @@ const createWorkspaceProjectHandlers = (ctx) => {
     withWorkspaceMutation = async (operation) => operation(),
   } = ctx;
 
-  const mutateCapturedWorkspace = (rootPath, operation) =>
-    withWorkspaceMutation(async () => {
-      if (ensureWorkspace() !== rootPath) {
+  const mutateCapturedWorkspace = (rootPath, operation) => {
+    const generation = state.workspaceGeneration;
+    return withWorkspaceMutation(async () => {
+      if (ensureWorkspace() !== rootPath || state.workspaceGeneration !== generation) {
         throw new Error("The workspace changed before the operation finished.");
       }
       return operation();
     });
+  };
 
   const prepareWorkspaceChange = async (toRootPath, reason) => {
     const releaseWorkspace = await acquireWorkspaceMutation();
@@ -181,95 +197,33 @@ const createWorkspaceProjectHandlers = (ctx) => {
     return { canceled: false, filePaths: [selectedPath] };
   };
 
-  const handleOpenWorkspace = async (payload = {}) => {
-    if (!state.mainWindow) {
-      return;
+  const reportOpenError = (message) => {
+    sendLauncherStatus({ isBusy: false, message });
+    if (workspace.getRootPath()) {
+      sendIssues(1, message, "error", [{ severity: "error", message }]);
     }
-    const strings = resolveDialogStrings(payload && payload.locale);
-    sendLauncherStatus({ isBusy: true, message: null });
-    const result =
-      consumeE2eDialogResult("openWorkspace") ??
-      (await dialog.showOpenDialog(state.mainWindow, {
-        title: strings.selectTitle,
-        properties: ["openDirectory"],
-        buttonLabel: strings.selectButton,
-      }));
-    if (result.canceled || result.filePaths.length === 0) {
-      sendLauncherStatus({ isBusy: false, message: null });
-      return;
-    }
-    const rootPath = result.filePaths[0];
-    const releaseWorkspace = await prepareWorkspaceChange(rootPath, "open");
-    if (!releaseWorkspace) {
-      return;
-    }
-    try {
-      workspace.setRootPath(rootPath);
-      beginWorkspaceSession(rootPath);
-      state.lastBuildPdfPath = null;
-      await updateWorkspaceIfNeeded(rootPath, true);
-      requestIndex(rootPath);
-    } finally {
-      releaseWorkspace();
-    }
-    // Track recent project
-    if (userSettings) {
-      userSettings
-        .addRecentProject(rootPath)
-        .then((projects) => {
-          sendToRenderer("recentProjects", { projects });
-        })
-        .catch(() => {});
-    }
-    sendLauncherStatus({ isBusy: false, message: null });
   };
 
-  // Open a folder as the workspace without a picker: recent projects and the
-  // Prism importer already know the path. Verifies the folder, switches the
-  // root through the same quiesce/lease path as the dialogs, records it as
-  // recent.
-  const openWorkspacePath = async (projectPath, reason = "recent") => {
-    if (!state.mainWindow || typeof projectPath !== "string" || !projectPath) {
-      return;
-    }
-    sendLauncherStatus({ isBusy: true, message: null });
-    if (!(await fileAccess.ensureAccess(projectPath))) {
-      sendLauncherStatus({ isBusy: false, message: null });
-      return;
-    }
-    // Verify the path exists
+  let activeSearch;
+  const activateFolder = async (projectPath, reason, strings) => {
     try {
-      const stats = await fsp.stat(projectPath);
-      if (!stats.isDirectory()) {
-        sendLauncherStatus({ isBusy: false, message: "Folder not found." });
-        // Remove from recent projects if it doesn't exist
-        if (userSettings) {
-          userSettings
-            .removeRecentProject(projectPath)
-            .then((projects) => {
-              sendToRenderer("recentProjects", { projects });
-            })
-            .catch(() => {});
-        }
-        return;
-      }
-    } catch {
-      sendLauncherStatus({ isBusy: false, message: "Folder not found." });
-      if (userSettings) {
-        userSettings
-          .removeRecentProject(projectPath)
-          .then((projects) => {
-            sendToRenderer("recentProjects", { projects });
-          })
-          .catch(() => {});
+      // A picked folder can be removed, replaced by a file or made unreadable
+      // while the dialog closes. Keep the current workspace until it can be opened.
+      const directory = await fsp.opendir(projectPath);
+      await directory.close();
+    } catch (error) {
+      const missing = error?.code === "ENOENT" || error?.code === "ENOTDIR";
+      reportOpenError(missing ? strings.missingFolder : strings.inaccessibleFolder);
+      if (missing && reason === "recent" && userSettings) {
+        const projects = await userSettings.removeRecentProject(projectPath).catch(() => null);
+        if (projects) sendToRenderer("recentProjects", { projects });
       }
       return;
     }
     const releaseWorkspace = await prepareWorkspaceChange(projectPath, reason);
-    if (!releaseWorkspace) {
-      return;
-    }
+    if (!releaseWorkspace) return;
     try {
+      activeSearch?.abort();
       workspace.setRootPath(projectPath);
       beginWorkspaceSession(projectPath);
       state.lastBuildPdfPath = null;
@@ -278,81 +232,97 @@ const createWorkspaceProjectHandlers = (ctx) => {
     } finally {
       releaseWorkspace();
     }
-    // Track recent project (moves it to top)
     if (userSettings) {
-      userSettings
-        .addRecentProject(projectPath)
-        .then((projects) => {
-          sendToRenderer("recentProjects", { projects });
-        })
+      userSettings.addRecentProject(projectPath)
+        .then(projects => sendToRenderer("recentProjects", { projects }))
         .catch(() => {});
     }
     sendLauncherStatus({ isBusy: false, message: null });
   };
 
-  const handleOpenRecentProject = (projectPath) => openWorkspacePath(projectPath, "recent");
-
-  const handleCreateProject = async (payload = {}) => {
-    if (!state.mainWindow) {
-      return;
-    }
-    const strings = resolveDialogStrings(payload && payload.locale);
+  const selectFolder = async (reason, payload = {}) => {
+    if (!state.mainWindow) return;
+    const strings = resolveDialogStrings(payload?.locale);
+    const create = reason === "create";
     sendLauncherStatus({ isBusy: true, message: null });
-    const result =
-      consumeE2eDialogResult("createProject") ??
-      (await dialog.showOpenDialog(state.mainWindow, {
-        title: strings.newTitle,
-        properties: ["openDirectory", "createDirectory"],
-        buttonLabel: strings.newButton,
-      }));
-    if (result.canceled || result.filePaths.length === 0) {
-      sendLauncherStatus({ isBusy: false, message: null });
-      return;
-    }
-    const rootPath = result.filePaths[0];
-    const releaseWorkspace = await prepareWorkspaceChange(rootPath, "create");
-    if (!releaseWorkspace) {
-      return;
-    }
     try {
-      workspace.setRootPath(rootPath);
-      beginWorkspaceSession(rootPath);
-      state.lastBuildPdfPath = null;
-      await updateWorkspaceIfNeeded(rootPath, true);
-      requestIndex(rootPath);
-    } finally {
-      releaseWorkspace();
+      const result = consumeE2eDialogResult(create ? "createProject" : "openWorkspace")
+        ?? await dialog.showOpenDialog(state.mainWindow, {
+          title: create ? strings.newTitle : strings.selectTitle,
+          properties: create ? ["openDirectory", "createDirectory"] : ["openDirectory"],
+          buttonLabel: create ? strings.newButton : strings.selectButton,
+        });
+      const folder = result.filePaths?.[0];
+      if (result.canceled || !folder) {
+        sendLauncherStatus({ isBusy: false, message: null });
+        return;
+      }
+      await activateFolder(folder, reason, strings);
+    } catch (error) {
+      reportOpenError(error?.message || strings.inaccessibleFolder);
     }
-    // Track recent project
-    if (userSettings) {
-      userSettings
-        .addRecentProject(rootPath)
-        .then((projects) => {
-          sendToRenderer("recentProjects", { projects });
-        })
-        .catch(() => {});
-    }
-    sendLauncherStatus({ isBusy: false, message: null });
   };
+  const handleOpenWorkspace = payload => selectFolder("open", payload);
+  const handleCreateProject = payload => selectFolder("create", payload);
 
-  const handleSetRoot = async (relativePath) => {
-    const rootPath = ensureWorkspace();
-    if (!rootPath) {
-      sendIssues(1, "No workspace is selected.", "error", [
-        { severity: "error", message: "No workspace is selected.", line: null },
-      ]);
-      return;
-    }
+  // Recents and imports already have a path, without a fresh picker grant.
+  const openWorkspacePath = async (projectPath, reason = "recent") => {
+    if (!state.mainWindow || typeof projectPath !== "string" || !projectPath) return;
+    const strings = resolveDialogStrings(state.uiLocale);
+    sendLauncherStatus({ isBusy: true, message: null });
     try {
+      if (!await fileAccess.ensureAccess(projectPath)) {
+        reportOpenError(strings.inaccessibleFolder);
+        return;
+      }
+      await activateFolder(projectPath, reason, strings);
+    } catch (error) {
+      reportOpenError(error?.message || strings.inaccessibleFolder);
+    }
+  };
+  const handleOpenRecentProject = projectPath => openWorkspacePath(projectPath, "recent");
+
+  const handleSetRoot = async (relativePath, guestRequest) => {
+    const rootPath = ensureWorkspace();
+    const reply = (ok) => {
+      if (!guestRequest) return;
+      sendToRenderer("workspace:chooseRootResult", {
+        requestId: guestRequest.requestId,
+        workspaceId: guestRequest.workspaceId,
+        workspaceGeneration: guestRequest.workspaceGeneration,
+        ok,
+      });
+    };
+    try {
+      if (!rootPath) throw new Error("No workspace is selected.");
       await mutateCapturedWorkspace(rootPath, async () => {
+        if (guestRequest) {
+          // The same directory can have been closed and reopened while the
+          // request waited for the mutation lease. Check its session here.
+          if (!state.workspaceId || guestRequest.workspaceId !== state.workspaceId ||
+              !Number.isSafeInteger(guestRequest.workspaceGeneration) ||
+              guestRequest.workspaceGeneration !== state.workspaceGeneration ||
+              typeof relativePath !== "string" || !/\.tex$/i.test(relativePath) ||
+              !(await workspace.listFiles()).includes(relativePath)) {
+            throw new Error("The selected TeX file is not available in this workspace.");
+          }
+          const existingRoot = await workspace.rootInfo();
+          if (existingRoot?.path && existingRoot.path !== relativePath) {
+            throw new Error("The workspace root has already changed.");
+          }
+        }
         await workspace.setRootFile(relativePath);
         await sendWorkspace(rootPath);
         sendIssues(0, "Main TeX updated.", "success", []);
+        reply(true);
       });
     } catch (error) {
-      sendIssues(1, error.message, "error", [
-        { severity: "error", message: error.message, line: null },
-      ]);
+      reply(false);
+      if (!guestRequest) {
+        sendIssues(1, error.message, "error", [
+          { severity: "error", message: error.message, line: null },
+        ]);
+      }
     }
   };
 
@@ -377,8 +347,9 @@ const createWorkspaceProjectHandlers = (ctx) => {
     }
   };
 
-  const handleBuildProfilesUpdate = async (profiles, activeId) => {
+  const handleBuildProfilesUpdate = async (profiles, activeId, requestedRoot) => {
     const rootPath = ensureWorkspace();
+    if (typeof requestedRoot === "string" && requestedRoot !== rootPath) return;
     if (!rootPath) {
       sendIssues(1, "No workspace is selected.", "error", [
         { severity: "error", message: "No workspace is selected.", line: null },
@@ -454,7 +425,10 @@ const createWorkspaceProjectHandlers = (ctx) => {
     requestIndex(rootPath);
   };
 
-  const handleSearch = async (query, requestId) => {
+  const handleSearch = async (query, requestId, drafts) => {
+    activeSearch?.abort();
+    const controller = new AbortController();
+    activeSearch = controller;
     const rootPath = ensureWorkspace();
     if (!rootPath) {
       sendToRenderer("updateSearch", {
@@ -465,8 +439,14 @@ const createWorkspaceProjectHandlers = (ctx) => {
       });
       return;
     }
-    const results = await searchService.search(rootPath, query ?? "");
-    sendToRenderer("updateSearch", { query, results, requestId });
+    const generation = state.workspaceGeneration;
+    try {
+      const results = await searchService.search(rootPath, query ?? "", controller.signal, drafts);
+      if (controller.signal.aborted || ensureWorkspace() !== rootPath || state.workspaceGeneration !== generation) return;
+      sendToRenderer("updateSearch", { query, results, requestId });
+    } finally {
+      if (activeSearch === controller) activeSearch = null;
+    }
   };
 
   return {

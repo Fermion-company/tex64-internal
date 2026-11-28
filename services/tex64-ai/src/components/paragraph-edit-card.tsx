@@ -2,12 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { escapeParagraphText, segmentDisplayMath, segmentParagraph, type ParagraphSegment } from "@/domain/source/paragraph-editing";
+import { mathFieldSource, preserveMathMetadata, escapeParagraphText, segmentDisplayMath, segmentParagraph, type ParagraphSegment } from "@/domain/source/paragraph-editing";
 import { tableCells, replaceTableCells, type TableCell } from "@/domain/source/table-editing";
 import { getNativeHost } from "@/lib/client/native-host";
+import type { PdfTextHit } from "./pdf-text-blocks";
+import { focusClickedContent } from "./paragraph-math-focus";
 import { ensurePaperMath } from "@/lib/client/mathlive-loader";
 
 type MathfieldElement = HTMLElement & { value: string; getValue?: (format?: string) => string };
+function readFormula(field: MathfieldElement): string {
+  try { return field.getValue?.("latex") ?? field.value; }
+  catch { return field.value; }
+}
+
 const ALIGNED_PREFIX = String.raw`\begin{aligned}`;
 const ALIGNED_SUFFIX = String.raw`\end{aligned}`;
 const MATHLIVE_PLACEHOLDER_RE = /\\placeholder(?:\[[^\]]*\])?\{(?:[^{}]|\\.)*\}/g;
@@ -67,10 +74,11 @@ const sourceMathValue = (value: string, aligned: boolean): string => {
 };
 
 /** Mounted once per source range. Drafts are owned by useParagraphEditor. */
-export function ParagraphEditCard({ originalText, initialDraft, focusText, kind, saving, error, currentText, onAcceptCurrent, onSave, onCancel, onDraftChange, onReload }: {
+export function ParagraphEditCard({ originalText, initialDraft, focusText, textHit, kind, saving, error, currentText, onAcceptCurrent, onSave, onCancel, onDraftChange, onReload }: {
   originalText: string;
   initialDraft: string | null;
   focusText: string;
+  textHit?: PdfTextHit;
   kind: "text" | "math";
   saving: boolean;
   error: string | null;
@@ -86,9 +94,17 @@ export function ParagraphEditCard({ originalText, initialDraft, focusText, kind,
   const serializeRef = useRef<() => string>(() => initialSource);
   const callbacks = useRef({ onDraftChange });
   useEffect(() => { callbacks.current = { onDraftChange }; }, [onDraftChange]);
-  const [dirty, setDirty] = useState(initialSource !== originalText);
+  const dirty = (initialDraft ?? originalText) !== originalText;
   const [loadState, setLoadState] = useState<"loading" | "ready" | "failed">("loading");
   const [retry, setRetry] = useState(0);
+  const [copyResult, setCopyResult] = useState<"copied" | { manual: string } | null>(null);
+  const copyField = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (copyResult && copyResult !== "copied") {
+      copyField.current?.focus();
+      copyField.current?.select();
+    }
+  }, [copyResult]);
   const [isTable] = useState(() => kind !== "math" && tableCells(initialSource) !== null);
   const title = isTable ? "表を編集" : kind === "math" ? "数式を編集" : "文章を編集";
 
@@ -132,8 +148,7 @@ export function ParagraphEditCard({ originalText, initialDraft, focusText, kind,
             wrapper.dataset.mathPrefix = segment.prefix;
             wrapper.dataset.mathSuffix = segment.suffix;
             wrapper.dataset.mathOriginal = segment.latex;
-            wrapper.dataset.mathDirty = "false";
-            const prepared = mathfieldValue(segment.latex);
+            const prepared = mathfieldValue(mathFieldSource(segment.latex).visible);
             wrapper.dataset.mathAligned = String(prepared.aligned);
             const field = document.createElement("math-field") as MathfieldElement;
             field.className = "paragraph-math-field";
@@ -145,8 +160,10 @@ export function ParagraphEditCard({ originalText, initialDraft, focusText, kind,
             // initialized MathLive element would reset its input options.
             initializeFields.push(() => {
               field.value = prepared.value;
-              field.addEventListener("input", () => { wrapper.dataset.mathDirty = "true"; });
               if (math) cleanups.push(math.attach(field, wrapper));
+              // MathLive updates its model before it queues the input event.
+              // Save must see the new formula even on that same keystroke.
+              wrapper.dataset.initialFormula = readFormula(field);
               const stabilize = () => {
                 if (!field.shadowRoot || field.shadowRoot.querySelector("style[data-paper-editor]")) return;
                 const style = document.createElement("style");
@@ -169,10 +186,17 @@ export function ParagraphEditCard({ originalText, initialDraft, focusText, kind,
             const tr = document.createElement("tr");
             row.forEach((cell, columnIndex) => {
               const td = document.createElement("td");
-              const original = source.slice(cell.start, cell.end);
+              // Chromium can drop collapsible spaces at the edge of a
+              // contenteditable. Keep the TeX column padding in the source.
+              const raw = source.slice(cell.start, cell.end);
+              const start = cell.start + raw.length - raw.trimStart().length;
+              const original = raw.trim();
+              const body = { start, end: start + original.length };
               const editor = makeEditor(segmentParagraph(original), `${rowIndex + 1}行 ${columnIndex + 1}列`);
-              const entry = { cell, editor, original, touched: false };
-              editor.addEventListener("input", () => { entry.touched = true; });
+              const entry = { cell: body, editor, original, touched: false };
+              const markTouched = () => { entry.touched = true; };
+              editor.addEventListener("beforeinput", markTouched);
+              editor.addEventListener("input", markTouched);
               tableEditors.push(entry);
               td.append(editor); tr.append(td);
             });
@@ -189,39 +213,51 @@ export function ParagraphEditCard({ originalText, initialDraft, focusText, kind,
         setLoadState("ready");
         requestAnimationFrame(() => {
           if (cancelled) return;
+          if (textHit && focusClickedContent(host, textHit)) return;
           if (!rows) {
             host.querySelector<HTMLElement>(kind === "math" ? "math-field" : '[contenteditable="true"]')?.focus();
             return;
           }
+          if (textHit) return;
           const normalizedFocus = focusText.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
           if (normalizedFocus.length < 3) return;
-          const target = tableEditors.find(({ original }) => {
+          const candidates = tableEditors.filter(({ original }) => {
             const normalizedCell = original
               .normalize("NFKC")
               .toLowerCase()
               .replace(/\\(?:operatorname|mathrm|mathbf|mathit|mathsf|mathtt|text)\s*\{([^{}]*)\}/gu, "$1")
               .replace(/\\[A-Za-z]+\b/gu, "")
               .replace(/[^\p{L}\p{N}]+/gu, "");
-            return normalizedCell.includes(normalizedFocus) || normalizedFocus.includes(normalizedCell);
+            return normalizedCell && (normalizedCell.includes(normalizedFocus) || normalizedFocus.includes(normalizedCell));
           });
-          target?.editor.querySelector<HTMLElement>("math-field, [contenteditable=\"true\"]")?.focus();
+          if (candidates.length === 1) candidates[0]!.editor.focus();
         });
       } catch { if (!cancelled) setLoadState("failed"); }
     };
     void build();
     return () => { cancelled = true; cleanups.forEach((cleanup) => cleanup()); };
-  }, [focusText, initialSource, kind, retry]);
+  }, [focusText, textHit, initialSource, kind, retry]);
 
   useEffect(() => getNativeHost()?.onMessage((message) => {
-    if (message.type === "paper:command" && message.payload?.command === "save" && !saving && dirty && loadState === "ready") {
-      void onSave(serializeRef.current());
+    if (message.type === "paper:command" && message.payload?.command === "save" && !saving && loadState === "ready") {
+      const text = serializeRef.current();
+      if (text !== originalText) void onSave(text);
     }
-  }), [saving, dirty, loadState, onSave]);
+  }), [saving, loadState, onSave, originalText]);
 
   const recordDraft = () => {
+    setCopyResult(null);
     const text = serializeRef.current();
-    setDirty(text !== originalText);
     callbacks.current.onDraftChange(text);
+  };
+  const copyDraft = async () => {
+    const text = serializeRef.current();
+    try {
+      await navigator.clipboard.writeText(text);
+      if (serializeRef.current() === text) setCopyResult("copied");
+    } catch {
+      if (serializeRef.current() === text) setCopyResult({ manual: text });
+    }
   };
   const save = () => { if (!saving && loadState === "ready") void onSave(serializeRef.current()); };
   return (
@@ -248,7 +284,12 @@ export function ParagraphEditCard({ originalText, initialDraft, focusText, kind,
         {loadState === "failed" ? <div role="alert">数式入力を読み込めませんでした。<button onClick={() => { setLoadState("loading"); setRetry((value) => value + 1); }}>再試行</button></div> : null}
         {error ? <div className="paragraph-editor-error" role="alert"><p>{error}</p>
           {currentText !== null ? <><strong>現在の本文</strong><pre className="conflict-source">{currentText}</pre><button onClick={onAcceptCurrent}>確認して下書きを使う</button></> : <button onClick={onReload}>最新の本文を確認</button>}
-          <button onClick={() => void navigator.clipboard.writeText(serializeRef.current())}>下書きをコピー</button></div> : null}
+          <button onClick={copyDraft} aria-live="polite">{copyResult === "copied" ? "コピーしました" : "下書きをコピー"}</button>
+          {copyResult && copyResult !== "copied" &&
+            <label className="draft-copy-fallback">選択中の下書きをコピーしてください。
+              <textarea ref={copyField} readOnly value={copyResult.manual} />
+            </label>}
+        </div> : null}
       </div>
     </div>
   );
@@ -275,18 +316,12 @@ function serializeEditor(editor: HTMLElement | null): string {
         }
         if (child.dataset.mathPrefix !== undefined) {
           let value = child.dataset.mathOriginal ?? "";
-          if (child.dataset.mathDirty === "true") {
-            const field = child.querySelector<MathfieldElement>("math-field");
-            value = field?.value ?? "";
-            try {
-              value = field?.getValue?.("latex") ?? value;
-            } catch {
-              // `.value` is the same LaTeX representation on older MathLive.
+          const field = child.querySelector<MathfieldElement>("math-field");
+          if (field) {
+            const current = readFormula(field);
+            if (current !== child.dataset.initialFormula) {
+              value = preserveMathMetadata(value, sourceMathValue(current, child.dataset.mathAligned === "true"));
             }
-            value = sourceMathValue(
-              value,
-              child.dataset.mathAligned === "true",
-            );
           }
           out += `${child.dataset.mathPrefix}${value}${child.dataset.mathSuffix ?? ""}`;
           lineStart = false;

@@ -59,6 +59,7 @@ const parseAttachResult = (text) => {
   for (const line of lines) {
     const devMatch = line.match(/^(\/dev\/\S+)/);
     if (!devMatch) continue;
+    device ??= devMatch[1]; // still detach if no volume was mounted
     const mountIndex = line.indexOf("/Volumes/");
     if (mountIndex < 0) continue;
     const dev = devMatch[1];
@@ -206,197 +207,214 @@ const main = () => {
   }
 
   const absOutPath = path.resolve(outPath);
+  if (path.extname(absOutPath).toLowerCase() !== ".dmg") throw new Error("--out must point to a .dmg file");
   ensureDir(path.dirname(absOutPath));
 
   const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-dmg-"));
-  const stageDmg = path.join(tmpBase, "stage.dmg");
-
-  const srcFolder = path.dirname(absAppPath);
-
-  // Stage (read-write) DMG — use HFS+ to match common DMG installers with background art.
-  if (!dryRun) {
-    safeUnlink(stageDmg);
-    exec("hdiutil", [
-      "create",
-      "-srcfolder",
-      srcFolder,
-      "-volname",
-      volumeName,
-      "-layout",
-      "SPUD",
-      "-anyowners",
-      "-nospotlight",
-      "-format",
-      "UDRW",
-      "-fs",
-      "HFS+",
-      "-fsargs",
-      "-c c=64,a=16,e=16",
-      stageDmg,
-    ]);
-
-    // Ensure enough free space for background art, links, and Finder metadata.
-    // `hdiutil create -srcfolder` can create a volume that's too tight.
-    let folderKiB = 0;
-    try {
-      const duOut = execText("du", ["-sk", srcFolder]).trim();
-      folderKiB = Number.parseInt(duOut.split(/\s+/)[0] || "0", 10) || 0;
-    } catch {
-      folderKiB = 0;
-    }
-    const desiredMb = Math.max(Math.ceil(folderKiB / 1024) + Math.max(extraMb, 32), 200);
-    exec("hdiutil", ["resize", "-size", `${desiredMb}m`, stageDmg]);
-  }
-
-  let device = null;
-  let volumePath = null;
   try {
-    const attachResult = dryRun
-      ? ""
-      : execText("hdiutil", ["attach", "-noverify", "-noautoopen", "-readwrite", stageDmg]);
-    ({ device, volumePath } = parseAttachResult(attachResult));
+    const stageDmg = path.join(tmpBase, "stage.dmg");
 
-    if (!dryRun && (!device || !volumePath)) {
-      console.error(attachResult.trimEnd());
-      console.error("ERROR: Failed to mount stage DMG.");
-      process.exit(1);
+    const srcFolder = path.join(tmpBase, "contents");
+
+    // Stage (read-write) DMG — use HFS+ to match common DMG installers with background art.
+    if (!dryRun) {
+      ensureDir(srcFolder);
+      exec("ditto", [absAppPath, path.join(srcFolder, path.basename(absAppPath))]);
+      exec("hdiutil", [
+        "create",
+        "-srcfolder",
+        srcFolder,
+        "-volname",
+        volumeName,
+        "-layout",
+        "SPUD",
+        "-anyowners",
+        "-nospotlight",
+        "-format",
+        "UDRW",
+        "-fs",
+        "HFS+",
+        "-fsargs",
+        "-c c=64,a=16,e=16",
+        stageDmg,
+      ]);
+
+      // Ensure enough free space for background art, links, and Finder metadata.
+      // `hdiutil create -srcfolder` can create a volume that's too tight.
+      let folderKiB = 0;
+      try {
+        const duOut = execText("du", ["-sk", srcFolder]).trim();
+        folderKiB = Number.parseInt(duOut.split(/\s+/)[0] || "0", 10) || 0;
+      } catch {
+        folderKiB = 0;
+      }
+      const desiredMb = Math.max(Math.ceil(folderKiB / 1024) + Math.max(extraMb, 32), 200);
+      exec("hdiutil", ["resize", "-size", `${desiredMb}m`, stageDmg]);
     }
 
-    if (!dryRun) {
-      // Applications link
-      const applicationsLink = path.join(volumePath, "Applications");
-      if (!fs.existsSync(applicationsLink)) {
-        exec("ln", ["-s", "/Applications", applicationsLink]);
+    let device = null;
+    let volumePath = null;
+    try {
+      const attachResult = dryRun
+        ? ""
+        : execText("hdiutil", ["attach", "-noverify", "-noautoopen", "-readwrite", stageDmg]);
+      ({ device, volumePath } = parseAttachResult(attachResult));
+
+      if (!dryRun && (!device || !volumePath)) {
+        console.error(attachResult.trimEnd());
+        console.error("ERROR: Failed to mount stage DMG.");
+        throw new Error("Stage DMG is not mounted");
       }
 
-      // Background image
-      const backgroundDir = path.join(volumePath, ".background");
-      ensureDir(backgroundDir);
-      const backgroundPng = path.join(backgroundDir, "background.png");
-      fs.copyFileSync(path.resolve(background1x), backgroundPng);
-      // Optional: keep a 2x asset for future tweaks/inspection (Finder does not auto-pick it).
-      const backgroundPng2x = path.join(backgroundDir, "background@2x.png");
-      try {
-        fs.copyFileSync(path.resolve(background2x), backgroundPng2x);
-      } catch {}
+      if (!dryRun) {
+        // Applications link
+        const applicationsLink = path.join(volumePath, "Applications");
+        if (!fs.existsSync(applicationsLink)) {
+          exec("ln", ["-s", "/Applications", applicationsLink]);
+        }
 
-      const diskName = escapeAppleScriptString(path.basename(volumePath));
-      const appName = escapeAppleScriptString(path.basename(absAppPath));
-      const right = windowX + windowWidth;
-      const bottom = windowY + windowHeight;
-
-      const allowPlain = hasFlag("--allow-plain");
-      const disableFinder = hasFlag("--no-finder") || process.env.TEX64_DMG_NO_FINDER === "1";
-
-      let finderOk = false;
-      if (!disableFinder) {
+        // Background image
+        const backgroundDir = path.join(volumePath, ".background");
+        ensureDir(backgroundDir);
+        const backgroundPng = path.join(backgroundDir, "background.png");
+        fs.copyFileSync(path.resolve(background1x), backgroundPng);
+        // Optional: keep a 2x asset for future tweaks/inspection (Finder does not auto-pick it).
+        const backgroundPng2x = path.join(backgroundDir, "background@2x.png");
         try {
-          // Configure Finder to write the .DS_Store itself.
-          // This is the most reliable way to get background artwork + icon placement to render in Finder.
-          runAppleScript([
-            'tell application "Finder"',
-            `tell disk "${diskName}"`,
-            "open",
-            "delay 1",
-            "set theWindow to container window",
-            "set current view of theWindow to icon view",
-            "set toolbar visible of theWindow to false",
-            "set statusbar visible of theWindow to false",
-            `set the bounds of theWindow to {${windowX}, ${windowY}, ${right}, ${bottom}}`,
-            "delay 0.5",
-            "set theViewOptions to the icon view options of theWindow",
-            "set arrangement of theViewOptions to not arranged",
-            `set icon size of theViewOptions to ${iconSize}`,
-            `set text size of theViewOptions to ${iconTextSize}`,
-            'set background picture of theViewOptions to file ".background:background.png"',
-            `set position of item "${appName}" of theWindow to {${appIconX}, ${appIconY}}`,
-            `set position of item "Applications" of theWindow to {${applicationsIconX}, ${applicationsIconY}}`,
-            "delay 1",
-            "update without registering applications",
-            "delay 1",
-            "close theWindow",
-            "delay 2",
-            "end tell",
-            "end tell",
-          ]);
-          finderOk = true;
-        } catch (error) {
-          console.warn("WARN: Finder layout automation failed; falling back to dmgbuild .DS_Store.");
-          if (!allowPlain) {
-            console.warn(
-              "WARN: If this is your machine, allow Terminal to control Finder: System Settings → Privacy & Security → Automation."
-            );
+          fs.copyFileSync(path.resolve(background2x), backgroundPng2x);
+        } catch {}
+
+        const diskName = escapeAppleScriptString(path.basename(volumePath));
+        const appName = escapeAppleScriptString(path.basename(absAppPath));
+        const right = windowX + windowWidth;
+        const bottom = windowY + windowHeight;
+
+        const allowPlain = hasFlag("--allow-plain");
+        const disableFinder = hasFlag("--no-finder") || process.env.TEX64_DMG_NO_FINDER === "1";
+
+        let finderOk = false;
+        if (!disableFinder) {
+          try {
+            // Configure Finder to write the .DS_Store itself.
+            // This is the most reliable way to get background artwork + icon placement to render in Finder.
+            runAppleScript([
+              'tell application "Finder"',
+              `tell disk "${diskName}"`,
+              "open",
+              "delay 1",
+              "set theWindow to container window",
+              "set current view of theWindow to icon view",
+              "set toolbar visible of theWindow to false",
+              "set statusbar visible of theWindow to false",
+              `set the bounds of theWindow to {${windowX}, ${windowY}, ${right}, ${bottom}}`,
+              "delay 0.5",
+              "set theViewOptions to the icon view options of theWindow",
+              "set arrangement of theViewOptions to not arranged",
+              `set icon size of theViewOptions to ${iconSize}`,
+              `set text size of theViewOptions to ${iconTextSize}`,
+              'set background picture of theViewOptions to file ".background:background.png"',
+              `set position of item "${appName}" of theWindow to {${appIconX}, ${appIconY}}`,
+              `set position of item "Applications" of theWindow to {${applicationsIconX}, ${applicationsIconY}}`,
+              "delay 1",
+              "update without registering applications",
+              "delay 1",
+              "close theWindow",
+              "delay 2",
+              "end tell",
+              "end tell",
+            ]);
+            finderOk = true;
+          } catch (error) {
+            console.warn("WARN: Finder layout automation failed; falling back to dmgbuild .DS_Store.");
+            if (!allowPlain) {
+              console.warn(
+                "WARN: If this is your machine, allow Terminal to control Finder: System Settings → Privacy & Security → Automation."
+              );
+            }
+          }
+        }
+
+        if (!finderOk) {
+          if (allowPlain) {
+            console.warn("WARN: DMG will be created without a customized Finder layout (--allow-plain).");
+          } else {
+            configureDsStoreViaDmgbuild({
+              absAppPath,
+              volumePath,
+              iconSize,
+              iconTextSize,
+              backgroundFile: backgroundPng,
+              windowX,
+              windowY,
+              windowWidth,
+              windowHeight,
+              appIconX,
+              appIconY,
+              applicationsIconX,
+              applicationsIconY,
+            });
           }
         }
       }
-
-      if (!finderOk) {
-        if (allowPlain) {
-          console.warn("WARN: DMG will be created without a customized Finder layout (--allow-plain).");
-        } else {
-          configureDsStoreViaDmgbuild({
-            absAppPath,
-            volumePath,
-            iconSize,
-            iconTextSize,
-            backgroundFile: backgroundPng,
-            windowX,
-            windowY,
-            windowWidth,
-            windowHeight,
-            appIconX,
-            appIconY,
-            applicationsIconX,
-            applicationsIconY,
-          });
-        }
+    } finally {
+      if (!dryRun && device) {
+        try {
+          exec("hdiutil", ["detach", "-quiet", device]);
+        } catch {}
       }
     }
-  } finally {
-    if (!dryRun && device) {
-      try {
-        exec("hdiutil", ["detach", "-quiet", device]);
-      } catch {}
+
+    if (dryRun) {
+      console.log("Dry run complete.");
+      console.log(`- stage: ${stageDmg}`);
+      console.log(`- out:   ${absOutPath}`);
+      return;
     }
+
+    // Convert to a compressed DMG (final artifact).
+    const tmpOutBase = path.join(tmpBase, "out");
+    safeUnlink(tmpOutBase);
+    safeUnlink(`${tmpOutBase}.dmg`);
+    exec("hdiutil", [
+      "convert",
+      stageDmg,
+      "-format",
+      "UDZO",
+      "-imagekey",
+      "zlib-level=9",
+      "-o",
+      tmpOutBase,
+    ]);
+
+    const converted = fs.existsSync(`${tmpOutBase}.dmg`) ? `${tmpOutBase}.dmg` : tmpOutBase;
+    if (!fs.existsSync(converted)) {
+      throw new Error("DMG conversion output missing");
+    }
+
+    // Never discard the old output until the complete replacement is on its filesystem.
+    try {
+      fs.renameSync(converted, absOutPath);
+    } catch (error) {
+      if (error.code !== "EXDEV") throw error;
+      const outputStage = fs.mkdtempSync(path.join(path.dirname(absOutPath), ".tex64-dmg-"));
+      try {
+        const copy = path.join(outputStage, "output.dmg");
+        fs.copyFileSync(converted, copy);
+        fs.renameSync(copy, absOutPath);
+      } finally {
+        fs.rmSync(outputStage, { recursive: true, force: true });
+      }
+    }
+
+    // Optional: internet-enable (kept off by default; can be surprising for users).
+    if (hasFlag("--internet-enable")) {
+      exec("hdiutil", ["internet-enable", "-yes", absOutPath]);
+    }
+
+    console.log(`OK: DMG created: ${absOutPath}`);
+  } finally {
+    fs.rmSync(tmpBase, { recursive: true, force: true });
   }
-
-  if (dryRun) {
-    console.log("Dry run complete.");
-    console.log(`- stage: ${stageDmg}`);
-    console.log(`- out:   ${absOutPath}`);
-    return;
-  }
-
-  // Convert to a compressed DMG (final artifact).
-  const tmpOutBase = path.join(tmpBase, "out");
-  safeUnlink(tmpOutBase);
-  safeUnlink(`${tmpOutBase}.dmg`);
-  exec("hdiutil", [
-    "convert",
-    stageDmg,
-    "-format",
-    "UDZO",
-    "-imagekey",
-    "zlib-level=9",
-    "-o",
-    tmpOutBase,
-  ]);
-
-  const converted = fs.existsSync(`${tmpOutBase}.dmg`) ? `${tmpOutBase}.dmg` : tmpOutBase;
-  if (!fs.existsSync(converted)) {
-    console.error("ERROR: DMG conversion output missing.");
-    process.exit(1);
-  }
-
-  safeUnlink(absOutPath);
-  fs.renameSync(converted, absOutPath);
-
-  // Optional: internet-enable (kept off by default; can be surprising for users).
-  if (hasFlag("--internet-enable")) {
-    exec("hdiutil", ["internet-enable", "-yes", absOutPath]);
-  }
-
-  console.log(`OK: DMG created: ${absOutPath}`);
 };
 
 main();

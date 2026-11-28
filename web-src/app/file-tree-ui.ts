@@ -39,7 +39,10 @@ type FileTreeDeps = {
 
 export type FileTreeUiApi = {
   render: () => void;
+  getDragPayload: () => DragPayload | null;
   loadOpenState: () => void;
+  cancelDialogs: () => void;
+  resetWorkspace: () => void;
   requestCreate: (kind: CreateKind) => void;
   setTreeFocus: (value: boolean) => void;
   setSelection: (path: string | null, kind: "file" | "dir" | null) => void;
@@ -459,6 +462,22 @@ export const initFileTreeUi = (
     setDeleteModalOpen(false);
   };
 
+  const cancelDialogs = () => {
+    if (createModalKind) closeCreateModal();
+    if (renameTargetPath) closeRenameModal();
+    if (deleteTargetPath) closeDeleteModal();
+    deps.contextMenu.close();
+    setTreeFocus(false);
+  };
+
+  const resetWorkspace = () => {
+    cancelDialogs();
+    clearSelection();
+    fileClipboard = null;
+    dragPayload = null;
+    clearDropTargets();
+  };
+
   const submitDeleteModal = () => {
     if (!deleteTargetPath) {
       return;
@@ -506,6 +525,7 @@ export const initFileTreeUi = (
       ]);
       return;
     }
+    if (payload.workspaceRoot && payload.workspaceRoot !== deps.getWorkspaceRootKey()) return;
     const currentParent = getParentPath(payload.path);
     if (currentParent === targetFolder) {
       return;
@@ -784,6 +804,7 @@ export const initFileTreeUi = (
 
   if (createModalInput instanceof HTMLInputElement) {
     createModalInput.addEventListener("keydown", (event) => {
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === "Enter") {
         event.preventDefault();
         submitCreateModal();
@@ -816,6 +837,7 @@ export const initFileTreeUi = (
 
   if (renameModalInput instanceof HTMLInputElement) {
     renameModalInput.addEventListener("keydown", (event) => {
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === "Enter") {
         event.preventDefault();
         submitRenameModal();
@@ -895,6 +917,7 @@ export const initFileTreeUi = (
         return;
       }
       dragEvent.preventDefault();
+      if (dragEvent.dataTransfer) dragEvent.dataTransfer.dropEffect = "move";
       clearDropTargets();
       fileTree.classList.add("is-drop-target");
     });
@@ -949,7 +972,10 @@ export const initFileTreeUi = (
 
   return {
     render,
+    getDragPayload,
     loadOpenState,
+    cancelDialogs,
+    resetWorkspace,
     requestCreate,
     setTreeFocus,
     setSelection,

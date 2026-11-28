@@ -209,8 +209,11 @@ export function onPointerDown(mathfield: _Mathfield, evt: PointerEvent): void {
     // Clicking or tapping the field resets the keystroke buffer
     mathfield.flushInlineShortcutBuffer();
 
+    const doubleClick = evt.detail === 2 || gTapCount === 2;
     anchor = offsetFromPoint(mathfield, selectionAnchorX, selectionAnchorY, {
-      bias: 0,
+      // A word selection starts on the clicked character. A caret can also
+      // sit before it when the click lands on the left half of the glyph.
+      bias: doubleClick ? 1 : 0,
     });
 
     // Reset the style bias if the anchor is different
@@ -309,7 +312,7 @@ export function onPointerDown(mathfield: _Mathfield, evt: PointerEvent): void {
 
         PointerTracker.start(field, evt, onPointerMove, endPointerTracking);
 
-        if (evt.detail === 2 || gTapCount === 2) {
+        if (doubleClick) {
           // This is a double-click
           trackingWords = true;
           selectGroup(mathfield.model);

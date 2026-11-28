@@ -1,5 +1,6 @@
 const { historyBoundary } = require("./agent-history-boundary.cjs");
 const fsp = require("fs/promises");
+const { fileIdentity } = require("./file-identity.cjs");
 const crypto = require("crypto");
 const {
   isBlockedPath,
@@ -35,6 +36,16 @@ const {
   formatChangeSummary,
 } = require("./agent-tools-safety.cjs");
 
+const {
+  MAX_DELIVERY_CHARS,
+  hasModelViews,
+  deliverFullText,
+  deliverPositions,
+  editBaseOf,
+  checkLineNumbers,
+  markViewUnavailable,
+} = require("./agent-model-view.cjs");
+
 const handleReadFile = async (service, args, policy, conversationId) => {
   const targetPath = normalizePath(args.path);
   if (!targetPath) {
@@ -51,8 +62,12 @@ const handleReadFile = async (service, args, policy, conversationId) => {
     };
   }
   const snapshot = service.getContextSnapshot(conversationId, targetPath);
-  if (snapshot && snapshot.content) {
-    if (snapshot.contentLength > policy.maxFileBytes) {
+  // The editor snapshot is cut at a few thousand characters; a cut one is
+  // not the file (the read_file tool presents its result as complete). Read
+  // the whole file from disk, which is also what every edit tool applies to.
+  // A clean snapshot is the saved file as it was: the disk is as new or newer.
+  const fromSnapshot = () => {
+    if (snapshot.contentLength > policy.maxFileBytes || Buffer.byteLength(snapshot.content, "utf8") > policy.maxFileBytes) {
       return { error: "File is too large." };
     }
     if (useBase64) {
@@ -69,11 +84,16 @@ const handleReadFile = async (service, args, policy, conversationId) => {
       partial: snapshot.truncated,
       source: "buffer",
     };
-  }
+  };
+  const usableSnapshot = Boolean(snapshot?.isDirty && typeof snapshot.content === "string" && !snapshot.truncated);
+  // During an in-process turn the editor saves the person's typing as they
+  // go, so the disk is newer than the snapshot sent with the request.
+  const preferDisk = hasModelViews(service, conversationId);
+  if (usableSnapshot && !preferDisk) return fromSnapshot();
   const resolved = service.workspace.resolvePath(targetPath);
   const stat = await fsp.stat(resolved).catch(() => null);
   if (!stat || !stat.isFile()) {
-    return { error: "file not found." };
+    return usableSnapshot ? fromSnapshot() : { error: "file not found." };
   }
   if (stat.size > policy.maxFileBytes) {
     return { error: "File is too large." };
@@ -85,6 +105,8 @@ const handleReadFile = async (service, args, policy, conversationId) => {
     response.binary = true;
     response.size = result.size;
   }
+  // What reaches Axiom (all of it, a range, an excerpt) is decided by the
+  // caller, which records it (agent-model-view.cjs).
   return response;
 };
 
@@ -114,8 +136,9 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
     }
     try {
       const snapshot = service.getContextSnapshot(conversationId, targetPath);
-      if (snapshot && snapshot.content) {
-        if (snapshot.contentLength > policy.maxFileBytes) {
+      const usableSnapshot = Boolean(snapshot?.isDirty && typeof snapshot.content === "string" && !snapshot.truncated);
+      const useSnapshot = () => {
+        if (snapshot.contentLength > policy.maxFileBytes || Buffer.byteLength(snapshot.content, "utf8") > policy.maxFileBytes) {
           results[p] = { error: "File is too large." };
         } else {
           if (useBase64) {
@@ -127,6 +150,7 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
               source: "buffer",
             };
           } else {
+            deliverPositions(service, conversationId, targetPath, snapshot.content);
             results[p] = {
               content: snapshot.content,
               partial: snapshot.truncated,
@@ -134,12 +158,17 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
             };
           }
         }
+      };
+      // See handleReadFile: during an in-process turn the disk is newer.
+      if (usableSnapshot && !hasModelViews(service, conversationId)) {
+        useSnapshot();
         continue;
       }
       const resolved = service.workspace.resolvePath(targetPath);
       const stat = await fsp.stat(resolved).catch(() => null);
       if (!stat || !stat.isFile() || stat.size > policy.maxFileBytes) {
-        results[p] = { error: "File not found or too large" };
+        if (usableSnapshot && !stat) useSnapshot();
+        else results[p] = { error: "File not found or too large" };
         continue;
       }
       const result = await readFileFromDisk(resolved, { forceBase64: useBase64 });
@@ -148,12 +177,62 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
         results[p].encoding = "base64";
         results[p].binary = true;
         results[p].size = result.size;
+      } else {
+        // Callers may cut what they pass on: positions, not a base.
+        deliverPositions(service, conversationId, targetPath, result.content);
       }
     } catch {
       results[p] = { error: "Read error" };
     }
   }
   return { files: results };
+};
+
+// An edit Axiom computed against older text is rebased onto the disk at write
+// time (agent-proposal-runtime.cjs). What was written, what it was written
+// over, and what Axiom is told about it:
+const writtenTextOf = (apply, intended) => (typeof apply?.content === "string" ? apply.content : intended);
+const baseTextOf = (apply, original) => (typeof apply?.originalContent === "string" ? apply.originalContent : original);
+const rebaseNoteOf = (apply) =>
+  apply?.rebased === true
+    ? {
+        note:
+          "The person changed this file while you were working (their typing is saved). Your edit " +
+          "was merged into their current text; line numbers in this result are for the merged file. " +
+          "Read the file again before another line-numbered edit.",
+      }
+    : {};
+// The current text handed back with a refused edit is what Axiom now has:
+// all of it when it fits in the result, otherwise positions only.
+const deliverRefusedText = (service, conversationId, targetPath, apply) => {
+  if (apply?.baseUnavailable || typeof apply?.currentContent !== "string") return;
+  if (apply.currentContent.length > MAX_DELIVERY_CHARS) deliverPositions(service, conversationId, targetPath, apply.currentContent);
+  else deliverFullText(service, conversationId, targetPath, apply.currentContent);
+};
+const currentTextOf = (apply) =>
+  typeof apply?.currentContent === "string"
+    ? {
+        currentContent: apply.currentContent.slice(0, MAX_DELIVERY_CHARS),
+        currentContentTruncated: apply.currentContent.length > MAX_DELIVERY_CHARS,
+        totalLines: apply.currentContent.split(/\r?\n/).length,
+      }
+    : {};
+
+const unavailableBaseRefusal = (error, currentContent) => ({
+  error,
+  conflict: true,
+  ...currentTextOf({ currentContent }),
+});
+
+const readUnavailableBaseRefusal = async (service, targetPath, error) => {
+  const current = await service.workspace.readFile(targetPath).catch(() => undefined);
+  return unavailableBaseRefusal(error, current);
+};
+
+const refuseTruncatedSnapshot = (service, conversationId, targetPath) => {
+  markViewUnavailable(service, conversationId, targetPath);
+  const base = editBaseOf(service, conversationId, targetPath);
+  return readUnavailableBaseRefusal(service, targetPath, base.error);
 };
 
 const autoApplyProposal = async (service, proposal, options = {}) => {
@@ -255,8 +334,25 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
   } catch {
     // File not on disk — may still be open in the editor via snapshot.
   }
-  if (!diskRead) {
+  // A whole-file proposal uses the last full text Axiom knows. The queue
+  // rebases from it onto any typing saved since.
+  const base = editBaseOf(service, conversationId, targetPath, { needFull: true });
+  if (base.unavailable) {
+    return diskRead
+      ? unavailableBaseRefusal(base.error, isBinary ? undefined : originalContent)
+      : readUnavailableBaseRefusal(service, targetPath, base.error);
+  }
+  if (base.error) return { error: base.error, conflict: true };
+  if (!isBinary && typeof base.text === "string" && (!diskRead || base.text !== originalContent)) {
+    originalContent = base.text;
+    isNewFile = false;
+    baseContentHash = hashUtf8Text(base.text);
+    baseSource = "view";
+  } else if (!diskRead) {
     const snapshot = service.getContextSnapshot(conversationId, targetPath);
+    if (snapshot?.truncated && hasModelViews(service, conversationId)) {
+      return refuseTruncatedSnapshot(service, conversationId, targetPath);
+    }
     if (snapshot && snapshot.content) {
       if (snapshot.contentLength > policy.maxFileBytes) {
         return { error: "File is too large." };
@@ -356,14 +452,17 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
   };
   const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
   if (!apply.ok) {
+    deliverRefusedText(service, conversationId, targetPath, apply);
+    const current = currentTextOf(apply);
     return {
       status: "apply_failed",
       writeApplied: false,
       proposalId: id,
       path: targetPath,
-      apply,
+      apply: { ...apply, ...current },
       error: apply.error,
       conflict: apply.conflict === true,
+      ...current,
     };
   }
 
@@ -373,7 +472,8 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
   // got out of sync with the file system.
   if (!binaryWrite) {
     const resolved = service.workspace.resolvePath(targetPath);
-    const verify = await verifyPostWrite(resolved, content);
+    const written = writtenTextOf(apply, content);
+    const verify = await verifyPostWrite(resolved, written);
     if (!verify.ok) {
       return {
         status: "apply_failed",
@@ -383,7 +483,7 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
         error: verify.error,
       };
     }
-    const change = describeChange(originalContent, content);
+    const change = describeChange(baseTextOf(apply, originalContent), written);
     return {
       status: "applied",
       writeApplied: true,
@@ -394,6 +494,7 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
       verified: true,
       summary: formatChangeSummary(targetPath, change),
       sha: verify.actualSha,
+      ...rebaseNoteOf(apply),
     };
   }
 
@@ -446,10 +547,12 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
     if (!isTextExtension(edit.path, policy)) {
       return { error: "Only text files can be edited." };
     }
-    if (!editsByPath.has(edit.path)) {
-      editsByPath.set(edit.path, []);
+    let key;
+    try { key = fileIdentity(service.workspace, edit.path); } catch {
+      return { error: "Invalid path." };
     }
-    editsByPath.get(edit.path).push(edit);
+    if (!editsByPath.has(key)) editsByPath.set(key, []);
+    editsByPath.get(key).push(edit);
   }
 
   const fileCount = editsByPath.size;
@@ -473,7 +576,8 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
     return `${summaryPrefix} (${path}: ${base})`;
   };
 
-  for (const [targetPath, edits] of editsByPath.entries()) {
+  for (const edits of editsByPath.values()) {
+    const targetPath = edits[0].path;
     let originalContent = "";
     let baseContentHash = null;
     let baseSource = null;
@@ -486,6 +590,8 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
       if (result.binary) {
         return { error: "Cannot partially edit binary file." };
       }
+      const base = editBaseOf(service, conversationId, targetPath);
+      if (base.unavailable) return unavailableBaseRefusal(base.error, result.content);
       if (result.size > policy.maxFileBytes) {
         return { error: "File is too large." };
       }
@@ -497,7 +603,12 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
       // File not on disk – fall back to snapshot.
     }
     if (!diskRead) {
+      const base = editBaseOf(service, conversationId, targetPath);
+      if (base.unavailable) return readUnavailableBaseRefusal(service, targetPath, base.error);
       const snapshot = service.getContextSnapshot(conversationId, targetPath);
+      if (snapshot?.truncated && hasModelViews(service, conversationId)) {
+        return refuseTruncatedSnapshot(service, conversationId, targetPath);
+      }
       if (snapshot && snapshot.content) {
         if (snapshot.contentLength > policy.maxFileBytes) {
           return { error: "File is too large." };
@@ -587,6 +698,7 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
       appliedCount: prepared.appliedCount,
       ok: Boolean(apply?.ok),
       error: apply?.ok ? undefined : apply?.error ?? "Apply failed.",
+      ...currentTextOf(apply),
     });
   }
 
@@ -605,7 +717,19 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
  * preferring disk so we never operate on a stale snapshot. Returns
  * { ok, content, baseContentHash, baseSource, error? }.
  */
-const readCurrentTextContent = async (service, policy, conversationId, targetPath) => {
+const readCurrentTextContent = async (service, policy, conversationId, targetPath, { forEdit = false, partialRead = false } = {}) => {
+  // An edit tool places its change by line numbers / sections taken from
+  // what Axiom knows; compute it on Axiom's base (agent-model-view.cjs). The
+  // write rebases it onto the disk inside the per-file queue.
+  if (forEdit) {
+    const base = editBaseOf(service, conversationId, targetPath, { positionBase: true });
+    if (base.unavailable) {
+      return { ok: false, ...await readUnavailableBaseRefusal(service, targetPath, base.error) };
+    }
+    if (typeof base.text === "string") {
+      return { ok: true, content: base.text, baseContentHash: hashUtf8Text(base.text), baseSource: "view" };
+    }
+  }
   try {
     const resolved = service.workspace.resolvePath(targetPath);
     const result = await readFileFromDisk(resolved);
@@ -615,6 +739,8 @@ const readCurrentTextContent = async (service, policy, conversationId, targetPat
     if (result.size > policy.maxFileBytes) {
       return { ok: false, error: "File is too large." };
     }
+    // An outline or a section: positions in this text, not the text itself.
+    if (!forEdit) deliverPositions(service, conversationId, targetPath, result.content, { truncatedRead: partialRead });
     return {
       ok: true,
       content: result.content,
@@ -625,6 +751,9 @@ const readCurrentTextContent = async (service, policy, conversationId, targetPat
     // Fall through to snapshot
   }
   const snapshot = service.getContextSnapshot(conversationId, targetPath);
+  if (forEdit && snapshot?.truncated && hasModelViews(service, conversationId)) {
+    return { ok: false, ...await refuseTruncatedSnapshot(service, conversationId, targetPath) };
+  }
   if (snapshot && snapshot.content) {
     if (snapshot.contentLength > policy.maxFileBytes) {
       return { ok: false, error: "File is too large." };
@@ -776,6 +905,7 @@ const submitEditedContent = async ({
   };
   const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
   if (!apply.ok) {
+    deliverRefusedText(service, conversationId, targetPath, apply);
     return {
       status: "apply_failed",
       writeApplied: false,
@@ -783,10 +913,12 @@ const submitEditedContent = async ({
       path: targetPath,
       error: apply.error,
       conflict: apply.conflict === true,
+      ...currentTextOf(apply),
     };
   }
   const resolved = service.workspace.resolvePath(targetPath);
-  const verify = await verifyPostWrite(resolved, updatedContent);
+  const written = writtenTextOf(apply, updatedContent);
+  const verify = await verifyPostWrite(resolved, written);
   if (!verify.ok) {
     return {
       status: "apply_failed",
@@ -796,7 +928,7 @@ const submitEditedContent = async ({
       error: verify.error,
     };
   }
-  const change = describeChange(originalContent, updatedContent);
+  const change = describeChange(baseTextOf(apply, originalContent), written);
   return {
     status: "applied",
     writeApplied: true,
@@ -806,6 +938,7 @@ const submitEditedContent = async ({
     verified: true,
     summary: formatChangeSummary(targetPath, change),
     sha: verify.actualSha,
+    ...rebaseNoteOf(apply),
   };
 };
 
@@ -898,11 +1031,16 @@ const handleReplaceLines = async (service, args, policy, conversationId) => {
   const endLine = Math.round(endLineRaw);
   const replacementText = typeof args.content === "string" ? args.content : "";
 
-  const read = await readCurrentTextContent(service, policy, conversationId, targetPath);
+  const read = await readCurrentTextContent(service, policy, conversationId, targetPath, { forEdit: true });
   if (!read.ok) {
-    return { error: read.error };
+    return read;
   }
   const originalContent = read.content;
+  // Line numbers count in some version Axiom saw; all of them must agree here.
+  const numbering = checkLineNumbers(service, conversationId, targetPath, startLine, endLine);
+  if (numbering) {
+    return { error: numbering, conflict: true };
+  }
 
   const newline = originalContent.includes("\r\n") ? "\r\n" : "\n";
   const normalizedOriginal = originalContent.replace(/\r\n/g, "\n");
@@ -966,11 +1104,16 @@ const handleInsertLines = async (service, args, policy, conversationId) => {
     return { error: "content is empty — nothing to insert." };
   }
 
-  const read = await readCurrentTextContent(service, policy, conversationId, targetPath);
+  const read = await readCurrentTextContent(service, policy, conversationId, targetPath, { forEdit: true });
   if (!read.ok) {
-    return { error: read.error };
+    return read;
   }
   const originalContent = read.content;
+  // Line numbers count in some version Axiom saw; all of them must agree here.
+  const numbering = checkLineNumbers(service, conversationId, targetPath, afterLine, afterLine);
+  if (numbering) {
+    return { error: numbering, conflict: true };
+  }
 
   const newline = originalContent.includes("\r\n") ? "\r\n" : "\n";
   const normalizedOriginal = originalContent.replace(/\r\n/g, "\n");
@@ -1045,11 +1188,16 @@ const handleDeleteLines = async (service, args, policy, conversationId) => {
   const startLine = Math.round(startLineRaw);
   const endLine = Math.round(endLineRaw);
 
-  const read = await readCurrentTextContent(service, policy, conversationId, targetPath);
+  const read = await readCurrentTextContent(service, policy, conversationId, targetPath, { forEdit: true });
   if (!read.ok) {
-    return { error: read.error };
+    return read;
   }
   const originalContent = read.content;
+  // Line numbers count in some version Axiom saw; all of them must agree here.
+  const numbering = checkLineNumbers(service, conversationId, targetPath, startLine, endLine);
+  if (numbering) {
+    return { error: numbering, conflict: true };
+  }
   const newline = originalContent.includes("\r\n") ? "\r\n" : "\n";
   const normalizedOriginal = originalContent.replace(/\r\n/g, "\n");
   const originalLines = normalizedOriginal.split("\n");
@@ -1113,31 +1261,9 @@ const handleProposeDelete = async (service, args, policy, conversationId) => {
   if (!stat || !stat.isFile()) {
     return { error: "file not found." };
   }
-  let originalContent = "";
-  let isBinary = false;
-  let baseContentHash = null;
-  let baseSource = null;
   const snapshot = service.getContextSnapshot(conversationId, targetPath);
-  if (snapshot && snapshot.content) {
-    if (snapshot.contentLength > policy.maxFileBytes) {
-      return { error: "File is too large." };
-    }
-    originalContent = snapshot.content;
-    if (!snapshot.isDirty && !snapshot.truncated) {
-      baseContentHash = hashUtf8Text(snapshot.content);
-      baseSource = "snapshot";
-    }
-  } else {
-    try {
-      const result = await readFileFromDisk(resolved);
-      originalContent = result.content;
-      isBinary = result.binary;
-      baseContentHash = result.contentHash;
-      baseSource = "disk";
-    } catch {
-      originalContent = "";
-    }
-  }
+  if (snapshot?.content && snapshot.contentLength > policy.maxFileBytes) return { error: "File is too large." };
+  const original = await readFileFromDisk(resolved);
   const id =
     typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
@@ -1147,15 +1273,15 @@ const handleProposeDelete = async (service, args, policy, conversationId) => {
     type: "delete",
     path: targetPath,
     content: "",
-    originalContent,
-    isBinary,
+    originalContent: original.content,
+    isBinary: original.binary,
     summary,
     isNewFile: false,
     conversationId,
     workspaceRootPath: service.workspace.getRootPath() || undefined,
-    baseContentHash: typeof baseContentHash === "string" ? baseContentHash : undefined,
+    baseContentHash: original.contentHash,
     baseExists: true,
-    baseSource: baseSource || undefined,
+    baseSource: "disk",
     createdAt: Date.now(),
   };
   const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
@@ -1184,34 +1310,12 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
   if (!stat || !stat.isFile()) {
     return { error: "file not found." };
   }
-  let originalContent = "";
-  let isBinary = false;
-  let baseContentHash = null;
-  let baseSource = null;
   const snapshot = service.getContextSnapshot(conversationId, oldPath);
+  if (snapshot?.content && snapshot.contentLength > policy.maxFileBytes) return { error: "File is too large." };
   if (snapshot?.isDirty) {
     return { error: "Cannot rename a file with unsaved editor changes. Save it and try again." };
   }
-  if (snapshot && snapshot.content) {
-    if (snapshot.contentLength > policy.maxFileBytes) {
-      return { error: "File is too large." };
-    }
-    originalContent = snapshot.content;
-    if (!snapshot.isDirty && !snapshot.truncated) {
-      baseContentHash = hashUtf8Text(snapshot.content);
-      baseSource = "snapshot";
-    }
-  } else {
-    try {
-      const result = await readFileFromDisk(resolved);
-      originalContent = result.content;
-      isBinary = result.binary;
-      baseContentHash = result.contentHash;
-      baseSource = "disk";
-    } catch {
-      originalContent = "";
-    }
-  }
+  const original = await readFileFromDisk(resolved);
   const id =
     typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
@@ -1221,16 +1325,16 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
     type: "rename",
     path: newPath,
     oldPath,
-    content: originalContent,
-    originalContent,
-    isBinary,
+    content: original.content,
+    originalContent: original.content,
+    isBinary: original.binary,
     summary,
     isNewFile: false,
     conversationId,
     workspaceRootPath: service.workspace.getRootPath() || undefined,
-    baseContentHash: typeof baseContentHash === "string" ? baseContentHash : undefined,
+    baseContentHash: original.contentHash,
     baseExists: true,
-    baseSource: baseSource || undefined,
+    baseSource: "disk",
     createdAt: Date.now(),
   };
   const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });

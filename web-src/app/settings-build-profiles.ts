@@ -70,7 +70,7 @@ export const initBuildProfilesUi = (
   let buildProfiles: BuildProfile[] = [];
   let activeProfileId: string | null = null;
   let saveTimer: number | null = null;
-  let hasPendingSave = false;
+  let pendingRoot: string | null = null;
   let lastRenderedSelectedId: string | null = null;
 
   const isWorkspaceReady = () => Boolean(deps.getWorkspaceRootKey());
@@ -166,7 +166,7 @@ export const initBuildProfilesUi = (
     }
     deps.onActiveEngineChange?.(enabled && selected?.engine ? selected.engine : null);
     if (settingsBuildProfileAdd instanceof HTMLButtonElement) {
-      settingsBuildProfileAdd.disabled = !enabled;
+      settingsBuildProfileAdd.disabled = !enabled || buildProfiles.length >= 20;
     }
     if (settingsBuildProfileDelete instanceof HTMLButtonElement) {
       settingsBuildProfileDelete.disabled = !enabled || !isCustom;
@@ -189,6 +189,10 @@ export const initBuildProfilesUi = (
   };
 
   const render = () => {
+    // Filesystem events can refresh the workspace while a field is being typed.
+    // Keep the unsent draft for this project until its debounce or blur commits.
+    if (pendingRoot && pendingRoot === deps.getWorkspaceRootKey()) return;
+    cancelPendingSave();
     loadStateFromDeps();
     renderSelect();
     renderFields(false);
@@ -207,6 +211,7 @@ export const initBuildProfilesUi = (
     deps.postToNative(
       {
         type: "build:profiles:update",
+        workspaceRoot: deps.getWorkspaceRootKey(),
         profiles: buildProfiles,
         activeId,
       },
@@ -219,10 +224,7 @@ export const initBuildProfilesUi = (
       window.clearTimeout(saveTimer);
       saveTimer = null;
     }
-    if (!hasPendingSave) {
-      return;
-    }
-    hasPendingSave = false;
+    pendingRoot = null;
   };
 
   const scheduleBuildProfilesSave = () => {
@@ -230,11 +232,12 @@ export const initBuildProfilesUi = (
       window.clearTimeout(saveTimer);
       saveTimer = null;
     }
-    hasPendingSave = true;
+    pendingRoot = deps.getWorkspaceRootKey();
     saveTimer = window.setTimeout(() => {
       saveTimer = null;
-      hasPendingSave = false;
-      postBuildProfilesUpdate(true);
+      const root = pendingRoot;
+      pendingRoot = null;
+      if (root && root === deps.getWorkspaceRootKey()) postBuildProfilesUpdate(true);
     }, 320);
   };
 
@@ -352,7 +355,7 @@ export const initBuildProfilesUi = (
 
   if (settingsBuildProfileAdd instanceof HTMLButtonElement) {
     settingsBuildProfileAdd.addEventListener("click", () => {
-      if (!isWorkspaceReady()) {
+      if (!isWorkspaceReady() || buildProfiles.length >= 20) {
         return;
       }
       cancelPendingSave();
@@ -379,7 +382,6 @@ export const initBuildProfilesUi = (
       if (!isWorkspaceReady()) {
         return;
       }
-      cancelPendingSave();
       const selectedId = getSelectedBuildProfileId();
       if (!selectedId) {
         return;
@@ -394,6 +396,7 @@ export const initBuildProfilesUi = (
       if (!ok) {
         return;
       }
+      cancelPendingSave();
       buildProfiles = buildProfiles.filter((profile) => profile.id !== selectedId);
       activeProfileId = null;
       renderSelect();
@@ -402,21 +405,11 @@ export const initBuildProfilesUi = (
     });
   }
 
-  if (settingsBuildProfileName instanceof HTMLInputElement) {
-    settingsBuildProfileName.addEventListener("input", () => {
-      handleBuildProfileTextChange();
-    });
-  }
-
-  if (settingsBuildOutDir instanceof HTMLInputElement) {
-    settingsBuildOutDir.addEventListener("input", () => {
-      handleBuildProfileTextChange();
-    });
-  }
-
-  if (settingsBuildExtraArgs instanceof HTMLInputElement) {
-    settingsBuildExtraArgs.addEventListener("input", () => {
-      handleBuildProfileTextChange();
+  for (const input of [settingsBuildProfileName, settingsBuildOutDir, settingsBuildExtraArgs]) {
+    if (!(input instanceof HTMLInputElement)) continue;
+    input.addEventListener("input", handleBuildProfileTextChange);
+    input.addEventListener("change", () => {
+      if (pendingRoot && pendingRoot === deps.getWorkspaceRootKey()) commitBuildProfilesUpdate();
     });
   }
 

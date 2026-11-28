@@ -1,3 +1,4 @@
+import type { ComposerDraft } from "./ai-chat-draft-restore.js";
 import { uiText } from "./i18n.js";
 import type { AgentNextStep, AgentPlan, AgentProposal, AgentQuestion } from "./types.js";
 
@@ -16,6 +17,7 @@ export type ChatMessage = {
   rating?: "up" | "down";
   /** A request waiting for the running turn to finish. */
   queued?: boolean;
+  manualRetry?: boolean;
   queueId?: string;
   /** The file changes the turn that produced this reply wrote. */
   changes?: AgentProposal[];
@@ -23,6 +25,8 @@ export type ChatMessage = {
 
 /** A request typed while a turn was running; sent when the turn ends. */
 export type QueuedTurn = {
+  manualRetry?: boolean;
+  draft?: ComposerDraft;
   id: string;
   text: string;
   parts?: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }>;

@@ -30,11 +30,12 @@ export const makeCandidate = (trigger, key, priority, labelOverride, displayLate
     const label = (_a = labelOverride !== null && labelOverride !== void 0 ? labelOverride : key.label) !== null && _a !== void 0 ? _a : trigger;
     const displayLatex = (_b = displayLatexOverride !== null && displayLatexOverride !== void 0 ? displayLatexOverride : buildMathKeyDisplayLatex(key)) !== null && _b !== void 0 ? _b : undefined;
     const id = `${normalizeLatexKey(key.latex)}|${label}`;
+    const command = extractCommand(key.latex);
     return {
         id,
         key,
         label,
-        hint: trigger,
+        hint: (command === null || command === void 0 ? void 0 : command.toLowerCase()) === trigger.toLowerCase() ? command : trigger,
         displayLatex,
         priority,
     };
@@ -61,7 +62,7 @@ export const buildTriggerMap = () => {
     };
     const addCandidate = (trigger, key, priority, labelOverride, displayLatexOverride, groupPriority) => {
         const normalizedTrigger = trigger.toLowerCase();
-        const candidate = makeCandidate(normalizedTrigger, key, priority, labelOverride, displayLatexOverride);
+        const candidate = makeCandidate(trigger, key, priority, labelOverride, displayLatexOverride);
         const group = ensureGroup(normalizedTrigger, groupPriority);
         const seenIds = candidateIdsByTrigger.get(normalizedTrigger);
         if (!seenIds) {

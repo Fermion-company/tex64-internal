@@ -1,3 +1,4 @@
+const { withProjectFileWrites } = require("../project-file-writes.cjs");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -8,6 +9,7 @@ const {
   loadPreviewCacheCandidate,
   loadLatexmkHistoryCandidate,
 } = require("./preview-cache.cjs");
+const { projectLookupInventory, readOwnershipRecorder } = require("./recorder-ownership.cjs");
 const { isEnvMissingMessage } = require("./utils.cjs");
 const { buildRecordArgs, wantsBuildRecord, saveBuildRecord, PROBE_RECORD_EXT } = require("../live-preview-window.cjs");
 const { countPdfPages, LIVE_PREVIEW_PAGE_LIMIT } = require("../live-preview-page-limit.cjs");
@@ -375,6 +377,7 @@ const captureStaticPreviewCandidate = async ({
   auxiliaryDirectory,
   recorderPath,
   prebuildProjectInputs,
+  prebuildLookupInventory,
   startedAt,
   durationMs,
 }) => {
@@ -396,7 +399,18 @@ const captureStaticPreviewCandidate = async ({
     recorder.ok ? recorder.inputs : []
   );
   const inputProofEstablished = recorder.ok && inputObservation.ok;
+  let ownership = null;
+  if (inputProofEstablished && prebuildLookupInventory && extraArgs.length === 0 &&
+      (await regularFileAsync(recorderPath))?.mtimeMs >= startedAt &&
+      prebuildLookupInventory === await projectLookupInventory(prebuildProjectInputs.rootRealPath)) {
+    const recorderProof = await readOwnershipRecorder(recorderPath, prebuildProjectInputs.rootRealPath, startedAt);
+    if (recorderProof?.project.size === recorder.inputs.length &&
+        recorder.inputs.every((input) => recorderProof.project.has(input.path))) {
+      ownership = { inventory: prebuildLookupInventory, external: recorderProof.external, recorder: recorderProof.recorder };
+    }
+  }
   const provenance = {
+    ownership,
     inputProof: inputProofEstablished ? "build-fls" : "none",
     dynamicInputs: false,
     unknownInputs: [
@@ -789,6 +803,22 @@ module.exports = (BuildService) => {
       };
       return { kind: "failure", summary: issue.message, issues: [issue] };
     }
+    try {
+      return await withProjectFileWrites(this.pdfOutputPaths(pdfPath), () =>
+        this.runBuildWithPdfOutput(rootPath, mainFileName, engine, {
+          outDir, extraArgs, hasExplicitOutDirArg, jobName, pdfPath,
+        }), { entryPaths: true });
+    } catch (error) {
+      if (error.code !== "FILE_WRITE_BUSY") throw error;
+      const issue = { severity: "error", message: "Could not protect the existing PDF output.", line: null };
+      return { kind: "failure", summary: issue.message, issues: [issue] };
+    }
+  };
+
+  BuildService.prototype.runBuildWithPdfOutput = async function (rootPath, mainFileName, engine, {
+    outDir, extraArgs, hasExplicitOutDirArg, jobName, pdfPath,
+  }) {
+    const mainFilePath = path.join(rootPath, mainFileName);
     let latexmkHistorySeed = null;
     try {
       const profile = previewCacheProfile({
@@ -837,8 +867,12 @@ module.exports = (BuildService) => {
       // consumed. An incomplete observation only disables canonical adoption;
       // it never blocks the Build or last-good PDF cache.
       let prebuildProjectInputs = null;
+      let prebuildLookupInventory = null;
       try {
-        prebuildProjectInputs = await capturePrebuildProjectInputs(rootPath);
+        [prebuildProjectInputs, prebuildLookupInventory] = await Promise.all([
+          capturePrebuildProjectInputs(rootPath),
+          projectLookupInventory(rootPath),
+        ]);
       } catch (error) {
         prebuildProjectInputs = {
           ok: false,
@@ -956,7 +990,7 @@ module.exports = (BuildService) => {
         }
       }
 
-      let issues = this.parseIssues(output, rootPath);
+      let issues = this.parseIssues(output, rootPath, mainFileName);
       // The panel shows the compiler's own transcript; latexmk's console output is
       // only the fallback for when the .log could not be read.
       const transcript =
@@ -964,7 +998,7 @@ module.exports = (BuildService) => {
       // latexmk may summarize a failed run without repeating the TeX error.
       // Recover its location from this run's transcript, never an old log.
       if (status !== 0 && !issues.some((issue) => issue.severity === "error")) {
-        const transcriptErrors = this.parseIssues(transcript, rootPath).filter(
+        const transcriptErrors = this.parseIssues(transcript, rootPath, mainFileName).filter(
           (issue) => issue.severity === "error",
         );
         issues = [...transcriptErrors, ...issues].slice(0, 20);
@@ -1041,6 +1075,7 @@ module.exports = (BuildService) => {
                 pdfOutputTransaction?.stagingDir ?? path.dirname(resolvedPdfPath),
               recorderPath,
               prebuildProjectInputs,
+              prebuildLookupInventory,
               startedAt,
               durationMs: buildDurationMs,
             });

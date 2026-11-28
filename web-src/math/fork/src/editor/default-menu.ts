@@ -317,7 +317,7 @@ function getInsertMatrixSubmenu(mf: _Mathfield): MenuItem[] {
               .fill(Array(col).fill('#?').join(' & '))
               .join('\\\\')}\\end{pmatrix}`,
             {
-              selectionMode: 'item',
+              selectionMode: 'placeholder',
             }
           );
         },
@@ -375,18 +375,14 @@ export function getDefaultMenuItems(mf: _Mathfield): MenuItem[] {
         return minCols !== maxCols;
       },
       keyboardShortcut: 'shift+alt+[Tab]',
-      enabled: () => {
-        const array = mf.model.parentEnvironment;
-        if (!array) return false;
-        const [rows, _cols] = shape(mf);
-        return rows < array.maxColumns;
-      },
+      enabled: () => canAddColumn(mf),
     },
     {
       label: () => localize('menu.array.add column after')!,
       id: 'add-column-after',
       onMenuSelect: () => mf.executeCommand('addColumnAfter'),
       keyboardShortcut: 'alt+[Tab]',
+      enabled: () => canAddColumn(mf),
       visible: () => {
         if (!mf.isSelectionEditable || !inMatrix(mf)) return false;
         const [_minRows, minCols] = minShape(mf);
@@ -696,7 +692,7 @@ export function getDefaultMenuItems(mf: _Mathfield): MenuItem[] {
         },
         {
           label: () => localize('menu.copy-as-typst')!,
-          id: 'copy-latex',
+          id: 'copy-typst',
           onMenuSelect: () => ModeEditor.copyToClipboard(mf, 'typst'),
         },
         {
@@ -748,6 +744,11 @@ function isMatrixSelected(mf: _Mathfield): boolean {
   if (cursor.type !== 'array') return false;
   const env = (cursor as ArrayAtom).environmentName;
   return ['matrix', 'pmatrix', 'bmatrix', 'vmatrix', 'Bmatrix'].includes(env);
+}
+
+function canAddColumn(mf: _Mathfield): boolean {
+  const array = mf.model.parentEnvironment;
+  return !!array && array.colCount < array.maxColumns;
 }
 
 function shape(mf: _Mathfield): [number, number] {

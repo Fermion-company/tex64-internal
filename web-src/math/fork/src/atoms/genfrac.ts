@@ -37,7 +37,7 @@ export class GenfracAtom extends Atom {
   readonly leftDelim?: string;
   readonly rightDelim?: string;
   private readonly continuousFraction: boolean;
-  private readonly align: 'left' | 'right' | 'center';
+  readonly align: 'left' | 'right' | 'center';
   private readonly numerPrefix?: string;
   private readonly denomPrefix?: string;
   private readonly mathstyleName?: MathstyleName;
@@ -205,7 +205,7 @@ export class GenfracAtom extends Atom {
           {
             box: denomBox,
             shift: denomShift,
-            classes: [...classes, align(this.align)],
+            classes: [...classes, 'ML__center'],
           },
         ],
       }).wrap(fracContext);
@@ -235,7 +235,7 @@ export class GenfracAtom extends Atom {
           {
             box: denomBox,
             shift: denomShift,
-            classes: [...classes, align(this.align)],
+            classes: [...classes, 'ML__center'],
           },
           { box: fracLine, shift: -denomLine, classes },
           {

@@ -94,6 +94,10 @@ const lightThemeColors = {
     "editorSuggestWidget.background": "#FBFCFE",
     "editorSuggestWidget.border": "#CBD5E1",
     "editorSuggestWidget.foreground": "#1F2937",
+    // Unset, the focused row's text falls back to list.activeSelectionForeground,
+    // which is white in "vs" too: on the pale focused row only the matched
+    // letters (styled in theme.css) stayed visible, so "\begin{i" showed "i".
+    "editorSuggestWidget.selectedForeground": "#1F2937",
     "editorSuggestWidget.selectedBackground": "#DBEAFE",
     "editorSuggestWidget.highlightForeground": "#10706B",
     "editorBracketMatch.background": "#BBF7D01A",

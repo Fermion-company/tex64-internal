@@ -32,18 +32,24 @@ const buildPreview = (line, matchIndex, matchLength) => {
 };
 
 class SearchService {
-  async search(rootPath, query) {
+  async search(rootPath, query, signal, drafts = []) {
     const trimmed = (query ?? "").trim();
     if (!trimmed) {
       return [];
     }
-    const lowerQuery = trimmed.toLowerCase();
+    const pattern = new RegExp(trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu");
     const results = [];
+    const buffers = new Map();
+    for (const draft of Array.isArray(drafts) ? drafts : []) {
+      if (typeof draft?.path === "string" && typeof draft.content === "string") {
+        buffers.set(draft.path, draft.content);
+      }
+    }
 
     const walk = async (dirPath) => {
       const entries = await fsp.readdir(dirPath, { withFileTypes: true }).catch(() => []);
       for (const entry of entries) {
-        if (results.length >= MAX_SEARCH_RESULTS) {
+        if (signal?.aborted || results.length >= MAX_SEARCH_RESULTS) {
           return;
         }
         if (entry.name.startsWith(".")) {
@@ -63,32 +69,22 @@ class SearchService {
         if (!isSearchableFile(entry.name)) {
           continue;
         }
-        const content = await fsp.readFile(absPath, "utf8").catch(() => null);
+        const relPath = normalizeRelativePath(path.relative(rootPath, absPath));
+        const content = buffers.get(relPath) ?? await fsp.readFile(absPath, "utf8").catch(() => null);
         if (content === null) {
           continue;
         }
-        if (!content.toLowerCase().includes(lowerQuery)) {
-          continue;
-        }
-        const relPath = normalizeRelativePath(path.relative(rootPath, absPath));
         const lines = content.split(/\r?\n/);
         for (let index = 0; index < lines.length; index += 1) {
-          if (results.length >= MAX_SEARCH_RESULTS) {
+          if (signal?.aborted || results.length >= MAX_SEARCH_RESULTS) {
             return;
           }
           const line = lines[index];
-          const matchIndex = line.toLowerCase().indexOf(lowerQuery);
-          if (matchIndex < 0) {
-            continue;
+          for (const match of line.matchAll(pattern)) {
+            const snippet = buildPreview(line, match.index, match[0].length);
+            results.push({ path: relPath, line: index + 1, column: match.index + 1, ...snippet });
+            if (results.length >= MAX_SEARCH_RESULTS) return;
           }
-          const match = buildPreview(line, matchIndex, lowerQuery.length);
-          results.push({
-            path: relPath,
-            line: index + 1,
-            preview: match.preview,
-            matchStart: match.matchStart,
-            matchLength: match.matchLength,
-          });
         }
       }
     };

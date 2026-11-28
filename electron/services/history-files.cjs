@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { isStagingName } = require("./project-file-writes.cjs");
 
 const hash = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const fail = (code, message) => Object.assign(new Error(message), { code });
@@ -23,7 +24,8 @@ const protectedReason = (name) => {
   if (parts.some((s) => /^\.git(?:$|ignore$|attributes$|modules$|config$)/i.test(s))) return "git";
   if (parts.some((s) => /^(\.env(?:\..*)?|\.ssh|\.aws|\.azure|\.gnupg|\.npmrc|\.netrc|credentials(?:\.json)?|secrets?(?:\..*)?|id_(rsa|ed25519|ecdsa)(?:\.pub)?)$/i.test(s)) || /\.(pem|key|p12|pfx)$/i.test(name)) return "private";
   if (parts.some((s) => [".tex64", "node_modules", ".venv", "venv", "__pycache__", ".DS_Store"].includes(s))) return "internal";
-  if (/\.(aux|log|toc|out|lof|lot|fls|fdb_latexmk|synctex(?:\.gz)?|blg|nav|snm|vrb)$/i.test(name) || /\.tmp-\d+-\d+$/.test(name)) return "generated";
+  if (/\.(aux|log|toc|out|lof|lot|fls|fdb_latexmk|synctex(?:\.gz)?|blg|nav|snm|vrb)$/i.test(name) || /\.tmp-\d+-\d+$/.test(name) ||
+      isStagingName(parts.at(-1))) return "generated";
   return null;
 };
 
@@ -78,9 +80,9 @@ async function syncDirectory(directory) {
 async function atomicWrite(file, bytes, { exclusive = false } = {}) {
   const temporary = `${file}.tmp-${crypto.randomUUID()}`;
   const handle = await fsp.open(temporary, "wx", 0o600);
-  try { await handle.writeFile(bytes); await handle.sync(); }
-  finally { await handle.close(); }
   try {
+    try { await handle.writeFile(bytes); await handle.sync(); }
+    finally { await handle.close(); }
     if (exclusive) await fsp.link(temporary, file);
     else await fsp.rename(temporary, file);
     await syncDirectory(path.dirname(file));

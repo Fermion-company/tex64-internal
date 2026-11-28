@@ -1,6 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
+const { matchSourcePathBySuffix } = require("./source-path.cjs");
+const { isUtf8 } = require("node:buffer");
 
 // SyncTeX stores positions in scaled points; `synctex view` reports them in
 // PDF points. 65536 sp per TeX point times 72.27 / 72 gives this factor.
@@ -11,7 +13,7 @@ const MAX_NEAREST_LINE_DISTANCE = 80;
 
 // `(tag,line:h,v:W,H,D` — box openers, glyphs, kerns, glue, math, rules,
 // void boxes and forms all share this shape; only the leading letter differs.
-const RECORD_PATTERN = /^([[(xkg$vhrf])(\d+),(\d+):(-?\d+),(-?\d+)(?::(-?\d+)(?:,(-?\d+)(?:,(-?\d+))?)?)?/;
+const RECORD_PATTERN = /^([[(xkg$vhrf])(\d+),(\d+)(?:,-?\d+)?:(-?\d+),(-?\d+)(?::(-?\d+)(?:,(-?\d+)(?:,(-?\d+))?)?)?/;
 
 // Lower is better: a glyph sitting in a line box marks the text itself,
 // math and rules come next, glue and kerns only mark the neighbourhood, and
@@ -20,6 +22,7 @@ const RANK_GLYPH = 0;
 const RANK_INK = 1;
 const RANK_SPACING = 2;
 const RANK_BOX = 3;
+const PAGE_SHIPOUT_LINE = /^\s*\\(?:newpage|clearpage|cleardoublepage|pagebreak(?:\[\d\])?|end\s*\{document\})\s*(?:%.*)?$/;
 
 const realPathOrNull = (value) => {
   try {
@@ -33,14 +36,54 @@ const readSynctexText = (synctexPath) => {
   const raw = fs.readFileSync(synctexPath);
   const isGzip = raw.length > 2 && raw[0] === 0x1f && raw[1] === 0x8b;
   const buffer = isGzip ? zlib.gunzipSync(raw, { maxOutputLength: MAX_SYNCTEX_TEXT_BYTES }) : raw;
-  return buffer.toString("latin1");
+  return buffer.toString(isUtf8(buffer) ? "utf8" : "latin1");
 };
 
 const isBetterCandidate = (next, current) => {
   if (!current) return true;
   if (next.rank !== current.rank) return next.rank < current.rank;
+  // Vertical writing reads its columns from the right, each from the top.
+  if (next.tate && current.tate) {
+    if (next.h !== current.h) return next.h > current.h;
+    return next.v < current.v;
+  }
   if (next.v !== current.v) return next.v < current.v;
   return next.h < current.h;
+};
+
+// Vertical writing (LuaTeX-ja tate). SyncTeX records what a tate box holds
+// in the box's own, unrotated frame: h runs along the column, v across the
+// columns, and LuaTeX-ja turns the box a quarter at shipout (PDF `0 -1 1 0
+// cm`, with its translation). The frame shows in the SyncTeX itself: a vbox
+// (T) inside a vbox (Y) at the same h, with width and height + depth swapped.
+// Y is where T stands on the page. A point (h, v) of T's frame is, on the page,
+//   x = Y.h + Y.w + T.v - v,   y = Y.v - T.h + h
+// (scaled points, page frame; exact against the PDF's glyphs for ltjtarticle
+// and jlreq tate). Only records nested in T are turned: a yoko page with one
+// tate box keeps its other records as they are. Classes are never guessed.
+const SWAP_TOLERANCE_SP = 16;
+const tateFrameOf = (parent, box) => {
+  if (!parent || parent.kind !== box.kind || !parent.dims || !box.dims) return null;
+  const outer = parent.dims;
+  const inner = box.dims;
+  if (!(inner.w > 0 && inner.ht > 0)) return null;
+  const close = (a, b) => Math.abs(a - b) <= SWAP_TOLERANCE_SP;
+  if (!close(outer.w, inner.ht + inner.dp) || !close(outer.ht + outer.dp, inner.w)) return null;
+  // Same size both ways (a square box) proves nothing.
+  if (close(inner.w, outer.w)) return null;
+  if (box.kind === "[") {
+    if (!close(outer.h, inner.h)) return null;
+    const outerFrame = parent.toPage;
+    // A vlist inside a turned list uses the same swap for zero-depth
+    // wrappers. A depth-bearing wrapper may instead be upright tate-chu-yoko.
+    if (outerFrame && (outer.dp || inner.dp)) return null;
+    // The vlist's baseline in the record is its top, including when a
+    // parbox or minipage wrapper splits its vertical extent around a baseline.
+    const local = (h, v) => [outer.h + outer.w + inner.v - v, outer.v + h - inner.h];
+    return outerFrame ? (h, v) => outerFrame(...local(h, v)) : local;
+  }
+  if (parent.toPage || !close(inner.h, outer.h - outer.ht) || !close(inner.v, outer.v - inner.dp)) return null;
+  return (h, v) => [outer.h + inner.ht + inner.v - v, outer.v - outer.ht + h - inner.h];
 };
 
 // The page a line really appears on is where most of its glyphs are. When a
@@ -59,8 +102,8 @@ const isBetterPage = (next, current) => {
  * topmost place on the page where that line put ink. Later lookups are
  * memory reads: no process, no re-parse.
  */
-const parseForwardIndex = (text, baseDir) => {
-  const inputs = new Map();
+const parseForwardIndex = (text, baseDir, sheet = null, sheetPage = 0) => {
+  const inputs = sheet?.inputs ?? new Map();
   const byTag = new Map();
   // Per page, every leaf record and every line box with its size, so a
   // point on the page can be turned back into a source line without a
@@ -79,11 +122,12 @@ const parseForwardIndex = (text, baseDir) => {
   };
   let magnification = 1000;
   let unit = 1;
-  let xOffset = 0;
-  let yOffset = 0;
-  let inContent = false;
-  let page = 0;
-  let pageCount = 0;
+  let xOffset = sheet?.originX ?? 0;
+  let yOffset = sheet?.originY ?? 0;
+  let inContent = Boolean(sheet);
+  let page = sheetPage;
+  let pageCount = sheetPage;
+  let boxId = 0;
   // Open boxes on the current page; the innermost hbox owns the glyphs.
   const openBoxes = [];
   const enclosingLineIndex = () => {
@@ -122,7 +166,7 @@ const parseForwardIndex = (text, baseDir) => {
       if (entry.vmax === null || candidate.v > entry.vmax) entry.vmax = candidate.v;
     }
     if (isBetterCandidate(candidate, entry.best)) {
-      entry.best = { rank: candidate.rank, h: candidate.h, v: candidate.v };
+      entry.best = { rank: candidate.rank, h: candidate.h, v: candidate.v, ...(candidate.tate ? { tate: true } : {}) };
     }
   };
 
@@ -132,7 +176,13 @@ const parseForwardIndex = (text, baseDir) => {
     const separator = record.indexOf(":", 6);
     if (separator <= 6) return;
     const tag = Number.parseInt(record.slice(6, separator), 10);
-    const inputPath = record.slice(separator + 1).trim();
+    const rawPath = record.slice(separator + 1).trim();
+    // The surrounding stream is scanned byte-for-byte. Input records from
+    // modern TeX engines carry UTF-8 filenames, including Japanese paths.
+    // (readSynctexText already decodes a file that is UTF-8 throughout; a
+    // name with characters beyond latin1 is decoded and must stay as it is)
+    const pathBytes = /[^\u0000-\u00ff]/.test(rawPath) ? null : Buffer.from(rawPath, "latin1");
+    const inputPath = pathBytes && isUtf8(pathBytes) ? pathBytes.toString("utf8") : rawPath;
     if (Number.isFinite(tag) && inputPath) {
       inputs.set(
         tag,
@@ -142,12 +192,16 @@ const parseForwardIndex = (text, baseDir) => {
   };
 
   let start = 0;
-  const length = text.length;
+  const length = sheet ? sheet.lines.length : text.length;
   while (start < length) {
-    let end = text.indexOf("\n", start);
-    if (end === -1) end = length;
-    const record = text.charCodeAt(end - 1) === 13 ? text.slice(start, end - 1) : text.slice(start, end);
-    start = end + 1;
+    let record;
+    if (sheet) record = sheet.lines[start++];
+    else {
+      let end = text.indexOf("\n", start);
+      if (end === -1) end = length;
+      record = text.charCodeAt(end - 1) === 13 ? text.slice(start, end - 1) : text.slice(start, end);
+      start = end + 1;
+    }
     if (!record) continue;
 
     if (!inContent) {
@@ -173,7 +227,7 @@ const parseForwardIndex = (text, baseDir) => {
 
     const first = record.charCodeAt(0);
     if (first === 73 && record.startsWith("Input:")) {
-      readInput(record);
+      if (!sheet) readInput(record);
       continue;
     }
     if (first === 123) {
@@ -204,32 +258,63 @@ const parseForwardIndex = (text, baseDir) => {
       continue;
     }
     if (kind === "(" || kind === "[") {
-      const box = { kind, tag, line, h, v, page };
       const parent = openBoxes.length ? openBoxes[openBoxes.length - 1] : null;
+      // The page frame of the tate box this record sits in, if any.
+      const toPage = parent?.toPage ?? null;
+      const box = { id: ++boxId, kind, tag, line, h, v, page, rawV: v, toPage };
+      const width = Number.parseInt(match[6], 10);
+      const height = Number.parseInt(match[7], 10);
+      const depth = Number.parseInt(match[8], 10);
+      const hasDimensions = Number.isFinite(width) && Number.isFinite(height);
+      const dp = Number.isFinite(depth) ? depth : 0;
+      if (hasDimensions) box.dims = { h, v, w: width, ht: height, dp };
+      const frame = tateFrameOf(parent, box);
+      if (frame) {
+        box.toPage = frame;
+        pageRecords(page).tate = true;
+      }
+      // (the box's own point, on the page)
+      const [pageH, pageV] = toPage ? toPage(h, v) : [h, v];
       let lineIndex = null;
       if (kind === "(") {
-        const width = Number.parseInt(match[6], 10);
-        const height = Number.parseInt(match[7], 10);
-        const depth = Number.parseInt(match[8], 10);
-        if (Number.isFinite(width) && Number.isFinite(height)) {
-          const dims = { tag, line, h, v, w: width, ht: height, dp: Number.isFinite(depth) ? depth : 0 };
+        if (hasDimensions) {
+          let dims = { tag, line, h, v, w: width, ht: height, dp };
+          if (box.toPage) {
+            // All four corners through the frame: on the page a tate line
+            // is a column, its extent along the line now vertical.
+            const corners = [[h, v - height], [h + width, v - height], [h, v + dp], [h + width, v + dp]]
+              .map(([ch, cv]) => box.toPage(ch, cv));
+            const left = Math.min(...corners.map((c) => c[0]));
+            const right = Math.max(...corners.map((c) => c[0]));
+            const upper = Math.min(...corners.map((c) => c[1]));
+            const lower = Math.max(...corners.map((c) => c[1]));
+            dims = { tag, line, h: left, v: lower, w: right - left, ht: lower - upper, dp: 0, direction: "tate" };
+          }
           pageRecords(page).boxes.push(dims);
-          if (parent?.kind === "[") {
+          if (parent?.kind === "[" || frame) {
             // level: how many typeset lines enclose this one (0 for a line of
             // the page; a split row inside its equation line is 1, the
             // numerator of a fraction inside an align row is 1 as well).
             const enclosing = enclosingLineIndex();
             const pageLines = pageRecords(page).lines;
             dims.level = enclosing === null ? 0 : (pageLines[enclosing]?.level ?? 0) + 1;
+            dims.enclosing = enclosing;
+            dims.list = parent.id;
+            dims.rawH = h;
+            dims.rawV = v;
             lineIndex = pageLines.push(dims) - 1;
             box.lineIndex = lineIndex;
+          } else if (width === 0 && parent?.h === h && parent?.v === v) {
+            const owner = pageRecords(page).lines[enclosingLineIndex()];
+            if (owner?.tag === tag && line < owner.line) owner.labelLine ??= line;
           }
         }
       }
       // An inner box (a \text, a fraction) belongs to the typeset line it sits in.
       const ancestorLine = lineIndex ?? enclosingLineIndex();
       openBoxes.push(box);
-      remember(tag, line, { rank: RANK_BOX, page, h, v, lineIndex: kind === "(" && lineIndex === null ? ancestorLine : null });
+      remember(tag, line, { rank: RANK_BOX, page, h: pageH, v: pageV, tate: Boolean(toPage),
+        lineIndex: kind === "(" && lineIndex === null ? ancestorLine : null });
       continue;
     }
     // A leaf record: find the line box it sits in so the anchor lands on the
@@ -244,11 +329,15 @@ const parseForwardIndex = (text, baseDir) => {
     const rank =
       kind === "x" ? RANK_GLYPH : kind === "g" || kind === "k" ? RANK_SPACING : RANK_INK;
     const leafLine = enclosingLineIndex();
+    // (on its typeset line's baseline; in a tate box, turned onto the page)
+    const frame = openBoxes.length ? openBoxes[openBoxes.length - 1].toPage : null;
+    const [leafH, leafV] = frame ? frame(h, lineBox ? lineBox.rawV : v) : [h, lineBox ? lineBox.v : v];
     remember(tag, line, {
       rank,
       page,
-      h,
-      v: lineBox ? lineBox.v : v,
+      h: leafH,
+      v: leafV,
+      tate: Boolean(frame),
       lineIndex: leafLine,
     });
     if (leafLine !== null) {
@@ -257,12 +346,21 @@ const parseForwardIndex = (text, baseDir) => {
       // record LuaTeX tagged with the paragraph's end (marker-box.cjs).
       const target = pageRecords(page).lines[leafLine];
       if (target) {
+        if (kind === "h" && h === target.rawH && v === target.rawV &&
+            Number(match[6]) > 0 && Number(match[7]) === 0 && Number(match[8]) === 0 &&
+            target.tag === tag && line < target.line) {
+          target.paragraphStart ??= line;
+        }
         const key = `${tag}:${line}`;
         target.sources ??= new Map();
         target.sources.set(key, (target.sources.get(key) ?? 0) + 1);
         if (rank === RANK_GLYPH) {
           target.glyphSources ??= new Map();
           target.glyphSources.set(key, (target.glyphSources.get(key) ?? 0) + 1);
+          if (target.direction === "tate") {
+            target.glyphTop = Math.min(target.glyphTop ?? leafV, leafV);
+            target.glyphBottom = Math.max(target.glyphBottom ?? leafV, leafV);
+          }
         }
         target.lastLeaf = { tag, line };
         target.spans ??= new Map();
@@ -272,7 +370,9 @@ const parseForwardIndex = (text, baseDir) => {
       }
     }
     if (rank !== RANK_SPACING) {
-      pageRecords(page).glyphs.push({ tag, line, h, v: lineBox ? lineBox.v : v, rank });
+      pageRecords(page).glyphs.push(frame
+        ? { tag, line, h: leafH, v: leafV, rank, direction: "tate" }
+        : { tag, line, h, v: lineBox ? lineBox.v : v, rank });
     }
   }
 
@@ -350,27 +450,50 @@ const reverseOnIndex = (index, { page, x, y }) => {
     // files come first; a class or style tag only when nothing else is there.
     let best = null;
     let fallback = null;
+    // A tate line is a column: its glyphs stand down it, nearest vertically.
+    const tate = box.direction === "tate";
     for (const glyph of records.glyphs) {
-      if (glyph.v !== box.v) continue;
-      if (glyph.h < box.h - 1 || glyph.h > box.h + box.w + 1) continue;
-      const distance = Math.abs(glyph.h - h);
+      if (tate) {
+        if (glyph.direction !== "tate" || glyph.h < box.h - 1 || glyph.h > box.h + box.w + 1 ||
+            glyph.v < box.v - box.ht - 1 || glyph.v > box.v + box.dp + 1) continue;
+      } else {
+        if (glyph.v !== box.v) continue;
+        if (glyph.h < box.h - 1 || glyph.h > box.h + box.w + 1) continue;
+      }
+      const distance = tate ? Math.abs(glyph.v - v) : Math.abs(glyph.h - h);
       const candidate = { tag: glyph.tag, line: glyph.line, distance, rank: glyph.rank };
       if (preferAuthor(glyph.tag)) {
-        if (!best || distance < best.distance || (distance === best.distance && glyph.rank < best.rank)) best = candidate;
+        // amsmath can place a node from the parent document at exactly the
+        // same point as one from the included equation. For equal hits, the
+        // tag of the innermost box identifies the source that owns the ink.
+        if (!best || distance < best.distance ||
+            (distance === best.distance && (glyph.rank < best.rank ||
+              (glyph.rank === best.rank && glyph.tag === box.tag && best.tag !== box.tag)))) {
+          best = candidate;
+        }
       } else if (!fallback || distance < fallback.distance) {
         fallback = candidate;
       }
     }
-    const hit = best ?? (preferAuthor(box.tag) ? { tag: box.tag, line: box.line, distance: 0 } : fallback ?? { tag: box.tag, line: box.line, distance: 0 });
-    return { tag: hit.tag, line: hit.line, distance: scaleToPoints(hit.distance), exact: true };
+    let hit = best ?? (preferAuthor(box.tag) ? { tag: box.tag, line: box.line, distance: 0 } : fallback ?? { tag: box.tag, line: box.line, distance: 0 });
+    // LuaTeX-ja files the glyphs of a vertical line under the source line TeX
+    // was reading when the page shipped (often \end{document}); the box
+    // around them keeps the paragraph's own.
+    if (tate && preferAuthor(box.tag) && hit.tag === box.tag && hit.line > box.line) {
+      hit = { tag: box.tag, line: box.line, distance: 0 };
+    }
+    // (baseline: the printed line, for reverseQuick's shipout-line check; a
+    // tate column has none, and the check above already covers it)
+    return { tag: hit.tag, line: hit.line, ...(tate ? {} : { baseline: box.v }), distance: scaleToPoints(hit.distance), exact: true };
   }
   let nearest = null;
   let nearestAny = null;
   for (const glyph of records.glyphs) {
     const dv = Math.abs(glyph.v - v);
     const dh = Math.abs(glyph.h - h);
-    const distance = dv * 4 + dh;
-    const candidate = { tag: glyph.tag, line: glyph.line, distance };
+    // (across the lines costs more: down the page in yoko, across columns in tate)
+    const distance = glyph.direction === "tate" ? dh * 4 + dv : dv * 4 + dh;
+    const candidate = { tag: glyph.tag, line: glyph.line, ...(glyph.direction === "tate" ? {} : { baseline: glyph.v }), distance };
     if (preferAuthor(glyph.tag)) {
       if (!nearest || distance < nearest.distance) nearest = candidate;
     } else if (!nearestAny || distance < nearestAny.distance) {
@@ -379,7 +502,7 @@ const reverseOnIndex = (index, { page, x, y }) => {
   }
   const chosen = nearest ?? nearestAny;
   if (!chosen) return null;
-  return { tag: chosen.tag, line: chosen.line, distance: scaleToPoints(chosen.distance), exact: false };
+  return { ...chosen, distance: scaleToPoints(chosen.distance), exact: false };
 };
 
 module.exports = (SynctexService) => {
@@ -398,14 +521,36 @@ module.exports = (SynctexService) => {
     if (!synctexPath) return null;
     const index = this.loadForwardIndex(synctexPath);
     if (!index) return null;
+    const owner = this.reverseBoxOwner(index, { page: Math.floor(page), x, y });
+    if (owner) return owner;
     const hit = reverseOnIndex(index, { page: Math.floor(page), x, y });
     if (!hit) return null;
-    const sourcePath = index.inputs.get(hit.tag);
+    let sourcePath = index.inputs.get(hit.tag);
     if (!sourcePath) return null;
     // A blank or comment line under the point is where a paragraph ended:
     // the text it belongs to is above it, so look upward first.
     let line = hit.line;
     const sourceLine = this.getSourceLine?.(sourcePath, line);
+    // Some engines stamp characters with the command that shipped their
+    // page. Only replace such a structural target when nearby ink on the
+    // same printed baseline is attributed to actual manuscript text.
+    if (PAGE_SHIPOUT_LINE.test(sourceLine ?? "")) {
+      const clickH = index.toUnits(x, index.xOffset);
+      const maxGap = index.toUnits(40, 0);
+      const nearby = index.pages.get(Math.floor(page)).glyphs.filter(glyph =>
+        glyph.v === hit.baseline && glyph.rank === RANK_GLYPH &&
+        Math.abs(glyph.h - clickH) <= maxGap &&
+        (glyph.tag !== hit.tag || glyph.line !== hit.line) && isAuthorInput(index, glyph.tag));
+      nearby.sort((a, b) => Math.abs(a.h - clickH) - Math.abs(b.h - clickH));
+      for (const glyph of nearby) {
+        const candidatePath = index.inputs.get(glyph.tag);
+        const text = this.getSourceLine(candidatePath, glyph.line);
+        if (!text?.trim() || PAGE_SHIPOUT_LINE.test(text) || this.isLowSignalTexLine(text)) continue;
+        sourcePath = candidatePath;
+        line = glyph.line;
+        break;
+      }
+    }
     if (typeof sourceLine === "string" && /^\s*(?:%.*)?$/.test(sourceLine)) {
       const order = [];
       for (let delta = 1; delta <= 3; delta += 1) order.push(line - delta);
@@ -429,7 +574,7 @@ module.exports = (SynctexService) => {
    * Candidates: lines near the result, and every source line that has
    * records on the clicked typeset line. Returns null to keep the result.
    */
-  SynctexService.prototype.refineReverseByText = function ({ pdfPath, page, y, result, context }) {
+  SynctexService.prototype.refineReverseByText = function ({ pdfPath, page, x, y, result, context }) {
     const word = normalizeWord(context?.word);
     if (!word || !result?.path || !Number.isFinite(result.line)) return null;
     const prev = normalizeWord(context?.prev);
@@ -447,10 +592,14 @@ module.exports = (SynctexService) => {
     const records = index?.pages.get(Math.floor(page));
     if (records && Number.isFinite(y)) {
       const v = index.toUnits(y, index.yOffset);
+      const h = Number.isFinite(x) ? index.toUnits(x, index.xOffset) : null;
       const tolerance = index.toUnits(8, 0);
       const seen = new Set();
       for (const record of [...records.glyphs, ...records.boxes]) {
-        if (Math.abs(record.v - v) > tolerance) continue;
+        // the clicked typeset line: its row, or in tate its column
+        if (record.direction === "tate") {
+          if (h === null || h < record.h - tolerance || h > record.h + (record.w ?? 0) + tolerance) continue;
+        } else if (Math.abs(record.v - v) > tolerance) continue;
         const key = `${record.tag}:${record.line}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -532,7 +681,7 @@ module.exports = (SynctexService) => {
     const sourceReal = realPathOrNull(sourcePath) || path.normalize(sourcePath);
     const sourceNormalized = path.normalize(sourcePath);
     const exact = [];
-    const byName = [];
+    const byName = new Map();
     for (const [tag, inputPath] of index.inputs) {
       if (inputPath === sourceNormalized || inputPath === sourceReal) {
         exact.push(tag);
@@ -544,10 +693,14 @@ module.exports = (SynctexService) => {
         continue;
       }
       if (path.basename(inputPath) === path.basename(sourcePath)) {
-        byName.push(tag);
+        const tags = byName.get(inputPath) ?? [];
+        tags.push(tag);
+        byName.set(inputPath, tags);
       }
     }
-    return exact.length > 0 ? exact : byName;
+    if (exact.length) return exact;
+    const matchingPath = matchSourcePathBySuffix(sourceNormalized, byName.keys());
+    return byName.get(matchingPath) ?? [];
   };
 
   /**
@@ -631,9 +784,17 @@ module.exports = (SynctexService) => {
         // search moves on to that.
         const most = Math.max(...entries.map((entry) => entry.glyphs));
         const enough = Math.max(3, Math.min(20, most * 0.3));
-        const width = (entry) => (entry.hmin === null || entry.hmax === null ? 0 : entry.hmax - entry.hmin);
-        const height = (entry) => (entry.vmin === null || entry.vmax === null ? 0 : entry.vmax - entry.vmin);
-        const lowest = Math.max(...entries.map((entry) => entry.vmax ?? 0));
+        // Along a line and across the lines: across the page in yoko, down it
+        // in vertical writing (a tate column reaches the foot of the page by
+        // itself; a stamp there is what spreads across the columns).
+        const tate = (entry) => entry.best?.tate === true;
+        const extentH = (entry) => (entry.hmin === null || entry.hmax === null ? 0 : entry.hmax - entry.hmin);
+        const extentV = (entry) => (entry.vmin === null || entry.vmax === null ? 0 : entry.vmax - entry.vmin);
+        const width = (entry) => (tate(entry) ? extentV(entry) : extentH(entry));
+        const height = (entry) => (tate(entry) ? extentH(entry) : extentV(entry));
+        const lowestV = Math.max(...entries.map((entry) => entry.vmax ?? 0));
+        const reachH = Math.max(...entries.map((entry) => entry.hmax ?? 0));
+        const lowest = (entry) => (tate(entry) ? reachH : lowestV);
         // A page that draws its boxes while it ships (frames, a thumb index,
         // code-box overlays) stamps far more than a head and a folio: the
         // last page of a chapter carried 121 records of the \part line that
@@ -644,7 +805,7 @@ module.exports = (SynctexService) => {
         const pageGlyphs = (entry) => index.pages?.get(entry.page)?.glyphs.length ?? 0;
         const minority = (entry) => pageGlyphs(entry) > 0 && entry.glyphs < pageGlyphs(entry) * 0.25 &&
           entries.some((other) => other.page > entry.page);
-        const stamp = (entry) => height(entry) > lowest * 0.5 && (entry.glyphs < enough || (firstSubstantialPage && minority(entry)));
+        const stamp = (entry) => height(entry) > lowest(entry) * 0.5 && (entry.glyphs < enough || (firstSubstantialPage && minority(entry)));
         const own = entries.filter((entry) => !stamp(entry));
         if (own.length === 0) return null;
         // A paragraph's first line at the foot of a page has few glyphs but
@@ -670,10 +831,20 @@ module.exports = (SynctexService) => {
           if (isBetterPage(entry, chosen)) chosen = entry;
         }
       }
-      return chosen ? { page: chosen.page, h: chosen.best.h, v: chosen.best.v } : null;
+      return chosen ? { page: chosen.page, h: chosen.best.h, v: chosen.best.v, tate: chosen.best.tate === true } : null;
     };
     const results = [];
+    const hasTate = [...index.pages.values()].some((page) => page.tate);
     for (const requested of lines) {
+      const marker = hasTate ? this.forwardOwnedMarker?.({
+        sourcePath, pdfPath, line: requested, toEnd: lastSubstantialPage,
+      }) : null;
+      if (marker?.direction === "tate") {
+        const rect = lastSubstantialPage ? marker.rects.at(-1) : marker.rects[0];
+        results.push({ line: requested, found: true, matchedLine: requested, page: marker.page,
+          x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, direction: "tate" });
+        continue;
+      }
       let hit = null;
       let matchedLine = requested;
       for (let distance = 0; distance <= MAX_NEAREST_LINE_DISTANCE && !hit; distance += 1) {
@@ -705,10 +876,22 @@ module.exports = (SynctexService) => {
         page: hit.page,
         x: index.toPoints(hit.h, index.xOffset),
         y: index.toPoints(hit.v, index.yOffset),
+        // (in a tate box: a column; the synctex process answers in the box's unturned frame)
+        ...(hit.tate ? { direction: "tate" } : {}),
       });
     }
     // Input 1 is the file the engine was run on.
     const rootTag = Math.min(...index.inputs.keys());
     return { ok: true, results, pageCount: index.pageCount, isRootFile: tags.includes(rootTag) };
   };
+};
+
+
+// The fallback viewer has already validated the units, origins and UTF-8
+// input names for this sheet. Use the same hit testing as the saved PDF.
+module.exports.reverseOnSheet = (sheet, point) => {
+  const index = parseForwardIndex(null, null, sheet, point.page);
+  const hit = reverseOnIndex(index, point);
+  const file = hit?.exact && sheet.inputs.get(hit.tag);
+  return file ? { path: file, line: hit.line, column: 1 } : null;
 };

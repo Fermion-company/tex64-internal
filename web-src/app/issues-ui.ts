@@ -60,7 +60,7 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
     issuesList.style.display = "flex";
     issues.forEach((issue) => {
       const detail = deps.parseIssueDetail(issue);
-      const diagnosis = diagnoseIssue(issue);
+      const diagnosis = diagnoseIssue({ ...issue, message: detail.message });
 
       const item = document.createElement("article");
       item.className = "issue-item";
@@ -117,11 +117,10 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
 
       body.append(summary);
 
-      // The whole card is the button, so the location does not need a call to
-      // action of its own — it just says where, up in the header. No location
-      // for this kind of problem means no location shown at all.
       if (hasJumpTarget) {
-        const where = document.createElement("span");
+        const where = document.createElement("button");
+        where.type = "button";
+        where.dataset.focusKey = `issue-location-${issueKey(issue)}`;
         where.className = "issue-location";
         where.dataset.noI18n = "";
         where.textContent =
@@ -130,6 +129,8 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
             : detail.path
             ? detail.path
             : uiText(`Line ${detail.line}`, `${detail.line}行目`);
+        where.title = where.textContent;
+        where.addEventListener("click", () => deps.onFocusIssue(issue));
         head.append(where);
       } else if (isRuntimeAction) {
         // No location to show, but there is still somewhere to go.

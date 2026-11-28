@@ -1199,29 +1199,15 @@ export class Parser {
 
     while (token === '^' || token === '_' || token === "'") {
       if (this.match("'")) {
-        if (this.match("'")) {
-          // A single quote, twice, is equivalent to '^{\doubleprime}'
-          target.addChild(
-            new Atom({
-              type: 'mord',
-              command: '\\doubleprime',
-              mode: 'math',
-              value: '\u2032\u2032', // "\u2033" displays too high
-            }),
-            'superscript'
-          );
-        } else {
-          // A single quote (prime) is equivalent to '^{\prime}'
-          target.addChild(
-            new Atom({
-              type: 'mord',
-              command: '\\prime',
-              mode: 'math',
-              value: '\u2032',
-            }),
-            'superscript'
-          );
-        }
+        target.addChild(
+          new Atom({
+            type: 'mord',
+            command: '\\prime',
+            mode: 'math',
+            value: '\u2032',
+          }),
+          'superscript'
+        );
       } else if (this.match('^') || this.match('_')) {
         target.addChildren(
           argAtoms(this.scanArgument('expression')),
