@@ -11,6 +11,8 @@ type QuitPreparationInput = {
   /** Writes the shared (collaboration) documents held in main; false: not all. */
   drainShared?: () => Promise<boolean>;
   freeze: () => void;
+  /** A message while an IME composition is still open: quit waits for it. */
+  getCompositionError?: () => string | null;
   maxSavePasses?: number;
 };
 
@@ -20,11 +22,14 @@ type QuitPreparationInput = {
  * here), and only then freeze the renderer for final process teardown. A save
  * pass or the drain can itself receive editor input while waiting for native
  * acknowledgements, so re-check the live dirty set and repeat until it is
- * empty in the same JS turn that freezes the UI.
+ * empty in the same JS turn that freezes the UI. An IME composition still
+ * open (its text is not in the buffer yet) cancels with its own message.
  */
 export const prepareRendererForQuit = async (
   input: QuitPreparationInput,
 ): Promise<QuitPreparationResult> => {
+  const pendingInput = input.getCompositionError?.();
+  if (pendingInput) return { ok: false, phase: "save", error: pendingInput };
   let quiet: { ok: boolean; error?: string };
   try {
     quiet = await input.quiesce();
@@ -40,8 +45,18 @@ export const prepareRendererForQuit = async (
   }
 
   const maxSavePasses = Math.max(1, Math.floor(input.maxSavePasses ?? 100));
-  for (let pass = 0; pass < maxSavePasses; pass += 1) {
-    if (input.getDirtyFileCount() === 0) {
+  let savePasses = 0;
+  try {
+    while (true) {
+      const compositionError = input.getCompositionError?.();
+      if (compositionError) return { ok: false, phase: "save", error: compositionError };
+      if (input.getDirtyFileCount() > 0) {
+        if (savePasses >= maxSavePasses) break;
+        savePasses++;
+        if (!await input.saveDirtyFiles()) return { ok: false, phase: "save", error: "Saving failed." };
+        continue;
+      }
+      // Shared changes can be pending even for files the editor never opened.
       let drained = true;
       try {
         drained = (await input.drainShared?.()) ?? true;
@@ -49,23 +64,12 @@ export const prepareRendererForQuit = async (
         drained = false;
       }
       if (!drained) return { ok: false, phase: "save" };
-      if (input.getDirtyFileCount() > 0) continue;
+      if (input.getDirtyFileCount() > 0 || input.getCompositionError?.()) continue;
       input.freeze();
       return { ok: true };
     }
-    let saved = false;
-    try {
-      saved = await input.saveDirtyFiles();
-    } catch (error) {
-      return {
-        ok: false,
-        phase: "save",
-        error: error instanceof Error ? error.message : "Saving failed.",
-      };
-    }
-    if (!saved) {
-      return { ok: false, phase: "save", error: "Saving failed." };
-    }
+  } catch (error) {
+    return { ok: false, phase: "save", error: error instanceof Error ? error.message : "Saving failed." };
   }
   return {
     ok: false,

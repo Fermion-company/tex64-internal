@@ -519,7 +519,7 @@ register(
           while (last.rightSibling?.mode === 'text') last = last.rightSibling;
           if (first && last) return select(model, [first, last]);
         }
-        if (atom.rightSibling.mode === 'text') {
+        if (atom.rightSibling?.mode === 'text') {
           let next = atom;
           while (next?.mode === 'text') next = next.rightSibling;
           // Leap to after text zone
@@ -571,11 +571,8 @@ register(
         // If found a text atom, select the entire zone
         if (sibling.mode === 'text') {
           let last = sibling;
-          while (last?.mode === 'text') last = last.rightSibling;
-          return select(model, [
-            sibling.leftSibling ?? sibling,
-            last.leftSibling ?? last,
-          ]);
+          while (last.rightSibling?.mode === 'text') last = last.rightSibling;
+          return select(model, [sibling.leftSibling ?? sibling, last]);
         }
         return select(model, sibling);
       }

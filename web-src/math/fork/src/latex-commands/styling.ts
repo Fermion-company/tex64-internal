@@ -686,7 +686,7 @@ defineFunction('em', '{:rest}', {
 /* Note: in TeX, \emph is restricted to text mode. We extend it to math */
 defineFunction('emph', '{:auto}', {
   createAtom: (options) =>
-    new Atom({ ...options, body: argAtoms(options.args![1]) }),
+    new Atom({ ...options, body: argAtoms(options.args![0]) }),
   serialize: (atom, options) =>
     options.skipStyles
       ? atom.bodyToLatex(options)

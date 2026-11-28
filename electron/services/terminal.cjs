@@ -32,13 +32,18 @@ const clampDim = (value, fallback) =>
 class TerminalService {
   constructor({ onData, onExit, ptyModule = pty } = {}) {
     this.sessions = new Map();
+    this.projectRoots = new WeakMap();
     this.onData = typeof onData === "function" ? onData : () => {};
     this.onExit = typeof onExit === "function" ? onExit : () => {};
     this.nextId = 1;
     this.pty = ptyModule;
   }
 
-  create({ cwd, cols, rows, shell } = {}) {
+  hasSessionsFor(rootPath) {
+    return Array.from(this.sessions.values()).some((proc) => this.projectRoots.get(proc) === rootPath);
+  }
+
+  create({ cwd, cols, rows, shell, projectRoot = null } = {}) {
     if (this.sessions.size >= 24) throw new Error("Close a terminal before opening another one.");
     const id = `term-${this.nextId++}`;
     const safeCols = clampDim(cols, DEFAULT_COLS);
@@ -66,6 +71,7 @@ class TerminalService {
     // Do not hide a spawn failure by silently opening a different directory.
     const proc = spawnIn(actualCwd);
 
+    this.projectRoots.set(proc, projectRoot);
     proc.onData((data) => this.onData(id, data));
     proc.onExit(({ exitCode, signal }) => {
       this.sessions.delete(id);

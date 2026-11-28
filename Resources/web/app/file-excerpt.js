@@ -4,8 +4,6 @@ const buildRequestId = (() => {
 })();
 export const createFileExcerptBroker = (postToNative) => {
     const pending = new Map();
-    const cache = new Map();
-    const cacheTtlMs = 30000;
     let workspaceScopeKey = "none:0";
     const setWorkspaceScope = (scope) => {
         const workspace = scope.workspaceId || scope.rootPath || "none";
@@ -16,7 +14,6 @@ export const createFileExcerptBroker = (postToNative) => {
         if (nextScopeKey === workspaceScopeKey)
             return;
         workspaceScopeKey = nextScopeKey;
-        cache.clear();
         for (const entry of pending.values()) {
             window.clearTimeout(entry.timeoutId);
             entry.resolve({ ok: false, error: "Workspace changed." });
@@ -39,18 +36,13 @@ export const createFileExcerptBroker = (postToNative) => {
         const maxLines = Number.isFinite(options.maxLines)
             ? Math.min(360, Math.max(1, Math.floor((_b = options.maxLines) !== null && _b !== void 0 ? _b : 0)))
             : Math.min(2 * radius + 1, 25);
-        const cacheKey = `${workspaceScopeKey}\0${trimmed}:${lineNumber}:${radius}:${maxLines}`;
-        const cached = cache.get(cacheKey);
-        if (cached && Date.now() - cached.updatedAt < cacheTtlMs) {
-            return Promise.resolve(cached.result);
-        }
         const requestId = buildRequestId();
         return new Promise((resolve) => {
             const timeoutId = window.setTimeout(() => {
                 pending.delete(requestId);
                 resolve({ ok: false, error: "Excerpt timed out." });
             }, 1400);
-            pending.set(requestId, { resolve, timeoutId, cacheKey });
+            pending.set(requestId, { resolve, timeoutId });
             postToNative({
                 type: "file:excerpt",
                 requestId,
@@ -88,7 +80,6 @@ export const createFileExcerptBroker = (postToNative) => {
             lines,
             ...(payload.truncated ? { truncated: true } : {}),
         };
-        cache.set(entry.cacheKey, { result, updatedAt: Date.now() });
         entry.resolve(result);
     };
     return { requestExcerpt, handleExcerptResult, setWorkspaceScope };

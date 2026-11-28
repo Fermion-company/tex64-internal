@@ -366,7 +366,12 @@ class GitController {
       if (request.openPaths) { if (!Array.isArray(request.openPaths) || request.openPaths.length > 500) throw fail('GIT_PATH_INVALID', 'Too many open files.'); op.openPaths = [...new Set(request.openPaths.map(safePath))]; }
       if (action === 'plan-recovery' || action === 'recovery-plan') return tx.planRecovery(request.id || op.recoveryId, { paths: request.paths });
       op.phase = 'working'; op.writesWorktree = true; op.generationAdvanced = false; this.emit();
-      try { const result = await this.mutation(() => tx.applyRecovery(request.planId)); op.recoveryRequired = false; op.conflict = (await session.service.status()).operation === 'merge'; return { ...(await this.synchronize(op, result.changedPaths || [])), transaction: publicTransaction(result.transaction) }; }
+      try {
+        const result = await this.mutation(() => tx.applyRecovery(request.planId));
+        op.recoveryRequired = result.transaction.recoveryRequired;
+        op.conflict = (await session.service.status()).operation === 'merge';
+        return { ...(await this.synchronize(op, result.changedPaths || [])), transaction: publicTransaction(result.transaction) };
+      }
       catch (error) { op.recoveryRequired = true; try { await this.synchronize(op); } catch { op.phase = 'syncing'; this.emit(); } throw fail(error.code || 'GIT_RECOVERY_REQUIRED', 'Gitの復旧結果を確認してください。'); }
     }
     const op = this.lease(request);

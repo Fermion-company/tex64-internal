@@ -11,7 +11,15 @@ const IDENTITY_NAME = "TeX64 Local Signing";
 const KEYCHAIN = path.join(os.homedir(), "Library", "Keychains", "tex64-local-signing.keychain-db");
 const PASSWORD_FILE = path.join(os.homedir(), "Library", "Application Support", "TeX64", "local-signing", "keychain-password");
 
-const run = (command, args, options = {}) => execFileSync(command, args, { encoding: "utf8", stdio: "pipe", ...options });
+function run(command, args, options = {}) {
+  try {
+    return execFileSync(command, args, { encoding: "utf8", stdio: "pipe", ...options });
+  } catch (error) {
+    // Node's default error includes the full argument list, including passwords.
+    const status = error.status ?? error.code ?? error.signal ?? "unknown";
+    throw new Error(`${command} ${args[0]} failed (${status})`);
+  }
+}
 const tryRun = (command, args) => spawnSync(command, args, { encoding: "utf8", stdio: "pipe" });
 
 function listedKeychains() {
@@ -96,12 +104,11 @@ function create() {
     run("security", ["add-trusted-cert", "-r", "trustRoot", "-p", "codeSign", "-k", KEYCHAIN, cert], { stdio: "inherit" });
   } catch (error) {
     console.error(`署名 ID を作成できませんでした: ${error.message}`);
-    const output = `${error.stdout || ""}${error.stderr || ""}`.trim();
-    if (output) console.error(output);
     // An imported-but-untrusted certificate is still worth keeping: the trust setting
     // can be added by hand. Anything earlier leaves nothing usable behind.
     if (!importedIdentity()) uninstall({ quiet: true });
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

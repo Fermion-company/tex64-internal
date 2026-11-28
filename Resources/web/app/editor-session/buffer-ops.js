@@ -8,7 +8,7 @@ const LANGUAGE_ID_ALIASES = {
     vue: "html", svelte: "html", astro: "html", erb: "html",
     mm: "objective-c",
 };
-export const createEditorSessionBufferOps = (runtime, coreOps) => {
+export const createEditorSessionBufferOps = (runtime, coreOps, onDirtyChanged) => {
     let languageLookup = null;
     let registeredLanguageIds = null;
     const getLanguageIdForPath = (path) => {
@@ -86,20 +86,28 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
         return runtime.emptyEditorModel;
     };
     const clearEditorView = (group) => {
-        if (!group.editor) {
-            return;
+        if (group.editor) {
+            // The swap ends a composition on the outgoing model and answers what
+            // waited for it (editor-composition.ts), so it runs first.
+            const editor = group.editor;
+            const emptyModel = getEmptyEditorModel();
+            if (emptyModel && editor.setModel) {
+                editor.setModel(emptyModel);
+            }
         }
-        const editor = group.editor;
-        const emptyModel = getEmptyEditorModel();
-        if (emptyModel && editor.setModel) {
-            editor.setModel(emptyModel);
-        }
+        // A workspace change can dispose the composing model before Monaco's
+        // compositionend callback. Its candidate and tab action belong to that model.
+        group.isComposing = false;
+        group.compositionText = "";
+        group.composingFilePath = null;
+        delete group.compositionBaseline;
+        handleCompositionEnd(group, { cancelled: true });
     };
     // Callers waiting on an action queued below, answered instead when the
     // composition is cancelled (its model replaced: editor-composition.ts).
     const compositionCancels = new WeakMap();
     const scheduleAfterComposition = (group, action, cancel) => {
-        var _a, _b;
+        var _a, _b, _c, _d;
         if (!group.isComposing) {
             action();
             return;
@@ -117,7 +125,12 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
                 action();
             }
         } : action;
-        const input = (_b = group.editorHost) === null || _b === void 0 ? void 0 : _b.querySelector(".native-edit-context, textarea.inputarea");
+        // The focused element in the editor is the one composing; otherwise the
+        // editor's input (EditContext or textarea).
+        const focused = typeof document === "undefined" ? null : document.activeElement;
+        const input = focused && ((_c = (_b = group.editorHost) === null || _b === void 0 ? void 0 : _b.contains) === null || _c === void 0 ? void 0 : _c.call(_b, focused))
+            ? focused
+            : (_d = group.editorHost) === null || _d === void 0 ? void 0 : _d.querySelector(".native-edit-context, textarea.inputarea");
         input === null || input === void 0 ? void 0 : input.blur();
     };
     const handleCompositionEnd = (group, options = {}) => {
@@ -148,7 +161,7 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
         const baseSaved = (_b = savedContent !== null && savedContent !== void 0 ? savedContent : entry === null || entry === void 0 ? void 0 : entry.savedContent) !== null && _b !== void 0 ? _b : groupSavedContent;
         // Monaco hides the BOM by default. Compare the same complete UTF-8 text
         // that the save path reads, including a BOM when the model carries one.
-        if (entry === null || entry === void 0 ? void 0 : entry.plainText)
+        if (entry && (entry.plainText || (baseSaved === null || baseSaved === void 0 ? void 0 : baseSaved.charCodeAt(0)) === 0xfeff))
             content = entry.model.getValue(undefined, true);
         if (baseSaved === undefined) {
             // No saved reference exists — treat content itself as saved baseline
@@ -174,8 +187,11 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
                 group.isDirty = runtime.dirtyFiles.has(path);
             }
         });
-        if (wasDirty !== runtime.dirtyFiles.has(path))
+        const dirty = runtime.dirtyFiles.has(path);
+        if (wasDirty !== dirty) {
+            onDirtyChanged === null || onDirtyChanged === void 0 ? void 0 : onDirtyChanged(path, dirty);
             window.dispatchEvent(new Event("tex64:dirty-state-changed"));
+        }
     };
     const storeViewState = (group, path) => {
         if (!group.editor) {

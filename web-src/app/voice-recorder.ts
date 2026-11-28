@@ -13,10 +13,19 @@ export type VoiceClip = {
 
 /**
  * "denied": the microphone was not granted. "failed": the recorder could not
- * start or the clip could not be read. "short": the clip was too brief to
+ * start or the clip could not be read. "unavailable" or "interrupted"
+ * indicate a missing device or lost input. "short": the clip was too brief to
  * be speech and was dropped.
  */
-export type VoiceRecorderError = "denied" | "failed" | "short";
+export type VoiceRecorderError = "denied" | "unavailable" | "interrupted" | "failed" | "short";
+
+export const voiceRecorderMessage = {
+  denied: "mic_denied",
+  unavailable: "mic_unavailable",
+  interrupted: "mic_interrupted",
+  failed: "mic_recording_failed",
+  short: "mic_empty",
+} as const;
 
 export type VoiceRecorderHandlers = {
   onStart: () => void;
@@ -32,6 +41,7 @@ export type VoiceRecorder = {
   /** Ends the recording and drops the clip: no onClip, no onError. */
   cancel: () => void;
   isRecording: () => boolean;
+  isBusy: () => boolean;
 };
 
 export const MAX_CLIP_MS = 180_000;
@@ -39,7 +49,7 @@ const MIN_CLIP_MS = 400;
 const TICK_MS = 250;
 
 export const isVoiceRecordingSupported = () =>
-  typeof navigator !== "undefined" && Boolean(navigator.mediaDevices) && typeof MediaRecorder !== "undefined";
+  typeof navigator !== "undefined" && typeof navigator.mediaDevices?.getUserMedia === "function" && typeof MediaRecorder !== "undefined";
 
 const pickMimeType = () => {
   const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
@@ -73,116 +83,121 @@ export const formatVoiceClock = (ms: number) => {
 };
 
 export const createVoiceRecorder = (handlers: VoiceRecorderHandlers): VoiceRecorder => {
-  let recorder: MediaRecorder | null = null;
-  let stream: MediaStream | null = null;
-  let chunks: Blob[] = [];
-  let startedAt = 0;
-  let clock: number | null = null;
-  let discard = false;
+  // Each request owns its stream and clip until it completes. A cancellation
+  // can arrive during permission, capture, or conversion to base64.
+  let current: { recorder: MediaRecorder | null; stopRequested: boolean; release: () => void } | null = null;
 
-  const releaseStream = () => {
-    stream?.getTracks().forEach((track) => track.stop());
-    stream = null;
+  const cancel = () => {
+    const session = current;
+    current = null;
+    session?.release();
   };
 
-  const stopClock = () => {
-    if (clock !== null) {
-      window.clearInterval(clock);
-      clock = null;
-    }
-  };
-
-  const finishRecording = async () => {
-    const durationMs = Date.now() - startedAt;
-    const mimeType = recorder?.mimeType || pickMimeType() || "audio/webm";
-    recorder = null;
-    stopClock();
-    releaseStream();
-    const blob = new Blob(chunks, { type: mimeType.split(";")[0] });
-    chunks = [];
-    if (discard) {
-      discard = false;
-      return;
-    }
-    if (durationMs < MIN_CLIP_MS || blob.size < 200) {
-      handlers.onError("short");
-      return;
-    }
-    let data = "";
+  const stop = () => {
+    const session = current;
+    const recorder = session?.recorder;
+    if (!recorder || recorder.state === "inactive") return;
+    session.stopRequested = true;
     try {
-      data = await blobToBase64(blob);
+      recorder.stop();
     } catch {
-      data = "";
-    }
-    if (!data) {
+      cancel();
       handlers.onError("failed");
-      return;
     }
-    handlers.onClip({ data, mimeType, durationMs });
   };
 
   const start = async () => {
-    if (recorder) return;
+    if (current) return;
+    const session = { recorder: null as MediaRecorder | null, stopRequested: false, release: () => {} };
+    current = session;
+    const fail = (error: VoiceRecorderError) => {
+      if (current !== session) return;
+      cancel();
+      handlers.onError(error);
+    };
+
     let media: MediaStream;
     try {
       media = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      handlers.onError("denied");
+    } catch (error) {
+      const reason = (error as Error)?.name;
+      if (reason === "NotAllowedError" || reason === "SecurityError") fail("denied");
+      else if (reason === "NotFoundError" || reason === "NotReadableError" || reason === "OverconstrainedError") fail("unavailable");
+      else fail("failed");
       return;
     }
-    const mimeType = pickMimeType();
-    let created: MediaRecorder;
+    const tracks = media.getTracks();
+    if (current !== session) {
+      tracks.forEach((track) => track.stop());
+      return;
+    }
+
+    const chunks: Blob[] = [];
+    const startedAt = Date.now();
+    let clock: number | null = null;
+    const interrupted = () => fail("interrupted");
+    session.release = () => {
+      if (clock !== null) window.clearInterval(clock);
+      const recorder = session.recorder;
+      if (recorder) {
+        recorder.ondataavailable = null;
+        recorder.onstop = null;
+        recorder.onerror = null;
+        if (recorder.state !== "inactive") {
+          try { recorder.stop(); } catch {}
+        }
+      }
+      session.recorder = null;
+      for (const track of tracks) {
+        track.removeEventListener?.("ended", interrupted);
+        track.stop();
+      }
+      session.release = () => {};
+    };
+
     try {
-      created = mimeType ? new MediaRecorder(media, { mimeType }) : new MediaRecorder(media);
+      const mime = pickMimeType();
+      const recorder = mime ? new MediaRecorder(media, { mimeType: mime }) : new MediaRecorder(media);
+      session.recorder = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size) chunks.push(event.data);
+      };
+      recorder.onerror = interrupted;
+      for (const track of tracks) track.addEventListener?.("ended", interrupted);
+      recorder.onstop = async () => {
+        if (!session.stopRequested) {
+          interrupted();
+          return;
+        }
+        const durationMs = Date.now() - startedAt;
+        const mimeType = recorder.mimeType || mime || "audio/webm";
+        session.release();
+        const blob = new Blob(chunks, { type: mimeType.split(";")[0] });
+        if (durationMs < MIN_CLIP_MS || blob.size < 200) {
+          fail("short");
+          return;
+        }
+        const data = await blobToBase64(blob).catch(() => "");
+        if (current !== session) return;
+        if (!data) {
+          fail("failed");
+          return;
+        }
+        current = null;
+        handlers.onClip({ data, mimeType, durationMs });
+      };
+      recorder.start(TICK_MS);
     } catch {
-      media.getTracks().forEach((track) => track.stop());
-      handlers.onError("failed");
+      fail("failed");
       return;
     }
-    stream = media;
-    recorder = created;
-    chunks = [];
-    discard = false;
-    startedAt = Date.now();
-    created.ondataavailable = (event) => {
-      if (event.data && event.data.size > 0) chunks.push(event.data);
-    };
-    created.onstop = () => {
-      void finishRecording();
-    };
-    created.start(TICK_MS);
-    handlers.onStart();
     clock = window.setInterval(() => {
       const elapsed = Date.now() - startedAt;
       handlers.onTick(elapsed);
       if (elapsed >= MAX_CLIP_MS) stop();
     }, TICK_MS);
+    handlers.onStart();
   };
 
-  const stop = () => {
-    if (!recorder) return;
-    try {
-      recorder.stop();
-    } catch {
-      recorder = null;
-      chunks = [];
-      stopClock();
-      releaseStream();
-      if (discard) discard = false;
-      else handlers.onError("short");
-    }
-  };
-
-  const cancel = () => {
-    if (!recorder) return;
-    discard = true;
-    stop();
-  };
-
-  return {
-    start,
-    stop,
-    cancel,
-    isRecording: () => recorder !== null,
-  };
+  return { start, stop, cancel, isRecording: () => Boolean(current?.recorder), isBusy: () => current !== null };
 };

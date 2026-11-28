@@ -1,6 +1,7 @@
 import { reconstructionBlock } from "../context.js";
 export const createBlockDraftOps = (runtime, deps) => {
     const buildMathSnippet = (formula) => {
+        var _a;
         const context = runtime.deps.getActiveBlockContext();
         if (context) {
             return reconstructionBlock(context, formula);
@@ -21,7 +22,17 @@ export const createBlockDraftOps = (runtime, deps) => {
         if (trimmed.startsWith("\\[") && trimmed.endsWith("\\]")) {
             return trimmed;
         }
-        if (trimmed.startsWith("\\begin{")) {
+        const environment = (_a = /^\\begin\{([^}]+)\}/.exec(trimmed)) === null || _a === void 0 ? void 0 : _a[1];
+        // Matrices and aligned fragments need an enclosing math mode. Display
+        // environments such as equation and align already provide their own.
+        if (environment === "split") {
+            // amsmath only accepts split inside an AMS display, including \[...\].
+            // Neither inline delimiters nor a primitive $$ display can contain it.
+            if (runtime.state.mathInsertMode === "inline" || runtime.state.mathInsertMode === "display") {
+                return `\\[${trimmed}\\]`;
+            }
+        }
+        else if (environment && !/^(?:[pbBvV]?(?:small)?matrix|array|subarray|d?r?cases|aligned(?:at)?|gathered)\*?$/.test(environment)) {
             return trimmed;
         }
         const mathInsertMode = runtime.state.mathInsertMode;

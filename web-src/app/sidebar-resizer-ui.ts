@@ -21,6 +21,7 @@ const PANEL_WIDTH_STORAGE_KEY = "tex64.sidebar.panelWidth.v1";
 const MIN_PANEL_WIDTH = 240;
 const MIN_EDITOR_WIDTH = 320;
 const SIDEBAR_RAIL_WIDTH = 52;
+const RESIZER_WIDTH = 4;
 const COLLAPSE_PANEL_WIDTH = 72;
 
 export type SidebarDragLayout = {
@@ -38,20 +39,12 @@ export const resolveSidebarDragLayout = (
   }
   const maxPanelWidth = Math.max(
     MIN_PANEL_WIDTH,
-    windowWidth - SIDEBAR_RAIL_WIDTH - MIN_EDITOR_WIDTH
+    windowWidth - SIDEBAR_RAIL_WIDTH - RESIZER_WIDTH - MIN_EDITOR_WIDTH
   );
   return {
     width: Math.max(MIN_PANEL_WIDTH, Math.min(maxPanelWidth, rawWidth)),
     collapse: false,
   };
-};
-
-const clampPanelWidth = (width: number): number => {
-  const maxPanelWidth = Math.max(
-    MIN_PANEL_WIDTH,
-    window.innerWidth - SIDEBAR_RAIL_WIDTH - MIN_EDITOR_WIDTH
-  );
-  return Math.max(MIN_PANEL_WIDTH, Math.min(maxPanelWidth, width));
 };
 
 const applyPanelWidth = (width: number) => {
@@ -90,7 +83,7 @@ export const initSidebarResizer = (
     }
     const storedWidth = readStoredPanelWidth();
     if (storedWidth !== null) {
-      applyPanelWidth(clampPanelWidth(storedWidth));
+      applyPanelWidth(Math.max(MIN_PANEL_WIDTH, storedWidth));
       deps.layoutEditors();
     }
     let isResizing = false;
@@ -173,9 +166,7 @@ export const initSidebarResizer = (
       }
       deps.setEditorsAutomaticLayout?.(true);
       if (collapseOnRelease) {
-        const restoredWidth = clampPanelWidth(
-          expandedWidthBeforeDrag ?? readStoredPanelWidth() ?? MIN_PANEL_WIDTH
-        );
+        const restoredWidth = Math.max(MIN_PANEL_WIDTH, readStoredPanelWidth() ?? expandedWidthBeforeDrag ?? MIN_PANEL_WIDTH);
         applyPanelWidth(restoredWidth);
         storePanelWidth(restoredWidth);
         deps.collapseSidebar();

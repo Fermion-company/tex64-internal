@@ -13,7 +13,14 @@ const READS_IMPORT = /^\s*\\((?:sub)?(?:import|includefrom|inputfrom))\s*\*?\s*\
 
 const isInside = (root, file) => {
   const relative = path.relative(root, file);
-  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+  return relative !== "" && relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative);
+};
+
+// Inside the project by its real path too: a symlink out of the workspace is
+// not a project file.
+const projectFile = (root, file) => {
+  if (!isInside(root, file) || !isInside(fs.realpathSync(root), fs.realpathSync(file))) return null;
+  return file;
 };
 
 /** 1-based number of the first line of `text` that prints something: after
@@ -47,6 +54,7 @@ const resolveInputLineTarget = (rootPath, relativePath, line, { lineText = null,
     if (!rootPath || typeof relativePath !== "string") return null;
     const source = path.resolve(rootPath, relativePath);
     if (!isInside(rootPath, source)) return null;
+    if (typeof lineText !== "string" && !projectFile(rootPath, source)) return null;
     const lineNumber = Number.parseInt(line, 10);
     if (!Number.isFinite(lineNumber) || lineNumber < 1) return null;
     // the line as the editor has it (the caret's line number is the buffer's)
@@ -66,7 +74,7 @@ const resolveInputLineTarget = (rootPath, relativePath, line, { lineText = null,
         (entry.directory === undefined ? directory === undefined : String(entry.directory).trim() === directory));
       if (!edge || typeof edge.target !== "string") return null;
       const file = path.resolve(rootPath, edge.target);
-      if (!isInside(rootPath, file) || !/\.tex$/i.test(file)) return null;
+      if (!/\.tex$/i.test(file) || !projectFile(rootPath, file)) return null;
       return {
         path: path.relative(rootPath, file).split(path.sep).join("/"),
         line: firstContentLine(fs.readFileSync(file, "utf8")),
@@ -82,7 +90,7 @@ const resolveInputLineTarget = (rootPath, relativePath, line, { lineText = null,
         const file = path.resolve(base, candidate);
         if (!isInside(rootPath, file) || !/\.tex$/i.test(file)) continue;
         let stat = null;
-        try { stat = fs.statSync(file); } catch { stat = null; }
+        try { stat = projectFile(rootPath, file) && fs.statSync(file); } catch { stat = null; }
         if (!stat?.isFile()) continue;
         return {
           path: path.relative(rootPath, file).split(path.sep).join("/"),

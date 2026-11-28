@@ -65,8 +65,9 @@ const handleReadFile = async (service, args, policy, conversationId) => {
   // The editor snapshot is cut at a few thousand characters; a cut one is
   // not the file (the read_file tool presents its result as complete). Read
   // the whole file from disk, which is also what every edit tool applies to.
+  // A clean snapshot is the saved file as it was: the disk is as new or newer.
   const fromSnapshot = () => {
-    if (snapshot.contentLength > policy.maxFileBytes) {
+    if (snapshot.contentLength > policy.maxFileBytes || Buffer.byteLength(snapshot.content, "utf8") > policy.maxFileBytes) {
       return { error: "File is too large." };
     }
     if (useBase64) {
@@ -84,7 +85,7 @@ const handleReadFile = async (service, args, policy, conversationId) => {
       source: "buffer",
     };
   };
-  const usableSnapshot = Boolean(snapshot && snapshot.content && !snapshot.truncated);
+  const usableSnapshot = Boolean(snapshot?.isDirty && typeof snapshot.content === "string" && !snapshot.truncated);
   // During an in-process turn the editor saves the person's typing as they
   // go, so the disk is newer than the snapshot sent with the request.
   const preferDisk = hasModelViews(service, conversationId);
@@ -135,9 +136,9 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
     }
     try {
       const snapshot = service.getContextSnapshot(conversationId, targetPath);
-      const usableSnapshot = Boolean(snapshot && snapshot.content && !snapshot.truncated);
+      const usableSnapshot = Boolean(snapshot?.isDirty && typeof snapshot.content === "string" && !snapshot.truncated);
       const useSnapshot = () => {
-        if (snapshot.contentLength > policy.maxFileBytes) {
+        if (snapshot.contentLength > policy.maxFileBytes || Buffer.byteLength(snapshot.content, "utf8") > policy.maxFileBytes) {
           results[p] = { error: "File is too large." };
         } else {
           if (useBase64) {
@@ -1260,31 +1261,9 @@ const handleProposeDelete = async (service, args, policy, conversationId) => {
   if (!stat || !stat.isFile()) {
     return { error: "file not found." };
   }
-  let originalContent = "";
-  let isBinary = false;
-  let baseContentHash = null;
-  let baseSource = null;
   const snapshot = service.getContextSnapshot(conversationId, targetPath);
-  if (snapshot && snapshot.content) {
-    if (snapshot.contentLength > policy.maxFileBytes) {
-      return { error: "File is too large." };
-    }
-    originalContent = snapshot.content;
-    if (!snapshot.isDirty && !snapshot.truncated) {
-      baseContentHash = hashUtf8Text(snapshot.content);
-      baseSource = "snapshot";
-    }
-  } else {
-    try {
-      const result = await readFileFromDisk(resolved);
-      originalContent = result.content;
-      isBinary = result.binary;
-      baseContentHash = result.contentHash;
-      baseSource = "disk";
-    } catch {
-      originalContent = "";
-    }
-  }
+  if (snapshot?.content && snapshot.contentLength > policy.maxFileBytes) return { error: "File is too large." };
+  const original = await readFileFromDisk(resolved);
   const id =
     typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
@@ -1294,15 +1273,15 @@ const handleProposeDelete = async (service, args, policy, conversationId) => {
     type: "delete",
     path: targetPath,
     content: "",
-    originalContent,
-    isBinary,
+    originalContent: original.content,
+    isBinary: original.binary,
     summary,
     isNewFile: false,
     conversationId,
     workspaceRootPath: service.workspace.getRootPath() || undefined,
-    baseContentHash: typeof baseContentHash === "string" ? baseContentHash : undefined,
+    baseContentHash: original.contentHash,
     baseExists: true,
-    baseSource: baseSource || undefined,
+    baseSource: "disk",
     createdAt: Date.now(),
   };
   const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
@@ -1331,34 +1310,12 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
   if (!stat || !stat.isFile()) {
     return { error: "file not found." };
   }
-  let originalContent = "";
-  let isBinary = false;
-  let baseContentHash = null;
-  let baseSource = null;
   const snapshot = service.getContextSnapshot(conversationId, oldPath);
+  if (snapshot?.content && snapshot.contentLength > policy.maxFileBytes) return { error: "File is too large." };
   if (snapshot?.isDirty) {
     return { error: "Cannot rename a file with unsaved editor changes. Save it and try again." };
   }
-  if (snapshot && snapshot.content) {
-    if (snapshot.contentLength > policy.maxFileBytes) {
-      return { error: "File is too large." };
-    }
-    originalContent = snapshot.content;
-    if (!snapshot.isDirty && !snapshot.truncated) {
-      baseContentHash = hashUtf8Text(snapshot.content);
-      baseSource = "snapshot";
-    }
-  } else {
-    try {
-      const result = await readFileFromDisk(resolved);
-      originalContent = result.content;
-      isBinary = result.binary;
-      baseContentHash = result.contentHash;
-      baseSource = "disk";
-    } catch {
-      originalContent = "";
-    }
-  }
+  const original = await readFileFromDisk(resolved);
   const id =
     typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
@@ -1368,16 +1325,16 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
     type: "rename",
     path: newPath,
     oldPath,
-    content: originalContent,
-    originalContent,
-    isBinary,
+    content: original.content,
+    originalContent: original.content,
+    isBinary: original.binary,
     summary,
     isNewFile: false,
     conversationId,
     workspaceRootPath: service.workspace.getRootPath() || undefined,
-    baseContentHash: typeof baseContentHash === "string" ? baseContentHash : undefined,
+    baseContentHash: original.contentHash,
     baseExists: true,
-    baseSource: baseSource || undefined,
+    baseSource: "disk",
     createdAt: Date.now(),
   };
   const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });

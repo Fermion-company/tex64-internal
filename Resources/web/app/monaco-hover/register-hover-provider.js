@@ -1,18 +1,20 @@
+import { getEditorModelPath } from "../editor-session/model-path.js";
+import { isTexFilePath } from "../files.js";
 import { pickCitationEntries } from "../index-utils.js";
-import { extractCiteKey, extractDocumentClassKey, extractPackageKey, extractSingleKey, findCommandMatchAt, } from "./command-key-match.js";
+import { extractListKey, extractSingleKey, findCommandMatchAt, } from "./command-key-match.js";
 import { extractBibEntryText, formatBibEntryMarkdown, parseBibFields } from "./bib-utils.js";
 import { renderExcerpt, sliceExcerptAroundLine } from "./excerpt-utils.js";
 import { buildImagePreviewHtml, createHtmlHoverContent } from "./hover-html.js";
-import { buildMathPreviewHtml } from "./math-preview.js";
+import { buildMathPreviewHtml, trackFormulaHoverPointer, typesetMathHover } from "./math-preview.js";
 import { findMathAt } from "./math-scan.js";
-import { extractMathEnvFromExcerpt, extractRefTargetSummary } from "./ref-target-preview.js";
+import { extractMathEnvFromExcerpt, extractRefTargetSummary, findLabelColumn } from "./ref-target-preview.js";
 import { buildColorSwatchHtml, collectDefinedColors, resolveColorSpec, rgbToHex, } from "./color-hover.js";
 import { resolveGraphicsCandidates, resolveTexIncludeCandidates, isPreviewableImagePath, isPdfPath, } from "./path-candidates.js";
 import { renderPdfFirstPageThumbnail } from "./pdf-thumbnail.js";
 import { findCommandTokenAt, findMacroDefinitionInLines } from "./macro-definition.js";
 import { buildPackageHoverMarkdown } from "./package-hover.js";
 import { rememberStableHoverAnchor } from "./stable-hover.js";
-import { findFirstUnescapedPercent, getCursorIndex } from "./utils.js";
+import { getHoverLine, getCursorIndex } from "./utils.js";
 import { getUiLocale } from "../i18n.js";
 export const registerHoverProvider = (monaco, deps, state) => {
     var _a;
@@ -20,7 +22,7 @@ export const registerHoverProvider = (monaco, deps, state) => {
         return;
     }
     const hoverResultCache = new Map();
-    const previewRequestCache = new Map();
+    let workspaceRoot = null;
     const MAX_HOVER_CACHE_SIZE = 512;
     const rememberHoverResult = (key, value) => {
         hoverResultCache.set(key, value);
@@ -53,53 +55,40 @@ export const registerHoverProvider = (monaco, deps, state) => {
         const safeEndLine = Number.isFinite(endLineNumber)
             ? Math.max(lineNumber, Math.floor(endLineNumber !== null && endLineNumber !== void 0 ? endLineNumber : lineNumber))
             : lineNumber;
-        return new monaco.Range(lineNumber, startColumn, safeEndLine, endColumn);
+        const lastColumn = safeEndLine > lineNumber && typeof endIndex === "number"
+            ? Math.max(1, endIndex + 1)
+            : endColumn;
+        return new monaco.Range(lineNumber, startColumn, safeEndLine, lastColumn);
     };
     const getModelLineCountSafe = (m, fallback) => {
         var _a;
         const count = (_a = m.getLineCount) === null || _a === void 0 ? void 0 : _a.call(m);
         return Number.isFinite(count) ? Math.max(1, Math.floor(count)) : fallback;
     };
-    const getOrCreatePreviewRequest = (path) => {
-        const cached = previewRequestCache.get(path);
-        if (cached) {
-            return cached;
-        }
-        const requestPreview = deps.requestFilePreview;
-        if (typeof requestPreview !== "function") {
-            return Promise.resolve({ ok: false, error: "preview unavailable" });
-        }
-        const pending = requestPreview(path)
-            .then((result) => {
-            if (!((result === null || result === void 0 ? void 0 : result.ok) && typeof result.dataUrl === "string" && result.dataUrl)) {
-                previewRequestCache.delete(path);
-            }
-            return result;
-        })
-            .catch((error) => {
-            previewRequestCache.delete(path);
-            return {
-                ok: false,
-                error: error instanceof Error ? error.message : String(error !== null && error !== void 0 ? error : "preview failed"),
-            };
-        });
-        previewRequestCache.set(path, pending);
-        return pending;
+    const requestPreview = (path) => {
+        var _a, _b;
+        return (_b = (_a = deps.requestFilePreview) === null || _a === void 0 ? void 0 : _a.call(deps, path).catch((error) => ({
+            ok: false,
+            error: error instanceof Error ? error.message : String(error !== null && error !== void 0 ? error : "preview failed"),
+        }))) !== null && _b !== void 0 ? _b : Promise.resolve({ ok: false });
     };
     const provideHover = (model, position) => {
-        var _a, _b, _c;
-        const activePath = deps.getActiveFilePath();
-        if (!activePath || !activePath.endsWith(".tex")) {
+        var _a, _b, _c, _d, _e, _f, _g, _h;
+        const root = (_b = (_a = deps.getWorkspaceRoot) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : null;
+        if (root !== workspaceRoot) {
+            workspaceRoot = root;
+            hoverResultCache.clear();
+        }
+        const activePath = (_c = getEditorModelPath(model)) !== null && _c !== void 0 ? _c : deps.getActiveFilePath();
+        if (!isTexFilePath(activePath)) {
             return null;
         }
         const line = model.getLineContent(position.lineNumber);
         const cursorIndex = getCursorIndex(position);
-        const commentIndex = findFirstUnescapedPercent(line);
-        if (commentIndex >= 0 && cursorIndex >= commentIndex) {
+        const effectiveLine = getHoverLine(line, cursorIndex);
+        if (cursorIndex >= effectiveLine.length)
             return null;
-        }
-        const effectiveLine = commentIndex >= 0 ? line.slice(0, commentIndex) : line;
-        const mathMatch = findMathAt(model, position, effectiveLine, cursorIndex);
+        const mathMatch = findMathAt(model, position, cursorIndex);
         if (mathMatch) {
             const tokenKey = buildHoverTokenKey({
                 activePath,
@@ -108,7 +97,7 @@ export const registerHoverProvider = (monaco, deps, state) => {
                 startIndex: mathMatch.startIndex,
                 endIndex: mathMatch.endIndex,
                 kind: "math",
-                extra: mathMatch.latex.slice(0, 180),
+                extra: mathMatch.latex,
             });
             rememberStableHoverAnchor({
                 filePath: activePath,
@@ -132,7 +121,7 @@ export const registerHoverProvider = (monaco, deps, state) => {
                 range,
             });
         }
-        const packageMatch = findCommandMatchAt(effectiveLine, cursorIndex, /\\(usepackage|RequirePackage)(?:\[[^\]]*\])?\{([^}]+)\}/g, extractPackageKey);
+        const packageMatch = findCommandMatchAt(effectiveLine, cursorIndex, /\\(usepackage|RequirePackage)(?:\[[^\]]*\])?\{([^}]+)\}/g, extractListKey);
         if (packageMatch) {
             const tokenKey = buildHoverTokenKey({
                 activePath,
@@ -160,7 +149,7 @@ export const registerHoverProvider = (monaco, deps, state) => {
             const range = createAnchorRange(position.lineNumber, packageMatch.startIndex, packageMatch.endIndex);
             return rememberHoverResult(tokenKey, { contents: [{ value }], range });
         }
-        const classMatch = findCommandMatchAt(effectiveLine, cursorIndex, /\\documentclass(?:\[[^\]]*\])?\{([^}]+)\}/g, extractDocumentClassKey);
+        const classMatch = findCommandMatchAt(effectiveLine, cursorIndex, /\\(documentclass)(?:\[[^\]]*\])?\{([^}]+)\}/g, extractSingleKey);
         if (classMatch) {
             const tokenKey = buildHoverTokenKey({
                 activePath,
@@ -195,7 +184,7 @@ export const registerHoverProvider = (monaco, deps, state) => {
             const command = (_a = match[1]) !== null && _a !== void 0 ? _a : "";
             const model = (_b = match[2]) !== null && _b !== void 0 ? _b : null;
             const content = (_c = match[3]) !== null && _c !== void 0 ? _c : "";
-            const braceIndex = match[0].indexOf("{");
+            const braceIndex = match[0].length - content.length - 2;
             if (braceIndex < 0 || typeof match.index !== "number") {
                 return null;
             }
@@ -247,7 +236,7 @@ export const registerHoverProvider = (monaco, deps, state) => {
             const definedColors = collectDefinedColors((lineNumber) => model.getLineContent(lineNumber), getModelLineCountSafe(model, position.lineNumber));
             const rgb = colorUseMatch
                 ? resolveColorSpec(colorMatch.key, colorModelOption, definedColors)
-                : (_a = definedColors.get(colorMatch.key)) !== null && _a !== void 0 ? _a : resolveColorSpec(colorDefineSpec, colorDefineModel, definedColors);
+                : (_d = definedColors.get(colorMatch.key)) !== null && _d !== void 0 ? _d : resolveColorSpec(colorDefineSpec, colorDefineModel, definedColors);
             if (rgb) {
                 const hex = rgbToHex(rgb);
                 const tokenKey = buildHoverTokenKey({
@@ -276,7 +265,8 @@ export const registerHoverProvider = (monaco, deps, state) => {
                 });
             }
         }
-        const refMatch = findCommandMatchAt(effectiveLine, cursorIndex, /\\(eqref|ref|pageref|autoref|cref|Cref|namecref|Namecref|nameref|Nameref)\{([^}]+)\}/g, extractSingleKey);
+        const refMatch = findCommandMatchAt(effectiveLine, cursorIndex, /\\(eqref|ref|pageref|autoref|cref|Cref|namecref|Namecref|nameref|Nameref)\*?\{([^}]+)\}/g, (match, index) => /^(?:c|namec)ref$/i.test(match[1])
+            ? extractListKey(match, index) : extractSingleKey(match, index));
         if (refMatch) {
             const tokenKey = buildHoverTokenKey({
                 activePath,
@@ -293,10 +283,6 @@ export const registerHoverProvider = (monaco, deps, state) => {
                 endIndex: refMatch.endIndex,
                 tokenKey,
             });
-            const cached = getCachedHoverResult(tokenKey);
-            if (cached) {
-                return cached;
-            }
             const entries = deps.getIndexLabels().filter((entry) => entry.key === refMatch.key);
             const seen = new Set();
             const deduped = entries
@@ -322,10 +308,10 @@ export const registerHoverProvider = (monaco, deps, state) => {
             if (typeof deps.requestFileExcerpt === "function" &&
                 typeof primary.path === "string" &&
                 Number.isFinite(primary.line)) {
-                const pending = deps
+                return deps
                     .requestFileExcerpt(primary.path, primary.line, { radius: 48, maxLines: 220 })
                     .then((excerpt) => {
-                    var _a;
+                    var _a, _b;
                     const contents = [{ value: `\`${primary.path}:${primary.line}\`` }];
                     const excerptOk = (excerpt === null || excerpt === void 0 ? void 0 : excerpt.ok) && Array.isArray(excerpt.lines);
                     const excerptData = excerptOk
@@ -333,6 +319,7 @@ export const registerHoverProvider = (monaco, deps, state) => {
                             startLine: (_a = excerpt.startLine) !== null && _a !== void 0 ? _a : primary.line,
                             lines: excerpt.lines,
                             targetLine: primary.line,
+                            labelColumn: findLabelColumn((_b = excerpt.lines[primary.line - excerpt.startLine]) !== null && _b !== void 0 ? _b : "", refMatch.key),
                         }
                         : null;
                     // Show WHAT the label points at, not just where: a rendered
@@ -377,14 +364,13 @@ export const registerHoverProvider = (monaco, deps, state) => {
                     }
                     return { contents, range };
                 });
-                return rememberHoverResult(tokenKey, pending);
             }
-            return rememberHoverResult(tokenKey, {
+            return {
                 contents: [{ value: `\`${primary.path}:${primary.line}\`` }],
                 range,
-            });
+            };
         }
-        const citeMatch = findCommandMatchAt(effectiveLine, cursorIndex, /\\(cite|citet|citep|citeauthor|citeyear|autocite|parencite|textcite|footcite|supercite)(?:\[[^\]]*\])*\{([^}]+)\}/g, extractCiteKey);
+        const citeMatch = findCommandMatchAt(effectiveLine, cursorIndex, /\\(cite|citet|citep|citeauthor|citeyear|autocite|parencite|textcite|footcite|supercite)\*?(?:\[[^\]]*\])*\{([^}]+)\}/g, extractListKey);
         if (citeMatch) {
             const tokenKey = buildHoverTokenKey({
                 activePath,
@@ -401,10 +387,6 @@ export const registerHoverProvider = (monaco, deps, state) => {
                 endIndex: citeMatch.endIndex,
                 tokenKey,
             });
-            const cached = getCachedHoverResult(tokenKey);
-            if (cached) {
-                return cached;
-            }
             const entries = pickCitationEntries(deps.getIndexCitations()).filter((entry) => entry.key === citeMatch.key);
             const primary = entries.length > 0 ? entries[0] : null;
             const range = createAnchorRange(position.lineNumber, citeMatch.startIndex, citeMatch.endIndex);
@@ -413,9 +395,9 @@ export const registerHoverProvider = (monaco, deps, state) => {
             }
             if (typeof deps.requestFileExcerpt === "function" &&
                 typeof primary.path === "string" &&
-                primary.path.endsWith(".bib") &&
+                /\.bib$/i.test(primary.path) &&
                 Number.isFinite(primary.line)) {
-                const pending = deps
+                return deps
                     .requestFileExcerpt(primary.path, primary.line, { radius: 120, maxLines: 260 })
                     .then((excerpt) => {
                     const excerptLines = (excerpt === null || excerpt === void 0 ? void 0 : excerpt.ok) ? excerpt.lines : null;
@@ -438,37 +420,13 @@ export const registerHoverProvider = (monaco, deps, state) => {
                     }
                     return { contents, range };
                 });
-                return rememberHoverResult(tokenKey, pending);
             }
-            return rememberHoverResult(tokenKey, {
+            return {
                 contents: [{ value: `\`${primary.path}:${primary.line}\`` }],
                 range,
-            });
-        }
-        const includeGraphicsHit = findCommandMatchAt(effectiveLine, cursorIndex, /\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}/g, (match, index) => {
-            var _a, _b, _c, _d;
-            const content = (_a = match[1]) !== null && _a !== void 0 ? _a : "";
-            const braceIndex = match[0].indexOf("{");
-            if (braceIndex < 0 || typeof match.index !== "number") {
-                return null;
-            }
-            const contentStart = match.index + braceIndex + 1;
-            const contentEnd = contentStart + content.length;
-            if (index < contentStart || index > contentEnd) {
-                return null;
-            }
-            const key = content.trim();
-            if (!key) {
-                return null;
-            }
-            const leading = (_d = (_c = (_b = content.match(/^\s*/)) === null || _b === void 0 ? void 0 : _b[0]) === null || _c === void 0 ? void 0 : _c.length) !== null && _d !== void 0 ? _d : 0;
-            return {
-                command: "includegraphics",
-                key,
-                startIndex: contentStart + leading,
-                endIndex: contentStart + leading + key.length,
             };
-        });
+        }
+        const includeGraphicsHit = findCommandMatchAt(effectiveLine, cursorIndex, /\\(includegraphics)(?:\[[^\]]*\])?\{([^}]+)\}/g, extractSingleKey);
         if (includeGraphicsHit) {
             const tokenKey = buildHoverTokenKey({
                 activePath,
@@ -485,36 +443,29 @@ export const registerHoverProvider = (monaco, deps, state) => {
                 endIndex: includeGraphicsHit.endIndex,
                 tokenKey,
             });
-            const cached = getCachedHoverResult(tokenKey);
-            if (cached) {
-                return cached;
-            }
-            const candidates = resolveGraphicsCandidates(activePath, includeGraphicsHit.key, deps.getWorkspaceFiles());
+            const candidates = resolveGraphicsCandidates(activePath, includeGraphicsHit.key, deps.getWorkspaceFiles(), (_e = deps.getRootFilePath) === null || _e === void 0 ? void 0 : _e.call(deps));
             if (candidates.length === 0) {
                 return null;
             }
-            const previewPath = (_b = candidates[0]) !== null && _b !== void 0 ? _b : "";
+            const previewPath = (_f = candidates[0]) !== null && _f !== void 0 ? _f : "";
             const range = createAnchorRange(position.lineNumber, includeGraphicsHit.startIndex, includeGraphicsHit.endIndex);
-            const locations = candidates.map((p) => `- ${p}`).join("\n");
+            const contents = [{ value: `\`${previewPath}\`` }];
+            if (candidates.length > 1) {
+                contents.push({ value: candidates.slice(1).map((path) => `- ${path}`).join("\n") });
+            }
             if (previewPath && isPreviewableImagePath(previewPath)) {
-                const pending = getOrCreatePreviewRequest(previewPath).then((preview) => {
-                    const contents = [{ value: `\`${previewPath}\`` }];
+                const pending = requestPreview(previewPath).then((preview) => {
                     if ((preview === null || preview === void 0 ? void 0 : preview.ok) && typeof preview.dataUrl === "string" && preview.dataUrl) {
-                        contents.push({ value: locations });
                         contents.push(createHtmlHoverContent(buildImagePreviewHtml(preview.dataUrl)));
-                    }
-                    else {
-                        contents.push({ value: locations });
                     }
                     return { contents, range };
                 });
-                return rememberHoverResult(tokenKey, pending);
+                return pending;
             }
             // PDF figures (the most common \includegraphics format): rasterize the
             // first page into a thumbnail via the vendored pdfjs.
             if (previewPath && isPdfPath(previewPath)) {
-                const pending = getOrCreatePreviewRequest(previewPath).then(async (preview) => {
-                    const contents = [{ value: `\`${previewPath}\`` }, { value: locations }];
+                const pending = requestPreview(previewPath).then(async (preview) => {
                     if ((preview === null || preview === void 0 ? void 0 : preview.ok) &&
                         typeof preview.dataUrl === "string" &&
                         preview.dataUrl.startsWith("data:application/pdf")) {
@@ -525,12 +476,9 @@ export const registerHoverProvider = (monaco, deps, state) => {
                     }
                     return { contents, range };
                 });
-                return rememberHoverResult(tokenKey, pending);
+                return pending;
             }
-            return rememberHoverResult(tokenKey, {
-                contents: [{ value: locations }],
-                range,
-            });
+            return { contents, range };
         }
         const includeHit = findCommandMatchAt(effectiveLine, cursorIndex, /\\(input|include)\{([^}]+)\}/g, extractSingleKey);
         if (includeHit) {
@@ -549,19 +497,15 @@ export const registerHoverProvider = (monaco, deps, state) => {
                 endIndex: includeHit.endIndex,
                 tokenKey,
             });
-            const cached = getCachedHoverResult(tokenKey);
-            if (cached) {
-                return cached;
-            }
-            const candidates = resolveTexIncludeCandidates(activePath, includeHit.key, deps.getWorkspaceFiles());
+            const candidates = resolveTexIncludeCandidates(activePath, includeHit.key, deps.getWorkspaceFiles(), (_g = deps.getRootFilePath) === null || _g === void 0 ? void 0 : _g.call(deps));
             if (candidates.length === 0) {
                 return null;
             }
-            const previewPath = (_c = candidates[0]) !== null && _c !== void 0 ? _c : "";
+            const previewPath = (_h = candidates[0]) !== null && _h !== void 0 ? _h : "";
             const range = createAnchorRange(position.lineNumber, includeHit.startIndex, includeHit.endIndex);
             const locations = candidates.map((p) => `- ${p}`).join("\n");
             if (candidates.length > 0 && typeof deps.requestFileExcerpt === "function") {
-                const pending = deps.requestFileExcerpt(previewPath, 1, { radius: 8, maxLines: 18 }).then((excerpt) => {
+                return deps.requestFileExcerpt(previewPath, 1, { radius: 8, maxLines: 18 }).then((excerpt) => {
                     var _a;
                     const contents = [{ value: `\`${previewPath}:1\`` }];
                     if ((excerpt === null || excerpt === void 0 ? void 0 : excerpt.ok) && Array.isArray(excerpt.lines)) {
@@ -582,12 +526,11 @@ export const registerHoverProvider = (monaco, deps, state) => {
                     }
                     return { contents, range };
                 });
-                return rememberHoverResult(tokenKey, pending);
             }
-            return rememberHoverResult(tokenKey, {
+            return {
                 contents: [{ value: locations }],
                 range,
-            });
+            };
         }
         // ── User-defined macro hover ──
         // Runs last so all specific hovers (math preview, refs, colors, …) win.
@@ -603,7 +546,7 @@ export const registerHoverProvider = (monaco, deps, state) => {
                     startIndex: commandToken.startIndex,
                     endIndex: commandToken.endIndex,
                     kind: "macro-definition",
-                    extra: `${commandToken.name}|${definition.lineNumber}|${definition.text.slice(0, 80)}`,
+                    extra: `${commandToken.name}|${definition.lineNumber}|${definition.text}`,
                 });
                 rememberStableHoverAnchor({
                     filePath: activePath,
@@ -632,5 +575,7 @@ export const registerHoverProvider = (monaco, deps, state) => {
         var _a, _b;
         (_b = (_a = monaco.languages) === null || _a === void 0 ? void 0 : _a.registerHoverProvider) === null || _b === void 0 ? void 0 : _b.call(_a, languageId, { provideHover });
     });
+    document.addEventListener("pointermove", trackFormulaHoverPointer, { capture: true, passive: true });
+    document.addEventListener("load", typesetMathHover, true);
     state.registered = true;
 };

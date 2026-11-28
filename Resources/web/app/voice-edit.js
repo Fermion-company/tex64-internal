@@ -1,3 +1,4 @@
+import { isTexFilePath } from "./files.js";
 /**
  * Ask Axiom by voice: speak a short instruction in the editor and it goes
  * to Axiom at once, with the selection (or the paragraph around the cursor)
@@ -19,13 +20,12 @@
  */
 import { aiText } from "./ai-i18n.js";
 import { getUiLocale, uiText } from "./i18n.js";
-import { createVoiceRecorder, formatVoiceClock, isVoiceRecordingSupported } from "./voice-recorder.js";
+import { createVoiceRecorder, formatVoiceClock, isVoiceRecordingSupported, voiceRecorderMessage } from "./voice-recorder.js";
 const REQUEST_PREFIX = "voice-edit-";
 const CONTEXT_KEY = "tex64VoiceRecording";
 // Esc discards the recording only when no overlay is waiting for it.
 const ESCAPE_WHEN = `${CONTEXT_KEY} && !suggestWidgetVisible && !findWidgetVisible && !parameterHintsVisible && !renameInputVisible && !inSnippetMode`;
 const FAILURE_MS = 3000;
-const isTexPath = (path) => typeof path === "string" && path.endsWith(".tex");
 const HEADING_LINE = /^\s*\\(?:part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\s*[\[{]/;
 /**
  * The blank-line delimited paragraph around a line; null on a blank line.
@@ -155,7 +155,7 @@ export const createVoiceEditController = (deps) => {
             recorderOp = null;
             if (!stillLive(op))
                 return;
-            failInPill(aiText(code === "denied" ? "mic_denied" : code === "short" ? "mic_empty" : "mic_failed"));
+            failInPill(aiText(voiceRecorderMessage[code]));
         },
     });
     // Drops the recording of an edit that has ended. A microphone still being
@@ -279,7 +279,7 @@ export const createVoiceEditController = (deps) => {
         };
         const start = () => {
             var _a;
-            if (!isTexPath(file.getFilePath()))
+            if (!isTexFilePath(file.getFilePath()))
                 return;
             if (!isVoiceRecordingSupported())
                 return;

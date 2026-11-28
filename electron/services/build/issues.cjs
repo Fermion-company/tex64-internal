@@ -1,6 +1,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+// Quoted file names may contain spaces. TeX leaves balanced parentheses in
+// unquoted file names, e.g. (./chapter(first)/part.tex.
+const LOG_FILE_TOKEN = /\("([^"]+)"|\(((?:[^()\s"]|\([^()\s"]*\))+\.[\w-]+)(?=[\s()]|$)|[()]/g;
+
 module.exports = (BuildService) => {
   BuildService.prototype.parseIssues = function (output, rootPath, mainFileName) {
     const documentDir = mainFileName && rootPath ? path.dirname(path.resolve(rootPath, mainFileName)) : null;
@@ -8,7 +12,13 @@ module.exports = (BuildService) => {
     const parsed = [];
     const seen = new Set();
     const maxIssues = 20;
-    let activeTexPath = null;
+    const fileStack = [];
+    let rootTexPath = null;
+    // latexmk can run TeX several times to resolve labels. Keep the final TeX
+    // pass and the output of separate tools such as BibTeX and makeindex.
+    const texPass = /^Run number \d+ of rule '(?:latex|pdflatex|lualatex|xelatex)'/i;
+    const lastTexPass = lines.findLastIndex((line) => texPass.test(line));
+    let supersededPass = false;
     const pushIssue = (issue) => {
       const token =
         issue.code === "missing-glyph"
@@ -24,6 +34,14 @@ module.exports = (BuildService) => {
     };
     for (let index = 0; index < lines.length; index += 1) {
       let line = lines[index] ?? "";
+      if (texPass.test(line)) {
+        supersededPass = index < lastTexPass;
+        fileStack.length = 0;
+        rootTexPath = null;
+      } else if (/^Latexmk:|^Run number \d+ of rule /i.test(line)) {
+        supersededPass = false;
+      }
+      if (supersededPass) continue;
       // A log written with the default max_print_line (79) wraps file:line
       // diagnostics, even in the middle of "Undefined control sequence".
       // Builds now widen it, so only a line cut at exactly 79 continues.
@@ -45,10 +63,25 @@ module.exports = (BuildService) => {
       if (this.isLatexmkMetaLine(line)) {
         continue;
       }
-      const contextPath = this.extractContextTexPath(line, rootPath, documentDir);
-      if (contextPath) {
-        activeTexPath = contextPath;
+      // TeX prints nested inputs as "(file" and emits ")" on return. Several
+      // files may open on the same line, including transient .aux/.sty files.
+      // Ignore diagnostic prose and source excerpts which can contain literal parentheses.
+      const location = this.extractIssueLocation(line, rootPath, documentDir);
+      const severity = this.extractIssueSeverity(line) ?? (location ? "error" : null);
+      if (!severity && !/^\s*l\.\d+\b/.test(line)) {
+        if (line.startsWith("**")) rootTexPath = this.extractContextTexPath(line, rootPath, documentDir);
+        for (const token of line.matchAll(LOG_FILE_TOKEN)) {
+          if (token[0] === ")") {
+            fileStack.pop();
+            continue;
+          }
+          const file = token[1] ?? token[2];
+          const projectTex = file && /\.tex$/i.test(file) ? this.normalizeIssuePath(file, rootPath, documentDir) : null;
+          rootTexPath ??= projectTex;
+          fileStack.push(projectTex ?? fileStack.at(-1) ?? rootTexPath);
+        }
       }
+      const activeTexPath = fileStack.at(-1) ?? rootTexPath;
       const missingGlyphIssues = this.extractMissingGlyphIssues(line, activeTexPath);
       if (missingGlyphIssues.length > 0) {
         for (const issue of missingGlyphIssues) {
@@ -56,13 +89,11 @@ module.exports = (BuildService) => {
         }
         continue;
       }
-      const location = this.extractIssueLocation(line, rootPath, documentDir);
-      const severity = this.extractIssueSeverity(line) ?? (location ? "error" : null);
       if (!severity) {
         continue;
       }
       const wrappedLineNumber = this.extractWrappedLineNumber(lines, index, line);
-      const message = this.composeIssueMessage(line, wrappedLineNumber);
+      const message = this.composeIssueMessage(line, wrappedLineNumber, lines[index + 1]);
       const shouldSearchNearby = severity === "error";
       const nearbyLocation = shouldSearchNearby ? this.extractNearbyIssueLocation(lines, index, rootPath, documentDir) : null;
       const directLineNumber = this.extractLineNumber(line);
@@ -134,7 +165,7 @@ module.exports = (BuildService) => {
     // "./main.tex:31: Package luatex.def Error: ...". Without dropping that
     // prefix the anchored patterns below never fire and a fatal error is
     // silently downgraded to nothing.
-    const text = raw.replace(/^(?:\.[\\/])?[^\s:]+:\d+(?::\d+)?:\s*/, "") || raw;
+    const text = raw.replace(/^(?:[A-Za-z]:)?[^:\r\n]+?\.[A-Za-z0-9]+:\d+(?::\d+)?:\s*/, "") || raw;
     const lower = text.toLowerCase();
     if (
       text.startsWith("!") ||
@@ -221,8 +252,14 @@ module.exports = (BuildService) => {
     return null;
   };
 
-  BuildService.prototype.composeIssueMessage = function (line, wrappedLineNumber) {
+  BuildService.prototype.composeIssueMessage = function (line, wrappedLineNumber, sourceLine) {
     const message = typeof line === "string" ? line.trim() : "";
+    // TeX breaks its source excerpt immediately after the undefined token.
+    // A macro expansion has different context lines, so leave those verbatim.
+    if (/Undefined control sequence\.?$/i.test(message) && /^\s*l\.\d+\s/.test(sourceLine ?? "")) {
+      const command = sourceLine.match(/(\\(?:[A-Za-z@]+|[^\sA-Za-z@]))\s*$/)?.[1];
+      if (command) return `${message} ${command}`;
+    }
     if (!message || !Number.isFinite(wrappedLineNumber)) {
       return message;
     }

@@ -180,7 +180,7 @@ defineFunction('"', '{:string}', {
             u: 'ü',
             A: 'Ä',
             E: 'Ë',
-            I: 'Ë',
+            I: 'Ï',
             O: 'Ö',
             U: 'Ü',
           }[options.args![0] as string] ?? '"' + options.args[0])
@@ -201,16 +201,16 @@ defineFunction('.', '{:string}', {
             a: 'ȧ',
             e: 'ė',
             // i with single dot above (combining character)
-            i: '\u0307\u0069',
+            i: 'i\u0307',
             o: 'ȯ',
             // U with single dot above (combining character)
-            u: '\u0307\u0075',
+            u: 'u\u0307',
             A: 'Ȧ',
             E: 'Ė',
             I: 'İ',
             O: 'Ȯ',
             // U with single dot above (combining character)
-            U: '\u0307\u0055',
+            U: 'U\u0307',
           }[options.args[0] as string] ?? '.' + options.args[0])
         : '.',
     }),

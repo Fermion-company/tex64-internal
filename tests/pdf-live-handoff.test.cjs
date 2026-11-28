@@ -283,6 +283,8 @@ test("the handoff holds until the reveal: a snapshot that loses the point calls 
     setStatus: noop, pendingLiveSync: null, isFindOpen: () => false, bridge: null,
     // (no reset cover stands: the scale mode it overrode has nothing to give back)
     scaleModeBeforeCover: null, applyScaleMode: noop,
+    // (no paper field is being edited, and no retained live frame stands)
+    paperEditor: { isEditing: () => false }, discardRetainedPaper: noop,
   });
   vm.runInContext(span("  const cancelLiveReveal =", "  const cancelLiveErrorSurface =") +
     span("  const liveViewportPositioned =", "  // After a Build") +

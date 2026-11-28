@@ -104,7 +104,10 @@ const resolveBuildTarget = async (workspace, requestedPath, options = {}) => {
   if (source === null) throw new Error(`File not found: ${requested}`);
   const magic = await workspace.resolveTexRootFromMagic(requested);
   current();
-  if (magic) return normalize(magic);
+  if (magic) {
+    options.onMagicRoot?.();
+    return normalize(magic);
+  }
   if (requested === rootFile) return requested;
 
   const includes = async (document) => {

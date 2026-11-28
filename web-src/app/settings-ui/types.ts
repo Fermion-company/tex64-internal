@@ -1,4 +1,5 @@
 import type { TexEnvReport } from "../tex-env-report.js";
+import type { SettingsFeedbackOps } from "./feedback-ops.js";
 import type {
   AppSettingsSnapshot,
   BuildProfile,
@@ -24,10 +25,9 @@ export type SettingsUiDeps = {
   onPdfViewerModeChange?: (mode: "window" | "tab") => void;
   // Writes every unsaved file before the update installer opens.
   saveDirtyFiles?: () => Promise<boolean>;
-  onRuntimeSetupNeeded?: (summary: EnvStatusSummary) => void;
   // The environment ops own every piece of TeX state, so the first-run gate
   // listens through them rather than tapping the IPC bridge a second time.
-  onRuntimeDetection?: (report: TexEnvReport | null, summary: EnvStatusSummary | null) => void;
+  onRuntimeDetection?: (ready: boolean) => void;
   onRuntimeInstallEvent?: (event: {
     kind: "start" | "progress" | "result";
     variant?: string;
@@ -79,7 +79,7 @@ export type SettingsUiApi = {
     feedbackId?: string | null;
     error?: { code?: string; message?: string };
   }) => void;
-  submitFeedback: (category: FeedbackCategory, message: string) => boolean;
+  submitFeedback: SettingsFeedbackOps["submit"];
   onFeedbackStatus: (
     listener: (status: { message: string; tone: "neutral" | "success" | "error" }) => void
   ) => () => void;
@@ -109,7 +109,6 @@ export type SettingsUiStorageKeys = {
   editorPdfViewerModeKey: string;
   editorAlignEnvKey: string;
   editorFormatSettingsKey: string;
-  runtimeSetupPromptedKey: string;
   firstBuildCompletedKey: string;
   updateLastAutoCheckAtKey: string;
   feedbackQueueKey: string;
@@ -137,7 +136,6 @@ export type SettingsUiState = {
   updateAutoCheckStarted: boolean;
   updateAutoCheckTimer: number | null;
   runtimeStatusSummary: EnvStatusSummary | null;
-  runtimeSetupPromptInFlight: boolean;
   feedbackPending: boolean;
   feedbackQueue: FeedbackQueueItem[];
   feedbackFlushTimer: number | null;

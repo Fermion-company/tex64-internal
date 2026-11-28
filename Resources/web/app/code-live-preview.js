@@ -10,6 +10,7 @@
 // and chrome. Turning the flag off restores the static PDF everywhere and
 // stops the engine.
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
+import { uiText } from "./i18n.js";
 import { getEditorModelPath } from "./editor-session/model-path.js";
 // Real-app typing → paper (25 tokens, 320ms apart, solo 2-page document):
 // 80/120ms gave p50 103ms / p90 144ms; 16/32ms gave p50 45ms / p90 52ms.
@@ -20,7 +21,6 @@ import { getEditorModelPath } from "./editor-session/model-path.js";
 // to the paper.
 const TYPING_PUSH_DELAY_MS = 1;
 const TYPING_PUSH_MAX_WAIT_MS = 4;
-const COMPOSITION_RETRY_MS = 80;
 // Trailing debounce with an upper bound: a burst of keystrokes closer than
 // delayMs would otherwise keep pushing the task back and the paper would not
 // move until the hands stop. With maxWaitMs the task also fires once that much
@@ -43,6 +43,7 @@ const createDebouncedTask = (task, delayMs, maxWaitMs = 0) => {
         const wait = maxWaitMs > 0 ? Math.min(delayMs, Math.max(0, firstDeferredAt + maxWaitMs - now)) : delayMs;
         timer = setTimeout(fire, wait);
     };
+    schedule.isScheduled = () => timer !== null;
     schedule.cancel = () => {
         if (timer)
             clearTimeout(timer);
@@ -87,8 +88,9 @@ const isPlainTypedChange = (event) => {
     return !!event && event.isFlush !== true && Array.isArray(event.changes) && event.changes.length === 1 &&
         typeof ((_a = event.changes[0]) === null || _a === void 0 ? void 0 : _a.text) === "string" && PLAIN_TYPED_TEXT_RE.test(event.changes[0].text);
 };
-const PROJECT_SOURCE_RE = /\.(?:tex|bib|sty|cls|bst|bbx|cbx|cfg|def|lbx|ltx|dtx|ins)$/i;
-export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getWorkspaceRoot, getRootFile, getRootSource, getLastBuildTarget, getDocumentFor, getDocumentsIncluding, getDirtyFileSnapshots, }) => {
+const PROJECT_SOURCE_RE = /\.(?:tex|bib|sty|cls|bst|bbx|cbx|cfg|clo|def|fd|ldf|lbx|ltx|dtx|ins)$/i;
+export const initCodeLivePreview = ({ getCompileEngine = () => "lualatex", getActiveGroup, getEditorGroups, getAppMode, getWorkspaceRoot, getWorkspaceFiles, getRootFile, getRootSource, getLastBuildTarget, getDocumentFor, getDocumentsIncluding, getDirtyFileSnapshots, onRuntimeError, hasSavedPaper, showFirstPaper, closeFirstPaper, }) => {
+    var _a, _b;
     // The document the live paper follows, decided like a Build: a file that is
     // a document itself (\documentclass … \begin{document}) is its own root even
     // when Settings names another; a fragment follows the document that reads
@@ -115,46 +117,75 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             return false;
         return !/\\(?:begin\s*\{|part\b|chapter\b|(?:sub)*section\b|input\b|include\b)/.test(source.slice(0, documentClass.index));
     };
+    let queuedDefault = null;
+    let queuedLastBuild = null;
     const currentLiveRoot = () => {
         // the document Live was last asked for: a long boot leaves liveSessionKey
         // on the document before it for minutes, and answering with that one
         // sent Live back to it in the middle of the boot
         const key = queuedSessionKey !== null && queuedSessionKey !== void 0 ? queuedSessionKey : liveSessionKey;
-        if (!key || key.startsWith("legacy\0"))
-            return null;
-        const at = key.indexOf("\0");
-        return at >= 0 ? key.slice(at + 1) : null;
+        const root = getWorkspaceRoot();
+        const prefix = root && `${root}\0`;
+        return prefix && (key === null || key === void 0 ? void 0 : key.startsWith(prefix)) ? key.slice(prefix.length) : null;
     };
-    const liveRootFor = (path, text) => {
+    // The edit notification, dirty tabs and the background poll can all request
+    // the same revision. Flatten Monaco's piece tree once for that revision.
+    let modelTexts = new WeakMap();
+    const readModelText = (model) => {
+        var _a;
+        const version = (_a = model.getVersionId) === null || _a === void 0 ? void 0 : _a.call(model);
+        if (version === undefined)
+            return model.getValue();
+        const cached = modelTexts.get(model);
+        if ((cached === null || cached === void 0 ? void 0 : cached.version) === version)
+            return cached.text;
+        const text = model.getValue();
+        modelTexts.set(model, { version, text });
+        return text;
+    };
+    const readEditorText = (editor) => {
+        var _a, _b, _c;
+        const model = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor);
+        return model && typeof model.getValue === "function"
+            ? readModelText(model)
+            : (_c = (_b = editor.getValue) === null || _b === void 0 ? void 0 : _b.call(editor)) !== null && _c !== void 0 ? _c : "";
+    };
+    const liveRootFor = (path, readText) => {
         var _a, _b;
         const configuredRoot = getRootFile();
         const isTex = Boolean(path && path.toLowerCase().endsWith(".tex"));
+        if (!isTex) {
+            // Clicking the paper, a reference PDF or a style file adds no new
+            // manuscript selection. Keep the document the user was editing.
+            const running = currentLiveRoot();
+            const files = getWorkspaceFiles === null || getWorkspaceFiles === void 0 ? void 0 : getWorkspaceFiles();
+            if (running && (!files || files.includes(running))) {
+                const built = getLastBuildTarget === null || getLastBuildTarget === void 0 ? void 0 : getLastBuildTarget();
+                if (configuredRoot && configuredRoot !== queuedDefault && (getRootSource === null || getRootSource === void 0 ? void 0 : getRootSource()) === "manual")
+                    return configuredRoot;
+                if (built && built !== queuedLastBuild && (!files || files.includes(built)))
+                    return built;
+                return running;
+            }
+        }
         // Main decides ownership as a Build does, and knows which book reads a
         // chapter. Until its answer is in, the text itself is the best evidence.
-        const owner = isTex && path ? getDocumentFor === null || getDocumentFor === void 0 ? void 0 : getDocumentFor(path) : null;
-        if (owner && /\.tex$/i.test(owner)) {
-            // A chapter that is a document of its own and that several books read,
-            // none of them built in this session, comes back as its own owner.
-            // While one of those books is the paper on screen, the chapter stays
-            // in it: reopening a project and opening such a chapter switched Live
-            // from the 389-page book to the chapter alone (two pages).
-            if (owner === path && (getLastBuildTarget === null || getLastBuildTarget === void 0 ? void 0 : getLastBuildTarget()) !== path) {
-                const running = currentLiveRoot();
-                if (running && running !== path && ((_a = getDocumentsIncluding === null || getDocumentsIncluding === void 0 ? void 0 : getDocumentsIncluding(path)) === null || _a === void 0 ? void 0 : _a.includes(running)))
+        const owner = isTex && path && getDocumentFor ? getDocumentFor(path) : null;
+        if (isTex && path) {
+            const running = currentLiveRoot();
+            // Opening a shared chapter doesn't select a new manuscript. Wait for
+            // ownership before switching, including when its source is a fragment.
+            if (running && running !== path) {
+                if (owner === undefined)
+                    return running;
+                if ((getLastBuildTarget === null || getLastBuildTarget === void 0 ? void 0 : getLastBuildTarget()) !== path && path !== configuredRoot &&
+                    ((_a = getDocumentsIncluding === null || getDocumentsIncluding === void 0 ? void 0 : getDocumentsIncluding(path)) === null || _a === void 0 ? void 0 : _a.includes(running)))
                     return running;
             }
-            return owner;
-        }
-        if (isTex && typeof text === "string" && isStandaloneSource(text)) {
-            // Main has not answered yet (undefined). A chapter of a book reads as
-            // a document of its own (subfiles), and taking its text at its word
-            // restarted the engine for the chapter and again for the book a moment
-            // later: opening a chapter of a 389-page book cost two full boots.
-            // The running document stays until the answer is in.
-            const running = currentLiveRoot();
-            if (owner === undefined && running && running !== path)
-                return running;
-            return path;
+            if (owner && /\.tex$/i.test(owner))
+                return owner;
+            if (isStandaloneSource(readText()))
+                return path;
         }
         if (configuredRoot && (getRootSource === null || getRootSource === void 0 ? void 0 : getRootSource()) === "manual")
             return configuredRoot;
@@ -163,8 +194,16 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     };
     const bridge = window.tex64Tdom;
     let active = false;
-    let starting = false;
+    let starting = null;
     let engineStarted = false;
+    let compileEngine = "lualatex";
+    let fallback = false;
+    let publishedFallback = false;
+    let missingCommand = null;
+    let pdfRetry = null;
+    let fallbackBuildInProgress = false;
+    let runningPdf = null;
+    let retryStartAfter = 0;
     let engineUrl = null;
     let liveGeneration = 0;
     let lifecycleVersion = 0;
@@ -174,6 +213,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     let boundEditor = null;
     let boundPath = null;
     let disposable = null;
+    let compositionDisposable = null;
     let cursorDisposable = null;
     let queuedSessionKey = null;
     let queuedActivePath;
@@ -195,10 +235,49 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     // Build PDF until Live presents at least this revision.
     let liveExpectedSrcRev = null;
     let lastWindowPreviewKey = null;
-    // Document main keeps on its Build paper because it is past the length
-    // Live is offered for (live-preview-page-limit.cjs). Nothing is pushed for
-    // it until another document is in front or a Build has made a new paper.
+    // The resident engine has a page budget. A document without a usable
+    // chapter window still updates through the single-flight PDF compiler.
     let limitedSessionKey = null;
+    let waitingForChapter = false;
+    let recoveringEmptyPaper = false;
+    let tryingRetainedPaper = false;
+    let cleanPaper = null;
+    let editEpoch = -1;
+    let editingPaper = false;
+    const resumeCleanPaper = () => {
+        if (!active || !recoveringEmptyPaper || editingPaper || !cleanPaper ||
+            cleanPaper.pushVersion !== latestPushVersion || cleanPaper.editVersion !== sourceEditVersion ||
+            buildOwnsView || fallbackBuildInProgress)
+            return;
+        cleanPaper = null;
+        recoveringEmptyPaper = false;
+        sourceRefreshPending = true;
+        pushCurrent();
+    };
+    let nativeSourceRev = null;
+    let emptyPaperErrorRev = null;
+    const usingPdf = () => fallback || recoveringEmptyPaper || (limitedSessionKey !== null && !waitingForChapter && Boolean(bridge === null || bridge === void 0 ? void 0 : bridge.compilePdf));
+    // A close is the user's choice. Only offer the first paper once for
+    // this document until Live is switched off or another document opens.
+    let firstPaperSession = null;
+    let firstPaperInWindow = false;
+    const retireFirstPaper = (switchingDocument) => {
+        var _a;
+        closeFirstPaper(switchingDocument);
+        if (firstPaperInWindow)
+            void ((_a = bridge === null || bridge === void 0 ? void 0 : bridge.setUnbuiltWindow) === null || _a === void 0 ? void 0 : _a.call(bridge, null).catch(() => { }));
+        firstPaperSession = null;
+        firstPaperInWindow = false;
+    };
+    const offerFirstPaper = (key, target) => {
+        var _a;
+        if (!(target === null || target === void 0 ? void 0 : target.workspaceRoot) || firstPaperSession === key)
+            return;
+        firstPaperSession = key;
+        firstPaperInWindow = showFirstPaper(target) === "window";
+        if (firstPaperInWindow)
+            void ((_a = bridge === null || bridge === void 0 ? void 0 : bridge.setUnbuiltWindow) === null || _a === void 0 ? void 0 : _a.call(bridge, target).catch(() => { }));
+    };
     const cursorOffset = (editor) => {
         var _a, _b, _c, _d, _e, _f;
         if (editor === void 0) { editor = (_b = (_a = currentProjectSource()) === null || _a === void 0 ? void 0 : _a.editor) !== null && _b !== void 0 ? _b : null; }
@@ -207,7 +286,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         return Number.isFinite(Number(offset)) ? Number(offset) : null;
     };
     const focusCurrent = () => {
-        if (!active || !engineStarted || !(bridge === null || bridge === void 0 ? void 0 : bridge.focus))
+        if (!active || !engineStarted || fallback || !(bridge === null || bridge === void 0 ? void 0 : bridge.focus))
             return;
         // A character insertion moves the Monaco caret too. Let its source
         // push finish first; otherwise a speculative warm against the old source
@@ -252,7 +331,17 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             }
         }
     };
-    const showLiveError = (message) => console.warn("[live-preview]", message);
+    const showLiveError = (message) => {
+        console.warn("[live-preview]", message);
+        onRuntimeError(uiText("Real-time preview could not start.", "リアルタイムプレビューを起動できませんでした。") + ` ${message}`);
+    };
+    const clearFallbackPaper = () => {
+        var _a;
+        publishedFallback = false;
+        for (const group of getEditorGroups())
+            group.viewer.showFallbackPreview(null, null);
+        void ((_a = bridge === null || bridge === void 0 ? void 0 : bridge.showWindowPdf) === null || _a === void 0 ? void 0 : _a.call(bridge, null));
+    };
     const editorModelPath = (editor) => {
         var _a, _b;
         return getEditorModelPath((_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== null && _b !== void 0 ? _b : null);
@@ -299,8 +388,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         if (!path || !PROJECT_SOURCE_RE.test(path) || !(editor === null || editor === void 0 ? void 0 : editor.getValue))
             return;
         const workspaceRoot = getWorkspaceRoot();
-        const text = editor.getValue();
-        const rootFile = liveRootFor(path, text);
+        const text = readEditorText(editor);
+        const rootFile = liveRootFor(path, () => text);
         const sessionKey = workspaceRoot && rootFile
             ? `${workspaceRoot}\0${rootFile}`
             : path.toLowerCase().endsWith(".tex") ? `legacy\0${path}` : null;
@@ -325,18 +414,34 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         }
     };
     const currentSnapshot = () => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
+        var _a, _b, _c, _d, _e, _f, _g, _h;
         // Keep event-time captures queued until the editor group's path catches up
         // with its newly installed model. The capture itself is already bound to
         // the model URI, so no keystroke is lost while dispatch is held.
         if (activeEditorPathMismatch())
             return null;
+        let composing;
+        for (const group of getEditorGroups()) {
+            const path = group.currentFilePath;
+            if (!group.isComposing || !path || !PROJECT_SOURCE_RE.test(path))
+                continue;
+            const baseline = group.compositionBaseline;
+            const editor = group.editor;
+            if (!baseline || path !== group.composingFilePath || ((_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== baseline.model)
+                return null;
+            (composing !== null && composing !== void 0 ? composing : (composing = new Map())).set(baseline.model, { path, baseline });
+        }
         const current = currentProjectSource();
+        const model = (_c = current === null || current === void 0 ? void 0 : (_b = current.editor).getModel) === null || _c === void 0 ? void 0 : _c.call(_b);
+        const committedText = () => { var _a, _b; return (_b = (model && ((_a = composing === null || composing === void 0 ? void 0 : composing.get(model)) === null || _a === void 0 ? void 0 : _a.baseline.text))) !== null && _b !== void 0 ? _b : (current ? readEditorText(current.editor) : ""); };
         const workspaceRoot = getWorkspaceRoot();
-        const rootFile = liveRootFor((_a = current === null || current === void 0 ? void 0 : current.path) !== null && _a !== void 0 ? _a : null, (_d = (_c = current === null || current === void 0 ? void 0 : (_b = current.editor).getValue) === null || _c === void 0 ? void 0 : _c.call(_b)) !== null && _d !== void 0 ? _d : null);
+        const rootFile = liveRootFor((_d = current === null || current === void 0 ? void 0 : current.path) !== null && _d !== void 0 ? _d : null, committedText);
         if (workspaceRoot && rootFile) {
             const buffers = new Map();
-            for (const snapshot of getDirtyFileSnapshots()) {
+            const readCommitted = composing
+                ? (model) => { var _a, _b; return (_b = (_a = composing.get(model)) === null || _a === void 0 ? void 0 : _a.baseline.text) !== null && _b !== void 0 ? _b : readModelText(model); }
+                : readModelText;
+            for (const snapshot of getDirtyFileSnapshots(readCommitted)) {
                 if (snapshot.isDirty && !snapshot.truncated && PROJECT_SOURCE_RE.test(snapshot.path)) {
                     buffers.set(snapshot.path, snapshot.content);
                 }
@@ -345,8 +450,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             // clean root only while its tab is active would turn a root/child tab
             // switch into a source edit. External reloads explicitly call
             // refreshSource below, which forces a same-session disk refresh.
-            if (current === null || current === void 0 ? void 0 : current.group.isDirty) {
-                buffers.set(current.path, (_g = (_f = (_e = current.editor).getValue) === null || _f === void 0 ? void 0 : _f.call(_e)) !== null && _g !== void 0 ? _g : "");
+            if ((current === null || current === void 0 ? void 0 : current.group.isDirty) && !buffers.has(current.path)) {
+                buffers.set(current.path, committedText());
             }
             const sessionKey = `${workspaceRoot}\0${rootFile}`;
             const exactInputs = [...pendingExactInputs.values()].filter((input) => input.sessionKey === sessionKey);
@@ -355,6 +460,15 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             // engine accepts them; a later clean snapshot removes the overlay.
             for (const exactInput of exactInputs)
                 buffers.set(exactInput.path, exactInput.text);
+            // The candidate may make a clean file dirty, or temporarily make
+            // a dirty file equal to disk. Keep the pre-composition overlay.
+            if (composing)
+                for (const { path, baseline } of composing.values()) {
+                    if (baseline.dirty)
+                        buffers.set(path, baseline.text);
+                    else
+                        buffers.delete(path);
+                }
             return {
                 sessionKey,
                 buffers,
@@ -375,24 +489,25 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         }
         if (!current || !current.path.toLowerCase().endsWith(".tex"))
             return null;
-        const source = (_k = (_j = (_h = current.editor).getValue) === null || _j === void 0 ? void 0 : _j.call(_h)) !== null && _k !== void 0 ? _k : "";
+        const source = committedText();
         const sessionKey = `legacy\0${current.path}`;
-        const exactInput = ((_l = pendingExactInputs.get(current.path)) === null || _l === void 0 ? void 0 : _l.sessionKey) === sessionKey
+        const exactInput = ((_e = pendingExactInputs.get(current.path)) === null || _e === void 0 ? void 0 : _e.sessionKey) === sessionKey
             ? pendingExactInputs.get(current.path) : null;
         return {
             sessionKey,
-            buffers: new Map([[current.path, (_m = exactInput === null || exactInput === void 0 ? void 0 : exactInput.text) !== null && _m !== void 0 ? _m : source]]),
+            buffers: new Map([[current.path, (_f = exactInput === null || exactInput === void 0 ? void 0 : exactInput.text) !== null && _f !== void 0 ? _f : source]]),
             exactInputIds: new Map(exactInput ? [[current.path, exactInput.id]] : []),
             target: { workspaceRoot: null, pdfPath: current.path.replace(/\.tex$/i, ".pdf") },
             payload: {
-                source: (_o = exactInput === null || exactInput === void 0 ? void 0 : exactInput.text) !== null && _o !== void 0 ? _o : source,
+                source: (_g = exactInput === null || exactInput === void 0 ? void 0 : exactInput.text) !== null && _g !== void 0 ? _g : source,
                 path: current.path,
                 fresh: sessionKey !== queuedSessionKey,
-                clientEditAtEpochMs: (_p = exactInput === null || exactInput === void 0 ? void 0 : exactInput.editAtEpochMs) !== null && _p !== void 0 ? _p : (latestInputAtEpochMs || undefined),
+                clientEditAtEpochMs: (_h = exactInput === null || exactInput === void 0 ? void 0 : exactInput.editAtEpochMs) !== null && _h !== void 0 ? _h : (latestInputAtEpochMs || undefined),
             },
         };
     };
     const retireObsoleteSession = (nextSessionKey) => {
+        var _a;
         for (const [path, exactInput] of pendingExactInputs) {
             if (exactInput.sessionKey !== nextSessionKey)
                 pendingExactInputs.delete(path);
@@ -404,6 +519,15 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         // Invalidate an in-flight result immediately, before the push
         // debounce. Otherwise a completed /open for the previous project can
         // briefly reactivate its iframe after the editor has already switched.
+        retireFirstPaper(true);
+        recoveringEmptyPaper = false;
+        emptyPaperErrorRev = null;
+        nativeSourceRev = null;
+        pdfRetry = null;
+        missingCommand = null;
+        if (runningPdf)
+            void ((_a = bridge === null || bridge === void 0 ? void 0 : bridge.supersedePdf) === null || _a === void 0 ? void 0 : _a.call(bridge, runningPdf.id, true));
+        lifecycleVersion += 1;
         latestPushVersion += 1;
         pendingPush = null;
         queuedSessionKey = null;
@@ -411,6 +535,12 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         builtSnapshot = null;
         buildOwnsView = false;
         liveExpectedSrcRev = null;
+        if (usingPdf() || publishedFallback) {
+            buildViewVersion += 1;
+            fallbackBuildInProgress = false;
+            fallbackDrain.cancel();
+            clearFallbackPaper();
+        }
         if (engineUrl || visibleSessionIsObsolete) {
             engineUrl = null;
             liveSessionKey = null;
@@ -434,15 +564,14 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             pushCurrent();
         }, 5000);
     };
-    const enterPageLimit = (sessionKey) => {
+    const enterPageLimit = (sessionKey, pending = false) => {
+        waitingForChapter = pending;
         limitedSessionKey = sessionKey;
         lifecycleVersion += 1;
         latestPushVersion += 1;
         debouncedPush.cancel();
         typedPush.cancel();
-        compositionRetry.cancel();
         debouncedFocus.cancel();
-        pendingExactInputs.clear();
         pendingPush = null;
         latestInputAtEpochMs = 0;
         builtSnapshot = null;
@@ -453,27 +582,136 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         liveSessionKey = null;
         liveGeneration += 1;
         distributeLive(null, liveGeneration);
+        if (usingPdf()) {
+            sourceRefreshPending = true;
+            debouncedPush();
+        }
     };
     const drainPushes = async () => {
-        if (pushing || !(bridge === null || bridge === void 0 ? void 0 : bridge.push))
+        var _a, _b, _c, _d, _e;
+        if (pushing || !(bridge === null || bridge === void 0 ? void 0 : bridge.push) || fallbackBuildInProgress)
             return;
         pushing = true;
-        const drainLifecycleVersion = lifecycleVersion;
         let attemptedSnapshot = null;
         try {
             // Single-flight latest-wins queue: while LuaLaTeX is working, new
             // keystrokes replace the one pending snapshot instead of building an
             // unbounded FIFO of already-obsolete document states.
-            while (active && pendingPush) {
+            while (active && pendingPush && !fallbackBuildInProgress) {
                 const snapshot = pendingPush;
                 pendingPush = null;
                 attemptedSnapshot = snapshot;
+                if (usingPdf()) {
+                    const buildAtStart = buildViewVersion;
+                    const id = crypto.randomUUID();
+                    const editVersion = sourceEditVersion;
+                    runningPdf = { id, version: editVersion, superseded: false };
+                    let result;
+                    try {
+                        result = await ((_a = bridge.compilePdf) === null || _a === void 0 ? void 0 : _a.call(bridge, { ...snapshot.payload, engine: compileEngine, requestId: id,
+                            ...(tryingRetainedPaper && recoveringEmptyPaper && { recoverIncompleteMath: true }) }));
+                    }
+                    catch (error) {
+                        result = { ok: false, error: error instanceof Error ? error.message : String(error) };
+                    }
+                    finally {
+                        runningPdf = null;
+                    }
+                    if (!active || snapshot.lifecycleVersion !== lifecycleVersion)
+                        continue;
+                    const busy = (result === null || result === void 0 ? void 0 : result.code) === "TDOM_BUILD_IN_PROGRESS" || (result === null || result === void 0 ? void 0 : result.code) === "TDOM_PREVIEW_BUSY";
+                    const ioFailure = !(result === null || result === void 0 ? void 0 : result.ok) && ((result === null || result === void 0 ? void 0 : result.code) === "TDOM_PREVIEW_IO_ERROR" || (!(result === null || result === void 0 ? void 0 : result.code) && Boolean(result === null || result === void 0 ? void 0 : result.error)));
+                    if (!busy && !ioFailure) {
+                        clearAcceptedExactInputs(snapshot);
+                        if (snapshot.pushVersion === latestPushVersion)
+                            pdfRetry = null;
+                    }
+                    // Display a finished revision of this paper even while its next
+                    // edit is queued. Waiting for typing to stop can hide every frame.
+                    if (snapshot.sessionKey === queuedSessionKey && buildAtStart === buildViewVersion && !fallbackBuildInProgress) {
+                        if ((result === null || result === void 0 ? void 0 : result.ok) && (result.data || result.url) && typeof result.generation === "number" && snapshot.target) {
+                            missingCommand = result.command ? { name: result.command, checkAfter: Date.now() + 5000 } : null;
+                            if (result.pendingBibliography && snapshot.pushVersion === latestPushVersion)
+                                sourceRefreshPending = true;
+                            tryingRetainedPaper = false;
+                            publishedFallback = true;
+                            liveSessionKey = snapshot.sessionKey;
+                            for (const group of getEditorGroups())
+                                group.viewer.showFallbackPreview(snapshot.target, (_b = result.data) !== null && _b !== void 0 ? _b : null, result.generation, result.url);
+                            void ((_c = bridge.showWindowPdf) === null || _c === void 0 ? void 0 : _c.call(bridge, result.generation));
+                            if (engineUrl) {
+                                engineUrl = null;
+                                distributeLive(null, ++liveGeneration);
+                            }
+                            offerFirstPaper(snapshot.sessionKey, snapshot.target);
+                            onRuntimeError(result.command
+                                ? uiText(`Install ${result.command} to update the bibliography.`, `参考文献の更新には ${result.command} が必要です。`)
+                                : result.warning || (result.pendingMathCloser
+                                    ? (result.pendingMathFile
+                                        ? uiText(`Close the formula in ${result.pendingMathFile} with ${result.pendingMathCloser}.`, `${result.pendingMathFile} の数式を ${result.pendingMathCloser} で閉じてください。`)
+                                        : uiText(`Close the formula with ${result.pendingMathCloser}.`, `数式の末尾に ${result.pendingMathCloser} を追加してください。`))
+                                    : result.missingDocumentEnd
+                                        ? uiText("Add \\end{document} to finish the manuscript.", "原稿の末尾に \\end{document} を追加してください。")
+                                        : null));
+                            if (recoveringEmptyPaper && !result.warning && !result.pendingMathCloser && !result.missingDocumentEnd && !result.emptyDocument && snapshot.pushVersion === latestPushVersion) {
+                                // Keep updating the PDF while a paper field owns keyboard focus.
+                                // The compile reply and the final keystroke can cross in IPC.
+                                if (((_d = result.editEpoch) !== null && _d !== void 0 ? _d : -1) >= editEpoch) {
+                                    editEpoch = (_e = result.editEpoch) !== null && _e !== void 0 ? _e : -1;
+                                    editingPaper = Boolean(result.editingPaper);
+                                }
+                                cleanPaper = { pushVersion: snapshot.pushVersion, editVersion };
+                                resumeCleanPaper();
+                            }
+                        }
+                        else if (snapshot.pushVersion === latestPushVersion && busy) {
+                            sourceRefreshPending = true;
+                        }
+                        else if (snapshot.pushVersion === latestPushVersion && (result === null || result === void 0 ? void 0 : result.code) === "TDOM_TEX_COMMAND_MISSING") {
+                            const tool = result.command || compileEngine;
+                            missingCommand = { name: tool, checkAfter: Date.now() + 5000 };
+                            onRuntimeError(uiText(`Install ${tool} to update the real-time preview.`, `プレビューの更新には ${tool} が必要です。`));
+                        }
+                        else if (snapshot.pushVersion === latestPushVersion && (result === null || result === void 0 ? void 0 : result.code) === "TDOM_PREVIEW_NO_PAGES") {
+                            onRuntimeError(uiText("TeX produced no pages. Add document content to see the preview.", "本文を入力するとプレビューにページが表示されます。"));
+                        }
+                        else if (snapshot.pushVersion === latestPushVersion && (result === null || result === void 0 ? void 0 : result.code) === "TDOM_TEX_ERROR") {
+                            // A failed trial on an already visible document must keep native
+                            // edits flowing. This revision has already been tried once.
+                            if (tryingRetainedPaper) {
+                                tryingRetainedPaper = false;
+                                recoveringEmptyPaper = false;
+                            }
+                            missingCommand = null;
+                            onRuntimeError(result.error || uiText("Correct the TeX error to update the preview.", "原稿の組版エラーを修正するとプレビューが更新されます。"));
+                        }
+                        else if (snapshot.pushVersion === latestPushVersion && (result === null || result === void 0 ? void 0 : result.code) === "TDOM_PREVIEW_SOURCE_LIMIT") {
+                            onRuntimeError(uiText("The preview can stage up to 500 files per update, including the root manuscript.", "ルート原稿と未保存のファイルを合わせて500件までプレビューに反映できます。"));
+                        }
+                        else if (snapshot.pushVersion === latestPushVersion && ioFailure) {
+                            missingCommand = null;
+                            if ((pdfRetry === null || pdfRetry === void 0 ? void 0 : pdfRetry.editVersion) !== editVersion)
+                                pdfRetry = { editVersion, at: Date.now() + 2000 };
+                            onRuntimeError((result === null || result === void 0 ? void 0 : result.error) || uiText("The preview could not finish typesetting.", "プレビューの組版を完了できませんでした。"));
+                        }
+                        else if (snapshot.pushVersion === latestPushVersion && (result === null || result === void 0 ? void 0 : result.code) === "TDOM_PREVIEW_TIMEOUT") {
+                            onRuntimeError(uiText("Typesetting the preview timed out.", "プレビューの組版が制限時間を超えました。"));
+                        }
+                    }
+                    if (snapshot.payload.clientEditAtEpochMs === latestInputAtEpochMs)
+                        latestInputAtEpochMs = 0;
+                    // If the trailing timer fired while the compiler was occupied,
+                    // the pending edit already waited its turn.
+                    if (pendingPush && !fallbackDrain.isScheduled())
+                        continue;
+                    break;
+                }
                 const result = await bridge.push(snapshot.payload);
                 if (!(result === null || result === void 0 ? void 0 : result.ok))
                     throw new Error((result === null || result === void 0 ? void 0 : result.error) || "live preview push failed");
                 if (result.limited) {
-                    if (active && snapshot.lifecycleVersion === lifecycleVersion) {
-                        enterPageLimit(snapshot.sessionKey);
+                    if (active && snapshot.lifecycleVersion === lifecycleVersion && snapshot.sessionKey === queuedSessionKey) {
+                        enterPageLimit(snapshot.sessionKey, result.pending === true);
                         // Main is still reading what the chapter starts from: ask again.
                         if (result.pending)
                             retryLimited(snapshot.sessionKey);
@@ -484,28 +722,37 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 // Only the capture ids carried by this accepted request are retired.
                 // An older acknowledgement must never clear a newer edit of same bytes.
                 clearAcceptedExactInputs(snapshot);
-                const isCurrent = active &&
+                // The URL opens the live document stream, including subsequent edits.
+                // Mount it on the first accepted revision even if typing has queued another.
+                const acceptedCurrentDocument = active &&
                     snapshot.lifecycleVersion === lifecycleVersion &&
-                    snapshot.pushVersion === latestPushVersion;
+                    snapshot.sessionKey === queuedSessionKey;
                 // The engine accepted a source that differs from the Build's. A newer
                 // queued push (such as the overlay removal after autosave) only moves
                 // it further, so an accepted release need not be the latest push.
-                const releasesBuild = active && snapshot.lifecycleVersion === lifecycleVersion &&
+                const releasesBuild = acceptedCurrentDocument &&
                     buildOwnsView && snapshot.releaseBuildView === buildViewVersion;
                 if (releasesBuild) {
                     builtSnapshot = null;
                     buildOwnsView = false;
                     liveExpectedSrcRev = Number.isInteger(result.srcRev) ? Number(result.srcRev) : null;
                 }
-                if (result.url && isCurrent) {
+                if (result.url && acceptedCurrentDocument) {
+                    onRuntimeError(null);
                     // a push that follows a length limit starts the engine itself
                     engineStarted = true;
+                    if (Number.isInteger(result.srcRev)) {
+                        nativeSourceRev = Number(result.srcRev);
+                        if (publishedFallback && !engineUrl)
+                            liveExpectedSrcRev = nativeSourceRev;
+                    }
                     if (snapshot.payload.fresh || engineUrl !== result.url || !engineUrl)
                         liveGeneration += 1;
                     engineUrl = result.url;
                     liveSessionKey = snapshot.sessionKey;
                     liveTarget = snapshot.target;
                     distributeLive(engineUrl, liveGeneration);
+                    offerFirstPaper(snapshot.sessionKey, snapshot.target);
                 }
                 else if (releasesBuild && engineUrl) {
                     distributeLive(engineUrl, liveGeneration);
@@ -518,7 +765,6 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         catch (error) {
             const failureIsCurrent = Boolean(attemptedSnapshot &&
                 active &&
-                drainLifecycleVersion === lifecycleVersion &&
                 attemptedSnapshot.lifecycleVersion === lifecycleVersion &&
                 attemptedSnapshot.pushVersion === latestPushVersion);
             if (failureIsCurrent) {
@@ -538,19 +784,19 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         }
         finally {
             pushing = false;
-            if (active && pendingPush)
+            if (active && pendingPush && !usingPdf())
                 void drainPushes();
         }
     };
-    const pushCurrent = () => {
-        compositionRetry.cancel();
-        if (!active || !(bridge === null || bridge === void 0 ? void 0 : bridge.push))
+    const fallbackDrain = createDebouncedTask(() => { void drainPushes(); }, 850, 2500);
+    const pushCurrent = (settledDiskChange = false) => {
+        var _a, _b;
+        if (!active || !(bridge === null || bridge === void 0 ? void 0 : bridge.push) || (!engineStarted && (starting || Date.now() < retryStartAfter)))
             return;
-        const current = currentProjectSource();
         const snapshot = currentSnapshot();
         if (!snapshot)
             return;
-        if (limitedSessionKey === snapshot.sessionKey) {
+        if (limitedSessionKey === snapshot.sessionKey && !usingPdf()) {
             pendingExactInputs.clear();
             latestInputAtEpochMs = 0;
             return;
@@ -560,24 +806,22 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         const changedSinceBuild = Boolean(builtSnapshot) && (sourceRefreshPending ||
             snapshot.sessionKey !== (builtSnapshot === null || builtSnapshot === void 0 ? void 0 : builtSnapshot.sessionKey) || sourceEditVersion !== (builtSnapshot === null || builtSnapshot === void 0 ? void 0 : builtSnapshot.editVersion));
         retireObsoleteSession(snapshot.sessionKey);
-        // Never push mid-IME-composition: the buffer is transient and a typeset
-        // per composition keystroke is wasted work. Retry on a separate, slower
-        // cadence so a long composition cannot turn into a 16ms retry loop.
-        if (current === null || current === void 0 ? void 0 : current.group.isComposing) {
-            compositionRetry();
-            return;
-        }
         if (!sourceRefreshPending && matchesQueuedSource(snapshot)) {
             // With no queued or in-flight request, queuedBuffers is the last source
             // the bridge accepted. A new capture of those same bytes is already live.
-            if (!pushing && !pendingPush)
+            if (!pushing && !pendingPush && !pdfRetry)
                 clearAcceptedExactInputs(snapshot, true);
             return;
+        }
+        if (snapshot.target && firstPaperSession !== snapshot.sessionKey && (hasSavedPaper === null || hasSavedPaper === void 0 ? void 0 : hasSavedPaper(snapshot.target))) {
+            offerFirstPaper(snapshot.sessionKey, snapshot.target);
         }
         queuedSessionKey = snapshot.sessionKey;
         // For long books, main selects the chapter by the active path even when
         // both tabs are clean and the root and dirty buffers are identical.
         queuedActivePath = snapshot.payload.activePath;
+        queuedDefault = getRootFile();
+        queuedLastBuild = (_a = getLastBuildTarget === null || getLastBuildTarget === void 0 ? void 0 : getLastBuildTarget()) !== null && _a !== void 0 ? _a : null;
         queuedBuffers = new Map(snapshot.buffers);
         sourceRefreshPending = false;
         pendingPush = {
@@ -586,16 +830,30 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             lifecycleVersion,
             releaseBuildView: changedSinceBuild ? buildViewVersion : null,
         };
-        void drainPushes();
+        if (usingPdf()) {
+            if (runningPdf && !runningPdf.superseded && runningPdf.version !== sourceEditVersion) {
+                runningPdf.superseded = true;
+                void ((_b = bridge === null || bridge === void 0 ? void 0 : bridge.supersedePdf) === null || _b === void 0 ? void 0 : _b.call(bridge, runningPdf.id, false));
+            }
+            // Opening a document and a settled filesystem notification have no
+            // typing burst to wait for. Keep the trailing debounce for keystrokes.
+            if (!pushing && !fallbackBuildInProgress && (snapshot.payload.fresh || settledDiskChange)) {
+                fallbackDrain.cancel();
+                void drainPushes();
+            }
+            else
+                fallbackDrain();
+        }
+        else
+            void drainPushes();
     };
     // Coalesce same-task paste, multi-cursor and programmatic companion edits.
     // The single-flight latest-wins queue above is the only engine back-pressure.
     const debouncedPush = createDebouncedTask(pushCurrent, TYPING_PUSH_DELAY_MS, TYPING_PUSH_MAX_WAIT_MS);
     // A keystroke in the editor: out as soon as the editor's own call returns.
     const typedPush = createMicrotaskTask(pushCurrent);
-    const compositionRetry = createDebouncedTask(pushCurrent, COMPOSITION_RETRY_MS);
     const bindActiveEditor = () => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e, _f;
         if (!active)
             return;
         const current = currentProjectSource();
@@ -604,6 +862,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         if (nextEditor === boundEditor && nextPath === boundPath)
             return;
         disposable === null || disposable === void 0 ? void 0 : disposable.dispose();
+        compositionDisposable === null || compositionDisposable === void 0 ? void 0 : compositionDisposable.dispose();
+        compositionDisposable = null;
         cursorDisposable === null || cursorDisposable === void 0 ? void 0 : cursorDisposable.dispose();
         disposable = null;
         cursorDisposable = null;
@@ -613,7 +873,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             const eventEditor = boundEditor;
             const eventPath = boundPath;
             const eventModel = (_d = (_c = eventEditor.getModel) === null || _c === void 0 ? void 0 : _c.call(eventEditor)) !== null && _d !== void 0 ? _d : null;
-            disposable = eventEditor.onDidChangeModelContent((event) => {
+            let compositionChanged = false;
+            const recordChange = (event) => {
                 var _a, _b;
                 sourceEditVersion += 1;
                 const editedAtEpochMs = Date.now();
@@ -636,7 +897,24 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 }
                 else
                     typedPush();
+            };
+            disposable = eventEditor.onDidChangeModelContent((event) => {
+                var _a;
+                const model = (_a = eventEditor.getModel) === null || _a === void 0 ? void 0 : _a.call(eventEditor);
+                if ((current === null || current === void 0 ? void 0 : current.group.isComposing) || (model && getEditorGroups().some(group => { var _a; return group.isComposing && ((_a = group.compositionBaseline) === null || _a === void 0 ? void 0 : _a.model) === model; }))) {
+                    compositionChanged = true;
+                    return;
+                }
+                recordChange(event);
             });
+            compositionDisposable = (_f = (_e = eventEditor.onDidCompositionEnd) === null || _e === void 0 ? void 0 : _e.call(eventEditor, () => {
+                if (compositionChanged) {
+                    compositionChanged = false;
+                    recordChange();
+                }
+                else
+                    typedPush();
+            })) !== null && _f !== void 0 ? _f : null;
         }
         if (boundEditor === null || boundEditor === void 0 ? void 0 : boundEditor.onDidChangeCursorPosition) {
             cursorDisposable = boundEditor.onDidChangeCursorPosition(debouncedFocus);
@@ -645,40 +923,63 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         debouncedFocus();
     };
     const start = async () => {
-        if (!(bridge === null || bridge === void 0 ? void 0 : bridge.start) || starting || !currentSnapshot())
+        if (!(bridge === null || bridge === void 0 ? void 0 : bridge.start) || starting || Date.now() < retryStartAfter || !currentSnapshot())
             return;
         const startLifecycleVersion = lifecycleVersion;
-        starting = true;
+        const request = {};
+        starting = request;
         try {
-            const result = await bridge.start();
+            const result = await bridge.start(compileEngine);
             if (!active || startLifecycleVersion !== lifecycleVersion)
                 return;
-            if (!(result === null || result === void 0 ? void 0 : result.ok) || !result.url) {
-                showLiveError((result === null || result === void 0 ? void 0 : result.error) || "エンジンを起動できませんでした。");
-                console.warn("[live-preview] engine failed to start:", result === null || result === void 0 ? void 0 : result.error);
+            if (!(result === null || result === void 0 ? void 0 : result.ok) || (!result.url && !result.fallback)) {
+                retryStartAfter = Date.now() + 5000;
+                showLiveError((result === null || result === void 0 ? void 0 : result.error) || "");
                 return;
             }
+            fallback = result.fallback === true;
             engineStarted = true;
+            onRuntimeError(null);
             // Do not expose the engine's tiny boot sample. The first successful
             // project push below returns the same URL and reveals the viewer only
             // after the configured root document is actually open.
             bindActiveEditor();
             debouncedPush();
         }
+        catch (error) {
+            if (active && startLifecycleVersion === lifecycleVersion) {
+                retryStartAfter = Date.now() + 5000;
+                showLiveError(error instanceof Error ? error.message : String(error));
+            }
+        }
         finally {
-            starting = false;
+            if (starting === request)
+                starting = null;
         }
     };
     const suspend = () => {
+        retireFirstPaper(false);
+        modelTexts = new WeakMap();
+        if (usingPdf() || publishedFallback)
+            clearFallbackPaper();
+        fallback = false;
+        pdfRetry = null;
+        missingCommand = null;
+        fallbackBuildInProgress = false;
+        retryStartAfter = 0;
+        starting = null;
+        fallbackDrain.cancel();
+        onRuntimeError(null);
         builtSnapshot = null;
         buildStartEditVersion = null;
         lifecycleVersion += 1;
         latestPushVersion += 1;
         debouncedPush.cancel();
         typedPush.cancel();
-        compositionRetry.cancel();
         debouncedFocus.cancel();
         disposable === null || disposable === void 0 ? void 0 : disposable.dispose();
+        compositionDisposable === null || compositionDisposable === void 0 ? void 0 : compositionDisposable.dispose();
+        compositionDisposable = null;
         cursorDisposable === null || cursorDisposable === void 0 ? void 0 : cursorDisposable.dispose();
         disposable = null;
         cursorDisposable = null;
@@ -693,6 +994,9 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         engineUrl = null;
         liveSessionKey = null;
         limitedSessionKey = null;
+        recoveringEmptyPaper = false;
+        nativeSourceRev = null;
+        emptyPaperErrorRev = null;
         buildOwnsView = false;
         liveExpectedSrcRev = null;
         liveGeneration += 1;
@@ -703,26 +1007,53 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         if (active === next)
             return;
         active = next;
-        if (active)
+        if (active) {
+            poll = window.setInterval(refresh, 200);
+            healthPoll = window.setInterval(checkHealth, 2000);
             void start();
+        }
         else {
+            stopPolling();
             suspend();
             void ((_a = bridge === null || bridge === void 0 ? void 0 : bridge.stop) === null || _a === void 0 ? void 0 : _a.call(bridge));
         }
     };
     let historyBlocked = false;
     const refresh = () => {
+        var _a;
+        const setting = getCompileEngine();
+        const nextEngine = ["xelatex", "pdflatex", "uplatex"].includes(setting) ? setting : "lualatex";
+        if (compileEngine !== nextEngine) {
+            compileEngine = nextEngine;
+            missingCommand = null;
+            // Keep the current paper and any unsaved model until the replacement
+            // is ready, but invalidate results from a different typesetter.
+            lifecycleVersion += 1;
+            latestPushVersion += 1;
+            if (runningPdf)
+                void ((_a = bridge === null || bridge === void 0 ? void 0 : bridge.supersedePdf) === null || _a === void 0 ? void 0 : _a.call(bridge, runningPdf.id, true));
+            pendingPush = null;
+            queuedSessionKey = null;
+            limitedSessionKey = null;
+            sourceRefreshPending = true;
+            engineStarted = false;
+            starting = null;
+            retryStartAfter = 0;
+        }
         applyActive(!historyBlocked && editorSettings.isEnabled("preview.realtime") && getAppMode() === "code");
         if (active && limitedSessionKey) {
-            // Still the limited document (or a tab that is no source at all): its
-            // Build paper stays, as with the setting off. Another document starts over.
             const snapshot = currentSnapshot();
-            if (!snapshot || snapshot.sessionKey === limitedSessionKey)
+            if (!snapshot)
                 return;
-            limitedSessionKey = null;
+            if (snapshot.sessionKey !== limitedSessionKey) {
+                retireObsoleteSession(snapshot.sessionKey);
+                limitedSessionKey = null;
+            }
+            else if (!usingPdf())
+                return;
         }
         if (active) {
-            if (!engineStarted && !starting)
+            if (!engineStarted && !starting && !limitedSessionKey)
                 void start();
             bindActiveEditor();
             // A workspace switch can reuse the same Monaco editor instance while
@@ -742,24 +1073,47 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         else
             distributeLive(null);
     };
-    const refreshSource = () => {
+    const refreshSource = (settledDiskChange = false) => {
         if (!active)
             return;
         sourceEditVersion += 1;
         sourceRefreshPending = true;
         latestInputAtEpochMs = Date.now();
-        debouncedPush();
+        if (settledDiskChange)
+            pushCurrent(true);
+        else
+            debouncedPush();
     };
-    editorSettings.subscribe((change) => {
-        if (change.kind !== "flag" || change.id !== "preview.realtime")
-            return;
-        refresh();
-    });
     // A Build is the one thing that can bring a limited document back under
     // the limit. Ask main again with the new paper; the answer either starts
     // Live or keeps the limit, and no engine is started just to ask.
     window.addEventListener("tex64:build-state", (event) => {
         var _a, _b, _c;
+        if (active && usingPdf()) {
+            const detail = event.detail;
+            if (!detail || (detail.workspaceRoot && detail.workspaceRoot !== getWorkspaceRoot()))
+                return;
+            if (detail.state === "building") {
+                fallbackBuildInProgress = true;
+                buildViewVersion += 1;
+                latestPushVersion += 1;
+                fallbackDrain.cancel();
+                pendingPush = null;
+            }
+            else if (detail.state === "success") {
+                fallbackBuildInProgress = false;
+                clearFallbackPaper();
+                if (!limitedSessionKey && pendingPush)
+                    fallbackDrain();
+            }
+            else if (fallbackBuildInProgress) {
+                fallbackBuildInProgress = false;
+                sourceRefreshPending = true;
+                pushCurrent();
+            }
+            if (!(limitedSessionKey && detail.state === "success"))
+                return;
+        }
         if (active && limitedSessionKey) {
             if (((_a = event.detail) === null || _a === void 0 ? void 0 : _a.state) !== "success")
                 return;
@@ -802,7 +1156,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             return;
         }
         const sourceChanged = buildStartEditVersion !== null && buildStartEditVersion !== sourceEditVersion ||
-            getDirtyFileSnapshots().some((snapshot) => snapshot.isDirty && PROJECT_SOURCE_RE.test(snapshot.path));
+            getDirtyFileSnapshots(readModelText).some((snapshot) => snapshot.isDirty && PROJECT_SOURCE_RE.test(snapshot.path));
         buildStartEditVersion = null;
         if (detail.state !== "success")
             return;
@@ -827,22 +1181,50 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     // renderer generation immediately so a late push cannot expose pre-restore
     // pages while files and editor models are being synchronized.
     const history = window.tex64History;
-    const unsubscribeHistory = history === null || history === void 0 ? void 0 : history.onChange((message) => {
-        var _a, _b, _c;
-        const phase = message.type === "workspace:operation" ? (_a = message.payload) === null || _a === void 0 ? void 0 : _a.phase
-            : message.type === "updateWorkspace" ? (_c = (_b = message.payload) === null || _b === void 0 ? void 0 : _b.workspaceOperation) === null || _c === void 0 ? void 0 : _c.phase : undefined;
-        if (typeof phase !== "string")
-            return;
-        historyBlocked = phase !== "idle";
-        refresh();
-    });
-    // Same lightweight poll as pro-live-preview: notices tab switches, editor
-    // swaps and app-mode changes without threading callbacks through every
-    // call site.
-    const poll = window.setInterval(refresh, 200);
+    // Only the visible live preview needs to watch editor swaps and engine health.
+    let poll;
+    let healthPoll;
+    const stopPolling = () => {
+        window.clearInterval(poll);
+        window.clearInterval(healthPoll);
+        poll = undefined;
+        healthPoll = undefined;
+    };
     let checkingHealth = false;
-    const healthPoll = window.setInterval(async () => {
-        if (!active || !engineStarted || checkingHealth || !(bridge === null || bridge === void 0 ? void 0 : bridge.status))
+    const checkHealth = async () => {
+        if (!active || !engineStarted || checkingHealth)
+            return;
+        if (usingPdf() && (pdfRetry === null || pdfRetry === void 0 ? void 0 : pdfRetry.at) != null && pdfRetry.editVersion === sourceEditVersion &&
+            Date.now() >= pdfRetry.at && !pushing && !pendingPush && !fallbackBuildInProgress) {
+            // Retry a transient file/launcher failure once. An unchanged permanent
+            // failure must not keep starting TeX in the background.
+            pdfRetry.at = null;
+            sourceRefreshPending = true;
+            pushCurrent(true);
+            return;
+        }
+        const missing = missingCommand;
+        if (missing && usingPdf()) {
+            if (Date.now() < missing.checkAfter || !(bridge === null || bridge === void 0 ? void 0 : bridge.commandAvailable) || fallbackBuildInProgress || pushing)
+                return;
+            missing.checkAfter = Date.now() + 5000;
+            checkingHealth = true;
+            try {
+                if (await bridge.commandAvailable(missing.name) && active && missingCommand === missing) {
+                    missingCommand = null;
+                    sourceRefreshPending = true;
+                    pushCurrent(true);
+                }
+            }
+            catch {
+                // A transient IPC failure leaves the missing-tool check scheduled.
+            }
+            finally {
+                checkingHealth = false;
+            }
+            return;
+        }
+        if (fallback || !(bridge === null || bridge === void 0 ? void 0 : bridge.status))
             return;
         const healthLifecycleVersion = lifecycleVersion;
         checkingHealth = true;
@@ -858,16 +1240,14 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 lifecycleVersion += 1;
                 latestPushVersion += 1;
                 engineStarted = false;
-                engineUrl = null;
-                liveSessionKey = null;
+                nativeSourceRev = null;
+                emptyPaperErrorRev = null;
                 // A restart is not a source change: a Build that still matches the
                 // source keeps the paper, and the recovered frame arrives held. An
                 // edit made meanwhile releases it through the accepted push as usual.
                 liveExpectedSrcRev = null;
-                // Force the recovered URL through even when the OS gives the new
-                // process the same port as the dead one.
-                liveGeneration += 1;
-                distributeLive(null, liveGeneration);
+                // Keep the last painted paper through restart. The fresh push
+                // below advances its generation, even if the port is reused.
                 queuedSessionKey = null;
                 queuedBuffers.clear();
                 pendingPush = null;
@@ -880,15 +1260,69 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         finally {
             checkingHealth = false;
         }
-    }, 2000);
-    window.addEventListener("beforeunload", () => {
+    };
+    const unsubscribeSettings = editorSettings.subscribe((change) => {
+        if (change.kind !== "flag" || change.id !== "preview.realtime")
+            return;
+        refresh();
+    });
+    const unsubscribePaperEditing = (_a = bridge === null || bridge === void 0 ? void 0 : bridge.onPaperEditing) === null || _a === void 0 ? void 0 : _a.call(bridge, state => {
+        if (!active || queuedSessionKey !== `${state.workspaceRoot}\0${state.rootFile}` || state.editEpoch < editEpoch)
+            return;
+        editEpoch = state.editEpoch;
+        editingPaper = state.editingPaper;
+        resumeCleanPaper();
+    });
+    const unsubscribeInputs = (_b = bridge === null || bridge === void 0 ? void 0 : bridge.onInputsChanged) === null || _b === void 0 ? void 0 : _b.call(bridge, ({ workspaceRoot, rootFile }) => {
+        if (!active || !usingPdf() || workspaceRoot !== getWorkspaceRoot() ||
+            queuedSessionKey !== `${workspaceRoot}\0${rootFile}`)
+            return;
+        refreshSource(true);
+    });
+    const unsubscribeHistory = history === null || history === void 0 ? void 0 : history.onChange((message) => {
+        var _a, _b, _c;
+        const phase = message.type === "workspace:operation" ? (_a = message.payload) === null || _a === void 0 ? void 0 : _a.phase
+            : message.type === "updateWorkspace" ? (_c = (_b = message.payload) === null || _b === void 0 ? void 0 : _b.workspaceOperation) === null || _c === void 0 ? void 0 : _c.phase : undefined;
+        if (typeof phase !== "string")
+            return;
+        historyBlocked = phase !== "idle";
+        refresh();
+    });
+    window.addEventListener("pagehide", () => {
+        unsubscribeSettings === null || unsubscribeSettings === void 0 ? void 0 : unsubscribeSettings();
         unsubscribeHistory === null || unsubscribeHistory === void 0 ? void 0 : unsubscribeHistory();
-        window.clearInterval(poll);
-        window.clearInterval(healthPoll);
+        unsubscribeInputs === null || unsubscribeInputs === void 0 ? void 0 : unsubscribeInputs();
+        unsubscribePaperEditing === null || unsubscribePaperEditing === void 0 ? void 0 : unsubscribePaperEditing();
+        stopPolling();
     }, { once: true });
     // Clear renderer state left by a reload before restoring the current
     // setting.
     distributeLive(null);
     refresh();
-    return { isActive: () => active, refreshSource };
+    const isLivePaper = (pdfPath) => {
+        const root = currentLiveRoot();
+        return active && root !== null && root.replace(/\.tex$/i, ".pdf") === pdfPath;
+    };
+    const environmentInstalled = () => {
+        if (missingCommand) {
+            missingCommand.checkAfter = 0;
+            void checkHealth();
+        }
+    };
+    const recoverEmptyPaper = (detail) => {
+        var _a;
+        const error = detail;
+        if (!active || !(bridge === null || bridge === void 0 ? void 0 : bridge.compilePdf) || usingPdf() || buildOwnsView || fallbackBuildInProgress ||
+            !engineUrl || !error || error.generation !== liveGeneration || error.url !== engineUrl ||
+            !Number.isInteger(error.srcRev) || error.srcRev !== nativeSourceRev || error.srcRev === emptyPaperErrorRev ||
+            !liveSessionKey || ((_a = currentSnapshot()) === null || _a === void 0 ? void 0 : _a.sessionKey) !== liveSessionKey)
+            return;
+        emptyPaperErrorRev = nativeSourceRev;
+        cleanPaper = null;
+        tryingRetainedPaper = error.retainedPaper === true;
+        recoveringEmptyPaper = true;
+        sourceRefreshPending = true;
+        pushCurrent(true);
+    };
+    return { isActive: () => active, isLivePaper, recoverEmptyPaper, refreshMode: refresh, refreshSource, environmentInstalled };
 };

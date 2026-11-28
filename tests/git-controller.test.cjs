@@ -117,7 +117,7 @@ test('shelve plan is reviewed, public listing omits contents, and unshelve synch
   await f.request('ack', { token, buffers: [{ path: 'main.tex', content: 'Draft', savedContent: 'Draft' }] }); assert.equal(f.coordinator.blocked(), false);
 });
 test('restart recovery exposes a token and restoring verified before-state still requires model acknowledgment', async t => {
-  const f = await fixture(t); await f.run(['switch', '-c', 'next']); await fs.writeFile(path.join(f.root, 'main.tex'), 'B'); await f.run(['commit', '-am', 'B']); await f.run(['switch', 'main']);
+  const f = await fixture(t); await f.run(['switch', '-c', 'next']); await fs.writeFile(path.join(f.root, 'main.tex'), 'B'); await fs.writeFile(path.join(f.root, 'appendix.tex'), 'Appendix'); await f.run(['add', 'appendix.tex']); await f.run(['commit', '-am', 'B']); await f.run(['switch', 'main']);
   const original = f.session.service.withMutation;
   f.session.service.withMutation = (meta, action) => original({ ...meta, verify: async () => { throw Object.assign(new Error('Injected post-state verification failure'), { code: 'GIT_RESULT_UNVERIFIED' }); } }, action);
   const { token } = await f.begin(); const { plan } = await f.request('plan', { token, action: 'branch-switch', args: { ref: 'refs/heads/next' } });
@@ -127,6 +127,14 @@ test('restart recovery exposes a token and restoring verified before-state still
   const reopened = new GitController(deps); await reopened.prepareWorkspace(f.root);
   const request = (action, args = {}) => reopened.request(action, { ...f.identity, ...args });
   const status = await request('status'); assert.equal(status.phase, 'recovery-required'); assert.ok(status.token); assert.ok(status.recoveryId);
+  const firstPlan = await request('recovery-plan', { token: status.token, paths: ['appendix.tex'] });
+  const first = await request('recovery-apply', { token: status.token, planId: firstPlan.planId });
+  assert.equal(first.transaction.recoveryRequired, true);
+  assert.deepEqual(await request('ack', { token: status.token, buffers: [] }), { recoveryRequired: true });
+  assert.equal(coordinator.blocked(), true);
+  assert.equal(reopened.status().recoveryId, status.recoveryId);
+  await assert.rejects(fs.access(path.join(f.root, 'appendix.tex')), { code: 'ENOENT' });
+  assert.equal(await fs.readFile(path.join(f.root, 'main.tex'), 'utf8'), 'B');
   const recovery = await request('recovery-plan', { token: status.token, openPaths: ['main.tex'] }); assert.ok(recovery.planId); assert.deepEqual(recovery.blockedPaths, []);
   const restored = await request('recovery-apply', { token: status.token, planId: recovery.planId }); assert.equal(restored.files[0].content, 'A'); assert.equal(reopened.status().phase, 'syncing'); assert.equal(coordinator.blocked(), true);
   await request('ack', { token: status.token, buffers: [{ path: 'main.tex', content: 'A', savedContent: 'A' }] }); assert.equal(coordinator.blocked(), false);

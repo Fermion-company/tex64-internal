@@ -21,87 +21,17 @@
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const { withProjectFileWrites, writeProjectFile } = require("../project-file-writes.cjs");
-const Diff = require("diff");
-const { contentDigest, resolveInsideRoot } = require("./manifest.cjs");
+const { textHunks, applyHunks, applyTextDelta } = require("./text-delta.cjs");
+const { contentDigest, hashBuffer, resolveInsideRoot } = require("./manifest.cjs");
+const { isUnknownTextBuffer } = require("../text-file-types.cjs");
 
 const DISK_ORIGIN = "disk";
+const settleWaiters = (entry, saved) => {
+  for (const resolve of entry.waiters) resolve(saved);
+  entry.waiters.clear();
+};
 const WRITE_DEBOUNCE_MS = 500;
 const BLOCKED_RETRY_MS = 500;
-const CHAR_DIFF_MAX_RANGE_LENGTH = 4096;
-const CHAR_DIFF_MAX_EDIT_LENGTH = 256;
-const CHAR_DIFF_TIMEOUT_MS = 20;
-const CHAR_DIFF_TOTAL_BUDGET_MS = 100;
-
-// Both line and character diffs use baseline UTF-16 coordinates, as Y.Text
-// does. diffChars keeps Unicode characters intact; offsets use value.length.
-const partsToHunks = (parts, start = 0) => {
-  const hunks = [];
-  let offset = start;
-  let pending = null;
-  const flush = () => {
-    if (pending) hunks.push(pending);
-    pending = null;
-  };
-  for (const part of parts) {
-    if (!part.added && !part.removed) {
-      flush();
-      offset += part.value.length;
-      continue;
-    }
-    if (!pending) pending = { start: offset, end: offset, text: "" };
-    if (part.removed) {
-      pending.end += part.value.length;
-      offset += part.value.length;
-    } else {
-      pending.text += part.value;
-    }
-  }
-  flush();
-  return hunks;
-};
-
-// Diff lines first so unchanged lines never enter character refinement.
-// Large or expensive ranges stay coarse and use the same conflict/relocation
-// rules as fine hunks. The shared budget also bounds many separate ranges.
-const textHunks = (from, to) => {
-  const ranges = partsToHunks(Diff.diffLines(from, to));
-  const deadline = performance.now() + CHAR_DIFF_TOTAL_BUDGET_MS;
-  const hunks = [];
-  for (const range of ranges) {
-    const remaining = deadline - performance.now();
-    if (range.end - range.start > CHAR_DIFF_MAX_RANGE_LENGTH || range.text.length > CHAR_DIFF_MAX_RANGE_LENGTH || remaining <= 0) {
-      hunks.push(range);
-      continue;
-    }
-    // diff 9 returns undefined when either budget is exhausted.
-    const parts = Diff.diffChars(from.slice(range.start, range.end), range.text, {
-      maxEditLength: CHAR_DIFF_MAX_EDIT_LENGTH,
-      timeout: Math.min(CHAR_DIFF_TIMEOUT_MS, remaining),
-    });
-    if (parts) hunks.push(...partsToHunks(parts, range.start));
-    else hunks.push(range);
-  }
-  return hunks;
-};
-
-// Apply from the end so an earlier edit cannot move a later one's position.
-const applyHunks = (ytext, hunks, origin) => {
-  if (!hunks.length) return;
-  ytext.doc.transact(() => {
-    for (let i = hunks.length - 1; i >= 0; i--) {
-      const { start, end, text } = hunks[i];
-      if (end > start) ytext.delete(start, end - start);
-      if (text) ytext.insert(start, text);
-    }
-  }, origin);
-};
-
-// Keep unchanged characters (and their CRDT identities) within the diff budget.
-const applyTextDelta = (ytext, from, to, origin) => {
-  if (from === to) return;
-  applyHunks(ytext, textHunks(from, to), origin);
-};
-
 // Touching edits conflict too: an insertion at either edge of a replacement,
 // or at another insertion's position, has no unambiguous external ordering.
 const hunksConflict = (a, b) => a.start <= b.end && b.start <= a.end;
@@ -183,18 +113,19 @@ class DiskSync {
     return path.join(this.deps.rootPath(), relative);
   }
 
-  attach(docId, ytext, baselineContent) {
+  attach(docId, ytext, baselineContent, previousBinaryHash = null) {
     if (this.docs.has(docId)) return this.docs.get(docId);
     const entry = {
       docId,
       ytext,
+      previousBinaryHash,
       baseline: baselineContent === null ? null : { content: baselineContent, digest: contentDigest(baselineContent) },
       timer: null,
       dirty: false,
       // the outside version last kept as a .local copy (one copy per version)
       keptDigest: null,
       queue: Promise.resolve(),
-      waiters: [],
+      waiters: new Set(),
     };
     this.docs.set(docId, entry);
     if (baselineContent === null || ytext.toString() !== baselineContent) this.noteUpdate(docId);
@@ -207,7 +138,7 @@ class DiskSync {
     clearTimeout(entry.timer);
     entry.timer = null;
     this.docs.delete(docId);
-    for (const waiter of entry.waiters.splice(0)) waiter();
+    settleWaiters(entry, true);
   }
 
   has(docId) {
@@ -250,24 +181,32 @@ class DiskSync {
     return absolute;
   }
 
-  // { text, bytes } of the file (null when it is not there).
-  async readDiskVersion(docId) {
+  // { text, bytes } of the file (null when it is not there). `text` is the
+  // raw Buffer when the file still holds the exact binary this doc replaces.
+  async readDiskVersion(docId, previousBinaryHash) {
     const absolute = await this.safeAbsolute(docId);
     try {
       const bytes = await fsp.readFile(absolute);
-      return { text: bytes.toString("utf8"), bytes };
+      if (isUnknownTextBuffer(bytes)) return { text: bytes.toString("utf8"), bytes };
+      // A peer can convert a previously shared binary to UTF-8. Only replace
+      // the exact bytes retained or backed up before attaching its text doc.
+      if (previousBinaryHash && hashBuffer(bytes) === previousBinaryHash) return { text: bytes, bytes };
+      throw new Error("The file on disk is not editable UTF-8. Its original bytes were kept.");
     } catch (error) {
       if (error.code === "ENOENT") return null;
       throw error;
     }
   }
 
-  async readDisk(docId) {
-    return (await this.readDiskVersion(docId))?.text ?? null;
+  async readDisk(docId, previousBinaryHash) {
+    return (await this.readDiskVersion(docId, previousBinaryHash))?.text ?? null;
   }
 
-  async writeDisk(docId, content) {
+  async writeDisk(docId, content, entry) {
     const absolute = await this.safeAbsolute(docId);
+    // A doc let go meanwhile is not written (the shared project-file writer
+    // stages and replaces the file atomically).
+    if (this.docs.get(docId) !== entry) return;
     await writeProjectFile(absolute, content);
   }
 
@@ -277,8 +216,9 @@ class DiskSync {
   async keepIfSafe(docId, entry) {
     try {
       await this.safeAbsolute(docId);
-      return true;
+      return this.docs.get(docId) === entry;
     } catch (error) {
+      if (this.docs.get(docId) !== entry) return false;
       if (error?.code !== "UNSAFE_PATH") throw error;
       console.warn("[collab]", error.message);
       entry.dirty = false;
@@ -304,6 +244,8 @@ class DiskSync {
         entry.dirty = true;
         return false;
       }
+      // (a doc let go while the copy was written takes no merge)
+      if (this.docs.get(docId) !== entry) return false;
       entry.keptDigest = digest;
       this.deps.onNotice?.(docId, conflicts, kept);
     }
@@ -318,11 +260,13 @@ class DiskSync {
   // `rereads`: how many more times a disk version that changed again while
   // it was being merged (and kept) is read and merged before writing.
   async writeOperation(docId, entry, rereads = 3) {
-    if (!this.docs.has(docId)) return;
+    if (this.docs.get(docId) !== entry) return;
     let version;
     try {
-      version = await this.readDiskVersion(docId);
+      version = await this.readDiskVersion(docId, entry.previousBinaryHash);
+      if (this.docs.get(docId) !== entry) return;
     } catch (error) {
+      if (this.docs.get(docId) !== entry) return;
       if (error?.code !== "UNSAFE_PATH") throw error;
       // A path that leads out of the project is never written; the doc is let go.
       console.warn("[collab]", error.message);
@@ -339,19 +283,23 @@ class DiskSync {
       this.deps.onMissing?.(docId);
       return;
     }
-    if (!this.readOnly && current !== null && (entry.baseline === null || current !== entry.baseline.content) && current !== target) {
+    if (!this.readOnly && typeof current === "string" && (entry.baseline === null || current !== entry.baseline.content) && current !== target) {
       // Something else wrote since the baseline: merge it in first.
-      if (!(await this.mergeDisk(docId, entry, current, version.bytes))) {
+      const merged = await this.mergeDisk(docId, entry, current, version.bytes);
+      if (this.docs.get(docId) !== entry) return;
+      if (!merged) {
         throw Object.assign(new Error(`Could not keep the outside version of ${docId}.`), { code: "COLLAB_KEEP_FAILED" });
       }
       // Written over only as merged: a newer outside version is merged first.
-      if (rereads > 0 && (await this.readDisk(docId)) !== current) return this.writeOperation(docId, entry, rereads - 1);
+      if (rereads > 0 && (await this.readDisk(docId, entry.previousBinaryHash)) !== current) return this.writeOperation(docId, entry, rereads - 1);
       target = entry.ytext.toString();
     }
     if (current !== target) {
+      await this.writeDisk(docId, target, entry);
+      if (this.docs.get(docId) !== entry) return;
       this.deps.trackSaved?.(docId, target);
-      await this.writeDisk(docId, target);
     }
+    entry.previousBinaryHash = null;
     entry.baseline = { content: target, digest: contentDigest(target) };
     entry.dirty = entry.ytext.toString() !== target;
     this.deps.onSaved?.(docId, entry.baseline.digest);
@@ -361,12 +309,11 @@ class DiskSync {
   async writeNow(docId) {
     const entry = this.docs.get(docId);
     if (!entry || this.stopped) return;
-    let failed = false;
     try {
       if (!(await this.keepIfSafe(docId, entry))) return;
       await this.guarded(docId, () => this.writeOperation(docId, entry));
     } catch (error) {
-      if (!this.docs.has(docId) || this.stopped) return;
+      if (this.docs.get(docId) !== entry || this.stopped) return;
       if (["HISTORY_BUSY", "AGENT_WORKSPACE_BUSY", "FILE_WRITE_BUSY"].includes(error?.code)) {
         // Keep the edit in the Y.Doc; retry once the lease clears.
         if (!entry.timer) {
@@ -378,14 +325,13 @@ class DiskSync {
         }
         return;
       }
-      failed = true;
       console.warn("[collab] write failed", docId, error?.message || error);
-      this.deps.onError?.(docId, error);
-    } finally {
       // A failed write answers a waiting flush as well: the doc is still
       // dirty, so that flush reports the failure now, not at its timeout.
-      const latest = this.docs.get(docId);
-      if (latest && (!latest.dirty || failed)) for (const waiter of latest.waiters.splice(0)) waiter();
+      settleWaiters(entry, false);
+      this.deps.onError?.(docId, error);
+    } finally {
+      if (this.docs.get(docId) === entry && !entry.dirty) settleWaiters(entry, true);
     }
   }
 
@@ -395,8 +341,9 @@ class DiskSync {
     if (!entry || this.stopped) return;
     try {
       await this.guarded(docId, async () => {
-        if (!this.docs.has(docId)) return;
+        if (this.docs.get(docId) !== entry) return;
         const version = await this.readDiskVersion(docId);
+        if (this.docs.get(docId) !== entry) return;
         if (version === null) {
           this.deps.onMissing?.(docId);
           return;
@@ -419,7 +366,9 @@ class DiskSync {
         }
         // (a copy that could not be made: the doc stays dirty; its next
         // write, or a flush, merges again)
-        if (!(await this.mergeDisk(docId, entry, disk, version.bytes))) {
+        const merged = await this.mergeDisk(docId, entry, disk, version.bytes);
+        if (this.docs.get(docId) !== entry) return;
+        if (!merged) {
           this.noteUpdate(docId);
           return;
         }
@@ -441,19 +390,31 @@ class DiskSync {
   // Writes every dirty doc now and resolves when nothing is pending (or the
   // timeout passes, e.g. a long-held lease).
   async flush(timeoutMs = 15000) {
-    const deadline = Date.now() + timeoutMs;
+    const waiters = new Map();
     const pending = [];
     for (const [docId, entry] of this.docs) {
       if (!entry.dirty) continue;
       clearTimeout(entry.timer);
       entry.timer = null;
-      pending.push(new Promise((resolve) => entry.waiters.push(resolve)));
+      pending.push(new Promise(resolve => {
+        entry.waiters.add(resolve);
+        waiters.set(entry, resolve);
+      }));
       void this.writeNow(docId);
     }
     if (!pending.length) return true;
-    const timeout = new Promise((resolve) => setTimeout(() => resolve(false), Math.max(0, deadline - Date.now())).unref?.());
-    const result = await Promise.race([Promise.all(pending).then(() => true), timeout]);
-    return result && ![...this.docs.values()].some((entry) => entry.dirty);
+    let timer;
+    const timeout = new Promise(resolve => {
+      timer = setTimeout(() => resolve(false), Math.max(0, timeoutMs));
+      timer.unref?.();
+    });
+    try {
+      const saved = await Promise.race([Promise.all(pending).then(results => results.every(Boolean)), timeout]);
+      return saved && ![...this.docs.values()].some(entry => entry.dirty);
+    } finally {
+      clearTimeout(timer);
+      for (const [entry, resolve] of waiters) entry.waiters.delete(resolve);
+    }
   }
 
   // The caller already holds the workspace lease (a project switch): every
@@ -487,7 +448,7 @@ class DiskSync {
     for (const entry of this.docs.values()) {
       clearTimeout(entry.timer);
       entry.timer = null;
-      for (const waiter of entry.waiters.splice(0)) waiter();
+      settleWaiters(entry, false);
     }
     this.docs.clear();
   }

@@ -26,8 +26,8 @@ Operation（op で判別）:
 
 Position（kind で判別）:
 - { kind: "root", index } — 文書直下
-- { kind: "section", parentId: 親sectionのid, index } — section配下（theorem / proof / appendix も親にできる）
-- { kind: "container", parentId, index }
+- { kind: "section", parentId: 親sectionのid, index }
+- { kind: "container", parentId, index } — section / theorem / proof / appendix の配下に挿入する
 - { kind: "definitions" } — citation / footnote 用（本文位置を持たない）
 
 Node（type で判別。全Nodeに id: UUID が必須）:

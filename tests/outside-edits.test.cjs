@@ -180,7 +180,8 @@ const makeGroup = (key, calls) => {
     editor,
     viewer: { getViewerMode: () => mode, hideViewer: () => { mode = "hidden"; },
       showUnsupportedViewer: () => { mode = "unsupported"; },
-      showPdfViewer: () => { mode = "pdf"; }, showImageViewer: () => { mode = "image"; } },
+      showPdfViewer: () => { mode = "pdf"; }, showImageViewer: () => { mode = "image"; },
+      getUnbuiltPdfPath: () => null },
   };
 };
 

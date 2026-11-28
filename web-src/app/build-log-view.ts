@@ -15,12 +15,13 @@ export type BuildLogSegment = {
 
 // `-file-line-error` prefixes real errors with "./main.tex:31:", which hides
 // the keyword from an anchored test.
-const LOCATION_PREFIX = /^(?:\.[\\/])?[^\s:]+:\d+(?::\d+)?:\s*/;
+const LOCATION_PREFIX = /^(?:[A-Za-z]:)?[^:\r\n]+?\.[A-Za-z0-9]+:\d+(?::\d+)?:\s*/;
 
 const isErrorLine = (line: string) => {
   const text = line.trim().replace(LOCATION_PREFIX, "") || line.trim();
   const lower = text.toLowerCase();
   return (
+    (text !== line.trim() && !isWarningLine(text)) ||
     text.startsWith("!") ||
     /^(?:package|class|document class)\s+\S+\s+error:/i.test(text) ||
     /^\S+\s+error:/i.test(text) ||
@@ -33,7 +34,7 @@ const isErrorLine = (line: string) => {
 };
 
 const isWarningLine = (line: string) => {
-  const text = line.trim();
+  const text = line.trim().replace(LOCATION_PREFIX, "");
   const lower = text.toLowerCase();
   return (
     lower.includes(" warning:") ||

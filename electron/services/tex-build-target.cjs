@@ -20,11 +20,62 @@ const stripTexComments = (content) => String(content ?? "").split(/\r?\n/).map((
 // prints a complete "\documentclass … \begin{document}" listing is still a
 // fragment. Drop verbatim-like material before looking for the real preamble.
 const VERBATIM_ENV = "(?:[A-Za-z@]*[Vv]erbatim[A-Za-z@*]*|lstlisting\\*?|minted\\*?|[A-Za-z@]*[Ll]isting[A-Za-z@*]*|filecontents\\*?|comment|luacode\\*?)";
-const stripVerbatim = (source) => source
-  .replace(new RegExp(`\\\\begin\\s*\\{(${VERBATIM_ENV})\\}[\\s\\S]*?\\\\end\\s*\\{\\1\\}`, "g"), " ")
-  .replace(/\\KKcodeS[\s\S]*?\\KKcodeE/g, " ")
-  .replace(/\\KKverb\|[^|\n]*\|/g, " ")
-  .replace(/\\(?:verb|lstinline|mintinline(?:\s*\{[^}]*\})?)\*?([^A-Za-z\s{])[^\n]*?\1/g, " ");
+const verbatimEnvironment = new RegExp(`^\\s*\\{(${VERBATIM_ENV})\\}`);
+const skipGroup = (source, start, open, close) => {
+  let depth = 1;
+  for (let i = start + 1; i < source.length; i++) {
+    if (source[i] === "\\") i++;
+    else if (source[i] === open) depth++;
+    else if (source[i] === close && --depth === 0) return i + 1;
+  }
+  return source.length;
+};
+
+// Strip comments and literal examples in a single pass. A percent sign in a
+// verbatim example is printed; it cannot comment out the real input after it.
+const activeTexSource = (source) => {
+  source = String(source ?? "");
+  const tokens = /\\(?:[A-Za-z@]+|[\s\S])|%/g;
+  let text = "", start = 0, token;
+  while ((token = tokens.exec(source))) {
+    const command = token[0];
+    let end = tokens.lastIndex;
+    if (command === "%") {
+      const newline = source.indexOf("\n", end);
+      end = newline < 0 ? source.length : newline;
+    } else if (command === "\\begin") {
+      const env = verbatimEnvironment.exec(source.slice(end));
+      if (!env) continue;
+      const close = new RegExp(`\\\\end\\s*\\{${env[1].replace(/\*/g, "\\*")}\\}`, "g");
+      close.lastIndex = end + env[0].length;
+      end = close.exec(source) ? close.lastIndex : source.length;
+    } else if (command === "\\KKcodeS") {
+      const close = source.indexOf("\\KKcodeE", end);
+      end = close < 0 ? source.length : close + "\\KKcodeE".length;
+    } else if (["\\verb", "\\lstinline", "\\mintinline", "\\KKverb"].includes(command)) {
+      if (source[end] === "*") end++;
+      if (command === "\\lstinline" || command === "\\mintinline") {
+        if (source[end] === "[") end = skipGroup(source, end, "[", "]");
+        if (command === "\\mintinline" && source[end] === "{") end = skipGroup(source, end, "{", "}");
+      }
+      const delimiter = source[end];
+      if (!delimiter || /\s/u.test(delimiter)) continue;
+      if ((command === "\\mintinline" || command === "\\lstinline") && delimiter === "{") {
+        end = skipGroup(source, end, "{", "}");
+      } else {
+        const close = source.indexOf(delimiter, end + 1);
+        const newline = source.indexOf("\n", end + 1);
+        end = close >= 0 && (newline < 0 || close < newline) ? close + 1 : newline >= 0 ? newline : source.length;
+      }
+    } else if (command !== "\\\\") {
+      continue;
+    }
+    text += source.slice(start, token.index) + source.slice(token.index, end).replace(/[^\r\n]/g, " ");
+    start = end;
+    tokens.lastIndex = end;
+  }
+  return text + source.slice(start);
+};
 
 const documentClassOf = (source) => {
   const declaration = /\\document(?:class|style)\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/.exec(source);
@@ -38,7 +89,8 @@ const documentClassOf = (source) => {
   return declaration[1].trim();
 };
 
-const texStructure = (content) => stripVerbatim(stripTexComments(content)).replace(/\\\\/g, " ");
+// activeTexSource also blanks \\, so "\\input" is not read as \input.
+const texStructure = (content) => activeTexSource(content);
 const isStandaloneDocument = (content) => Boolean(documentClassOf(texStructure(content)));
 
 const parseIncludes = (source) => {
@@ -57,7 +109,60 @@ const parseIncludes = (source) => {
   return result;
 };
 
-const parseTexIncludes = (content) => parseIncludes(texStructure(content));
+// For the AI document map, word count and bibliography lookups (with
+// offsets, or one whole-line include). The build graph below uses
+// parseIncludes, which also stops at \end{document}.
+const parseTexIncludes = (content, { masked = false, withPosition = false, wholeLine = false } = {}) => {
+  const source = masked ? content : activeTexSource(content);
+  const pattern = /\\(input|include|subfile|subfileinclude|InputIfFileExists)\s*\{([^}]*)\}|\\(input)\s+([^\s{}\\%]+)|\\((?:sub)?(?:import|includefrom|inputfrom))\s*\*?\s*\{([^}]*)\}\s*\{([^}]*)\}/g;
+  const matches = Array.from(source.matchAll(pattern));
+  if (wholeLine && (matches.length !== 1 || source.trim() !== matches[0][0])) return [];
+  return matches.map(match => {
+    const entry = match[5]
+      ? { kind: match[5], directory: match[6].trim(), file: match[7].trim() }
+      : { kind: match[1] || match[3], file: (match[2] ?? match[4]).trim() };
+    if (withPosition) entry.offset = match.index;
+    return entry;
+  });
+};
+
+// Build, the AI document map and source ownership use the same ordered search.
+const includeCandidates = (include, file, base, mainDir) => {
+  const subfile = include.kind.startsWith("subfile");
+  const dir = include.directory !== undefined
+    ? path.posix.join(include.kind.startsWith("sub") ? base : mainDir, include.directory)
+    : subfile ? path.posix.dirname(file) : base;
+  const withExt = name => path.posix.extname(name) ? name : `${name}.tex`;
+  const candidates = [withExt(path.posix.join(dir, include.file))];
+  if (include.directory === undefined && !subfile) candidates.push(withExt(path.posix.normalize(include.file)));
+  return [...new Set(candidates)].map(candidate => ({
+    file: candidate,
+    base: include.directory !== undefined || subfile ? path.posix.dirname(candidate) : base,
+  }));
+};
+
+// Follow TeX's search directory through plain includes and imported/subfile trees.
+const findTexIncludeBase = async (document, requested, read) => {
+  const cwd = path.posix.dirname(document);
+  if (document === requested) return cwd;
+  const queue = [{ file: document, base: cwd, depth: 0 }];
+  const visited = new Set();
+  for (let index = 0; index < queue.length && visited.size < 2000; index++) {
+    const entry = queue[index];
+    const key = entry.file + "\0" + entry.base;
+    if (visited.has(key) || entry.depth > 16) continue;
+    visited.add(key);
+    for (const include of parseTexIncludes(await read(entry.file))) {
+      for (const child of includeCandidates(include, entry.file, entry.base, cwd)) {
+        if (await read(child.file) === null) continue;
+        if (child.file === requested) return child.base;
+        queue.push({ ...child, depth: entry.depth + 1 });
+        break;
+      }
+    }
+  }
+  return null;
+};
 
 // \includeonly{a, b} in a document's preamble: of the files it reads with
 // \include (and the commands built on it), only those named are read. LaTeX
@@ -90,11 +195,14 @@ const requestChoice = (candidates, requested = null) => {
   throw error;
 };
 
+// onMagicRoot: called when a `% !TEX root` line in the requested file decides
+// the target (live preview then follows that document only).
 const resolveBuildTarget = async (workspace, requestedPath, { includingDocuments = false, requireUniqueOwner = false,
-  includesOf = null, recordedReads = loadRecordedReads } = {}) => {
+  includesOf = null, recordedReads = loadRecordedReads, onMagicRoot = null } = {}) => {
   const root = workspace.getRootPath();
   if (!includingDocuments && !requireUniqueOwner && includesOf === null) {
     return resolveReleaseBuildTarget(workspace, requestedPath, {
+      onMagicRoot,
       async recordedOwner(documents, requested) {
         const candidates = documents.filter((file) => file !== requested);
         if (candidates.length < 2) return null;
@@ -187,7 +295,10 @@ const resolveBuildTarget = async (workspace, requestedPath, { includingDocuments
   if (!includingDocuments && includesOf === null) {
     const magic = await workspace.resolveTexRootFromMagic(requested).catch(() => null);
     current();
-    if (magic && normalize(magic) !== requested && await read(magic) !== null) return normalize(magic);
+    if (magic && normalize(magic) !== requested && await read(magic) !== null) {
+      onMagicRoot?.();
+      return normalize(magic);
+    }
     const className = documentClassOf(await structure(requested));
     if (className && className !== "subfiles") return requested;
   }
@@ -422,4 +533,7 @@ const resolveIncludingDocuments = (workspace, requestedPath) =>
 const resolveIncludesOf = (workspace, rootFile, fromFile) =>
   resolveBuildTarget(workspace, rootFile, { includesOf: fromFile });
 
-module.exports = { BUILD_TARGET_CHOICE, resolveBuildTarget, resolveIncludingDocuments, resolveIncludesOf, stripTexComments, isStandaloneDocument, parseTexIncludes };
+module.exports = {
+  BUILD_TARGET_CHOICE, resolveBuildTarget, resolveIncludingDocuments, resolveIncludesOf, stripTexComments, activeTexSource,
+  isStandaloneDocument, parseTexIncludes, includeCandidates, findTexIncludeBase,
+};

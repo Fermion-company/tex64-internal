@@ -1,5 +1,8 @@
 import {
   getAppearanceThemePreference,
+  getDarkPdfPages,
+  setDarkPdfPages,
+  DARK_PDF_PAGES_EVENT,
   normalizeAppearanceThemePreference,
   setAppearanceThemePreference,
   type AppearanceThemePreference,
@@ -12,7 +15,12 @@ export type SettingsAppearanceOps = {
 };
 
 export const createSettingsAppearanceOps = (runtime: SettingsUiRuntime): SettingsAppearanceOps => {
-  const { settingsAppearanceThemeSelect } = runtime.context.dom;
+  const { settingsAppearanceThemeSelect, settingsDarkPdfPages } = runtime.context.dom;
+  if (settingsDarkPdfPages instanceof HTMLInputElement) {
+    settingsDarkPdfPages.checked = getDarkPdfPages();
+    settingsDarkPdfPages.addEventListener("change", () => setDarkPdfPages(settingsDarkPdfPages.checked));
+    window.addEventListener(DARK_PDF_PAGES_EVENT, () => { settingsDarkPdfPages.checked = getDarkPdfPages(); });
+  }
 
   const updateAppearanceThemeUi = () => {
     if (settingsAppearanceThemeSelect instanceof HTMLSelectElement) {

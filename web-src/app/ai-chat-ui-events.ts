@@ -1,4 +1,5 @@
-import type { ChatState, QueuedTurn } from "./ai-chat-state.js";
+import type { ComposerDraft } from "./ai-chat-draft-restore.js";
+import type { ChatMessage, ChatState, QueuedTurn } from "./ai-chat-state.js";
 import type { AiRequestPart } from "./ai-chat-runner.js";
 import type { AiImageAttachment } from "./ai-chat-attachments.js";
 import type { ContextExtras } from "./ai-chat-context-payload.js";
@@ -24,15 +25,18 @@ type InitAiChatEventBindingsParams = {
   postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
   getActiveChatId: () => string | null;
   setActiveChatId: (chatId: string | null) => void;
+  prepareEditorForAgent?: () => Promise<void>;
+  getComposerDraft?: () => ComposerDraft;
   getPendingAttachments: () => AiImageAttachment[];
   getChat: (chatId?: string | null) => ChatState | null;
   createChat: () => ChatState;
   setChatTitle: (chat: ChatState) => void;
   renderHistoryList: () => void;
   appendMessage: (
-    message: { role: "user" | "assistant" | "system"; text: string; queued?: boolean; queueId?: string },
+    message: { role: "user" | "assistant" | "system"; text: string; queued?: boolean; queueId?: string; manualRetry?: boolean },
     chatId?: string,
   ) => void;
+  refreshTranscript?: (chatId: string) => void;
   removeQueuedMessage: (chatId: string, queueId: string) => void;
   /** Moves the previous turn's applied changes into its reply before a new request. */
   settleLiveProposals: (chat: ChatState) => void;
@@ -42,9 +46,10 @@ type InitAiChatEventBindingsParams = {
     chatId: string,
     message: string,
     parts?: AiRequestPart[],
-    contextPayload?: Record<string, unknown>
+    contextPayload?: Record<string, unknown>,
+    draft?: ComposerDraft,
   ) => boolean;
-  buildContextPayload: (extras?: ContextExtras) => Record<string, unknown>;
+  buildContextPayload: (extras?: ContextExtras, includeDraft?: boolean) => Record<string, unknown>;
   clearPendingAttachments: (resetInput?: boolean) => void;
   clearMentionPaths?: () => void;
   addImageFiles: (files: FileList | null) => Promise<void>;
@@ -94,12 +99,14 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     postToNative,
     getActiveChatId,
     setActiveChatId,
+    getComposerDraft,
     getPendingAttachments,
     getChat,
     createChat,
     setChatTitle,
     renderHistoryList,
     appendMessage,
+    refreshTranscript,
     removeQueuedMessage,
     settleLiveProposals,
     autoGrow,
@@ -161,7 +168,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
   }
   syncModeLabels();
 
-  const buildPayload = () => buildContextPayload({ axiomMode: mode });
+  const buildPayload = () => buildContextPayload({ axiomMode: mode }, false);
 
   // ── Queue: a request typed while a turn runs waits behind it, unless the
   // running turn can take it as a correction (see ai-chat-steer.ts) ──
@@ -178,18 +185,56 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     appendMessage({ role: "user", text: label, queued: true, queueId: item.id }, chat.id);
   };
 
-  const dispatchQueued = (chat: ChatState, item: QueuedTurn) => {
+  const prepareTurn = async (chat: ChatState, context: Record<string, unknown>) => {
+    if (context.axiomMode !== "agent" || isCollabGuest?.() || !params.prepareEditorForAgent) return context;
+    try {
+      await params.prepareEditorForAgent();
+    } catch (error) {
+      if (getChat(chat.id)?.id === chat.id) appendMessage({ role: "system", text: String(error instanceof Error ? error.message : error) }, chat.id);
+      return null;
+    }
+    if (getChat(chat.id)?.id !== chat.id) return null;
+    // Keep the user's captured target and selection, including on queued turns.
+    // Re-read source snapshots after saving so their text and revisions agree.
+    const fresh = buildContextPayload({ axiomMode: "agent" }, false);
+    const next = { ...context, openFiles: fresh.openFiles, openFileSnapshots: fresh.openFileSnapshots } as Record<string, unknown>;
+    for (const key of ["activeFileContent", "activeFileRevision", "activeFileIsDirty", "activeFileContentTruncated", "activeFileContentLength"]) {
+      if (fresh.activeFilePath === context.activeFilePath) next[key] = fresh[key];
+      else delete next[key];
+    }
+    return next;
+  };
+
+  const postWithMessage = (chat: ChatState, label: string, message: string, parts?: AiRequestPart[],
+    contextPayload?: Record<string, unknown>, draft?: ComposerDraft) => {
+    const row: ChatMessage = { role: "user", text: label };
+    appendMessage(row, chat.id);
+    if (requestAgentRun(chat.id, message, parts, contextPayload, draft)) {
+      runShapes.set(chat.id, steerTurnShape(contextPayload));
+      return true;
+    }
+    chat.messages = chat.messages.filter(entry => entry !== row);
+    refreshTranscript?.(chat.id);
+    return false;
+  };
+
+  const dispatching = new Set<string>();
+  const dispatchQueued = async (chat: ChatState, item: QueuedTurn) => {
+    if (dispatching.has(chat.id)) return;
+    dispatching.add(chat.id);
+    const context = await prepareTurn(chat, item.contextPayload ?? {});
+    dispatching.delete(chat.id);
+    const current = getChat(chat.id);
+    if (current?.id !== chat.id || !current.queue.some(entry => entry.id === item.id)) return;
+    chat = current;
     removeQueuedMessage(chat.id, item.id);
     chat.queue = chat.queue.filter((entry) => entry.id !== item.id);
     settleLiveProposals(chat);
-    appendMessage({ role: "user", text: item.text }, chat.id);
-    const sent = requestAgentRun(chat.id, item.text, item.parts, item.contextPayload);
-    if (sent) {
-      runShapes.set(chat.id, steerTurnShape(item.contextPayload));
-    } else {
+    if (!context || !postWithMessage(chat, item.text, item.text, item.parts, context, item.draft)) {
+      item.manualRetry = true;
       // Put it back at the front; the reader can send it again by hand.
       chat.queue.unshift(item);
-      appendMessage({ role: "user", text: item.text, queued: true, queueId: item.id }, chat.id);
+      appendMessage({ role: "user", text: item.text, queued: true, queueId: item.id, manualRetry: true }, chat.id);
     }
     renderHistoryList();
     updateSendState();
@@ -204,7 +249,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
       return;
     }
     const next = chat.queue[0];
-    if (!next) return;
+    if (!next || next.manualRetry) return;
     if (isAiBlocked() || needsLogin()) return;
     dispatchQueued(chat, next);
   };
@@ -235,14 +280,14 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
   // Core submit path shared by the send button, Enter, the starting points,
   // the next steps and the queue. clearInput is false for quick actions so
   // a half-typed draft is kept.
-  const submitMessage = (
+  const submitMessage = async (
     rawText: string,
     opts?: { clearInput?: boolean; extras?: ContextExtras; queueIfRunning?: boolean; steerIfRunning?: boolean },
   ) => {
     if (sendGuard) return;
     const clearInput = opts?.clearInput !== false;
     const text = typeof rawText === "string" ? rawText.trim() : "";
-    const pendingAttachments = getPendingAttachments();
+    const pendingAttachments = clearInput ? getPendingAttachments().slice() : [];
     const hasAttachments = pendingAttachments.length > 0;
     if (!text && !hasAttachments) return;
     if (isAiBlocked() || needsLogin()) {
@@ -282,7 +327,8 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
       });
     });
     const requestMessage = text || "Please analyze the attached image.";
-    const contextPayload = buildContextPayload({ axiomMode: mode, ...(opts?.extras ?? {}) });
+    const contextPayload = buildContextPayload({ axiomMode: mode, ...(opts?.extras ?? {}) }, clearInput);
+    const draft = clearInput ? getComposerDraft?.() : undefined;
     const userLabel = text || "The image has been sent.";
     const attachmentNote = hasAttachments ? `\n[attached images ${pendingAttachments.length}]` : "";
 
@@ -292,7 +338,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     // by itself when the turn ends.
     if (runningConversations.has(chat.id) && opts?.queueIfRunning !== false) {
       const item: QueuedTurn = {
-        id: makeQueueId(),
+        id: makeQueueId(), draft,
         text: requestMessage,
         parts: requestParts,
         contextPayload,
@@ -314,8 +360,10 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
         aiInput.value = "";
         autoGrow();
       }
-      clearPendingAttachments();
-      clearMentionPaths?.();
+      if (clearInput) {
+        clearPendingAttachments();
+        clearMentionPaths?.();
+      }
       renderHistoryList();
       updateSendState();
       scrollToBottom?.(true);
@@ -327,20 +375,25 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     settleLiveProposals(chat);
 
     renderHistoryList();
-    appendMessage({ role: "user", text: `${userLabel}${attachmentNote}` }, chat.id);
-    if (clearInput && aiInput instanceof HTMLTextAreaElement) {
+    sendGuard = true;
+    const prepared = await prepareTurn(chat, contextPayload);
+    const current = getChat(chat.id);
+    const sent = current?.id === chat.id && prepared
+      && postWithMessage(current, userLabel + attachmentNote, requestMessage, requestParts, prepared, draft);
+    const attachmentsNow = getPendingAttachments();
+    const composerUnchanged = clearInput && getActiveChatId() === chat.id
+      && aiInput instanceof HTMLTextAreaElement && aiInput.value === rawText
+      && pendingAttachments.length === attachmentsNow.length
+      && pendingAttachments.every((item, index) => item === attachmentsNow[index]);
+    if (sent && composerUnchanged) {
       aiInput.value = "";
       autoGrow();
-    }
-    updateContextBar();
-    sendGuard = true;
-    const sent = requestAgentRun(chat.id, requestMessage, requestParts, contextPayload);
-    if (sent) {
-      runShapes.set(chat.id, steerTurnShape(contextPayload));
       clearPendingAttachments();
       clearMentionPaths?.();
     }
     sendGuard = false;
+    updateContextBar();
+    updateSendState();
   };
 
   const handleSend = () => {
@@ -394,7 +447,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
       const request = row.dataset.aiStart ?? "";
       // A review reads and reports; it runs as Ask whatever the pill says.
       const extras: ContextExtras | undefined = row.dataset.aiStartMode === "ask" ? { axiomMode: "ask" } : undefined;
-      if (request) submitMessage(request, { clearInput: true, extras });
+      if (request) submitMessage(request, { clearInput: false, extras });
       return;
     }
     if (row.dataset.aiAsks && openStepQuestion(row)) return;
@@ -403,7 +456,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     const request = row.dataset.aiRequest ?? "";
     if (request) {
       submitMessage(request, {
-        clearInput: true,
+        clearInput: false,
         extras: { turnOrigin: "step", stepKind: row.dataset.aiStepKind === "mechanical" ? "mechanical" : "writing" },
       });
     }
@@ -510,12 +563,15 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
       const rows = choiceRows();
       const composerEmpty = aiInput.value.trim().length === 0;
       if (e.key === "Tab" && rows.length > 0 && composerEmpty && !e.isComposing) {
-        e.preventDefault();
         const current = activeChoiceIndex();
-        const next =
-          current < 0
-            ? e.shiftKey ? rows.length - 1 : 0
-            : (current + (e.shiftKey ? -1 : 1) + rows.length) % rows.length;
+        const next = current < 0
+          ? e.shiftKey ? rows.length - 1 : 0
+          : current + (e.shiftKey ? -1 : 1);
+        if (next < 0 || next >= rows.length) {
+          highlightChoice(null);
+          return;
+        }
+        e.preventDefault();
         highlightChoice(next);
         rows[next]?.scrollIntoView({ block: "nearest" });
         return;
@@ -553,6 +609,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     });
     aiAttachInput.addEventListener("change", () => {
       void addImageFiles(aiAttachInput.files);
+      aiAttachInput.value = "";
     });
   }
   if (aiStatus instanceof HTMLElement) {
@@ -597,7 +654,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     });
   }
   if (aiStop instanceof HTMLButtonElement) {
-    aiStop.addEventListener("click", () => {
+    aiStop.addEventListener("click", async () => {
       const chat = getChat(getActiveChatId());
       if (!chat) return;
       if (runningConversations.has(chat.id)) {
@@ -623,7 +680,11 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
         updateStatusDisplay();
         return;
       }
-      const contextToSend = buildPayload();
+      if (dispatching.has(chat.id)) return;
+      dispatching.add(chat.id);
+      const contextToSend = await prepareTurn(chat, buildPayload());
+      dispatching.delete(chat.id);
+      if (!contextToSend || runningConversations.has(chat.id) || !resumableConversations.has(chat.id)) return;
       chat.statusMessage = aiText("status_thinking");
       runningConversations.add(chat.id);
       resumableConversations.delete(chat.id);
@@ -657,6 +718,11 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
   return {
     submitMessage,
     drainQueue,
+    forgetRunningTurn: (chatId: string) => runShapes.delete(chatId),
+    forgetWorkspaceTurns: () => {
+      runShapes.clear();
+      drainWhenSteered.clear();
+    },
     handleSteerResult: (payload: SteerResultPayload) => steering.handleSteerResult(payload),
     getMode: () => mode,
     setMode,

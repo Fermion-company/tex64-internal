@@ -228,6 +228,11 @@ export class _MenuListState implements MenuListState {
 
     if (!this._abortController) this._abortController = new AbortController();
     const signal = this._abortController.signal;
+    // Menus can be mounted inside the field. A press on an item must not
+    // start a caret drag that captures its pointerup on the formula.
+    const stopFieldPointer = (event: Event) => event.stopPropagation();
+    menu.addEventListener('pointerdown', stopFieldPointer, { signal });
+    menu.addEventListener('mousedown', stopFieldPointer, { signal });
     menu.addEventListener('focus', this, { signal });
     menu.addEventListener('wheel', this, { passive: true, signal });
 
@@ -370,13 +375,13 @@ export class _MenuListState implements MenuListState {
     // Find a "contain" match
     let result: MenuItemState | null = null;
     let i = 0;
-    while (i < last && !result) {
+    while (i <= last && !result) {
       result =
         candidates.find(
           (x) =>
             _MenuListState.collator.compare(
               text,
-              x.label.substring(i, text.length)
+              x.label.slice(i, i + text.length)
             ) === 0
         ) ?? null;
       i++;

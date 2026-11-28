@@ -1,3 +1,5 @@
+@import url("./math-candidates.css");
+
 /* Latin Modern Mono — the typewriter face LaTeX itself uses for \texttt, bundled
    so the editor matches the compiled document. GUST Font License; see
    Resources/web/fonts/LICENSE_GUST.txt. No bold cut exists for this optical
@@ -812,6 +814,14 @@ html[lang="ja"] .launcher-action {
   text-overflow: ellipsis;
 }
 
+.launcher-recent-location {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .launcher-recent-empty {
   padding: 16px 0;
   font-size: 12px;
@@ -1077,11 +1087,11 @@ html[lang="ja"] .launcher-action {
   background: var(--bg);
 }
 
-:root[data-app-mode="ai"] .main {
+:root[data-app-mode="ai"] body:not([data-active-tab="settings"]) .main {
   display: none;
 }
 
-:root[data-app-mode="ai"] .ai-mode-view {
+:root[data-app-mode="ai"] body:not([data-active-tab="settings"]) .ai-mode-view {
   display: flex;
 }
 
@@ -1140,18 +1150,30 @@ html[lang="ja"] .launcher-action {
 
 .ai-mode-fallback-card {
   display: grid;
+  justify-items: center;
   gap: 12px;
   max-width: 440px;
   padding: 28px 32px;
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius-lg);
-  background: var(--panel);
   text-align: center;
 }
 
-.ai-mode-fallback-card h2 {
-  margin: 0;
-  font-size: 16px;
+.ai-mode-fallback[data-state="connecting"] #ai-mode-fallback-status::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-inline-end: 8px;
+  vertical-align: -2px;
+  border: 1.5px solid var(--panel-border-strong);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: build-spin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-mode-fallback[data-state="connecting"] #ai-mode-fallback-status::before {
+    animation: none;
+  }
 }
 
 .ai-mode-fallback-card p {
@@ -1161,13 +1183,7 @@ html[lang="ja"] .launcher-action {
   line-height: 1.6;
 }
 
-.ai-mode-fallback-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-}
-
-.ai-mode-fallback-actions button {
+#ai-mode-retry {
   padding: 6px 14px;
   border: 1px solid var(--control-border);
   border-radius: 999px;
@@ -1177,7 +1193,7 @@ html[lang="ja"] .launcher-action {
   cursor: pointer;
 }
 
-.ai-mode-fallback-actions button:hover {
+#ai-mode-retry:hover {
   border-color: var(--panel-border-strong);
 }
 
@@ -1228,7 +1244,9 @@ html[lang="ja"] .launcher-action {
 
 .main {
   display: grid;
-  grid-template-columns: var(--sidebar-width) var(--sidebar-panel-width) 4px 1fr;
+  grid-template-columns: var(--sidebar-width)
+    min(var(--sidebar-panel-width), max(0px, calc(100% - var(--sidebar-width) - 4px - 320px)))
+    4px 1fr;
   min-height: 0;
   overflow: hidden;
 }
@@ -1777,73 +1795,6 @@ math-field.block-math-field {
   scrollbar-gutter: stable both-edges;
 }
 
-.math-wysiwyg-panel {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--panel-border-strong);
-  background: var(--panel-strong);
-  box-shadow: var(--shadow);
-  z-index: 3;
-  overflow-x: auto;
-}
-
-.math-wysiwyg-panel[aria-hidden="true"] {
-  display: none;
-}
-
-.math-wysiwyg-panel::-webkit-scrollbar {
-  height: 6px;
-}
-
-.math-wysiwyg-panel::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--muted) 28%, transparent);
-  border-radius: 999px;
-}
-
-.math-wysiwyg-item {
-  border: 1px solid transparent;
-  background: var(--control-bg);
-  color: var(--text);
-  border-radius: var(--radius-sm);
-  padding: 4px 8px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.math-wysiwyg-item.is-active {
-  border-color: var(--accent-strong);
-  background: var(--accent-soft);
-  color: var(--text);
-}
-
-.math-wysiwyg-item:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.math-wysiwyg-symbol {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  line-height: 1;
-}
-
-.math-wysiwyg-label {
-  font-size: 11px;
-  color: var(--text-soft);
-}
 
 .block-math-menu-toggle {
   position: absolute;
@@ -1896,10 +1847,6 @@ math-field.block-math-field::placeholder {
   color: var(--muted);
 }
 
-.ML__keyboard {
-  display: none !important;
-}
-
 .block-field {
   display: grid;
   gap: 6px;
@@ -1916,6 +1863,7 @@ math-field.block-math-field::placeholder {
 }
 
 .block-actions-right {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1944,7 +1892,6 @@ math-field.block-math-field::placeholder {
 }
 
 .block-format {
-  position: relative;
   display: inline-flex;
 }
 
@@ -1965,9 +1912,9 @@ math-field.block-math-field::placeholder {
 
 .block-format-menu {
   position: absolute;
-  right: 0;
+  left: 0;
   top: calc(100% + 6px);
-  min-width: 160px;
+  width: min(160px, 100%);
   padding: 6px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--panel-border);
@@ -2396,13 +2343,8 @@ math-field.block-math-field::placeholder {
   font-family: "SF Mono", Menlo, monospace;
   font-size: 11px;
   white-space: pre-wrap;
-  word-break: break-all;
+  overflow-wrap: anywhere;
   line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
 .search-match-highlight {
@@ -4321,7 +4263,7 @@ input.settings-select {
 }
 
 .editor.has-bottom-panel {
-  grid-template-rows: minmax(120px, var(--editor-main-height, 1fr)) auto minmax(120px, var(--bottom-panel-height, 220px));
+  grid-template-rows: minmax(120px, var(--editor-main-height, 1fr)) auto minmax(120px, min(var(--bottom-panel-height, 220px), calc(100% - 128px)));
 }
 
 .editor-groups {
@@ -4365,7 +4307,8 @@ input.settings-select {
 }
 
 .editor-groups.is-resizing .editor-splitter::before,
-.editor-splitter:hover::before {
+.editor-splitter:hover::before,
+.editor-splitter:focus-visible::before {
   background: var(--panel-border-strong);
 }
 
@@ -4388,6 +4331,12 @@ input.settings-select {
 
 .editor-group.has-single-tab > .editor-tabs {
   display: none;
+}
+
+/* A PDF frame receives native drag events in its own document. Keep a tab
+   drag on the editor pane so the user can drop the file anywhere on the page. */
+.editor-groups:has(.editor-tab.is-dragging) .editor-viewer-pdf {
+  pointer-events: none;
 }
 
 .editor-groups[data-split="false"] .editor-splitter {
@@ -5110,6 +5059,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 .modal {
+  visibility: hidden;
   position: fixed;
   inset: 0;
   background: color-mix(in srgb, var(--bg) 62%, transparent);
@@ -5123,6 +5073,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 .modal.is-open {
+  visibility: visible;
   opacity: 1;
   pointer-events: auto;
 }
@@ -5992,8 +5943,12 @@ input.modal-input {
   white-space: nowrap;
 }
 
-/* Where it happened, stated rather than offered: the card itself is the button. */
+/* The printed source location takes the reader straight to the editor. */
 .issue-location {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
   flex: 0 1 auto;
   min-width: 0;
   margin-left: auto;
@@ -6003,6 +5958,11 @@ input.modal-input {
   color: var(--text-soft);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.issue-location:hover, .issue-location:focus-visible {
+  color: var(--accent-strong);
+  text-decoration: underline;
 }
 
 .issue-main {
@@ -6589,7 +6549,8 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   opacity: 0;
   transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
 }
-.ai-history-item-wrap:hover .ai-history-delete {
+.ai-history-item-wrap:hover .ai-history-delete,
+.ai-history-delete:focus-visible {
   opacity: 1;
 }
 .ai-history-delete:hover {
@@ -8475,7 +8436,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--panel);
 }
 
 .capture-crop-size {
@@ -8740,279 +8701,93 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   word-break: break-word !important;
 }
 
-/* Monaco hover outer wrapper still draws a frame by default. */
-.monaco-editor .monaco-resizable-hover,
-.monaco-resizable-hover {
-  border: none !important;
-  outline: none !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
-  padding: 0 !important;
+/* Keep the corner fixed when the source needs space below a wide formula. */
+.editor-surface,
+.monaco-editor:not(.editor-host .monaco-editor) {
+  anchor-name: --tex64-formula-pane;
+  anchor-scope: --tex64-formula-pane;
+}
+
+.monaco-editor .monaco-resizable-hover:has(.tex64-hover-formula, img[src$="#tex64-math"]) {
   position: fixed !important;
-  top: var(--tex64-hover-fixed-top, 84px) !important;
-  right: var(--tex64-hover-fixed-right, 18px) !important;
+  position-anchor: --tex64-formula-pane;
+  top: calc(anchor(top) + 8px) !important;
+  right: calc(anchor(right) + 14px) !important;
   left: auto !important;
   bottom: auto !important;
-  transform: none !important;
-  opacity: 1 !important;
-  pointer-events: auto !important;
 }
 
-.monaco-resizable-hover.tex64-hover-docked {
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
-  background: transparent !important;
+.editor-host:has(.monaco-hover:not(.hidden) .tex64-hover-reserve) {
+  top: var(--tex64-hover-clearance, 0px);
 }
 
-.monaco-editor .monaco-resizable-hover .resizer {
-  display: none !important;
+.monaco-editor .monaco-resizable-hover:has(.tex64-hover-over-source),
+.monaco-editor .monaco-resizable-hover:has(.tex64-hover-over-source) * {
+  pointer-events: none !important;
 }
 
 .monaco-editor .monaco-hover {
-  border: none !important;
-  outline: none !important;
-  border-radius: var(--radius-sm) !important;
-  background: rgba(39, 54, 84, 0.98) !important;
-  color: #f2f6ff !important;
-  box-shadow: none !important;
-  margin-top: 8px !important;
-  margin-left: 10px !important;
-  max-width: 360px !important;
-  max-height: 200px !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  mix-blend-mode: normal !important;
+  box-sizing: border-box;
+  color: var(--text);
+  background: var(--panel-strong);
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  overflow: hidden;
 }
 
-.monaco-resizable-hover.tex64-hover-docked .monaco-hover {
-  margin-top: 0 !important;
-  margin-left: 0 !important;
+.monaco-editor .monaco-hover .hover-contents {
+  color: var(--text);
 }
 
-.monaco-editor .monaco-hover .hover-row:not(:first-child):not(:empty) {
-  border-top: none !important;
+.monaco-editor .monaco-hover img[src$="#tex64-math"] {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(480px, 100%, calc(var(--tex64-editor-width, 100vw) - 60px));
+  max-height: 220px;
+  object-fit: contain;
+  filter: invert(92%);
 }
 
-.monaco-editor .monaco-hover .hover-row {
-  padding: 8px;
-  margin: 0 !important;
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
+.monaco-editor .monaco-hover .hover-contents:has(.tex64-hover-formula, img[src$="#tex64-math"]) {
+  padding: 10px 14px;
 }
 
-.monaco-editor .monaco-hover .hover-row .hover-row-contents,
-.monaco-editor .monaco-hover .hover-row .hover-contents {
-  min-width: 0;
-  font-size: 12px;
-  line-height: 1.3;
-  padding: 0 !important;
-  margin: 0 !important;
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
+.monaco-editor .monaco-hover p:has(> .tex64-hover-formula, > img[src$="#tex64-math"]) {
+  margin: 0;
 }
 
-.monaco-editor .monaco-hover .monaco-hover-content,
-.monaco-editor .monaco-hover .monaco-scrollable-element,
-.monaco-editor .monaco-hover .markdown-hover,
-.monaco-editor .monaco-hover .rendered-markdown {
-  padding: 0 !important;
-  margin: 0 !important;
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
+.monaco-editor .tex64-hover-formula {
+  display: block;
+  width: max-content;
+  max-width: min(500px, calc(var(--tex64-editor-width, 100vw) - 60px));
+  overflow-x: auto;
+  overflow-y: hidden;
+  font-size: 17px;
+  line-height: normal;
+  color: var(--text);
 }
 
-.monaco-editor .monaco-hover .monaco-scrollable-element {
-  max-height: 200px !important;
+.monaco-editor .tex64-hover-formula .katex-display {
+  width: max-content;
+  margin: 0;
+  padding: 2px 2px 5px;
 }
 
-.monaco-editor .monaco-hover .monaco-scrollable-element > .shadow,
-.monaco-editor .monaco-hover .monaco-scrollable-element > .scrollbar {
-  display: none !important;
+:root[data-theme="light"] .monaco-editor .monaco-hover img[src$="#tex64-math"] {
+  filter: none;
 }
 
-.monaco-editor .monaco-hover .rendered-markdown,
-.monaco-editor .monaco-hover .rendered-markdown p {
-  margin: 0 !important;
-  padding: 0 !important;
+.monaco-editor .monaco-hover img[src$="#tex64-image"] {
+  display: block;
+  max-width: min(220px, 100%);
+  max-height: 120px;
+  object-fit: contain;
 }
 
-.monaco-editor .monaco-hover .rendered-markdown pre {
-  margin: 4px 0 0 !important;
-  padding: 5px 6px !important;
-  border-radius: var(--radius-sm) !important;
-  background: rgba(14, 24, 44, 0.94) !important;
-}
-
-.monaco-editor .monaco-hover code {
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  padding: 0;
-}
-
-/* Inline code chips inside text hovers (e.g. resolved file path) */
-.monaco-editor .monaco-hover .rendered-markdown code {
-  display: inline-block !important;
-  padding: 1px 6px !important;
-  border-radius: var(--radius-sm) !important;
-  border: 1px solid rgba(197, 214, 255, 0.24) !important;
-  background: rgba(95, 123, 176, 0.32) !important;
-  color: rgba(242, 246, 255, 0.98) !important;
-  line-height: 1.25 !important;
-}
-
-.monaco-editor .monaco-hover .rendered-markdown pre code {
-  display: inline !important;
-  padding: 0 !important;
-  border: none !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-}
-
-/* Default hover surface: opaque for readability over editor content. */
-.monaco-editor .monaco-hover,
-.monaco-editor .monaco-hover .monaco-hover-content,
-.monaco-editor .monaco-hover .hover-row,
-.monaco-editor .monaco-hover .hover-row-contents,
-.monaco-editor .monaco-hover .hover-contents,
-.monaco-editor .monaco-hover .markdown-hover,
-.monaco-editor .monaco-hover .rendered-markdown,
-.monaco-editor .monaco-hover .monaco-scrollable-element {
-  background: rgba(39, 54, 84, 0.98) !important;
-}
-
-/* Preview content uses a compact card, but shell remains opaque for readability. */
-
-.monaco-editor .monaco-hover .rendered-markdown > div[data-tex64-preview="image"],
-.monaco-editor .monaco-hover .rendered-markdown > div[data-tex64-preview="math"],
-.monaco-editor .monaco-hover .rendered-markdown > div.tex64-hover-preview,
-.monaco-editor .monaco-hover .rendered-markdown > div:has(> math),
-.monaco-editor .monaco-hover .rendered-markdown > div:has(math),
-.monaco-editor .monaco-hover .rendered-markdown > div:has(> span.ML__latex),
-.monaco-editor .monaco-hover .rendered-markdown > div:has(span.ML__latex),
-.monaco-editor .monaco-hover .rendered-markdown > div:has(> img[src*="#tex64-image"]),
-.monaco-editor .monaco-hover .rendered-markdown > div:has(> img[src*="#tex64-math"]),
-.monaco-editor .monaco-hover .rendered-markdown > div:has(> img[src^="data:image"]) {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  margin: 0 !important;
-  padding: 3px !important;
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
-  border-radius: var(--radius-sm) !important;
-  background: rgba(39, 54, 84, 0.98) !important;
-  line-height: 0 !important;
-  max-width: 320px !important;
-  overflow: hidden !important;
-}
-
-/* Math previews should size to content and avoid clipping delimiters. */
-.monaco-editor .monaco-hover .rendered-markdown > div[data-tex64-preview="math"] {
-  width: auto !important;
-  max-width: none !important;
-  padding: 2px 4px !important;
-  line-height: 1 !important;
-  overflow: visible !important;
-}
-
-.monaco-editor .monaco-hover img[src^="data:image"] {
-  display: block !important;
-  width: auto !important;
-  height: auto !important;
-  object-fit: contain !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
-  border-radius: var(--radius-sm) !important;
-  background: transparent !important;
-}
-
-/* Hover target highlight: avoid cyan overlap with dark editor background. */
 .monaco-editor .hoverHighlight {
-  background-color: rgba(216, 172, 95, 0.28) !important;
-}
-
-.monaco-editor .monaco-hover .rendered-markdown > div[data-tex64-preview="image"] img {
-  max-width: 220px !important;
-  max-height: 120px !important;
-}
-
-.monaco-editor .monaco-hover .rendered-markdown > div:has(> img[src*="#tex64-image"]) img,
-.monaco-editor .monaco-hover .rendered-markdown > div:has(> img[src^="data:image"]) img {
-  max-width: 220px !important;
-  max-height: 120px !important;
-}
-
-.monaco-editor .monaco-hover .rendered-markdown > div[data-tex64-preview="math"] img {
-  max-width: 260px !important;
-  max-height: 96px !important;
-  width: auto !important;
-  height: auto !important;
-  image-rendering: auto !important;
-}
-
-.monaco-editor .monaco-hover .rendered-markdown > div:has(> img[src*="#tex64-math"]) img {
-  max-width: 260px !important;
-  max-height: 96px !important;
-  width: auto !important;
-  height: auto !important;
-  image-rendering: auto !important;
-}
-
-.monaco-editor .monaco-hover .rendered-markdown > div[data-tex64-preview="math"] math,
-.monaco-editor .monaco-hover .rendered-markdown > div:has(> math) math,
-.monaco-editor .monaco-hover .rendered-markdown > div:has(math) math {
-  display: block !important;
-  max-width: 260px !important;
-  max-height: 96px !important;
-  margin: 0 !important;
-  font-size: 1.2rem !important;
-  line-height: 1.15 !important;
-  color: rgba(247, 250, 255, 0.99) !important;
-}
-
-.monaco-editor .monaco-hover .tex64-hover-math-markup {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  width: auto !important;
-  max-width: 100% !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  line-height: 1 !important;
-  overflow: visible !important;
-}
-
-.monaco-editor .monaco-hover .tex64-hover-math-markup .ML__latex {
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
-  background: transparent !important;
-  margin: 0 !important;
-  padding: 0 !important;
-}
-
-.monaco-editor .monaco-hover .rendered-markdown > div[data-tex64-preview="math"] .ML__latex,
-.monaco-editor .monaco-hover .rendered-markdown > div:has(> span.ML__latex) .ML__latex,
-.monaco-editor .monaco-hover .rendered-markdown > div:has(span.ML__latex) .ML__latex {
-  display: inline-block !important;
-  max-width: none !important;
-  max-height: none !important;
-  margin: 0 !important;
-  font-size: 1.18rem !important;
-  line-height: 1.15 !important;
-  color: rgba(247, 250, 255, 0.99) !important;
+  background-color: var(--accent-soft);
 }
 
 .segmented-control {
@@ -9158,6 +8933,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 
 .bottom-panel-resizer {
   display: none;
+  touch-action: none;
   height: 4px;
   cursor: row-resize;
   background: var(--panel-border);
@@ -9642,12 +9418,15 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   /* Solid, fully opaque: a full-screen page that completely covers the app. */
   background: var(--bg);
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.18s ease;
+  transition: opacity 0.18s ease, visibility 0s 0.18s;
 }
 
 .feedback-overlay.is-open {
   opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
   pointer-events: auto;
 }
 

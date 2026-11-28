@@ -103,14 +103,14 @@ class AgentSessionsService {
 
   saveSession(session) {
     if (!session || typeof session !== "object") {
-      return Promise.resolve();
+      return Promise.resolve(false);
     }
     const conversationId =
       typeof session.conversationId === "string" && session.conversationId.trim()
         ? session.conversationId.trim()
         : "";
     if (!conversationId) {
-      return Promise.resolve();
+      return Promise.resolve(false);
     }
     return this.enqueue(async () => {
       ensureDirSync(this.dirPath);
@@ -118,14 +118,15 @@ class AgentSessionsService {
       try {
         json = JSON.stringify(session);
       } catch {
-        return;
+        return false;
       }
       if (Buffer.byteLength(json, "utf8") > this.maxSessionBytes) {
-        return;
+        return false;
       }
       const filePath = this.resolveSessionPath(conversationId);
-      await this.writeJsonAtomic(filePath, `${json}\n`).catch(() => {});
+      try { await this.writeJsonAtomic(filePath, `${json}\n`); } catch { return false; }
       await this.pruneIfNeeded();
+      return true;
     });
   }
 

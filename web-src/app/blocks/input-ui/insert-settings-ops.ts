@@ -1,3 +1,4 @@
+import { setLocalizedAttribute } from "../../i18n.js";
 import type { MathDisplayWrap, MathInlineWrap, MathInsertMode } from "../input-ui-settings.js";
 import {
   getFormatLabel,
@@ -42,8 +43,8 @@ export const createBlockInsertSettingsOps = (runtime: BlockInputRuntime): BlockI
     if (blockFormatButton instanceof HTMLElement) {
       const fullLabel = getFormatLabel(value);
       blockFormatButton.textContent = getFormatShortLabel(value);
-      blockFormatButton.setAttribute("title", fullLabel);
-      blockFormatButton.setAttribute("aria-label", `Insertion format: ${fullLabel}`);
+      setLocalizedAttribute(blockFormatButton, "title", fullLabel);
+      setLocalizedAttribute(blockFormatButton, "aria-label", fullLabel);
     }
     if (Array.isArray(blockFormatOptions)) {
       blockFormatOptions.forEach((option) => {

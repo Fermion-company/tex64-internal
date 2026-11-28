@@ -457,15 +457,25 @@ const ensureSessionsRestored = async (service) => {
           createdAt: createdAt ?? updatedAt ?? Date.now(),
           updatedAt: updatedAt ?? createdAt ?? Date.now(),
           ...(storedTitle ? { title: storedTitle } : {}),
+          ...(typeof session.branchedFrom === "string" && session.branchedFrom ? { branchedFrom: session.branchedFrom } : {}),
+          ...(session.changeReview?.runId && Array.isArray(session.changeReview.changes) ? { changeReview: session.changeReview } : {}),
         });
       }
 
       const lastStatus =
         session.lastStatus && typeof session.lastStatus === "object" ? session.lastStatus : null;
       if (lastStatus && !service.lastStatusByConversation.has(conversationId)) {
+        // A saved host process cannot still be thinking or stopping on restart.
+        // Offer the existing resume action only for an unanswered active turn.
+        const interrupted = !service.runningControllers.has(conversationId) &&
+          (lastStatus.state === "running" || lastStatus.state === "stopping");
+        const unanswered = service.conversations.get(conversationId)?.at(-1)?.role === "user";
+        const restoredState = interrupted
+          ? lastStatus.state === "running" && unanswered ? "resumable" : "idle"
+          : typeof lastStatus.state === "string" ? lastStatus.state : "idle";
         service.lastStatusByConversation.set(conversationId, {
-          state: typeof lastStatus.state === "string" ? lastStatus.state : "idle",
-          message: typeof lastStatus.message === "string" ? lastStatus.message : "",
+          state: restoredState,
+          message: !interrupted && typeof lastStatus.message === "string" ? lastStatus.message : "",
           ts: typeof lastStatus.ts === "number" ? lastStatus.ts : null,
         });
       }
@@ -610,7 +620,9 @@ const persistSession = async (service, conversationId) => {
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
     ...(typeof meta.title === "string" && meta.title ? { title: meta.title } : {}),
+    ...(meta.branchedFrom ? { branchedFrom: meta.branchedFrom } : {}),
     lastStatus,
+    ...(meta.changeReview ? { changeReview: meta.changeReview } : {}),
     scratchpad,
     proposals,
     undoGroups,
@@ -654,7 +666,7 @@ const persistSession = async (service, conversationId) => {
   }
 
   if (service.deletedConversations?.has(normalized)) return;
-  await service.sessionsService.saveSession(snapshot);
+  return service.sessionsService.saveSession(snapshot);
 };
 
 const getUiState = async (service) => {
@@ -684,11 +696,13 @@ const getUiState = async (service) => {
     const firstUser = Array.isArray(messages)
       ? messages.find((msg) => msg?.role === "user" && typeof msg.text === "string" && msg.text.trim())
       : null;
-    const raw = typeof firstUser?.text === "string" ? firstUser.text.trim() : "";
+    const raw = (firstUser?.displayText || firstUser?.text || "").trim();
+    // Before displayText was stored, the app appended PDF scope to the request.
+    const title = raw.split(/\n\n(?:原稿の見出し|紙面の選択範囲|更新前の紙面からの引用)（[^\n]*）\n/)[0];
     if (!raw) {
       return fallback;
     }
-    return raw.replace(/\s+/g, " ").slice(0, 24) || fallback;
+    return title.replace(/\s+/g, " ").slice(0, 24) || fallback;
   };
 
   const sessions = [];
@@ -732,7 +746,7 @@ const getUiState = async (service) => {
           messages.push({
             role: "user",
             text: clipLongString(display, 20_000),
-            ...(typeof entry.displayText === "string" && entry.displayText.trim() ? { displayText: entry.displayText.slice(0, 1000) } : {}),
+            ...(typeof entry.displayText === "string" && entry.displayText.trim() ? { displayText: clipLongString(entry.displayText) } : {}),
             // An app-started turn (the opening read) stays out of the transcript view.
             ...(entry.hidden === true ? { hidden: true } : {}),
           });
@@ -794,7 +808,10 @@ const getUiState = async (service) => {
       typeof meta?.title === "string" && meta.title.trim()
         ? meta.title.trim()
         : buildTitle(messages, normalizedConversationId);
+    const changeReview = meta?.changeReview;
     sessions.push({
+      ...(changeReview && !changeReview.accepted ? { changeReview } : {}),
+      ...(meta?.branchedFrom ? { branchedFrom: meta.branchedFrom } : {}),
       conversationId: normalizedConversationId,
       title,
       workspaceRootPath,

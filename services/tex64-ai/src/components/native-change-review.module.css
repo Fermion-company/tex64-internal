@@ -1,0 +1,35 @@
+.card {
+  width: 100%;
+  max-height: min(38dvh, 360px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin: 8px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 13px;
+}
+.card header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 8px; }
+.card header span, .card small { color: var(--ink-soft); font-size: 12px; }
+.change { border-top: 1px solid var(--line); }
+.changeRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.changeRow .reveal { margin-top: 3px; padding: 3px 6px; border-color: transparent; color: var(--accent); font-size: 12px; }
+.revealError { margin: 0 0 4px; color: var(--ink-soft); }
+.card summary { padding: 7px 0; cursor: pointer; overflow-wrap: anywhere; }
+.card summary small { margin-inline-start: 10px; }
+.card pre { margin: 0 0 4px; padding: 5px 8px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.45 ui-monospace, monospace; }
+.before { background: var(--danger-soft); }
+.after { background: var(--accent-soft); }
+.card footer { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 9px; }
+.card button { padding: 5px 10px; border: 1px solid var(--line-strong); border-radius: 5px; background: transparent; color: var(--ink); cursor: pointer; }
+.card button:hover { background: var(--hover); }
+.card button:focus-visible { border-color: var(--accent); }
+.card button:disabled { opacity: .5; cursor: default; }
+.card footer {
+  position: sticky;
+  bottom: 0;
+  padding-block: 4px;
+  background: var(--panel);
+}

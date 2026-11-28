@@ -15,6 +15,7 @@ import { createSettingsAccountUsageOps } from "./account-usage-ops.js";
 import { createSettingsPlatformUpdateOps } from "./platform-update-ops.js";
 import { createSettingsFeedbackOps } from "./feedback-ops.js";
 import { createSettingsPageNavOps } from "./page-nav-ops.js";
+import { getDarkPdfPages, setDarkPdfPages } from "../appearance.js";
 import { createSettingsAppearanceOps } from "./appearance-ops.js";
 import { openExternalUrl } from "./utils.js";
 
@@ -53,11 +54,11 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
     editorPrefOps.loadEditorAutoSynctexBuildState();
     editorPrefOps.loadEditorReverseSynctexState();
     editorPrefOps.loadEditorPdfViewerModeState();
-    feedbackOps.loadStartupFeedbackState();
   };
 
   const loadStartupSettings = () => {
     loadStoredPreferences();
+    feedbackOps.loadStartupFeedbackState();
     envOps.checkEnvironmentStatus();
     deps.postToNative({ type: "platform:state:get" }, true);
     platformUpdateOps.maybeRequestPlatformUpdateCheck(false);
@@ -81,6 +82,7 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
   const getSettingsSnapshot = (): AppSettingsSnapshot => ({
     compileEngine: localStorage.getItem(runtime.keys.compileEngineKey) || "lualatex",
     appearanceTheme: runtime.state.appearanceTheme,
+    darkPdfPages: getDarkPdfPages(),
     wordWrapEnabled: runtime.state.editorWordWrapEnabled,
     autoSynctexOnBuild: runtime.state.autoSynctexOnBuildEnabled,
     reverseSynctexEnabled: runtime.state.reverseSynctexEnabled,
@@ -102,6 +104,7 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
     if (patch.appearanceTheme === "dark" || patch.appearanceTheme === "light" || patch.appearanceTheme === "system") {
       appearanceOps.setAppearanceThemeState(patch.appearanceTheme);
     }
+    if (typeof patch.darkPdfPages === "boolean") setDarkPdfPages(patch.darkPdfPages);
     if (typeof patch.wordWrapEnabled === "boolean") {
       editorPrefOps.setEditorWordWrapEnabled(patch.wordWrapEnabled);
     }

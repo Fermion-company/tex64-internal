@@ -10,9 +10,10 @@ const createBuildHandlers = (deps) => {
   // What each Build read, so Jump can number the caret's line as that
   // Build's SyncTeX does (synctex/build-sources.cjs).
   const buildSources = deps.buildSources ?? createBuildSourceTracker();
-  const sendBuildState = (state, message, extra) => {
+  // `detail` (the build result) goes on to Axiom's record of recent builds (main.cjs).
+  const sendBuildState = (state, message, extra, detail) => {
     try { buildSources.observe(state, extra, deps.ensureWorkspace?.()); } catch { /* Jump only */ }
-    return deps.sendBuildState(state, message, extra);
+    return deps.sendBuildState(state, message, extra, detail);
   };
 
   const core = createBuildCoreHandlers({ ...deps, sendBuildState }, resolvers);

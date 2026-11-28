@@ -1,5 +1,6 @@
 import type { AppContext } from "./context.js";
 import { showEditorNotice } from "./editor-notice.js";
+import { editorTabLabels } from "./editor-tab-labels.js";
 import {
   getUiLocale,
   setUiLocale,
@@ -113,13 +114,18 @@ export const initLauncherUi = (
     if (!(launcherRecentList instanceof HTMLElement)) {
       return;
     }
+    const focused = document.activeElement;
+    const focusedRow = focused?.closest<HTMLElement>(".launcher-recent-row");
+    const focusedIndex = focusedRow ? Array.from(launcherRecentList.children).indexOf(focusedRow) : -1;
+    const focusedPath = focusedRow?.querySelector<HTMLElement>(".launcher-recent-item")?.dataset.path;
     launcherRecentList.innerHTML = "";
     
     const visibleProjects = recentExpanded 
       ? recentProjects 
       : recentProjects.slice(0, INITIAL_VISIBLE_COUNT);
     
-    for (const project of visibleProjects) {
+    const labels = editorTabLabels(recentProjects.map(project => project.path.replace(/\\/g, "/")));
+    for (const [index, project] of visibleProjects.entries()) {
       const row = document.createElement("div");
       row.className = "launcher-recent-row";
 
@@ -127,7 +133,8 @@ export const initLauncherUi = (
       item.className = "launcher-recent-item";
       item.type = "button";
       item.dataset.path = project.path;
-      // The full path waits in the tooltip; the name is enough to pick from.
+      item.dataset.noI18n = "";
+      // Show a folder qualifier only when another project has the same name.
       item.title = project.path;
       
       const nameSpan = document.createElement("span");
@@ -135,7 +142,13 @@ export const initLauncherUi = (
       nameSpan.textContent = project.name;
       
       item.appendChild(nameSpan);
-      
+      if (labels[index].detail) {
+        const location = document.createElement("span");
+        location.className = "launcher-recent-location";
+        location.textContent = labels[index].detail;
+        item.appendChild(location);
+      }
+
       item.addEventListener("click", () => {
         if (launcherBusy) return;
         setStatus({ isBusy: true, message: null });
@@ -162,6 +175,14 @@ export const initLauncherUi = (
       launcherRecentList.appendChild(row);
     }
     
+    if (focusedIndex >= 0) {
+      const sameIndex = visibleProjects.findIndex(project => project.path === focusedPath);
+      const row = launcherRecentList.children[sameIndex >= 0 ? sameIndex : Math.min(focusedIndex, visibleProjects.length - 1)];
+      const selector = sameIndex >= 0 && focused?.classList.contains("launcher-recent-remove")
+        ? ".launcher-recent-remove" : ".launcher-recent-item";
+      (row?.querySelector<HTMLElement>(selector) ?? launcherOpenButton)?.focus({ preventScroll: true });
+    }
+
     // Update empty state
     if (launcherRecentEmpty instanceof HTMLElement) {
       launcherRecentEmpty.style.display = recentProjects.length === 0 ? "" : "none";
@@ -200,7 +221,7 @@ export const initLauncherUi = (
   }
 
   const handleLauncherKeydown = (event: KeyboardEvent) => {
-    if (!launcher?.classList.contains("is-visible")) {
+    if (!launcher?.classList.contains("is-visible") || event.defaultPrevented || launcherLangMenu?.contains(event.target as Node)) {
       return;
     }
     if (event.key === "ArrowDown") {
@@ -267,12 +288,13 @@ export const initLauncherUi = (
     }
   };
 
-  const closeLangMenu = () => {
+  const closeLangMenu = (focusToggle = false) => {
     if (!(launcherLangMenu instanceof HTMLElement)) return;
     launcherLangMenu.classList.add("is-hidden");
     launcherLangMenu.setAttribute("aria-hidden", "true");
     if (launcherLangToggle instanceof HTMLElement) {
       launcherLangToggle.setAttribute("aria-expanded", "false");
+      if (focusToggle) launcherLangToggle.focus();
     }
   };
 
@@ -283,6 +305,7 @@ export const initLauncherUi = (
     if (launcherLangToggle instanceof HTMLElement) {
       launcherLangToggle.setAttribute("aria-expanded", "true");
     }
+    launcherLangMenu.querySelector<HTMLButtonElement>(".is-active")?.focus();
   };
 
   const renderLangMenu = () => {
@@ -293,13 +316,15 @@ export const initLauncherUi = (
       const item = document.createElement("button");
       item.type = "button";
       item.className = "launcher-lang-option";
-      item.setAttribute("role", "menuitem");
+      item.setAttribute("role", "menuitemradio");
+      item.setAttribute("aria-checked", String(entry.code === active));
+      item.tabIndex = -1;
       item.dataset.locale = entry.code;
       if (entry.code === active) item.classList.add("is-active");
       item.textContent = entry.nativeLabel;
       item.addEventListener("click", () => {
         setUiLocale(entry.code);
-        closeLangMenu();
+        closeLangMenu(true);
       });
       launcherLangMenu.appendChild(item);
     });
@@ -325,6 +350,26 @@ export const initLauncherUi = (
     });
   }
 
+  launcherLangToggle?.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    openLangMenu();
+  });
+  launcherLangMenu?.addEventListener("keydown", (event) => {
+    if (event.key === "Tab") {
+      closeLangMenu(true);
+      return;
+    }
+    const items = Array.from(launcherLangMenu.querySelectorAll<HTMLButtonElement>(".launcher-lang-option"));
+    const at = items.findIndex((item) => item === document.activeElement);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
+      : event.key === "ArrowDown" ? (at + 1) % items.length
+      : event.key === "ArrowUp" ? (at - 1 + items.length) % items.length : -1;
+    if (next < 0 || !items[next]) return;
+    event.preventDefault();
+    items[next].focus();
+  });
+
   document.addEventListener("click", (event) => {
     if (!(launcherLangMenu instanceof HTMLElement)) return;
     if (launcherLangMenu.classList.contains("is-hidden")) return;
@@ -342,7 +387,8 @@ export const initLauncherUi = (
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && launcherLangMenu instanceof HTMLElement && !launcherLangMenu.classList.contains("is-hidden")) {
-      closeLangMenu();
+      event.preventDefault();
+      closeLangMenu(true);
     }
   });
 

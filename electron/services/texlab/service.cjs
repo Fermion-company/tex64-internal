@@ -99,7 +99,9 @@ class TexlabService {
     }
     this.stdoutBuf = Buffer.alloc(0);
     const proc = this.proc;
-    proc.stdout.on("data", (chunk) => this.handleStdout(chunk));
+    proc.stdout.on("data", (chunk) => {
+      if (this.proc === proc) this.handleStdout(chunk);
+    });
     proc.stderr.on("data", (chunk) => {
       const text = chunk.toString("utf8").trim();
       if (text) {
@@ -107,9 +109,9 @@ class TexlabService {
       }
     });
     proc.on("error", (error) => {
-      if (this.proc === proc) {
-        this.proc = null;
-      }
+      if (this.proc !== proc) return;
+      this.proc = null;
+      this.stdoutBuf = Buffer.alloc(0);
       this.emitStatus("stopped", error && error.message ? error.message : String(error));
     });
     proc.on("exit", (code, signal) => {
@@ -129,27 +131,33 @@ class TexlabService {
   }
 
   handleStdout(chunk) {
-    this.stdoutBuf = Buffer.concat([this.stdoutBuf, chunk]);
+    this.stdoutBuf = this.stdoutBuf.length ? Buffer.concat([this.stdoutBuf, chunk]) : chunk;
+    let consumed = false;
     // Content-Length framed JSON-RPC (LSP base protocol).
     for (;;) {
       const headerEnd = this.stdoutBuf.indexOf("\r\n\r\n");
       if (headerEnd === -1) {
+        // A zero-length slice still owns the entire preceding response.
+        if (consumed) this.stdoutBuf = Buffer.from(this.stdoutBuf);
         return;
       }
       const header = this.stdoutBuf.slice(0, headerEnd).toString("ascii");
       const match = /Content-Length:\s*(\d+)/i.exec(header);
       if (!match) {
         // Malformed frame: drop the header and resync to avoid a stuck loop.
-        this.stdoutBuf = this.stdoutBuf.slice(headerEnd + 4);
+        consumed = true;
+        this.stdoutBuf = this.stdoutBuf.subarray(headerEnd + 4);
         continue;
       }
       const length = Number.parseInt(match[1], 10);
       const bodyStart = headerEnd + 4;
       if (this.stdoutBuf.length < bodyStart + length) {
+        if (consumed) this.stdoutBuf = Buffer.from(this.stdoutBuf);
         return; // wait for the rest of the body
       }
       const body = this.stdoutBuf.slice(bodyStart, bodyStart + length).toString("utf8");
-      this.stdoutBuf = this.stdoutBuf.slice(bodyStart + length);
+      consumed = true;
+      this.stdoutBuf = this.stdoutBuf.subarray(bodyStart + length);
       let message;
       try {
         message = JSON.parse(body);

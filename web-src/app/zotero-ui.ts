@@ -34,7 +34,7 @@ type ZoteroStatus = {
   hasApiKey: boolean;
   encryptionAvailable: boolean;
 };
-type CiteResult = { key: string; bibPath: string; named: boolean; style: "biblatex" | "bibtex"; created: boolean; appended: boolean };
+type CiteResult = { key: string; bibPath: string; resourcePath?: string; named: boolean; style: "biblatex" | "bibtex"; created: boolean; appended: boolean };
 type SyncResult = { bibPath: string; total: number; updated: number; unchanged: number; notFound: number };
 
 const ZOTERO_KEYS_URL = "https://www.zotero.org/settings/keys/new";
@@ -119,7 +119,7 @@ export const describeStatus = (status: ZoteroStatus) => {
 };
 
 const bibHint = (result: CiteResult) => {
-  const file = result.bibPath;
+  const file = result.resourcePath || result.bibPath;
   const stem = file.replace(/\.bib$/i, "");
   const command = result.style === "biblatex" ? `\\addbibresource{${file}}` : `\\bibliography{${stem}}`;
   return uiText(`add ${command} to the document`, `文書に${command}を追加してください`);
@@ -329,7 +329,7 @@ export const openCiteDialog = (editor: CitationEditor, getActiveFilePath: () => 
 
   const insert = async (index: number) => {
     const item = items[index];
-    if (!item || busy) return;
+    if (!item || busy || !dialog.open) return;
     if (!sameDocument()) {
       setStatus(documentChanged(), true);
       return;
@@ -344,6 +344,7 @@ export const openCiteDialog = (editor: CitationEditor, getActiveFilePath: () => 
         : result.appended
           ? uiText(`added to ${result.bibPath}`, `${result.bibPath}に追加`)
           : uiText(`already in ${result.bibPath}`, `${result.bibPath}に既存`);
+      if (!dialog.open) return;
       // Zotero answered after the editor moved on: the .bib has the entry,
       // the \cite is not placed in another document.
       if (!sameDocument()) {
@@ -421,10 +422,14 @@ export const openCiteDialog = (editor: CitationEditor, getActiveFilePath: () => 
   search.addEventListener("input", () => {
     arxiv?.setQuery(search.value);
     if (!zotero) return;
+    searchSerial++;
+    items = [];
+    results.replaceChildren();
     if (searchTimer !== null) window.clearTimeout(searchTimer);
     searchTimer = window.setTimeout(() => void runSearch(), 250);
   });
   search.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === "ArrowDown") { event.preventDefault(); highlight(highlighted + 1); }
     else if (event.key === "ArrowUp") { event.preventDefault(); highlight(highlighted - 1); }
     else if (event.key === "Enter") {

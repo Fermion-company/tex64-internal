@@ -173,6 +173,20 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     return parts.join("|");
   };
 
+  // The root of the document a PDF was made from: the first input its SyncTeX
+  // records (workspace-relative), or null.
+  const documentOfPaper = (rootPath, pdfPath) => {
+    try {
+      const sync = pdfPath && synctexService.findSynctexOutputPath?.(pdfPath);
+      const inputs = sync && synctexService.loadForwardIndex?.(sync)?.inputs;
+      if (!inputs?.size) return null;
+      const owner = fs.realpathSync(inputs.get(Math.min(...inputs.keys())));
+      return resolveWorkspaceRelativePath(fs.realpathSync(rootPath), owner)?.split(path.sep).join("/") ?? null;
+    } catch {
+      return null;
+    }
+  };
+
   const readMtimeMs = (targetPath) => {
     if (!targetPath || typeof targetPath !== "string") {
       return 0;
@@ -343,7 +357,10 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     let targetLine = Number.isFinite(line) ? line : 1;
     let targetColumn = Number.isFinite(column) ? column : 1;
     let inputLineResolved = forwardSource !== "manual";
+    // the document (workspace-relative) whose Build the include lines are read as
+    let includeDocument = null;
     const redirectInputLine = async (documentFile = null) => {
+      if (documentFile && !includeDocument) includeDocument = documentFile;
       if (inputLineResolved) return;
       inputLineResolved = true;
       let includes = null;
@@ -562,7 +579,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         document = null;
       }
       if (isStaleRequest()) return;
-      await redirectInputLine(document?.targetFile ?? null);
+      if (document?.targetFile) await redirectInputLine(document.targetFile);
       if (isStaleRequest()) return;
       if (typeof document?.targetFile === "string" && document.targetFile) {
         jumpDocumentPath = resolveWorkspacePathFromRoot(rootPath, document.targetFile);
@@ -579,9 +596,12 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       }
       pdfPath = document?.pdfPath ?? null;
     }
-    await redirectInputLine();
-    if (isStaleRequest()) return;
     if (!pdfPath) pdfPath = state.lastBuildPdfPath;
+    // Explicit PDF links (and a document that could not be told) bypass
+    // build-target selection: the PDF's SyncTeX names its root, even when the
+    // PDF lives in an output folder.
+    await redirectInputLine(includeDocument ?? documentOfPaper(rootPath, pdfPath));
+    if (isStaleRequest()) return;
     if (!sourcePath) {
       reply(withRequestId({
         ok: false,
@@ -832,6 +852,30 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     // 6–27 s from a preamble line and held up the next Jump meanwhile, so
     // the CLI now runs once, on the line the index picked, for its block box.
     // null: the index could not answer; the process probes below still can.
+    // The file an include line reads, as the Build of the document reads it
+    // (its folder and the bases \import, \subimport and \subfile set), else
+    // the guess beside the PDF, the root and this file.
+    const includeEdges = new Map();
+    const includedFileFor = async (lineNumber) => {
+      const guess = () => includedFileOnLine(sourcePath, lineNumber, [
+        rootPath,
+        path.dirname(pdfPath),
+        path.dirname(sourcePath),
+      ], buildLines);
+      const relative = resolveWorkspaceRelativePath(rootPath, sourcePath)?.split(path.sep).join("/");
+      if (!includeDocument || !workspace || !relative) return guess();
+      let text;
+      try { text = sourceLines(sourcePath, buildLines)[lineNumber - 1]; } catch { return guess(); }
+      if (typeof text !== "string" || !/\\(?:input|include|subfile|(?:sub)?(?:import|includefrom|inputfrom))\b/.test(text)) return guess();
+      if (!includeEdges.has(relative)) {
+        includeEdges.set(relative, resolveIncludesOf(workspace, includeDocument, relative).catch(() => null));
+      }
+      const includes = await includeEdges.get(relative);
+      const target = Array.isArray(includes) && includes.length > 0
+        ? resolveInputLineTarget(rootPath, relative, lineNumber, { lineText: text, includes })
+        : null;
+      return target ? resolveWorkspacePathFromRoot(rootPath, target.path) : guess();
+    };
     const resolveFromIndex = async () => {
       if (typeof synctexService.forwardLinesQuick !== "function") return null;
       let quick;
@@ -849,11 +893,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         // where that file's output begins (or ends, from the blank line
         // after it). The line itself only marks where TeX came back from
         // the file, often the last page.
-        const included = includedFileOnLine(sourcePath, anchor.line, [
-          rootPath,
-          path.dirname(pdfPath),
-          path.dirname(sourcePath),
-        ], buildLines);
+        const included = await includedFileFor(anchor.line);
         if (included) {
           let lastLine = 1;
           try {
@@ -1271,7 +1311,15 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     }
   };
 
-  return { handleSynctexForward, handleSynctexForwardBatch };
+  // A workspace switch: no answer, cache or Build text of the previous one.
+  const clearSynctexWorkspace = () => {
+    synctexForwardGeneration += 1;
+    recheckGeneration += 1;
+    synctexForwardResultCache.clear();
+    lastBuildSource = null;
+    synctexService.clearWorkspaceCaches?.();
+  };
+  return { handleSynctexForward, handleSynctexForwardBatch, clearSynctexWorkspace };
 };
 
 module.exports = { createSynctexForwardHandler };

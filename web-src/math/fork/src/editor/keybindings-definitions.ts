@@ -204,7 +204,7 @@ export const DEFAULT_KEYBINDINGS: Keybinding[] = [
   {
     key: 'alt+d',
     ifMode: 'math',
-    command: ['insert', '\\differentialD'],
+    command: ['insert', '{\\mathrm{d}}'],
   },
   {
     key: 'shift+alt+o',
@@ -398,7 +398,7 @@ export const DEFAULT_KEYBINDINGS: Keybinding[] = [
     key: 'alt+[Digit5]',
     ifLayout: ['apple.en-intl', 'windows.en-intl', 'linux.en'],
     ifMode: 'math',
-    command: ['insert', '$\\infty'],
+    command: ['insert', '\\infty'],
   }, // "%" key
   {
     key: 'alt+[Digit9]',
@@ -423,8 +423,8 @@ export const DEFAULT_KEYBINDINGS: Keybinding[] = [
     key: 'shift+[Backquote]',
     ifLayout: ['apple.en-intl', 'windows.en-intl', 'linux.en'],
     ifMode: 'math',
-    command: ['insert', '\\~'],
-  }, // ??
+    command: ['insert', '\\sim'],
+  },
   {
     key: '[Backquote]',
     ifLayout: ['windows.french', 'linux.french'],
@@ -458,6 +458,7 @@ export const REVERSE_KEYBINDINGS = {
   '\\pi': 'alt+p',
   '\\infty': 'alt+[Digit5]',
   '\\differentialD': 'alt+d',
+  '{\\mathrm{d}}': 'alt+d',
   '\\partial': 'shift+alt+d',
   '\\frac': 'Slash',
   '\\emptyset': 'alt+o',

@@ -3,6 +3,8 @@ import {
   buildOperatorCandidates,
   buildRankedWordCandidates,
   TIER_EXACT,
+  TIER_EXACT_CASE,
+  commandMatchesTokenCase,
   buildWordCandidates,
   type ScoredCandidate,
 } from "../math-wysiwyg-candidates.js";
@@ -223,8 +225,7 @@ export const createMathWysiwygCandidateOps = (
 
     let effectiveMatch = tokenMatch;
     let nextCandidates: Candidate[] = [];
-    // Set for plain word matches so MRU can be applied tier-aware (exact > prefix
-    // > contains). Left null for operator/slash paths, which keep flat MRU.
+    // Explicitly named commands keep their match tier ahead of usage history.
     let scoredCandidates: ScoredCandidate[] | null = null;
     if (tokenMatch.kind === "operator") {
       nextCandidates = buildOperatorCandidates(tokenMatch.token);
@@ -242,12 +243,17 @@ export const createMathWysiwygCandidateOps = (
           SLASH_COMMAND_HINT_SET.has(candidate.hint.toLowerCase())
         );
         const exact = rawCandidates.filter(
-          (candidate) => normalizeSlashCommandToken(candidate.hint) === slashToken
+          (candidate) => normalizeSlashCommandToken(candidate.hint).toLowerCase() === slashToken.toLowerCase()
         );
         const merged = preferred.length > 0 ? [...exact, ...preferred, ...rawCandidates] : [...exact, ...rawCandidates];
         nextCandidates = dedupeCandidatesByLatex(merged)
           .slice(0, SLASH_COMMAND_CANDIDATE_LIMIT)
           .map(applySlashCommandHint);
+        scoredCandidates = nextCandidates.map((candidate) => ({
+          candidate,
+          tier: commandMatchesTokenCase(candidate, slashToken) ? TIER_EXACT_CASE : TIER_EXACT,
+          score: 0,
+        }));
       }
     } else {
       scoredCandidates = buildRankedWordCandidates(tokenMatch.token, {

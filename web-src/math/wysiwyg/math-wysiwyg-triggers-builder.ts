@@ -39,11 +39,12 @@ export const makeCandidate = (
   const label = labelOverride ?? key.label ?? trigger;
   const displayLatex = displayLatexOverride ?? buildMathKeyDisplayLatex(key) ?? undefined;
   const id = `${normalizeLatexKey(key.latex)}|${label}`;
+  const command = extractCommand(key.latex);
   return {
     id,
     key,
     label,
-    hint: trigger,
+    hint: command?.toLowerCase() === trigger.toLowerCase() ? command : trigger,
     displayLatex,
     priority,
   };
@@ -83,7 +84,7 @@ export const buildTriggerMap = () => {
   ) => {
     const normalizedTrigger = trigger.toLowerCase();
     const candidate = makeCandidate(
-      normalizedTrigger,
+      trigger,
       key,
       priority,
       labelOverride,

@@ -1,13 +1,14 @@
+import { uiText } from "../i18n.js";
 import type { PlatformAuthSnapshot } from "../types.js";
 import type { SettingsUiRuntime } from "./runtime.js";
 
 export type SettingsPlatformAuthOps = {
   updatePlatformAuthUi: () => void;
-  handlePlatformAuth: (payload: { auth: PlatformAuthSnapshot; error?: { code?: string; message?: string } }) => void;
+  handlePlatformAuth: (payload: { auth: PlatformAuthSnapshot; action?: string; error?: { code?: string; message?: string } }) => void;
 };
 
 export const createSettingsPlatformAuthOps = (runtime: SettingsUiRuntime): SettingsPlatformAuthOps => {
-  const { settingsAuthStatus, settingsAuthLogin, settingsAuthLogout } = runtime.context.dom;
+  const { settingsAuthStatus, settingsAuthLogin, settingsAuthCancel, settingsAuthLogout } = runtime.context.dom;
 
   const updatePlatformAuthUi = () => {
     const authenticated = Boolean(runtime.state.platformAuth?.authenticated);
@@ -33,16 +34,31 @@ export const createSettingsPlatformAuthOps = (runtime: SettingsUiRuntime): Setti
       settingsAuthLogin.disabled = pending;
       settingsAuthLogin.textContent = pending ? "Signing in…" : "Login";
     }
+    if (settingsAuthCancel instanceof HTMLButtonElement) {
+      settingsAuthCancel.classList.toggle("is-hidden", !pending);
+      settingsAuthCancel.setAttribute("aria-hidden", String(!pending));
+    }
     if (settingsAuthLogout instanceof HTMLButtonElement) {
       settingsAuthLogout.classList.toggle("is-hidden", !authenticated);
       settingsAuthLogout.disabled = !authenticated;
     }
   };
 
-  const handlePlatformAuth = (payload: { auth: PlatformAuthSnapshot; error?: { code?: string; message?: string } }) => {
+  const handlePlatformAuth = (payload: { auth: PlatformAuthSnapshot; action?: string; error?: { code?: string; message?: string } }) => {
     runtime.state.platformAuth = payload?.auth ?? null;
     updatePlatformAuthUi();
+    if (settingsAuthStatus instanceof HTMLElement && payload?.action && payload.error) {
+      const fallback = payload.action === "logout"
+        ? uiText("Could not sign out.", "ログアウトできませんでした。")
+        : payload.action === "cancel" ? uiText("Could not cancel sign-in.", "ログインを中止できませんでした。")
+        : uiText("Could not sign in.", "ログインできませんでした。");
+      settingsAuthStatus.textContent = [fallback, payload.error.message].filter(Boolean).join(" ");
+    }
   };
+
+  settingsAuthCancel?.addEventListener("click", () => {
+    runtime.deps.postToNative({ type: "auth:google:cancel" });
+  });
 
   if (settingsAuthLogout instanceof HTMLButtonElement) {
     settingsAuthLogout.addEventListener("click", () => {

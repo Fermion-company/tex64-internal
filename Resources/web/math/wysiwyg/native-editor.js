@@ -1,7 +1,7 @@
 import { initMathWysiwyg } from "./math-wysiwyg.js";
 import { attachMathfieldController } from "./field-controller.js";
 /** Mount the application's shared IME and structural editing in the AI paper. */
-const attach = (field, container) => {
+const attach = (field, container, actions) => {
     field.menuItems = [];
     field.setAttribute("lang", "en");
     const insertKey = (key, options) => {
@@ -11,6 +11,6 @@ const attach = (field, container) => {
         field.dispatchEvent(new Event("input", { bubbles: true }));
     };
     const api = initMathWysiwyg({ container, floating: true, autoSuggest: true, insertKey, mruStorageKey: "tex64.math-wysiwyg.mru" });
-    return attachMathfieldController(field, api, insertKey);
+    return attachMathfieldController(field, api, insertKey, actions === null || actions === void 0 ? void 0 : actions.onEscape, actions === null || actions === void 0 ? void 0 : actions.onCommit);
 };
 window.tex64PaperMath = { attach };

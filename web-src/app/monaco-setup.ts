@@ -1,3 +1,5 @@
+import { isTexFilePath } from "./files.js";
+import { resolveLivePreviewWorkspacePath } from "./live-preview-path.js";
 import { attachSnippetEditor } from "./snippets-ui.js";
 import { attachCitationEditor } from "./zotero-ui.js";
 import { installEditorContextMenu } from "./editor-context-menu.js";
@@ -10,6 +12,7 @@ import {
   registerHoverProvider,
   type HoverState,
 } from "./monaco-hover.js";
+import { scrollFormulaHover } from "./monaco-hover/math-preview.js";
 import { registerTexLanguages } from "./monaco-language.js";
 import { applyMonacoTheme } from "./monaco-theme.js";
 import { getCurrentAppearanceTheme, onAppearanceThemeChange } from "./appearance.js";
@@ -31,11 +34,7 @@ type FileExcerptResult =
 
 type MonacoSetupDeps = {
   editorSession: EditorSessionApi;
-  editorTabs: {
-    render: (group: EditorGroupState) => void;
-  };
   fileTree: {
-    render: () => void;
     setTreeFocus: (focus: boolean) => void;
   };
   updateFallback: (message: string) => void;
@@ -43,6 +42,7 @@ type MonacoSetupDeps = {
   getIndexLabels: () => IndexEntry[];
   getIndexCitations: () => IndexEntry[];
   getWorkspaceFiles: () => string[];
+  getRootFilePath: () => string | null;
   getWorkspaceRoot: () => string | null;
   requestFilePreview?: (
     path: string
@@ -73,6 +73,8 @@ type MonacoSetupDeps = {
 
 export type MonacoSetupApi = {
   setWordWrapEnabled: (enabled: boolean) => void;
+  flushComments: () => Promise<void>;
+  hasPendingComments: () => boolean;
 };
 
 // texlab is a resident process (~40 MB) that serves nothing until a TeX
@@ -116,6 +118,8 @@ export const initMonacoSetup = (
 
   const api: MonacoSetupApi = {
     setWordWrapEnabled,
+    flushComments: async () => {},
+    hasPendingComments: () => false,
   };
 
   if (!(editorHost instanceof HTMLElement)) {
@@ -150,6 +154,13 @@ export const initMonacoSetup = (
           defineTheme?: (name: string, theme: MonacoTheme) => void;
           setTheme?: (name: string) => void;
           remeasureFonts?: () => void;
+          registerEditorOpener?: (opener: {
+            openCodeEditor: (
+              editor: { getModel?: () => { uri?: { toString(): string } } | null },
+              resource: { scheme: string; fsPath: string; toString(): string },
+              target?: { startLineNumber?: number; startColumn?: number; lineNumber?: number; column?: number }
+            ) => boolean;
+          }) => unknown;
         };
         languages?: {
           register?: (config: { id: string }) => void;
@@ -198,6 +209,18 @@ export const initMonacoSetup = (
 
       deps.setMonacoApi(monacoWindow.monaco as Record<string, unknown>);
       registerTexLanguages(monacoWindow.monaco);
+      monacoWindow.monaco.editor.registerEditorOpener?.({
+        openCodeEditor: (editor, resource, target) => {
+          if (resource.scheme !== "file" || editor.getModel?.()?.uri?.toString() === resource.toString()) return false;
+          const path = resolveLivePreviewWorkspacePath(resource.fsPath, deps.getWorkspaceRoot());
+          if (!path || !deps.getWorkspaceFiles().includes(path)) return false;
+          const group = deps.editorSession.getEditorGroups().find((group) => group.editor === editor);
+          deps.editorSession.jumpToFileLine(path, target?.startLineNumber ?? target?.lineNumber ?? 1,
+            group?.key ?? deps.editorSession.getActiveEditorGroupKey(),
+            { column: target?.startColumn ?? target?.column ?? 1, focus: true });
+          return true;
+        },
+      });
       // Completion is provided by texlab (see setupLsp below). The previous
       // hand-rolled \ref/\cite/path/\begin completion was removed to avoid
       // duplicate suggestions.
@@ -206,6 +229,8 @@ export const initMonacoSetup = (
         {
           getActiveFilePath: deps.editorSession.getActiveFilePath,
           getWorkspaceFiles: deps.getWorkspaceFiles,
+          getRootFilePath: deps.getRootFilePath,
+          getWorkspaceRoot: deps.getWorkspaceRoot,
           getIndexLabels: deps.getIndexLabels,
           getIndexCitations: deps.getIndexCitations,
           requestFilePreview: deps.requestFilePreview,
@@ -216,6 +241,12 @@ export const initMonacoSetup = (
       startLspOnFirstTexModel(monacoWindow.monaco, () =>
         void setupLsp(monacoWindow.monaco, {
           getWorkspaceRoot: deps.getWorkspaceRoot,
+          loadResource: (resource) => {
+            const path = resolveLivePreviewWorkspacePath(resource.fsPath, deps.getWorkspaceRoot());
+            return resource.scheme === "file" && path
+              ? deps.editorSession.loadWorkspaceTextModel(path)
+              : Promise.resolve(false);
+          },
         })
       );
       const spellBridge = (window as unknown as { tex64Spell?: SpellBridge }).tex64Spell;
@@ -226,6 +257,8 @@ export const initMonacoSetup = (
         collab: deps.collab?.comments,
       });
       (window as unknown as { __tex64CodeComments?: unknown }).__tex64CodeComments = codeCommentManager;
+      api.flushComments = codeCommentManager.flushPendingSave;
+      api.hasPendingComments = codeCommentManager.hasPendingSave;
       const themeName = applyMonacoTheme(monacoWindow.monaco, getCurrentAppearanceTheme());
       onAppearanceThemeChange((theme) => {
         if (monacoWindow.monaco) {
@@ -278,7 +311,7 @@ export const initMonacoSetup = (
           // Prefer above by default (Monaco may fallback below if space is insufficient).
           above: true,
         },
-        occurrencesHighlight: false,
+        occurrencesHighlight: editorSettings.isEnabled("lsp.documentHighlight") ? "singleFile" : "off",
         selectionHighlight: false,
       };
 
@@ -345,6 +378,12 @@ export const initMonacoSetup = (
           trigger?: (source: string, handlerId: string, payload?: unknown) => void;
         };
         group.editor = editor;
+        const sizeFormulaPreview = ({ width }: { width: number }) => {
+          host.style.setProperty("--tex64-editor-width", width + "px");
+        };
+        host.addEventListener("wheel", scrollFormulaHover, { capture: true, passive: false });
+        sizeFormulaPreview(editor.getLayoutInfo());
+        editor.onDidLayoutChange(sizeFormulaPreview);
 
         attachEditorErgonomics(monacoWindow.monaco, editor, group);
         attachSelectionDragAutoScroll(monacoWindow.monaco, editor, host);
@@ -357,38 +396,37 @@ export const initMonacoSetup = (
           Boolean(document.querySelector(".suggest-widget.visible"))
         );
 
-        let hoverAnchorRafId: number | null = null;
-
-        const updateHoverFixedAnchor = () => {
-          const editorForHover = editor as any;
-          const editorDomNode = editorForHover.getDomNode?.() as HTMLElement | null;
-          if (!editorDomNode) {
-            return;
-          }
-          const hostRect = editorDomNode.getBoundingClientRect();
-          const top = Math.max(8, Math.round(hostRect.top + 10));
-          const right = Math.max(8, Math.round(window.innerWidth - hostRect.right + 14));
-          document.documentElement.style.setProperty("--tex64-hover-fixed-top", `${top}px`);
-          document.documentElement.style.setProperty("--tex64-hover-fixed-right", `${right}px`);
-        };
-        const scheduleHoverFixedAnchor = () => {
-          if (hoverAnchorRafId !== null) {
-            window.cancelAnimationFrame(hoverAnchorRafId);
-          }
-          hoverAnchorRafId = window.requestAnimationFrame(() => {
-            hoverAnchorRafId = null;
-            updateHoverFixedAnchor();
-          });
-        };
-        window.addEventListener("resize", scheduleHoverFixedAnchor);
-        updateHoverFixedAnchor();
-
+        // Re-insert a dropped composition only when TeX64 ended it (blurring
+        // the input for a waiting tab switch or save). One the user cancelled
+        // stays cancelled.
+        let endedForPendingAction = false;
         trackComposition(editor, host, group, {
-          // A suggestion clicked mid-composition would commit the text twice.
-          onStart: () => editorAny.trigger?.("tex64", "hideSuggestWidget", {}),
-          onEnd: () => deps.editorSession.handleCompositionEnd(group),
-          onCancel: () => deps.editorSession.handleCompositionEnd(group, { cancelled: true }),
+          onStart: () => {
+            endedForPendingAction = false;
+            // A suggestion clicked mid-composition would commit the text twice.
+            editorAny.trigger?.("tex64", "hideSuggestWidget", {});
+            // The live preview keeps the text from before the composition.
+            const model = editor.getModel();
+            if (model && group.currentFilePath) {
+              group.compositionBaseline = {
+                model,
+                text: group.isDirty ? model.getValue() : group.currentFileSavedContent ?? model.getValue(),
+                dirty: group.isDirty,
+              };
+            }
+          },
+          onEnd: () => {
+            endedForPendingAction = Boolean(group.pendingCompositionAction);
+            delete group.compositionBaseline;
+            deps.editorSession.handleCompositionEnd(group);
+            if (group.isDirty && !deps.collab?.isBound(group.currentFilePath)) deps.editorSession.scheduleAutoSave();
+          },
+          onCancel: () => {
+            delete group.compositionBaseline;
+            deps.editorSession.handleCompositionEnd(group, { cancelled: true });
+          },
           recover: (text) => {
+            if (!endedForPendingAction) return;
             const selection = editorAny.getSelection();
             if (selection) {
               editorAny.executeEdits("ime-recover", [
@@ -401,29 +439,14 @@ export const initMonacoSetup = (
           deps.editorSession.setActiveGroup(group.key, { focusEditor: false });
           deps.fileTree.setTreeFocus(false);
         });
-        editorAny.onDidBlurEditorWidget?.(() => {
-          if (hoverAnchorRafId !== null) {
-            window.cancelAnimationFrame(hoverAnchorRafId);
-            hoverAnchorRafId = null;
-          }
-        });
-        editor.onDidFocusEditorWidget?.(() => {
-          scheduleHoverFixedAnchor();
-        });
-        editorAny.onDidScrollChange?.(() => {
-          scheduleHoverFixedAnchor();
-        });
         editor.onDidChangeModelContent((e: { isFlush?: boolean; isUndoing?: boolean; isRedoing?: boolean }) => {
           if (group.isApplyingFile) return;
           if (e.isFlush) return;
           if (!group.currentFilePath) return;
           const currentValue = editor.getValue();
           deps.editorSession.updateDirtyState(group.currentFilePath, currentValue);
-          deps.editorTabs.render(group);
           if (deps.editorSession.isActiveGroup(group)) {
             deps.editorSession.clearJumpHighlight(group);
-            deps.editorSession.updateBreadcrumbs();
-            deps.fileTree.render();
             // Undo and redo change the file too. Autosave never reformats,
             // so saving them leaves the undo stack alone. A file shared in a
             // collaboration session is written by the session layer instead.
@@ -433,8 +456,7 @@ export const initMonacoSetup = (
         editor.onDidChangeCursorPosition?.(
           (e: { position: { lineNumber: number; column: number } }) => {
             if (
-              group.currentFilePath &&
-              group.currentFilePath.endsWith(".tex") &&
+              isTexFilePath(group.currentFilePath) &&
               deps.editorSession.isActiveGroup(group)
             ) {
               deps.onCursorPositionChange(e.position);
@@ -444,8 +466,7 @@ export const initMonacoSetup = (
         editor.onDidChangeCursorSelection?.(
           (e: { selection: { positionLineNumber: number; positionColumn: number } }) => {
             if (
-              group.currentFilePath &&
-              group.currentFilePath.endsWith(".tex") &&
+              isTexFilePath(group.currentFilePath) &&
               deps.editorSession.isActiveGroup(group)
             ) {
               deps.onCursorSelectionChange?.({
@@ -515,7 +536,7 @@ export const initMonacoSetup = (
           };
           const syncAsk = () => {
             const selection = (editor as any).getSelection?.();
-            const isTex = Boolean(group.currentFilePath && group.currentFilePath.endsWith(".tex"));
+            const isTex = isTexFilePath(group.currentFilePath);
             const empty = !selection || (typeof selection.isEmpty === "function" ? selection.isEmpty() : true);
             const snippetActive = (editor as any).getContribution?.("snippetController2")?.isInSnippet?.();
             if (!isTex || empty || snippetActive || voicePillShown) {
@@ -644,17 +665,22 @@ export const initMonacoSetup = (
         createEditorForGroup(deps.editorSession.getEditorGroup("secondary"), editorHostSecondary);
       }
 
-      // Apply font-family/size changes live across all editor groups.
       editorSettings.subscribe((change) => {
-        if (change.kind !== "font") {
+        let options: Record<string, unknown>;
+        if (change.kind === "font") {
+          options = {
+            fontFamily: editorSettings.getFontFamily(),
+            fontSize: editorSettings.getFontSize(),
+            lineHeight: editorSettings.getLineHeight(),
+          };
+        } else if (change.kind === "flag" && change.id === "lsp.documentHighlight") {
+          options = { occurrencesHighlight: change.value ? "singleFile" : "off" };
+        } else {
           return;
         }
-        const fontFamily = editorSettings.getFontFamily();
-        const fontSize = editorSettings.getFontSize();
-        const lineHeight = editorSettings.getLineHeight();
         deps.editorSession.forEachEditorGroup((group) => {
-          const editorAny = group.editor as { updateOptions?: (options: unknown) => void } | null;
-          editorAny?.updateOptions?.({ fontFamily, fontSize, lineHeight });
+          const editor = group.editor as { updateOptions?: (options: unknown) => void } | null;
+          editor?.updateOptions?.(options);
         });
       });
 

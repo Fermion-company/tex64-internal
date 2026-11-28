@@ -10,6 +10,7 @@ import {
 
 type OutlineDeps = {
   getActiveFilePath: () => string | null;
+  getWorkspaceFiles: () => string[];
   getWorkspaceRootKey: () => string | null;
   getIndexLabels: () => IndexEntry[];
   getIndexCitations: () => IndexEntry[];
@@ -34,6 +35,7 @@ export const initOutlineUi = (context: AppContext, deps: OutlineDeps): OutlineUi
     outlineCitations,
   } = context.dom;
 
+  const modeControls = outlineModeCurrent?.parentElement;
   const outlineModeKey = "tex64.outline.mode";
   let outlineMode: "current" | "project" = "current";
   try {
@@ -239,6 +241,10 @@ export const initOutlineUi = (context: AppContext, deps: OutlineDeps): OutlineUi
       !(outlineTodos instanceof HTMLElement)
     ) {
       return;
+    }
+    if (modeControls) {
+      const current = deps.getActiveFilePath();
+      modeControls.hidden = !deps.getWorkspaceFiles().some(path => path !== current && /\.tex$/i.test(path));
     }
     const sectionEntries = dedupeSections(
       filterEntries(deps.getIndexSections())

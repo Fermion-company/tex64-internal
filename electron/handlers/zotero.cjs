@@ -157,6 +157,7 @@ const registerZoteroHandlers = ({
       return {
         key: result.key,
         bibPath: target.relativePath,
+        resourcePath: target.resourcePath,
         named: target.named,
         style: target.style,
         created: result.created,
@@ -168,7 +169,7 @@ const registerZoteroHandlers = ({
       const session = guard.capture();
       const target = await bibTargetFor(payload);
       if (!target.exists) return { bibPath: target.relativePath, total: 0, updated: 0, unchanged: 0, notFound: 0 };
-      const content = await workspace.readFile(target.relativePath);
+      const content = await workspace.readFile(target.relativePath, { requireUtf8: true });
       guard.assertCurrent(session);
       const entries = parseBibEntries(content).slice(0, MAX_SYNC_ENTRIES);
       const library = await effectiveLibrary();

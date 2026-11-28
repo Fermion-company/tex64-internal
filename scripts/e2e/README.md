@@ -4,7 +4,7 @@
 
 ## 前提
 
-- `/Applications/TeX64.app` と他のエンジンを止めておく（エンジンは同時に 1 つ。`pgrep -x lualatex | wc -l` が 0）。ドライバは lualatex が 30 を超えたら止まる。
+- ドライバは起動時の lualatex 数を記録し、そこから既定で80個を超えて増えると停止する。再起動シナリオはこの実行が起動したElectronの子で、現在のエンジンポートを使用するプロセスを終了する。
 - sandbox（既定 `testing/sandbox-pro`）の `main.tex` と `content/ch16.tex` のハッシュは既定値と一致すること（`MAIN_SHA`・`CH16_SHA` で変更可）。原本は複製して使い、書き換えない。
 - checkpoint の上限はアプリが搭載メモリで決める（16 GB なら 12）。`TDOM_MAX_CHECKPOINTS` を渡すとその run だけ固定できる。
 
@@ -34,7 +34,7 @@ RUN_DIR=/path/to/run ENGINE_DIR=$HOME/Desktop/tdom-engine node scripts/e2e/live-
 
 ## 出力
 
-`RUN_DIR` に `driver.jsonl`（段階の記録）、`sse.jsonl`（エンジンの report と anchor の結果）、`samples.jsonl`（100ms ごとの PDF 表示状態）、`shots/`（入力からの経過 ms を名前にしたスクリーンショット）。
+指定した `RUN_DIR` がすでに存在する場合は、その中に実行ごとの子フォルダを作る。原本と既存の作業フォルダは変更しない。起動時に表示される保存先に `driver.jsonl`（段階の記録）、`sse.jsonl`（エンジンの report と anchor の結果）、`samples.jsonl`（100ms ごとの PDF 表示状態）、`shots/`（入力からの経過 ms を名前にしたスクリーンショット）。
 
 ## 期待値（Apple M4・16GB、2026-09-11〜12、エンジン 80af71a）
 

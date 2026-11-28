@@ -285,7 +285,7 @@ export class _MenuItemState<T> implements MenuItemState<T> {
     if (isDivider(this._declaration)) {
       const li = document.createElement('li');
       li.setAttribute('part', 'menu-divider');
-      li.setAttribute('role', 'divider');
+      li.setAttribute('role', 'separator');
 
       this._element = li;
       return li;

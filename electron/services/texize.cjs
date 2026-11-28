@@ -8,6 +8,7 @@ const { resolveEngineDir, NO_FILE_ACCESS } = require("./engine-dir.cjs");
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60_000;
 const SHUTDOWN_GRACE_MS = 5_000;
+const TERM_GRACE_MS = 1_000;
 
 class TexizeService {
   constructor(options = {}) {
@@ -38,6 +39,10 @@ class TexizeService {
     this.nextId = 1;
     this.idleTimer = null;
     this.forceKillTimer = null;
+    this.stopPromise = null;
+    this.resolveStopped = null;
+    this.stopReason = null;
+    this.startGeneration = 0;
     this.version = null;
     this.state = "stopped";
     this.lastError = null;
@@ -115,6 +120,11 @@ class TexizeService {
   }
 
   async ensureReady() {
+    const generation = this.startGeneration;
+    if (this.stopPromise) {
+      await this.stopPromise;
+      if (generation !== this.startGeneration) throw new Error("texize startup was cancelled");
+    }
     if (this.isRunning() && this.state === "ready") {
       return;
     }
@@ -122,6 +132,7 @@ class TexizeService {
       return this.startPromise;
     }
     const allowed = await this.fileAccess.ensureAccess(this.texizeDir, { reason: "texize" });
+    if (generation !== this.startGeneration) throw new Error("texize startup was cancelled");
     if (!allowed) {
       const root = this.fileAccess.classify(this.texizeDir)?.root || this.texizeDir;
       const error = new Error(`TeX64 cannot start texize because it has no permission to access ${root}.`);
@@ -129,8 +140,11 @@ class TexizeService {
       this.state = "unavailable";
       throw error;
     }
-    this.refreshDirectory();
+    // Another request may have started and finished warming the worker while
+    // this one was waiting for folder access.
+    if (this.isRunning() && this.state === "ready") return;
     if (this.startPromise) return this.startPromise;
+    this.refreshDirectory();
     if (!this.isAvailable()) {
       const error = new Error(
         `texize Python was not found at ${this.pythonPath}. ` +
@@ -151,12 +165,10 @@ class TexizeService {
     const startPromise = this.startPromise;
     const readyTimeoutMs = Math.max(this.requestTimeoutMs, 1_000);
     this.readyTimer = setTimeout(() => {
-      if (this.proc) {
-        try { this.proc.kill("SIGTERM"); } catch {}
-      }
-      this.handleProcessEnd(this.proc, new Error(
-        `texize daemon did not become ready within ${readyTimeoutMs}ms`
-      ));
+      const error = new Error(`texize daemon did not become ready within ${readyTimeoutMs}ms`);
+      this.readyReject?.(error);
+      this.readyReject = null;
+      void this.shutdown(error);
     }, readyTimeoutMs);
     this.readyTimer.unref?.();
 
@@ -173,10 +185,14 @@ class TexizeService {
       return startPromise;
     }
 
+    proc.stdout.setEncoding("utf8");
     proc.stdout.on("data", (chunk) => this.handleStdout(proc, chunk));
     proc.stderr.on("data", (chunk) => {
       const text = chunk.toString("utf8").trim();
       if (text) console.warn("[texize]", text);
+    });
+    proc.stdin.on("error", (error) => {
+      if (this.proc === proc) void this.shutdown(error);
     });
     proc.on("error", (error) => this.handleProcessEnd(proc, error));
     proc.on("exit", (code, signal) => {
@@ -236,7 +252,8 @@ class TexizeService {
     this.stdoutBuffer = "";
     if (this.readyTimer) clearTimeout(this.readyTimer);
     this.readyTimer = null;
-    const message = error?.message || "texize daemon stopped";
+    const message = this.stopReason || error?.message || "texize daemon stopped";
+    this.stopReason = null;
     this.lastError = message;
     this.state = "stopped";
     const rejectReady = this.readyReject;
@@ -249,6 +266,9 @@ class TexizeService {
       pending.reject(new Error(message));
     }
     this.pending.clear();
+    this.resolveStopped?.();
+    this.resolveStopped = null;
+    this.stopPromise = null;
   }
 
   scheduleIdleShutdown() {
@@ -263,23 +283,41 @@ class TexizeService {
     this.idleTimer = null;
   }
 
-  shutdown() {
+  shutdown(error = null) {
+    this.startGeneration++;
     this.clearIdleTimer();
     const proc = this.proc;
-    if (!proc) return;
+    if (!proc) return Promise.resolve();
+    if (this.stopPromise) return this.stopPromise;
     this.state = "stopping";
-    try {
-      proc.stdin.write(`${JSON.stringify({ id: this.nextId++, op: "shutdown" })}\n`);
-    } catch {
+    this.stopPromise = new Promise((resolve) => { this.resolveStopped = resolve; });
+    const stopped = this.stopPromise;
+    this.stopReason = error?.message || null;
+    if (this.readyTimer) clearTimeout(this.readyTimer);
+    this.readyTimer = null;
+    const terminate = () => {
+      if (this.proc !== proc) return;
       try { proc.kill("SIGTERM"); } catch {}
-      return;
-    }
-    this.forceKillTimer = setTimeout(() => {
-      if (this.proc === proc) {
-        try { proc.kill("SIGTERM"); } catch {}
+      this.forceKillTimer = setTimeout(() => {
+        if (this.proc === proc) {
+          try { proc.kill("SIGKILL"); } catch {}
+        }
+      }, TERM_GRACE_MS);
+      this.forceKillTimer.unref?.();
+    };
+    if (error) {
+      this.lastError = error.message;
+      terminate();
+    } else {
+      try {
+        proc.stdin.write(`${JSON.stringify({ id: this.nextId++, op: "shutdown" })}\n`);
+        this.forceKillTimer = setTimeout(terminate, SHUTDOWN_GRACE_MS);
+        this.forceKillTimer.unref?.();
+      } catch {
+        terminate();
       }
-    }, SHUTDOWN_GRACE_MS);
-    this.forceKillTimer.unref?.();
+    }
+    return stopped;
   }
 }
 

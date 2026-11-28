@@ -42,7 +42,7 @@
   --shadow-paper: 0 24px 60px rgba(20, 20, 19, 0.18);
   --font-ui: Inter, "Noto Sans JP", ui-sans-serif, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
-  --font-paper: var(--font-noto-serif, "Noto Serif JP"), "Noto Serif JP", "Yu Mincho",
+  --font-paper: "Noto Serif JP Variable", "Noto Serif JP", "Yu Mincho",
     "Hiragino Mincho ProN", serif;
   color-scheme: light;
 }
@@ -2114,6 +2114,9 @@ select:focus-visible,
   font-size: 12px;
 }
 
+.draft-copy-fallback { display: grid; gap: 4px; margin-top: 6px; color: var(--ink); }
+.draft-copy-fallback textarea { width: 100%; font: inherit; resize: vertical; }
+
 /* ネイティブの新規文書: 題名ひとつでフォルダも main.tex も用意される。 */
 .native-new-document {
   display: flex;
@@ -2368,3 +2371,101 @@ select:focus-visible,
 
 .paragraph-table .paragraph-edit-area { white-space: normal; line-height: 1.5; }
 .paragraph-table .paragraph-math-field { min-width: 36px; padding: 3px; }
+
+/* Keep both panes mounted while changing the desktop layout so drafts,
+   selection, PDF position and active requests survive the move. */
+[data-paper-desktop] .workspace-grid { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
+[data-paper-desktop] .workspace-grid[data-split="columns"] {
+  grid-template: "instructions divider paper" minmax(0, 1fr) / var(--instruction-share) 7px minmax(0, 1fr);
+}
+[data-paper-desktop] .workspace-grid[data-split="columns"][data-reversed] {
+  grid-template: "paper divider instructions" minmax(0, 1fr) / minmax(0, 1fr) 7px var(--instruction-share);
+}
+[data-paper-desktop] .workspace-grid[data-split="rows"] {
+  grid-template: "instructions" var(--instruction-share) "divider" 7px "paper" minmax(0, 1fr) / minmax(0, 1fr);
+}
+[data-paper-desktop] .workspace-grid[data-split="rows"][data-reversed] {
+  grid-template: "paper" minmax(0, 1fr) "divider" 7px "instructions" var(--instruction-share) / minmax(0, 1fr);
+}
+.workspace-shell[data-paper-desktop] .pane-document { display: flex; height: auto; }
+[data-paper-desktop] [data-split] .pane-document { grid-area: paper; }
+.workspace-shell[data-paper-desktop] .pane-conversation {
+  grid-area: instructions;
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  overflow: hidden;
+}
+.workspace-shell[data-paper-desktop] .pane-conversation:empty { display: none; }
+[data-paper-desktop] .pane-conversation [aria-label="原稿の変更結果"] {
+  flex: 0 1 auto;
+  max-height: 38%;
+  margin: 8px 8px 0;
+  width: auto;
+}
+.paper-divider {
+  grid-area: divider;
+  cursor: col-resize;
+  touch-action: none;
+  background: linear-gradient(to right, transparent 3px, var(--line) 3px 4px, transparent 4px);
+}
+[data-split="rows"] .paper-divider {
+  cursor: row-resize;
+  background: linear-gradient(to bottom, transparent 3px, var(--line) 3px 4px, transparent 4px);
+}
+[data-paper-desktop] .paper-divider:is(:hover, :focus-visible, :active) { background: var(--accent-soft); outline-offset: -2px; }
+.paper-instruction-header {
+  flex: none;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding-inline: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.paper-options {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--ink);
+}
+.paper-options-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  font-weight: 600;
+  padding: 4px 7px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+.paper-options-trigger span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.paper-options-trigger svg { flex-shrink: 0; }
+.paper-options-trigger:hover, .paper-options-trigger[aria-expanded="true"] { background: var(--hover); }
+.paper-options-panel {
+  z-index: 45;
+  position: fixed;
+  margin: 0;
+  inset: auto;
+  width: min(320px, calc(100vw - 12px));
+  overflow: auto;
+  color: var(--ink);
+  display: grid;
+  gap: 4px;
+  padding: 7px;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  box-shadow: var(--shadow-menu);
+}
+.paper-options-panel .native-platform-controls {
+  flex-wrap: wrap;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--line);
+}
+.paper-options-panel .native-usage-button { display: inline-block; }
+.paper-options-panel > button { padding: 7px; text-align: start; border-radius: 4px; }
+.paper-options-panel > button:hover { background: var(--hover); }

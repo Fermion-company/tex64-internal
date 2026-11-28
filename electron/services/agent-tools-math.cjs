@@ -14,6 +14,8 @@
 
 "use strict";
 
+const { activeTexSource } = require("./tex-build-target.cjs");
+
 // Outermost math *container* environments. Inner-only environments such as
 // cases / aligned / split / array / matrix are intentionally NOT listed: we
 // want to return the whole displayed block, not a sub-part of it.
@@ -151,11 +153,10 @@ const findInline = (lines, line, column) => {
     regions.push({ start: m.index, end: m.index + m[0].length, env: "$ $" });
   }
   if (!regions.length) return null;
-  let chosen = regions[0];
-  if (Number.isFinite(column)) {
-    const hit = regions.find((r) => column - 1 >= r.start && column - 1 <= r.end);
-    if (hit) chosen = hit;
-  }
+  const chosen = Number.isFinite(column)
+    ? regions.find((region) => column - 1 >= region.start && column - 1 < region.end)
+    : regions.sort((a, b) => a.start - b.start)[0];
+  if (!chosen) return null;
   return {
     found: true,
     kind: "inline",
@@ -176,11 +177,12 @@ const findMathRegion = (content, line, column) => {
       error: `line ${line} is out of range (file has ${lines.length} lines).`,
     };
   }
+  const active = splitLines(activeTexSource(lines.join("\n")));
   const region =
-    findEnvRegion(lines, line) ||
-    findBracketDisplay(lines, line) ||
-    findDoubleDollar(lines, line) ||
-    findInline(lines, line, column);
+    findEnvRegion(active, line) ||
+    findBracketDisplay(active, line) ||
+    findDoubleDollar(active, line) ||
+    findInline(active, line, column);
   if (!region) {
     return {
       found: false,
@@ -193,6 +195,9 @@ const findMathRegion = (content, line, column) => {
     region.startLine === region.endLine
       ? `line ${region.startLine}`
       : `lines ${region.startLine}–${region.endLine}`;
+  region.content = region.kind === "inline"
+    ? lines[line - 1].slice(region.startColumn - 1, region.endColumn - 1)
+    : sliceContent(lines, region.startLine, region.endLine);
   return { ...region, summary: `Found ${region.environment} (${span})` };
 };
 

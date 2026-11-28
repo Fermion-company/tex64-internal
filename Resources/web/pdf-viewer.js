@@ -1,3 +1,4 @@
+import { fallbackPaperEditor } from "./pdf-fallback-editor.js";
 import * as pdfjs from "./pdfjs/pdf.min.mjs";
 import {
   EventBus,
@@ -97,7 +98,7 @@ const UI_STRINGS = {
   liveExactRendering: { en: "Rendering exact changes…", ja: "差分を描画中…", zh: "正在精确渲染差异…", ko: "변경 사항을 정밀 렌더링 중…", fr: "Rendu exact des modifications…", de: "Exakte Änderungen werden gerendert…", es: "Renderizando cambios exactos…" },
   liveCompiling: { en: "Compiling…", ja: "組版中…", zh: "正在编译…", ko: "컴파일 중…", fr: "Compilation…", de: "Satz läuft…", es: "Compilando…" },
   liveFullCompile: { en: "Live · full compile", ja: "ライブ・全体組版", zh: "实时 · 完整编译", ko: "라이브 · 전체 컴파일", fr: "Direct · compilation complète", de: "Live · vollständiger Satz", es: "En vivo · compilación completa" },
-  liveError: { en: "TeX error · last good preview", ja: "TeXエラー・直前の表示を保持", zh: "TeX 错误 · 保留上次预览", ko: "TeX 오류 · 이전 미리보기 유지", fr: "Erreur TeX · dernier aperçu conservé", de: "TeX-Fehler · letzte Vorschau bleibt", es: "Error de TeX · se conserva la vista anterior" },
+  liveError: { en: "TeX error", ja: "TeXエラー", zh: "TeX 错误", ko: "TeX 오류", fr: "Erreur TeX", de: "TeX-Fehler", es: "Error de TeX" },
   liveUnavailable: { en: "Preview unavailable", ja: "プレビュー応答なし", zh: "预览无响应", ko: "미리보기 응답 없음", fr: "Aperçu indisponible", de: "Vorschau nicht erreichbar", es: "Vista previa no disponible" },
   loadFailed: {
     en: "Failed to load the PDF.",
@@ -127,6 +128,8 @@ const UI_STRINGS = {
   closePdf: { en: "Close PDF", ja: "PDFを閉じる", zh: "关闭 PDF", ko: "PDF 닫기", fr: "Fermer le PDF", de: "PDF schließen", es: "Cerrar el PDF" },
   findClose: { en: "Close (Esc)", ja: "閉じる (Esc)", zh: "关闭 (Esc)", ko: "닫기 (Esc)", fr: "Fermer (Échap)", de: "Schließen (Esc)", es: "Cerrar (Esc)" },
   findNoMatch: { en: "No results", ja: "見つかりません", zh: "无结果", ko: "결과 없음", fr: "Aucun résultat", de: "Keine Treffer", es: "Sin resultados" },
+  moreActions: { en: "More PDF actions", ja: "PDFのその他の操作", zh: "更多 PDF 操作", ko: "PDF 추가 작업", fr: "Autres actions PDF", de: "Weitere PDF-Aktionen", es: "Más acciones de PDF" },
+  printFailed: { en: "The PDF could not be prepared for printing.", ja: "印刷用のPDFを準備できませんでした。", zh: "无法准备打印此 PDF。", ko: "PDF 인쇄를 준비할 수 없습니다.", fr: "Impossible de préparer l’impression du PDF.", de: "Der PDF-Druck konnte nicht vorbereitet werden.", es: "No se pudo preparar el PDF para imprimir." },
   download: { en: "Download", ja: "ダウンロード", zh: "下载", ko: "다운로드", fr: "Télécharger", de: "Herunterladen", es: "Descargar" },
   print: { en: "Print", ja: "印刷", zh: "打印", ko: "인쇄", fr: "Imprimer", de: "Drucken", es: "Imprimir" },
   reload: { en: "Reload", ja: "再読み込み", zh: "重新加载", ko: "다시 로드", fr: "Recharger", de: "Neu laden", es: "Recargar" },
@@ -135,19 +138,27 @@ const UI_STRINGS = {
   thumbnails: { en: "Thumbnails", ja: "サムネイル", zh: "缩略图", ko: "썸네일", fr: "Vignettes", de: "Miniaturen", es: "Miniaturas" },
   untitled: { en: "(untitled)", ja: "（無題）", zh: "（无标题）", ko: "(제목 없음)", fr: "(sans titre)", de: "(ohne Titel)", es: "(sin título)" },
 };
-const uiString = (key) => {
-  const entry = UI_STRINGS[key];
-  let locale = "en";
+const readUiLocale = () => {
   try {
     const stored = localStorage.getItem(UI_LOCALE_STORAGE_KEY);
-    if (stored && Object.hasOwn(entry, stored)) {
-      locale = stored;
-    }
+    if (stored && Object.hasOwn(UI_STRINGS.waiting, stored)) return stored;
   } catch {
     // Keep English when storage is unavailable.
   }
-  return entry[locale];
+  return "en";
 };
+let uiLocale = readUiLocale();
+const uiString = (key) => UI_STRINGS[key][uiLocale];
+
+// Only labels owned by the viewer are translated. Authored bookmark titles,
+// raw error details and search queries remain in the document's language.
+const setLocalizedText = (element, key) => {
+  element.dataset.pdfUiText = key;
+  element.textContent = uiString(key);
+};
+const liveMarkLabel = (color) => ({
+  green: "liveMarkGreen", orange: "liveMarkOrange", red: "liveMarkRed",
+})[color] || "liveMarkOrange";
 
 // Translate the static toolbar/sidebar chrome. index.html gets this from the
 // app-wide applyI18n observer; this standalone page has to do it itself.
@@ -159,6 +170,7 @@ const localizeChrome = () => {
       if (el.hasAttribute("aria-label")) el.setAttribute("aria-label", uiString(key));
     }
   };
+  setTitle("pdf-more", "moreActions");
   setTitle("pdf-sidebar-toggle", "sidebar");
   setTitle("pdf-sidebar-close", "hideSidebar");
   setTitle("pdf-prev", "prevPage");
@@ -177,7 +189,7 @@ const localizeChrome = () => {
   setTitle("pdf-download", "download");
   setTitle("pdf-print", "print");
   setTitle("pdf-reload", "reload");
-  setTitle("pdf-live-mark", "liveMarkOrange");
+  setTitle("pdf-live-mark", liveMarkLabel(document.getElementById("pdf-live-mark")?.dataset.color));
   document.getElementById("pdf-page-input")?.setAttribute("aria-label", uiString("pageWord"));
   const searchOpen = document.getElementById("pdf-search-open");
   if (searchOpen) searchOpen.textContent = uiString("search");
@@ -196,13 +208,12 @@ const localizeChrome = () => {
   };
   setText("pdf-print", "print");
   setText("pdf-reload", "reload");
-  setText("pdf-status", "waiting");
   setText("pdf-tab-outline", "outline");
   setText("pdf-tab-thumbs", "thumbnails");
-  const stored = (() => {
-    try { return localStorage.getItem(UI_LOCALE_STORAGE_KEY); } catch { return null; }
-  })();
-  if (stored) document.documentElement.lang = stored;
+  document.documentElement.lang = uiLocale;
+  for (const el of document.querySelectorAll("[data-pdf-ui-text]")) {
+    el.textContent = uiString(el.dataset.pdfUiText);
+  }
 };
 
 const createParentBridge = () => {
@@ -256,11 +267,54 @@ const createPdfDocumentOptions = (source) => ({
   disableFontFace: false,
 });
 
+// Keep a single button and event handler for every action in both toolbar layouts.
+function initPdfOverflow(embedded) {
+  const more = document.getElementById("pdf-more");
+  const panel = document.getElementById("pdf-more-actions");
+  const compact = matchMedia("(max-width: 760px)");
+  const actions = ["pdf-search-open", "pdf-sidebar-toggle", "pdf-rotate-left", "pdf-rotate-right", "pdf-download", "pdf-print", "pdf-reload"].map(id => {
+    const button = document.getElementById(id);
+    const slot = document.createComment(id);
+    button.before(slot);
+    button.setAttribute("aria-label", button.title);
+    return { button, slot };
+  });
+  const position = () => {
+    const button = more.getBoundingClientRect();
+    panel.style.top = (button.bottom + 4) + "px";
+    panel.style.right = Math.max(4, innerWidth - button.right) + "px";
+  };
+  const arrange = () => {
+    const useOverflow = embedded || compact.matches;
+    if (panel.matches(":popover-open")) panel.hidePopover();
+    more.hidden = !useOverflow;
+    for (const { button, slot } of actions) {
+      if (useOverflow) panel.append(button);
+      else slot.after(button);
+    }
+  };
+  panel.addEventListener("beforetoggle", event => {
+    if (event.newState === "open") position();
+  });
+  panel.addEventListener("click", event => {
+    if (event.target.closest("button")) panel.hidePopover();
+  }, true);
+  window.addEventListener("resize", () => { if (panel.matches(":popover-open")) position(); });
+  compact.addEventListener("change", arrange);
+  arrange();
+}
+
 const initPdfViewer = () => {
   const bridge = resolveBridge();
   const embedded = isEmbeddedViewer();
   document.body.classList.toggle("is-embedded", embedded);
   localizeChrome();
+  window.addEventListener("storage", (event) => {
+    if (event.key !== UI_LOCALE_STORAGE_KEY && event.key !== null) return;
+    uiLocale = readUiLocale();
+    localizeChrome();
+  });
+  initPdfOverflow(embedded);
   // In the app the PDF pane has no tab strip; this × closes it as the tab's
   // × did. A separate PDF window closes like any window.
   const closeButton = document.getElementById("pdf-close");
@@ -270,6 +324,7 @@ const initPdfViewer = () => {
   }
   const titleEl = document.getElementById("pdf-title");
   const statusEl = document.getElementById("pdf-status");
+  if (statusEl) setLocalizedText(statusEl, "waiting");
   const liveMarkEl = document.getElementById("pdf-live-mark");
   const sidebarToggleBtn = document.getElementById("pdf-sidebar-toggle");
   const sidebarCloseBtn = document.getElementById("pdf-sidebar-close");
@@ -353,6 +408,20 @@ const initPdfViewer = () => {
   let deferredStaticOpen = null;
   let deferredStaticFlushToken = 0;
   let staticLoadSequence = 0;
+  let pendingPdfLoad = null;
+  let requestedStaticOpen = null;
+  let staticLoadFailed = false;
+  let streamRetryTimer = null;
+  let streamRetryDelay = 300;
+  let displayedFallback = false;
+  let displayedFallbackGeneration = null;
+  let fallbackDocumentId = 0;
+  let printing = false;
+  const updateExportButtons = () => {
+    if (downloadBtn) downloadBtn.disabled = !state.doc;
+    if (printBtn) printBtn.disabled = !state.doc || printing;
+  };
+  updateExportButtons();
 
   const eventBus = new EventBus();
   const linkService = new PDFLinkService({ eventBus });
@@ -402,7 +471,12 @@ const initPdfViewer = () => {
   // Words appear for a stale paper, a search count and failures.
   const setStatusDirect = (text, tone = "idle") => {
     if (!statusEl) return;
-    statusEl.textContent = text;
+    if (typeof text === "string") {
+      delete statusEl.dataset.pdfUiText;
+      statusEl.textContent = text;
+    } else {
+      setLocalizedText(statusEl, text.key);
+    }
     statusEl.classList.toggle("is-error", tone === "error");
   };
   const setStatus = (text, tone = "idle") => {
@@ -410,8 +484,8 @@ const initPdfViewer = () => {
       setStatusDirect("", "busy");
       return;
     }
-    if (buildPreviewState === "failed") {
-      setStatusDirect(uiString("buildFailedLastGood"));
+    if (buildPreviewState === "failed" && (state.doc || isLive())) {
+      setStatusDirect({ key: "buildFailedLastGood" });
       return;
     }
     setStatusDirect(text, tone);
@@ -424,7 +498,9 @@ const initPdfViewer = () => {
     document.body.classList.toggle("pdf-needs-rebuild", stale);
     if (!isLive() && !isLivePending()) {
       // Only a stale paper is worth a word; "waiting" / "loaded" stay silent.
-      setStatus(stale && state.doc ? uiString("rebuildNeeded") : "");
+      if (staticLoadFailed) setStatus({ key: "loadFailed" }, "error");
+      else if (reloadInFlight && !state.doc) setStatus({ key: "loading" });
+      else setStatus(stale && state.doc ? { key: "rebuildNeeded" } : "");
       if (statusEl && buildPreviewState === "idle") statusEl.title = "";
     }
   };
@@ -641,9 +717,11 @@ const initPdfViewer = () => {
   const clearSidebarContent = () => {
     if (outlineEl) {
       outlineEl.innerHTML = "";
+      delete outlineEl.dataset.pdfUiText;
     }
     if (thumbnailsEl) {
       thumbnailsEl.innerHTML = "";
+      delete thumbnailsEl.dataset.pdfUiText;
     }
     if (state.thumbObserver) {
       state.thumbObserver.disconnect();
@@ -657,13 +735,16 @@ const initPdfViewer = () => {
       return;
     }
     outlineEl.innerHTML = "";
+    delete outlineEl.dataset.pdfUiText;
     if (!state.doc) {
-      outlineEl.textContent = uiString("noPdf");
+      setLocalizedText(outlineEl, "noPdf");
       return;
     }
-    const outline = await state.doc.getOutline().catch(() => null);
+    const doc = state.doc;
+    const outline = await doc.getOutline().catch(() => null);
+    if (doc !== state.doc) return;
     if (!Array.isArray(outline) || outline.length === 0) {
-      outlineEl.textContent = uiString("noOutline");
+      setLocalizedText(outlineEl, "noOutline");
       return;
     }
 
@@ -676,7 +757,8 @@ const initPdfViewer = () => {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "pdf-outline-item";
-        button.textContent = title || uiString("untitled");
+        if (title) button.textContent = title;
+        else setLocalizedText(button, "untitled");
         button.style.paddingLeft = `${8 + depth * 12}px`;
         const dest = item.dest ?? null;
         if (dest) {
@@ -726,8 +808,9 @@ const initPdfViewer = () => {
       return;
     }
     thumbnailsEl.innerHTML = "";
+    delete thumbnailsEl.dataset.pdfUiText;
     if (!state.doc || !state.pageCount) {
-      thumbnailsEl.textContent = uiString("noPdf");
+      setLocalizedText(thumbnailsEl, "noPdf");
       return;
     }
     if (state.thumbObserver) {
@@ -788,6 +871,7 @@ const initPdfViewer = () => {
   };
 
   const postReverseRequest = (payload) => {
+    if (displayedFallback && !Number.isSafeInteger(displayedFallbackGeneration)) return;
     if (!bridge || typeof bridge.postMessage !== "function") {
       return;
     }
@@ -801,6 +885,7 @@ const initPdfViewer = () => {
         x: payload.x,
         y: payload.y,
         path: state.path || null,
+        ...(displayedFallback ? { fallbackGeneration: displayedFallbackGeneration } : {}),
         ...(payload.context ? { context: payload.context } : {}),
       },
     });
@@ -845,7 +930,7 @@ const initPdfViewer = () => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "pdf-ask-axiom";
-    button.textContent = uiString("askAxiom");
+    setLocalizedText(button, "askAxiom");
     button.addEventListener("mousedown", (event) => {
       // Keep the selection: it is what the chat receives.
       event.preventDefault();
@@ -983,7 +1068,7 @@ const initPdfViewer = () => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "pdf-context-menu-item";
-    button.textContent = uiString("jumpToSource");
+    setLocalizedText(button, "jumpToSource");
     button.addEventListener("click", (clickEvent) => {
       clickEvent.preventDefault();
       clickEvent.stopPropagation();
@@ -994,7 +1079,7 @@ const initPdfViewer = () => {
     const askItem = document.createElement("button");
     askItem.type = "button";
     askItem.className = "pdf-context-menu-item";
-    askItem.textContent = uiString("askAxiom");
+    setLocalizedText(askItem, "askAxiom");
     const selectedText = currentTextSelection()?.text ?? "";
     askItem.addEventListener("click", (clickEvent) => {
       clickEvent.preventDefault();
@@ -1169,7 +1254,7 @@ const initPdfViewer = () => {
     }
   };
 
-  const resolveClickPoint = (event) => {
+  const resolveClickPoint = (event, textBias = true, includeContext = true) => {
     if (!event || typeof event !== "object") {
       return null;
     }
@@ -1218,7 +1303,7 @@ const initPdfViewer = () => {
     const viewportScale = resolveViewportScale(pageView);
     const isTextLayerClick =
       target instanceof Element && target.closest(".textLayer") instanceof Element;
-    const applyTextBias = isTextLayerClick && !isNearActiveMarker();
+    const applyTextBias = textBias && isTextLayerClick && !isNearActiveMarker();
     const rawContentX = event.clientX - rect.left - contentOffset.left;
     const rawContentY = event.clientY - rect.top - contentOffset.top;
     if (!Number.isFinite(rawContentX) || !Number.isFinite(rawContentY)) {
@@ -1264,7 +1349,7 @@ const initPdfViewer = () => {
       textLayerClick: isTextLayerClick,
       nearMarker: isNearActiveMarker(),
     };
-    const context = isTextLayerClick ? wordContextAt(event) : null;
+    const context = isTextLayerClick && includeContext ? wordContextAt(event) : null;
     return { page, x: synctexX, y: synctexY, ...(context ? { context } : {}) };
   };
 
@@ -1440,14 +1525,19 @@ const initPdfViewer = () => {
     placeBand();
   };
 
-  const applySync = (payload) => {
-    // A SyncTeX jump overrides any scroll-position restore from a reload —
-    // including a re-apply already scheduled for the next animation frame.
+  const cancelViewportRestore = () => {
     state.pendingRestore = null;
     if (restoreRafId !== null) {
       cancelAnimationFrame(restoreRafId);
       restoreRafId = null;
     }
+    if (fallbackHandoff && displayedFallback && fallbackHandoff.generation === displayedFallbackGeneration) {
+      fallbackHandoff = null;
+      discardRetainedPaper();
+    }
+  };
+  const applySync = (payload) => {
+    cancelViewportRestore();
     if (reloadInFlight) {
       // The rebuilt PDF is still loading; applying now would scroll the OLD
       // document and the imminent setDocument would reset us to the top,
@@ -1514,8 +1604,72 @@ const initPdfViewer = () => {
     if (payload.marker !== false) applySyncHighlight(pageView, payload, viewX, viewY);
   };
 
+  let lastBuiltPaper = null;
+  let openedPaperPath = null;
+  // PDF.js chooses its invisible selection font for layout. Japanese
+  // Mincho fonts, for example, are often classified there as monospace.
+  // Resolve the actual face and baseline only for a run being edited.
+  const pageText = new WeakMap();
+  const paperTypeface = async (page, node) => {
+    const view = pdfViewer.getPageView(page - 1), pdf = view?.pdfPage;
+    const div = node.parentElement?.closest('span[role="presentation"]');
+    const index = div ? view?.textLayer?.highlighter?.textDivs?.indexOf(div) : -1;
+    if (!pdf || index == null || index < 0) return null;
+    if (!pageText.has(pdf)) pageText.set(pdf, pdf.getTextContent({ disableNormalization: true })
+      .then(content => content.items.filter(item => typeof item.str === "string")));
+    const item = (await pageText.get(pdf))[index];
+    if (!item || !div.isConnected || item.str !== div.textContent || !pdf.commonObjs.has(item.fontName)) return null;
+    const font = pdf.commonObjs.get(item.fontName);
+    const name = String(font.name || "").replace(/^[A-Z]{6}\+/, "");
+    const family = name.split("-")[0].replace(/["\\]/g, "");
+    const generic = /mincho|ming|song|明朝/i.test(name) ? '"Hiragino Mincho ProN", "Yu Mincho", serif'
+      : /gothic|goth|sans/i.test(name) ? '"Hiragino Sans", "Yu Gothic", sans-serif'
+      : /roman|times|serif/i.test(name) ? '"Times New Roman", serif'
+      : getComputedStyle(div).fontFamily;
+    const style = { family: family ? '"' + family + '", ' + generic : generic, bold: Boolean(font.bold || /bold/i.test(name)),
+      italic: Boolean(font.italic || /italic|oblique/i.test(name)) };
+    const rect = view.div.getBoundingClientRect(), scale = resolveViewportScale(view);
+    const [, baseline] = view.viewport.convertToViewportPoint(item.transform[4], item.transform[5]);
+    const em = Math.hypot(item.transform[2], item.transform[3]) * view.viewport.scale * scale.y;
+    if (!rect.height || !(em > 0) || view.viewport.rotation % 360 !== 0) return null;
+    const context = document.createElement("canvas").getContext("2d");
+    context.font = (style.italic ? "italic " : "") + (style.bold ? "bold " : "") + em + "px " + style.family;
+    const metrics = context.measureText(item.str);
+    const ascent = (em + metrics.fontBoundingBoxAscent - metrics.fontBoundingBoxDescent) / 2;
+    return { ...style, em: em / rect.height,
+      top: (resolvePageContentOffset(view.div).top + baseline * scale.y - ascent) / rect.height };
+  };
+  const paperEditor = fallbackPaperEditor({ bridge, pages: pagesEl, scroll: scrollEl, typeAt: paperTypeface,
+    pointAt: event => resolveClickPoint(event, false, false),
+    emptyTextRect: (page, point) => {
+      const view = pdfViewer.getPageView(page - 1);
+      if (!view?.div.isConnected || !view.viewport || view.viewport.rotation % 360 !== 0) return null;
+      const [x, baseline] = view.viewport.convertToViewportPoint(point.x, point.y);
+      const scale = resolveViewportScale(view), rect = view.div.getBoundingClientRect();
+      const offset = resolvePageContentOffset(view.div), height = point.em * view.viewport.scale * scale.y;
+      return new DOMRect(rect.left + offset.left + x * scale.x,
+        rect.top + offset.top + baseline * scale.y - height * 0.8, 0, height);
+    },
+    currentPaper: () => displayedFallback && fallbackPaperUrl && openedPaperPath === state.path && Number.isSafeInteger(displayedFallbackGeneration)
+      ? { generation: displayedFallbackGeneration, pdfPath: state.path, documentId: fallbackDocumentId } : null });
+  let fallbackPaperUrl = null;
+  let fallbackGeneration = null;
+  let fallbackHandoff = null;
+  const clearFallbackPaper = () => {
+    clearTimeout(streamRetryTimer);
+    streamRetryDelay = 300;
+    if (!fallbackPaperUrl) return false;
+    if (fallbackPaperUrl.startsWith("blob:")) URL.revokeObjectURL(fallbackPaperUrl);
+    fallbackPaperUrl = null;
+    return true;
+  };
+
   const loadDocument = async (url, path) => {
     const loadSequence = ++staticLoadSequence;
+    staticLoadFailed = false;
+    const supersededLoad = pendingPdfLoad;
+    pendingPdfLoad = null;
+    void supersededLoad?.destroy().catch(() => {});
     // Re-opening the SAME PDF (a rebuild, or the reload button) should keep the
     // current scroll position instead of jumping back to the top — the user is
     // often zoomed into one spot and rebuilding repeatedly. Zoom level is
@@ -1525,21 +1679,53 @@ const initPdfViewer = () => {
     // pages can stand at other offsets, restoreScrollPosition)
     const restorePosition =
       isReload && scrollEl
-        ? { scrollTop: scrollEl.scrollTop, scrollLeft: scrollEl.scrollLeft, sync: captureStaticViewportSync() }
+        ? { scrollTop: scrollEl.scrollTop, scrollLeft: scrollEl.scrollLeft, sync: captureStaticViewportSync(),
+          page: pdfViewer.currentPageNumber }
         : null;
     // (the PDF a Jump during the Build was made on is being replaced)
     if (isReload && buildJump) buildJump.reload = true;
-    state.url = url;
-    state.path = path;
+    const isFallback = url === fallbackPaperUrl;
+    scrollEl?.classList.toggle("pdf-live-viewport", isFallback && (
+      !!fallbackHandoff || (isReload && scrollEl.classList.contains("pdf-live-viewport"))
+    ));
+    const generation = isFallback ? fallbackGeneration : null;
+    if (state.doc && !isReload) {
+      const previous = state.doc;
+      state.doc = null;
+      state.path = null;
+      state.url = null;
+      displayedFallback = false;
+      displayedFallbackGeneration = null;
+      fallbackDocumentId++;
+      paperEditor.view(null, generation);
+      pdfViewer.setDocument(null);
+      linkService.setDocument(null, null);
+      void previous.destroy().catch(() => {});
+      clearSidebarContent();
+      hideAskButton();
+      if (restoreRafId !== null) {
+        cancelAnimationFrame(restoreRafId);
+        restoreRafId = null;
+      }
+      state.pageCount = 0;
+      lastPageCount = 0;
+      if (pageInput) pageInput.value = "";
+      updatePageCount();
+      updateExportButtons();
+      if (isFindOpen()) renderFindCount(0, 0);
+    }
+    if (titleEl) titleEl.textContent = path ? path.split(/[\\/]/).pop() : "PDF";
     state.pendingSync = null;
     state.pendingRestore = restorePosition;
     reloadInFlight = true;
-    clearSidebarContent();
     clearSyncMarker();
-    setStatus(uiString("loading"));
+    setStatus({ key: "loading" });
+    let task;
     try {
-      const task = pdfjs.getDocument(createPdfDocumentOptions(url));
+      task = pdfjs.getDocument(createPdfDocumentOptions(url));
+      pendingPdfLoad = task;
       const nextDocument = await task.promise;
+      if (pendingPdfLoad === task) pendingPdfLoad = null;
       // Retain an existing fallback while Live owns the surface. The first
       // static PDF must still load: activation can precede its fetch, and
       // deferring it would leave the viewer empty until canonical arrives.
@@ -1551,12 +1737,19 @@ const initPdfViewer = () => {
         try { await nextDocument?.destroy?.(); } catch { /* superseded document */ }
         return;
       }
+      const previousDocument = state.doc;
       state.doc = nextDocument;
+      state.path = path;
+      state.url = url;
+      displayedFallback = isFallback;
+      displayedFallbackGeneration = generation;
+      streamRetryDelay = 300;
+      paperEditor.view(generation, null);
+      if (!isFallback || !isReload) paperEditor.close();
+      updateExportButtons();
       state.pageCount = state.doc.numPages;
       if (!isLive()) updatePageCount();
-      if (titleEl) {
-        titleEl.textContent = path ? path.split(/[\\/]/).slice(-1)[0] : "PDF";
-      }
+      clearSidebarContent();
       // A PDF replacing one on screen (a Build's, a reload) is laid out at the
       // old scale and the top before pagesinit gives it its width and place:
       // it is not shown until then and its first page is drawn (at most
@@ -1569,12 +1762,17 @@ const initPdfViewer = () => {
       }
       pdfViewer.setDocument(state.doc);
       linkService.setDocument(state.doc, null);
+      void previousDocument?.destroy?.().catch(() => {});
       renderOutline();
       if (!embedded) {
         renderThumbnails();
       }
       refreshStaticStatus();
     } catch (error) {
+      if (task && pendingPdfLoad === task) {
+        pendingPdfLoad = null;
+        void task.destroy().catch(() => {});
+      }
       if (loadSequence !== staticLoadSequence) return;
       if (liveSurfaceOwned) {
         deferredStaticOpen = { url, path };
@@ -1582,7 +1780,21 @@ const initPdfViewer = () => {
         return;
       }
       reloadInFlight = false;
-      setStatus(uiString("loadFailed"));
+      staticLoadFailed = true;
+      setStatus({ key: "loadFailed" }, "error");
+      const temporaryReadError = error?.name === "ResponseException" ? !error.status || error.status >= 500 :
+        error?.name === "TypeError" || error?.name === "NetworkError";
+      if (url === fallbackPaperUrl && url.startsWith("tex64-pdf:") && temporaryReadError) {
+        // Only the visible workspace revision may retry. Reopen its stream,
+        // without compiling the source again for a transient read failure.
+        clearTimeout(streamRetryTimer);
+        streamRetryTimer = setTimeout(() => {
+          if (loadSequence === staticLoadSequence && url === fallbackPaperUrl && path === openedPaperPath) {
+            requestStaticDocument(url, path);
+          }
+        }, streamRetryDelay);
+        streamRetryDelay = Math.min(30000, streamRetryDelay * 2);
+      }
       // eslint-disable-next-line no-console
       console.error(error);
     }
@@ -1591,7 +1803,9 @@ const initPdfViewer = () => {
   const requestStaticDocument = (url, path) => {
     // A newer PDF open also supersedes a deferred post-Live fallback. Its
     // blob may already have been revoked when the viewer changed tabs.
+    clearTimeout(streamRetryTimer);
     deferredStaticFlushToken += 1;
+    requestedStaticOpen = { url, path };
     if (liveSurfaceOwned && state.doc) {
       deferredStaticOpen = { url, path };
       return;
@@ -1602,10 +1816,15 @@ const initPdfViewer = () => {
 
   const downloadPdf = async () => {
     if (!state.doc) return;
-    const data = await state.doc.getData();
+    const { doc, path } = state;
+    const data = await doc.getData().catch(() => {
+      if (doc === state.doc) setStatus({ key: "loadFailed" }, "error");
+      return null;
+    });
+    if (!data || doc !== state.doc) return;
     const blob = new Blob([data], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
-    const filename = state.path ? state.path.split(/[\\/]/).pop() : "document.pdf";
+    const filename = path ? path.split(/[\\/]/).pop() : "document.pdf";
     const link = document.createElement("a");
     link.href = url;
     if (filename) {
@@ -1687,15 +1906,12 @@ const initPdfViewer = () => {
   };
   // The reader's own move ends the re-assertion: the paper is theirs again
   // (it went on for up to 90 frames, pulling the page back from under a
-  // wheel or a drag).
+  // wheel or a drag). The restore itself is called off by
+  // cancelViewportRestore (the wheel/pointer/touch and paging-key listeners
+  // below); this one forgets a Jump made during a Build.
   const stopRestoreOnInput = () => {
-    state.pendingRestore = null;
     // (the reader has moved on from a Jump made during a Build)
     buildJump = null;
-    if (restoreRafId !== null) {
-      cancelAnimationFrame(restoreRafId);
-      restoreRafId = null;
-    }
   };
   for (const type of ["wheel", "pointerdown", "touchstart"]) {
     scrollEl?.addEventListener(type, stopRestoreOnInput, { passive: true, capture: true });
@@ -1715,6 +1931,11 @@ const initPdfViewer = () => {
       state.pendingSync = null;
       state.pendingRestore = null;
       applySync(payload);
+    } else if (fallbackHandoff && displayedFallback && displayedFallbackGeneration === fallbackHandoff.generation) {
+      state.pendingRestore = null;
+      // At pagesinit PDF.js gives every page the dimensions of page one.
+      // Bring the target into view so PDF.js fetches its actual paper box.
+      setPage(fallbackHandoff.viewport?.page ?? fallbackHandoff.page ?? 1);
     } else if (pendingPage && state.doc) {
       state.pendingRestore = null;
       pdfViewer.currentPageNumber = Math.max(1, Math.min(state.doc.numPages, pendingPage));
@@ -1722,6 +1943,15 @@ const initPdfViewer = () => {
     } else if (state.pendingRestore) {
       const target = state.pendingRestore;
       state.pendingRestore = null;
+      if (target.page > state.doc.numPages) {
+        // The page under the reader was removed. Its old pixel offset can
+        // otherwise land in the empty bottom margin of the remaining page.
+        setPage(state.doc.numPages);
+        const page = pdfViewer.getPageView(state.doc.numPages - 1)?.div;
+        if (page) target.scrollTop = Math.max(0, scrollEl.scrollTop + page.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top);
+        // (that page's paper point is gone too: the remaining page's top stands)
+        target.sync = null;
+      }
       restoreScrollPosition(target);
     }
     // A Jump made during the Build that made this PDF: the host is asked for
@@ -1752,7 +1982,25 @@ const initPdfViewer = () => {
     if (pdfViewer.viewer?.style) pdfViewer.viewer.style.visibility = "";
   };
   eventBus.on("pagerendered", () => releaseStaticPaint());
-  eventBus.on("pagerendered", () => {
+  eventBus.on("pagerendered", ({ pageNumber, source, cssTransform, error }) => {
+    if (fallbackHandoff && displayedFallback && fallbackHandoff.generation === displayedFallbackGeneration &&
+        !cssTransform && !error && source === pdfViewer.getPageView(pageNumber - 1)) {
+      const page = Math.min(fallbackHandoff.viewport?.page ?? fallbackHandoff.page ?? 1, state.doc.numPages);
+      if (page === pageNumber) {
+        const previousScale = pdfViewer.currentScale;
+        positionStaticAtViewport(fallbackHandoff.viewport, page);
+        state.scale = pdfViewer.currentScale;
+        state.scaleMode = "manual";
+        restoreScrollPosition({ scrollTop: scrollEl.scrollTop, scrollLeft: scrollEl.scrollLeft });
+        // A scale change schedules a new bitmap. Reveal the page when
+        // the bitmap at the reader's magnification has actually painted.
+        if (state.scale === previousScale) {
+          fallbackHandoff = null;
+          discardRetainedPaper();
+        }
+      }
+    }
+    paperEditor.position();
     if (!state.pendingSync) {
       return;
     }
@@ -1765,13 +2013,19 @@ const initPdfViewer = () => {
   // reader's own (zoom, scroll, click, keys) ends that moment at once.
   eventBus.on("scalechanging", () => clearSyncMarker());
   for (const type of ["wheel", "pointerdown", "touchstart"]) {
-    pagesEl?.addEventListener(type, () => {
+    scrollEl?.addEventListener(type, () => {
+      cancelViewportRestore();
       if (state.activeMarker) clearSyncMarker();
     }, { passive: true, capture: true });
   }
-  document.addEventListener("keydown", () => {
+  document.addEventListener("keydown", (event) => {
+    if (["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown"].includes(event.key) &&
+        !event.target.closest?.("input, textarea, math-field, [contenteditable=true]")) cancelViewportRestore();
     if (state.activeMarker) clearSyncMarker();
   }, true);
+  for (const control of [prevBtn, nextBtn, zoomInBtn, zoomOutBtn, fitWidthBtn, fitPageBtn]) {
+    control?.addEventListener("click", cancelViewportRestore, true);
+  }
   window.addEventListener("resize", () => {
     if (state.activeMarker) clearSyncMarker();
   });
@@ -1779,7 +2033,8 @@ const initPdfViewer = () => {
     if (!event || typeof event.scale !== "number") {
       return;
     }
-    updateScaleState(event.scale);
+    state.scale = event.scale;
+    if (!isLive()) updateZoomLabel(event.scale);
   });
 
   eventBus.on("pagechanging", (event) => {
@@ -1787,7 +2042,7 @@ const initPdfViewer = () => {
     // keeps the live toolbar's page: PDF.js names the most visible page, the
     // live paper the top one (tex64-internal #121). Moved, it names its own.
     if (scrollEl && coverHoldsReaderPage(liveViewportHandoff, scrollEl.scrollTop)) return;
-    if (pageInput) {
+    if (pageInput && !isLive()) {
       pageInput.value = String(event.pageNumber);
     }
   });
@@ -1897,23 +2152,24 @@ const initPdfViewer = () => {
 
   if (pageInput) {
     pageInput.addEventListener("change", () => {
+      cancelViewportRestore();
       const value = Number.parseInt(pageInput.value, 10);
-      if (Number.isFinite(value)) {
-        setPage(value);
-      }
+      if (Number.isFinite(value)) setPage(value);
+      // Staying on the current page does not emit a pdf.js pagechanging event.
+      pageInput.value = String(pdfViewer.currentPageNumber || 1);
     });
   }
 
   if (prevBtn) {
     prevBtn.addEventListener("click", () => {
-      const current = Number.parseInt(pageInput?.value ?? "1", 10);
+      const current = pdfViewer.currentPageNumber;
       scrollToPage(Math.max(1, current - 1));
     });
   }
 
   if (nextBtn) {
     nextBtn.addEventListener("click", () => {
-      const current = Number.parseInt(pageInput?.value ?? "1", 10);
+      const current = pdfViewer.currentPageNumber;
       scrollToPage(Math.min(state.pageCount, current + 1));
     });
   }
@@ -1946,13 +2202,13 @@ const initPdfViewer = () => {
     if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
     if (event.key === "=" || event.key === "+") {
       event.preventDefault();
-      applyScaleTo(state.scale + 0.1, getScrollCenter());
+      zoomInBtn?.click();
     } else if (event.key === "-") {
       event.preventDefault();
-      applyScaleTo(state.scale - 0.1, getScrollCenter());
+      zoomOutBtn?.click();
     } else if (event.key === "0") {
       event.preventDefault();
-      applyScaleMode("fit-width");
+      fitWidthBtn?.click();
     }
   });
 
@@ -2012,7 +2268,11 @@ const initPdfViewer = () => {
     if (!findBar || !findCount) return;
     const noMatch = Boolean(findQuery) && total === 0;
     findBar.classList.toggle("is-no-match", noMatch);
-    findCount.textContent = !findQuery ? "" : noMatch ? uiString("findNoMatch") : `${current} / ${total}`;
+    if (noMatch) setLocalizedText(findCount, "findNoMatch");
+    else {
+      delete findCount.dataset.pdfUiText;
+      findCount.textContent = findQuery ? `${current} / ${total}` : "";
+    }
   };
   const clearFindHighlights = () => {
     if (liveFindQuery) {
@@ -2081,7 +2341,15 @@ const initPdfViewer = () => {
     // Back to what had the keyboard (the Live frame, a toolbar control).
     const returnTo = findReturnFocus;
     findReturnFocus = null;
-    if (returnTo instanceof HTMLElement && returnTo.isConnected) returnTo.focus({ preventScroll: true });
+    if (returnTo instanceof HTMLElement) {
+      if (returnTo.isConnected && returnTo.checkVisibility()) {
+        returnTo.focus({ preventScroll: true });
+      } else {
+        // Resizing the PDF can move its search action into or out of the closed menu.
+        const trigger = searchOpenBtn?.checkVisibility() ? searchOpenBtn : document.getElementById("pdf-more");
+        trigger?.focus({ preventScroll: true });
+      }
+    }
   };
   eventBus.on("updatefindmatchescount", ({ matchesCount }) => {
     if (!isFindOpen() || isLive()) return;
@@ -2135,26 +2403,86 @@ const initPdfViewer = () => {
     });
   }
 
-  if (printBtn) {
-    printBtn.addEventListener("click", () => {
+  const printPdf = async () => {
+    const doc = state.doc;
+    if (!doc || printBtn.disabled) return;
+    printing = true;
+    updateExportButtons();
+    const paper = document.createElement("div");
+    paper.id = "pdf-print-pages";
+    const sheetStyle = document.createElement("style");
+    const objectUrls = [];
+    const sizes = [];
+    try {
+      for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
+        if (doc !== state.doc) return;
+        const page = await doc.getPage(pageNumber);
+        const size = page.getViewport({ scale: 1 });
+        const viewport = page.getViewport({ scale: Math.min(3, 6000 / Math.max(size.width, size.height)) });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        await page.render({ canvas, viewport, intent: "print" }).promise;
+        const blob = await new Promise(resolve => canvas.toBlob(resolve));
+        canvas.width = canvas.height = 0;
+        if (!blob) throw new Error("Empty print image");
+        const url = URL.createObjectURL(blob);
+        objectUrls.push(url);
+        const image = document.createElement("img");
+        image.src = url;
+        await image.decode();
+        const sheet = document.createElement("section");
+        const name = "pdfsheet" + pageNumber;
+        sheet.style.page = name;
+        sheet.style.width = size.width + "pt";
+        sheet.style.height = size.height + "pt";
+        sizes.push(`@page ${name} { size: ${size.width}pt ${size.height}pt; margin: 0; }`);
+        sheet.append(image);
+        paper.append(sheet);
+      }
+      if (doc !== state.doc) return;
+      sheetStyle.textContent = sizes.join("\n");
+      document.head.append(sheetStyle);
+      document.body.append(paper);
       window.print();
-    });
-  }
+    } catch {
+      if (doc === state.doc) setStatus({ key: "printFailed" }, "error");
+    } finally {
+      paper.remove();
+      sheetStyle.remove();
+      for (const url of objectUrls) URL.revokeObjectURL(url);
+      printing = false;
+      updateExportButtons();
+    }
+  };
+  printBtn?.addEventListener("click", printPdf);
+  document.addEventListener("keydown", event => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p" && !event.altKey && !isLive() && state.doc) {
+      event.preventDefault();
+      void printPdf();
+    }
+  });
 
   if (reloadBtn) {
     reloadBtn.addEventListener("click", () => {
-      if (!state.url) {
-        return;
+      if (!requestedStaticOpen) return;
+      const url = new URL(requestedStaticOpen.url, location.href);
+      if (["file:", "http:", "https:"].includes(url.protocol)) {
+        url.searchParams.set("t", String(Date.now()));
       }
-      const baseUrl = state.url.split("?")[0];
-      const nextUrl = `${baseUrl}?t=${Date.now()}`;
-      requestStaticDocument(nextUrl, state.path);
+      requestStaticDocument(url.href, requestedStaticOpen.path);
     });
   }
 
   // ---- live preview (tdom) -----------------------------------------------
-  const liveFrame = document.getElementById("pdf-live-frame");
+  let liveFrame = document.getElementById("pdf-live-frame");
+  let retainedLiveFrame = null;
+  const discardRetainedPaper = () => {
+    retainedLiveFrame?.remove();
+    retainedLiveFrame = null;
+  };
   let liveToolbar = normalizeLiveToolbarSnapshot();
+  let livePdfScale = null;
   let liveActivationSequence = 0;
   let liveRevealSequence = 0;
   let liveErrorSurfaceSequence = 0;
@@ -2232,6 +2560,18 @@ const initPdfViewer = () => {
   const isLivePending = () => document.body.classList.contains("is-live-pending");
   const isLiveHeld = () => document.body.classList.contains("is-live-held");
   const hasLiveSession = () => isLive() || isLivePending() || isLiveHeld();
+  const liveViewportSync = (viewport) => {
+    if (!Number.isInteger(viewport?.page) || viewport.page < 1) return null;
+    const sync = { page: viewport.page, marker: false };
+    if (viewport.width > 0 && Number.isFinite(viewport.x)) {
+      sync.viewportWidth = viewport.width;
+      sync.viewportX = viewport.x;
+    }
+    if (viewport.paperHeight > 0 && Number.isFinite(viewport.y)) {
+      sync.y = viewport.y * viewport.paperHeight;
+    }
+    return sync;
+  };
   const postLive = (action, extra) => {
     const target = liveFrame && liveFrame.contentWindow;
     // (a frame placed while this PDF is what the reader sees draws it as wide: staticPaperWidths)
@@ -2243,6 +2583,43 @@ const initPdfViewer = () => {
       action,
       ...(extra || {}),
     }, "*");
+  };
+  const paperKey = "tex64.appearance.darkPdfPages";
+  const syncPaperColor = () => {
+    let dark = false;
+    try {
+      dark = embedded ? window.parent.document.documentElement.dataset.darkPdfPages === "true"
+                      : localStorage.getItem(paperKey) === "true";
+    } catch { /* Use the original paper color if the host is unavailable. */ }
+    document.documentElement.dataset.darkPdfPages = String(dark);
+    if (liveActivation) postLive("paper-appearance", { dark });
+  };
+  syncPaperColor();
+  if (embedded) {
+    const observer = new MutationObserver(syncPaperColor);
+    observer.observe(window.parent.document.documentElement, { attributes: true, attributeFilter: ["data-dark-pdf-pages"] });
+  } else {
+    window.addEventListener("storage", event => { if (event.key === paperKey) syncPaperColor(); });
+  }
+  liveFrame?.addEventListener("load", syncPaperColor);
+  const retainVisiblePaper = () => {
+    // An unbuilt manuscript has no static PDF behind the live frame.
+    // Leave the painted browser surface in place during engine recovery.
+    // Moving an iframe in the DOM would reload it and lose that surface.
+    discardRetainedPaper();
+    retainedLiveFrame = liveFrame;
+    const nextFrame = document.createElement("iframe");
+    nextFrame.id = liveFrame.id;
+    nextFrame.title = liveFrame.title;
+    nextFrame.className = liveFrame.className;
+    liveFrame.removeAttribute("id");
+    liveFrame.className = "pdf-retained-live-frame";
+    liveFrame.inert = true;
+    liveFrame.setAttribute("aria-hidden", "true");
+    liveFrame.removeEventListener("load", syncPaperColor);
+    liveFrame.after(nextFrame);
+    liveFrame = nextFrame;
+    liveFrame.addEventListener("load", syncPaperColor);
   };
   const renderLiveToolbar = () => {
     if (pageCountEl) {
@@ -2260,13 +2637,11 @@ const initPdfViewer = () => {
         pageInputForLive.value = String(liveToolbar.page);
       }
     }
-    if (zoomLabel) {
-      // (on this viewer's scale: one paper at one width reads one number on either surface)
-      const css1 = cssPerScaleOne(liveViewportCenter?.page);
-      const paperPx = Number(liveViewportCenter?.paperPx);
-      const scale = css1 > 0 && paperPx > 0 ? paperPx / css1 : liveToolbar.zoom;
-      zoomLabel.textContent = `${Math.round(scale * 100)}%`;
-    }
+    // (on this viewer's scale: one paper at one width reads one number on either surface;
+    // an engine without the paper width says its PDF scale itself)
+    const css1 = cssPerScaleOne(liveViewportCenter?.page);
+    const paperPx = Number(liveViewportCenter?.paperPx);
+    updateZoomLabel(css1 > 0 && paperPx > 0 ? paperPx / css1 : livePdfScale ?? liveToolbar.zoom);
   };
   const applyLiveSync = (payload) => {
     if (!payload || !hasLiveSession()) return false;
@@ -2304,13 +2679,14 @@ const initPdfViewer = () => {
     });
     if (!liveMarkEl) return;
     const color = liveStatusMark.color;
-    const label = uiString({ green: "liveMarkGreen", orange: "liveMarkOrange", red: "liveMarkRed" }[color]);
+    const label = uiString(liveMarkLabel(color));
     liveMarkEl.dataset.color = color;
     liveMarkEl.setAttribute("aria-label", label);
     liveMarkEl.title = label;
   };
   const reportLiveRuntimeError = (error) => {
-    bridge?.postMessage?.({ type: "live-runtime-error", payload: error ?? null });
+    bridge?.postMessage?.({ type: "live-runtime-error", payload: error ?? null,
+      generation: liveActivation?.generation, url: liveActivation?.url });
   };
   const resetLiveMark = () => {
     reportLiveRuntimeError(null);
@@ -2319,7 +2695,25 @@ const initPdfViewer = () => {
   };
   const renderLiveStatus = (data) => {
     renderLiveMark(data);
-    reportLiveRuntimeError(data?.status?.structuredBootError);
+    const view = resolvePdfLiveStatus(data?.status, data?.presentationPending);
+    const error = view?.key === "liveError" && view.detail
+      ? { code: "TDOM_TEX_ERROR", message: view.detail }
+      : data?.status?.structuredBootError ?? (data?.status?.bibliographyError
+        ? { code: "TDOM_TEX_ERROR", message: data.status.bibliographyError } : null);
+    reportLiveRuntimeError(error);
+    const firstPaperMissing = isLivePending() && !state.doc && !retainedLiveFrame && !data?.status?.canonical?.id;
+    const emptied = data?.status?.canonical?.errorCode === "TDOM_PREVIEW_NO_PAGES";
+    // A resident page can still show the previous source when TeX stops in
+    // a newly opened formula. Let the shell try the current manuscript while
+    // keeping the painted page and any focused native field in place.
+    const stoppedManuscript = isLive() && !(document.hasFocus() && document.activeElement === liveFrame) &&
+      /Emergency stop\.|Missing \$ inserted|File ended while scanning|ended by \\end\{document\}/i.test(view?.detail || "");
+    if (view?.key === "liveError" && (firstPaperMissing || emptied || stoppedManuscript) && Number.isInteger(data.status?.srcRev) &&
+        data.status.canonical.errorRev === data.status.srcRev) {
+      bridge?.postMessage?.({ type: "live-empty-error", payload: {
+        generation: liveActivation.generation, url: liveActivation.url, srcRev: data.status.srcRev, retainedPaper: stoppedManuscript,
+      } });
+    }
     const search = data?.search;
     if (isFindOpen() && findQuery && search?.query === findQuery) {
       renderFindCount(Number(search.current) || 0, Number(search.total) || 0);
@@ -2329,12 +2723,11 @@ const initPdfViewer = () => {
       if (statusEl) statusEl.title = search.query;
       return;
     }
-    const view = resolvePdfLiveStatus(data?.status, data?.presentationPending);
     if (!view) return;
     // While typing the paper just follows the keys: no "updating", "rendering"
     // or compile chatter, and no spinner (progress belongs to the Build
     // button); errors keep their text.
-    if (view.tone === "error") setStatus(uiString(view.key), "error");
+    if (view.tone === "error") setStatus({ key: view.key }, "error");
     else setStatus("", "idle");
     if (statusEl) statusEl.title = view.detail;
   };
@@ -2353,9 +2746,11 @@ const initPdfViewer = () => {
     pendingLiveErrorSurface = null;
   };
   const deactivateLive = () => {
-    // (the paper point Live had at its centre: liveReaderSync)
-    const readerSync = isLive() ? liveReaderSync() : null;
+    // (the paper point Live had at its centre: liveReaderSync; a handoff to
+    // the fallback paper carries the reader's place itself: fallbackHandoff)
+    const readerSync = isLive() && !fallbackHandoff ? liveReaderSync() : null;
     if (readerSync) carryLiveWidth(liveViewportCenter);
+    if (!fallbackHandoff) discardRetainedPaper();
     // Advancing the sequence also invalidates a delayed ready message from a
     // frame that is about to be navigated to about:blank.
     liveActivationSequence += 1;
@@ -2428,7 +2823,9 @@ const initPdfViewer = () => {
     const paperHeight = Math.max(1, Number(resolvePagePdfHeight(pageView)) || renderedHeight);
     const paperY = within / renderedHeight * paperHeight;
     // Where the reader was, not a Jump target: no landing marker.
-    return { page, x: 0, y: paperY, blockY: paperY, blockHeight: 0, marker: false };
+    const viewportWidth = pageView.div.clientWidth;
+    const viewportX = (scrollRect.left + scrollEl.clientWidth / 2 - pageRect.left - contentOffset.left) / viewportWidth;
+    return { page, x: 0, y: paperY, blockY: paperY, blockHeight: 0, marker: false, viewportWidth, viewportX };
   };
   // A goto-sync the frame echoes back once it has scrolled to that paper point.
   const viewportHandoff = (sync) => ({
@@ -2542,6 +2939,8 @@ const initPdfViewer = () => {
   // the cover replaces the handoff). Whatever else stalls stays under the
   // cover, the static PDF at the reader's place, with the place kept: Live
   // is revealed only where it has painted it.
+  const syncAtRemainingPage = (sync, page) => page === sync.page
+    ? sync : { ...sync, page, blockY: 0, y: 0, blockHeight: 0 };
   const liveViewportPositioned = (data) => {
     const handoff = liveViewportHandoff;
     if (!handoff) return true;
@@ -2563,6 +2962,7 @@ const initPdfViewer = () => {
       handoff.progress = null;
       reloadLiveFrame();
     }
+
     return false;
   };
   // After a Build the frame may only replace its PDF once it has applied the
@@ -2576,8 +2976,11 @@ const initPdfViewer = () => {
   // holds until they stop. A canonical generation at or past the first
   // post-Build edit is paper that already contains it: hand over then too,
   // instead of keeping the Build PDF up for the whole run of typing.
-  // (app/pdf-live-handoff.ts livePaperPresentableFor: the frame's paint first)
-  const livePaperPresentable = (data) => livePaperPresentableFor(data, liveActivation?.expectedSrcRev);
+  // (app/pdf-live-handoff.ts livePaperPresentableFor: the frame's paint first;
+  // a first paper with nothing beneath it shows once the frame painted it)
+  const livePaperPresentable = (data) => livePaperPresentableFor(data, liveActivation?.expectedSrcRev) ||
+    (!Number.isInteger(liveActivation?.expectedSrcRev) && !state.doc && !retainedLiveFrame &&
+      data?.painted !== false && data?.firstPaperPainted === true);
   // A held frame keeps following the static viewport so the first edit can
   // replace the paper without a positioning round trip.
   const alignHeldFrame = (data) => {
@@ -2588,7 +2991,7 @@ const initPdfViewer = () => {
     if (!target) return;
     const page = Number(data.syncPage ?? data.page);
     if (page <= target && page >= target - LIVE_HANDOFF_PAGE_SLACK) return;
-    postLive("goto-sync", { ...sync, page: target });
+    postLive("goto-sync", syncAtRemainingPage(sync, target));
   };
   const activateLive = (data) => {
     if (!liveFrame || !liveActivation || !isLivePending() || data?.action) return false;
@@ -2603,6 +3006,12 @@ const initPdfViewer = () => {
     if (Number.isInteger(liveActivation.documentEpoch) &&
         documentEpoch < liveActivation.documentEpoch) return false;
     renderLiveStatus(data);
+    // Keep the focused paper field, including a native IME composition,
+    // until the user finishes. The resident frame can paint underneath.
+    if (paperEditor.isEditing()) {
+      if (liveActivation.reveal) cancelLiveReveal();
+      return false;
+    }
     // Move the still-covered frame before judging its paper: the pages it
     // must present are the ones at the handed-off viewport. A reveal staged
     // on an earlier snapshot is called off when this one no longer shows
@@ -2635,6 +3044,7 @@ const initPdfViewer = () => {
         const reveal = activation.reveal;
         if (!reveal || reveal.token !== revealToken || liveRevealSequence !== revealToken) return;
         if (liveActivation !== activation || !isLivePending()) return;
+        if (paperEditor.isEditing()) { cancelLiveReveal(); return; }
         if (activation.id !== data.activationId || reveal.documentEpoch !== documentEpoch) return;
         if (Number.isInteger(activation.pendingDocumentEpoch) &&
             documentEpoch !== activation.pendingDocumentEpoch) return;
@@ -2644,6 +3054,7 @@ const initPdfViewer = () => {
 
         activation.reveal = null;
         activation.documentEpoch = documentEpoch;
+        activation.viewport = latestData.viewport;
         activation.pendingDocumentEpoch = null;
         // The handoff ends here, and the place it reached is the reader's:
         // a reset before the frame's next snapshot still has it.
@@ -2662,6 +3073,7 @@ const initPdfViewer = () => {
         // replaces the opaque pdf.js cover on this compositor commit.
         document.body.classList.remove("is-live-pending");
         document.body.classList.add("is-live");
+        discardRetainedPaper();
         liveFrame.setAttribute("aria-hidden", "false");
         liveFrame.dataset.livePhase = "active";
         renderLiveToolbar();
@@ -2727,6 +3139,26 @@ const initPdfViewer = () => {
     const sync = captureStaticViewportSync();
     return sync ? { ...sync, page: sync.page + (wanted - shown) } : pageOnly;
   };
+  const positionStaticAtViewport = (viewport, defaultPage) => {
+    const view = state.doc && Number.isInteger(viewport?.page) && viewport.page >= 1
+      ? pdfViewer.getPageView(Math.min(viewport.page, state.doc.numPages) - 1)
+      : null;
+    if (view && viewport.width > 0 && view.viewport?.width > 0 &&
+        Number.isFinite(viewport.x) && Number.isFinite(viewport.y)) {
+      // Both zoom indicators use PDF points, but the two renderers have
+      // different fit-width baselines. Match the sheet's rendered width.
+      if (Math.abs(view.viewport.width - viewport.width) > 0.5) {
+        pdfViewer.currentScale = clampScale(view.scale * viewport.width / view.viewport.width);
+      }
+      setPage(viewport.page);
+      const rect = view.div.getBoundingClientRect();
+      const bounds = scrollEl.getBoundingClientRect();
+      scrollEl.scrollLeft += rect.left + view.div.clientLeft + view.div.clientWidth * viewport.x - bounds.left - scrollEl.clientWidth / 2;
+      scrollEl.scrollTop += rect.top + view.div.clientTop + view.div.clientHeight * viewport.y - bounds.top - scrollEl.clientHeight / 2;
+    } else if (state.doc) {
+      setPage(defaultPage);
+    }
+  };
   const holdStaticForDocumentReset = (data) => {
     if (!liveFrame || !liveActivation) return false;
     const documentEpoch = Number(data?.documentEpoch);
@@ -2735,6 +3167,15 @@ const initPdfViewer = () => {
     const pendingEpoch = Number(liveActivation.pendingDocumentEpoch);
     if (Number.isInteger(adoptedEpoch) && documentEpoch <= adoptedEpoch) return false;
     if (Number.isInteger(pendingEpoch) && documentEpoch < pendingEpoch) return false;
+    if (isLive() && data.viewport) liveActivation.viewport = data.viewport;
+    if (!state.doc && isLive() && liveActivation.target) {
+      // The child keeps its old pages until reset-ack. Keep that surface
+      // intact and let a fresh iframe adopt the new document instead.
+      const sync = liveViewportSync(data.viewport ?? liveActivation.viewport) ??
+        { page: liveToolbar.page, marker: false };
+      setLiveMode(liveActivation, { documentEpoch, sync });
+      return true;
+    }
 
     // The reader's place on the live paper (tex64-internal #121). The cover
     // shows it instead of its own stale scroll (often its first page), the
@@ -2775,7 +3216,7 @@ const initPdfViewer = () => {
     postLive("reset-ack", { documentEpoch });
     return true;
   };
-  const setLiveMode = (payload) => {
+  const setLiveMode = (payload, reset = null) => {
     // Any Live state message supersedes an error-paint acknowledgement that
     // has not crossed its compositor barrier yet. The following live-error
     // message, when present, schedules a new exact acknowledgement.
@@ -2786,12 +3227,13 @@ const initPdfViewer = () => {
       return;
     }
     if (!liveFrame) return;
+    fallbackHandoff = null;
 
     const url = rawUrl.replace(/\/+$/, "");
     const generation = Number(payload?.generation) || 0;
     const hold = payload?.hold === true;
     const expectedSrcRev = Number.isInteger(payload?.expectedSrcRev) ? payload.expectedSrcRev : null;
-    if (liveActivation?.url === url && liveActivation?.generation === generation && hasLiveSession()) {
+    if (!reset && liveActivation?.url === url && liveActivation?.generation === generation && hasLiveSession()) {
       // Same engine session and document generation: Build ownership only
       // moves the paper between the static PDF and this frame.
       if (hold && !isLiveHeld()) enterLiveHeld();
@@ -2799,6 +3241,19 @@ const initPdfViewer = () => {
       return;
     }
 
+    const target = payload.target;
+    const samePaper = target?.workspaceRoot && target?.pdfPath &&
+      target.workspaceRoot === liveActivation?.target?.workspaceRoot &&
+      target.pdfPath === liveActivation?.target?.pdfPath;
+    // Reconnecting the existing frame can announce a reset just before
+    // the host supplies the new engine generation. Both activations must
+    // use the reader's last visible viewport.
+    const recoverySync = samePaper && !hold && !isLiveHeld()
+      ? liveViewportHandoff?.sync ?? liveViewportSync(liveActivation?.viewport) : null;
+    if (!samePaper || hold) discardRetainedPaper();
+    else if (isLive()) {
+      retainVisiblePaper();
+    }
     liveSurfaceOwned = !hold;
     deferredStaticFlushToken += 1;
     const id = `${Date.now().toString(36)}-${(++liveActivationSequence).toString(36)}`;
@@ -2807,16 +3262,19 @@ const initPdfViewer = () => {
       id,
       url,
       generation,
+      target,
       documentEpoch: null,
-      pendingDocumentEpoch: null,
+      pendingDocumentEpoch: reset?.documentEpoch ?? null,
+      viewport: samePaper ? liveActivation?.viewport : null,
       expectedSrcRev: hold ? null : expectedSrcRev,
       reveal: null,
     };
     liveToolbar = normalizeLiveToolbarSnapshot();
     liveViewportCenter = null;
+    livePdfScale = null;
     // A new frame opens at its first page. Carry the static viewport so it
     // replaces the paper where the reader is, not at the document start.
-    const sync = !hold && state.doc ? captureStaticViewportSync() : null;
+    const sync = reset?.sync ?? recoverySync ?? (!hold && state.doc ? captureStaticViewportSync() : null);
     liveViewportHandoff = sync && !pendingLiveSync ? viewportHandoff(sync) : null;
     document.body.classList.remove("is-live", "is-live-pending", "is-live-held");
     document.body.classList.add(hold ? "is-live-held" : "is-live-pending");
@@ -2832,6 +3290,7 @@ const initPdfViewer = () => {
       embed: "1",
       theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
       activationId: id,
+      darkPaper: document.documentElement.dataset.darkPdfPages,
     });
     const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
     if (/^#[0-9a-fA-F]{3,8}$/.test(bg)) params.set("bg", bg);
@@ -2912,7 +3371,12 @@ const initPdfViewer = () => {
     // Status snapshots may arrive while the frame is preloading.  Keep them
     // offscreen until the same activation explicitly declares its first
     // exact paint ready.
-    liveToolbar = normalizeLiveToolbarSnapshot(liveToolbar, data);
+    liveToolbar = normalizeLiveToolbarSnapshot(liveToolbar, { ...data, page: data.activePage ?? data.page });
+    if (!data.action) {
+      if (isLive() && data.viewport) liveActivation.viewport = data.viewport;
+      const scale = data.viewport?.pdfScale;
+      livePdfScale = Number.isFinite(scale) && scale > 0 ? scale : null;
+    }
     // The retained frame may keep rendering under a Build-owned static PDF,
     // but hidden clicks/selections from its old activation cannot edit Code.
     if (isLiveHeld()) {
@@ -2927,6 +3391,7 @@ const initPdfViewer = () => {
         Number(data.documentEpoch) !== liveActivation.documentEpoch) return;
     if (!data.action) liveViewportCenter = data.viewportCenter ?? null;
     if (data.action === "source") {
+      if (!isReverseSynctexEnabled()) return;
       bridge?.postMessage?.({
         type: "live-source",
         payload: { file: data.file, line: data.line, column: data.column },
@@ -3023,11 +3488,61 @@ const initPdfViewer = () => {
       if (!message || typeof message !== "object") return;
       if (message.type === "open") {
         const payload = message.payload || {};
+        const keepPreview = fallbackPaperUrl && openedPaperPath === payload.path &&
+          Number.isSafeInteger(payload.previewGeneration) && fallbackGeneration === payload.previewGeneration;
+        if (!keepPreview && fallbackHandoff && (payload.url || openedPaperPath !== payload.path)) {
+          fallbackHandoff = null;
+          discardRetainedPaper();
+        }
+        openedPaperPath = payload.path || null;
         if (payload.url) {
+          lastBuiltPaper = { url: payload.url, path: payload.path || null };
           staticSourceStates.set(payload.path || null, payload.needsRebuild === true);
           document.body.classList.toggle("pdf-needs-rebuild", payload.needsRebuild === true);
-          requestStaticDocument(payload.url, payload.path || null);
+          // Build can deliver its saved PDF before announcing success. Keep
+          // the current paper until its owner releases this exact generation.
+          if (!keepPreview) {
+            if (clearFallbackPaper()) {
+              fallbackDocumentId++;
+              paperEditor.view(null, null);
+            }
+            requestStaticDocument(payload.url, payload.path || null);
+          } else if (staticLoadFailed) requestStaticDocument(fallbackPaperUrl, payload.path);
         }
+      }
+      if (message.type === "preview-open") {
+        const payload = message.payload;
+        if (!payload) {
+          if (fallbackHandoff) {
+            fallbackHandoff = null;
+            discardRetainedPaper();
+          }
+          paperEditor.close();
+          fallbackDocumentId++;
+          paperEditor.view(null, null);
+          if (clearFallbackPaper() && lastBuiltPaper) requestStaticDocument(lastBuiltPaper.url, lastBuiltPaper.path);
+          return;
+        }
+        if (openedPaperPath !== payload.path) return;
+        if (fallbackPaperUrl && fallbackGeneration === payload.generation && !staticLoadFailed) return;
+        const streamed = typeof payload.url === "string" && /^tex64-pdf:\/\/preview\/[a-f0-9-]{36}$/.test(payload.url);
+        if (!streamed && typeof payload.data !== "string") return;
+        clearFallbackPaper();
+        if (liveActivation && (isLive() || retainedLiveFrame)) {
+          fallbackHandoff = { viewport: liveActivation.viewport, page: liveToolbar.page, generation: payload.generation };
+          if (isLive()) retainVisiblePaper();
+          deactivateLive();
+        } else if (fallbackHandoff) {
+          fallbackHandoff.generation = payload.generation;
+        }
+        fallbackGeneration = payload.generation;
+        paperEditor.view(displayedFallbackGeneration, fallbackGeneration);
+        if (streamed) fallbackPaperUrl = payload.url;
+        else {
+          const bytes = Uint8Array.from(atob(payload.data), character => character.charCodeAt(0));
+          fallbackPaperUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+        }
+        requestStaticDocument(fallbackPaperUrl, payload.path);
       }
       if (message.type === "source-state" && message.payload) {
         staticSourceStates.set(message.payload.path || null, message.payload.needsRebuild === true);
@@ -3044,12 +3559,12 @@ const initPdfViewer = () => {
             : "";
         }
         if (buildPreviewState === "building") setStatusDirect("", "busy");
-        else if (buildPreviewState === "failed") setStatusDirect(uiString("buildFailedLastGood"));
+        else if (buildPreviewState === "failed" && (state.doc || isLive())) setStatusDirect({ key: "buildFailedLastGood" });
         else if (isLive()) setStatus("", "idle");
         else if (isLivePending()) setStatus("", "idle");
         else refreshStaticStatus();
       }
-      if (message.type === "sync" && message.payload) {
+      if (message.type === "sync" && message.payload && !fallbackPaperUrl) {
         if (message.payload.recheckToken != null) settleBuildJump(message.payload);
         else if (!applyLiveSync(message.payload)) applySync(message.payload);
       }
@@ -3088,7 +3603,8 @@ const initPdfViewer = () => {
         return;
       }
       const target = event.target;
-      if (!(target instanceof Element) || target.closest(".textLayer")) {
+      // PDF.js covers the whole sheet with its text layer, including empty margins.
+      if (!(target instanceof Element) || target.closest(".textLayer span, .textLayer br, .annotationLayer section")) {
         return;
       }
       event.preventDefault();
@@ -3124,6 +3640,9 @@ const initPdfViewer = () => {
         return;
       }
       if (!(event.ctrlKey || event.metaKey)) {
+        if (displayedFallback && !event.shiftKey && !event.altKey) {
+          void paperEditor.open(event, resolveClickPoint(event, false, false)).catch(error => console.warn("[preview-edit]", error));
+        }
         return;
       }
       if (!isReverseSynctexEnabled()) {

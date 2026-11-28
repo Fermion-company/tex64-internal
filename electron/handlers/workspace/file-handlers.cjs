@@ -5,6 +5,8 @@ const {
   readUnknownTextFile,
 } = require("../../services/text-file-types.cjs");
 const crypto = require("crypto");
+const { isUtf8 } = require("node:buffer");
+const { readFileUpTo } = require("../../services/bounded-file-read.cjs");
 const path = require("path");
 const { canonicalPath, fileIdentity, relativeIdentity } = require("../../services/file-identity.cjs");
 
@@ -116,9 +118,9 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
   };
 
-  const mutateCapturedWorkspace = (rootPath, operation, mutation = undefined) =>
+  const mutateCapturedWorkspace = (rootPath, identity, operation, mutation = undefined) =>
     withWorkspaceMutation(async () => {
-      if (ensureWorkspace() !== rootPath) {
+      if (!workspaceRequestIsCurrent(rootPath, identity)) {
         const error = new Error("The workspace changed before the operation finished.");
         error.code = "STALE_WORKSPACE";
         throw error;
@@ -126,14 +128,19 @@ const createWorkspaceFileHandlers = (ctx) => {
       return operation();
     }, mutation);
 
-  const handleOpenFile = async (relativePath, { buildPreview, isCurrent = () => true, openRequestId } = {}) => {
-    const request = typeof openRequestId === "number" ? { openRequestId } : {};
+  const handleOpenFile = async (relativePath, {
+    buildPreview, isCurrent = () => true, openRequestId, previewRequestId,
+  } = {}) => {
+    const request = {
+      ...(Number.isSafeInteger(previewRequestId) && { previewRequestId }),
+      ...(Number.isSafeInteger(openRequestId) && { openRequestId }),
+    };
+    const reply = (payload) => sendToRenderer("openFileResult", { ...payload, ...request });
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendToRenderer("openFileResult", {
+      reply({
         path: relativePath,
         error: "No workspace is selected.",
-        ...request,
       });
       return;
     }
@@ -147,7 +154,7 @@ const createWorkspaceFileHandlers = (ctx) => {
       if (payload.kind === "text" && typeof workspace.resolvePath === "function") {
         payload.fileIdentity = relativeIdentity(rootPath, fileIdentity(workspace, relativePath));
       }
-      sendToRenderer("openFileResult", { ...payload, ...request });
+      reply(payload);
       return true;
     };
     try {
@@ -181,8 +188,9 @@ const createWorkspaceFileHandlers = (ctx) => {
         return;
       }
       if (isExtendedTextFilePath(relativePath) && !isTextFilePath(relativePath)) {
-        const data = await workspace.readBinaryFile(relativePath);
-        if (data.length > MAX_EXTENDED_TEXT_FILE_BYTES) {
+        await workspace.recoverFile?.(relativePath);
+        const data = await readFileUpTo(workspace.resolvePath(relativePath), MAX_EXTENDED_TEXT_FILE_BYTES);
+        if (data === null) {
           sendOpenResult({
             path: relativePath,
             error: "File is too large to open in the editor (max 10MB).",
@@ -193,6 +201,7 @@ const createWorkspaceFileHandlers = (ctx) => {
           sendOpenResult({ path: relativePath, kind: "unsupported" });
           return;
         }
+        if (!isUtf8(data)) throw new Error(WorkspaceError.invalidEncoding);
         sendOpenResult({
           path: relativePath,
           content: data.toString("utf8"),
@@ -200,7 +209,7 @@ const createWorkspaceFileHandlers = (ctx) => {
         });
         return;
       }
-      const content = await workspace.readFile(relativePath);
+      const content = await workspace.readFile(relativePath, { requireUtf8: true });
       sendOpenResult({ path: relativePath, content, kind: "text" });
     } catch (error) {
       sendOpenResult({ path: relativePath, error: error.message });
@@ -247,13 +256,14 @@ const createWorkspaceFileHandlers = (ctx) => {
       return;
     }
     try {
-      const data = await workspace.readBinaryFile(relativePath);
+      const maxBytes = isPdfPreview ? 5 * 1024 * 1024 : 2 * 1024 * 1024;
+      await workspace.recoverFile?.(relativePath);
+      const data = await readFileUpTo(workspace.resolvePath(relativePath), maxBytes);
       if (!workspaceRequestIsCurrent(rootPath, identity)) {
         replyStale();
         return;
       }
-      const maxBytes = isPdfPreview ? 1024 * 1024 * 5 : 1024 * 1024 * 2;
-      if (data.length > maxBytes) {
+      if (data === null) {
         reply({
           ok: false,
           path: relativePath,
@@ -339,7 +349,7 @@ const createWorkspaceFileHandlers = (ctx) => {
       fail("The file data is not usable.");
       return;
     }
-    if (Math.floor((data.length * 3) / 4) > MAX_ATTACHMENT_BYTES) {
+    if (Buffer.byteLength(data, "base64") > MAX_ATTACHMENT_BYTES) {
       fail("The file is too large to attach (20 MB limit).");
       return;
     }
@@ -351,7 +361,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     const digest = crypto.createHash("sha256").update(buffer).digest("hex");
     try {
       await updateWorkspaceIfNeeded(rootPath);
-      const saved = await mutateCapturedWorkspace(rootPath, async () => {
+      const saved = await mutateCapturedWorkspace(rootPath, identity, async () => {
         const dot = name.lastIndexOf(".");
         const stem = dot > 0 ? name.slice(0, dot) : name;
         const extension = dot > 0 ? name.slice(dot) : "";
@@ -383,7 +393,7 @@ const createWorkspaceFileHandlers = (ctx) => {
       }
       reply({ ok: true, path: saved.path, reused: saved.reused, byteSize: buffer.length });
     } catch (error) {
-      fail(error?.message || "Could not save the file.");
+      fail(error?.message || "Could not save the file.", !workspaceRequestIsCurrent(rootPath, identity) ? { stale: true } : {});
     }
   };
 
@@ -548,7 +558,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     const center = Number.isFinite(lineNumber) && lineNumber > 0 ? lineNumber : 1;
 
     try {
-      const content = await workspace.readFile(relativePath);
+      const content = await workspace.readFile(relativePath, { requireUtf8: true });
       if (!workspaceRequestIsCurrent(rootPath, identity)) {
         reply({ ok: false, stale: true, error: "The workspace changed." });
         return;
@@ -607,8 +617,10 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
     const checkedSave = typeof options.expectedContent === "string";
     try {
-      const readDisk = () => workspace.readFile(relativePath).catch((error) => {
-        if (error.code !== "ENOENT") throw error;
+      // A missing file and a file that is no longer UTF-8 both differ from
+      // any editor buffer.
+      const readDisk = () => workspace.readFile(relativePath, { requireUtf8: true }).catch((error) => {
+        if (error.code !== "ENOENT" && error.message !== WorkspaceError?.invalidEncoding) throw error;
         return null;
       });
       const expectedContent = checkedSave ? options.expectedContent : await readDisk();
@@ -666,7 +678,7 @@ const createWorkspaceFileHandlers = (ctx) => {
         }
         return currentContent;
       };
-      await mutateCapturedWorkspace(rootPath, () => withFileMutation(rootPath, relativePath, async () => {
+      await mutateCapturedWorkspace(rootPath, identity, () => withFileMutation(rootPath, relativePath, async () => {
         // WorkspaceManager resolves the absolute target synchronously when
         // writeFile is called. Re-check inside the per-file queue immediately
         // before that call so formatting/queue waits cannot retarget this save
@@ -703,7 +715,7 @@ const createWorkspaceFileHandlers = (ctx) => {
       sendToRenderer("saveResult", {
         path: relativePath,
         ok: false,
-        ...(error?.code === "STALE_WORKSPACE" ? { stale: true } : {}),
+        ...(error?.code === "STALE_WORKSPACE" || !workspaceRequestIsCurrent(rootPath, identity) ? { stale: true } : {}),
         ...(["AGENT_WORKSPACE_BUSY", "FILE_WRITE_BUSY"].includes(error?.code) ? { busy: true } : {}),
         ...(error?.code === "FILE_SAVE_CONFLICT" ? { currentContent: error.currentContent } : {}),
         error: error.message,
@@ -785,9 +797,9 @@ const createWorkspaceFileHandlers = (ctx) => {
       }
     }
     try {
-      return await mutateCapturedWorkspace(rootPath, () =>
+      return await mutateCapturedWorkspace(rootPath, identity, () =>
         withFileMutation(rootPath, relativePath, async () => {
-        const content = await workspace.readFile(relativePath);
+        const content = await workspace.readFile(relativePath, { requireUtf8: true });
         if (!workspaceRequestIsCurrent(rootPath, identity)) {
           return reply({ ok: false, stale: true, error: "The workspace changed." });
         }
@@ -858,38 +870,35 @@ const createWorkspaceFileHandlers = (ctx) => {
     } catch (error) {
       return reply({
         ok: false,
-        ...(error?.code === "STALE_WORKSPACE" ? { stale: true } : {}),
+        ...(error?.code === "STALE_WORKSPACE" || !workspaceRequestIsCurrent(rootPath, identity) ? { stale: true } : {}),
         error: error.message,
       });
     }
   };
 
-  const handleFormatFile = async (relativePath, content, source, formatSettings) => {
+  const handleFormatFile = async (relativePath, content, source, formatSettings, requestId) => {
+    const reply = (payload) => sendToRenderer("formatResult", { path: relativePath, source, requestId, ...payload });
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendToRenderer("formatResult", {
-        path: relativePath,
+      reply({
         ok: false,
         error: "No workspace is selected.",
-        source,
       });
       return;
     }
     const identity = requestIdentity();
     const replyStale = () =>
-      sendToRenderer("formatResult", {
-        path: relativePath,
+      reply({
         ok: false,
         stale: true,
         error: "The workspace changed.",
-        source,
       });
-    await updateWorkspaceIfNeeded(rootPath);
-    if (!workspaceRequestIsCurrent(rootPath, identity)) {
-      replyStale();
-      return;
-    }
     try {
+      await updateWorkspaceIfNeeded(rootPath);
+      if (!workspaceRequestIsCurrent(rootPath, identity)) {
+        replyStale();
+        return;
+      }
       const result = await formatterService
         .formatContent(rootPath, relativePath, content ?? "", formatSettings)
         .catch((error) => ({ ok: false, error: error?.message ?? String(error) }));
@@ -922,28 +931,22 @@ const createWorkspaceFileHandlers = (ctx) => {
             },
           ]);
         }
-        sendToRenderer("formatResult", {
-          path: relativePath,
+        reply({
           ok: false,
           error: result.error ?? "Formatting failed.",
-          source,
         });
         return;
       }
-      sendToRenderer("formatResult", {
-        path: relativePath,
+      reply({
         ok: true,
         content: result.content ?? content ?? "",
-        source,
       });
     } catch (error) {
       if (!workspaceRequestIsCurrent(rootPath, identity)) replyStale();
       else {
-        sendToRenderer("formatResult", {
-          path: relativePath,
+        reply({
           ok: false,
           error: error.message,
-          source,
         });
       }
     }
@@ -951,6 +954,7 @@ const createWorkspaceFileHandlers = (ctx) => {
 
   const handleCreateFile = async (relativePath) => {
     const rootPath = ensureWorkspace();
+    const identity = requestIdentity();
     if (!rootPath) {
       sendIssues(1, "No workspace is selected.", "error", [
         { severity: "error", message: "No workspace is selected.", line: null },
@@ -959,7 +963,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
     await updateWorkspaceIfNeeded(rootPath);
     try {
-      await mutateCapturedWorkspace(rootPath, async () => {
+      await mutateCapturedWorkspace(rootPath, identity, async () => {
         await workspace.createFile(relativePath);
         await sendWorkspace(rootPath);
         sendToRenderer("openFileResult", { path: relativePath, content: "" });
@@ -977,6 +981,7 @@ const createWorkspaceFileHandlers = (ctx) => {
 
   const handleCreateFolder = async (relativePath) => {
     const rootPath = ensureWorkspace();
+    const identity = requestIdentity();
     if (!rootPath) {
       sendIssues(1, "No workspace is selected.", "error", [
         { severity: "error", message: "No workspace is selected.", line: null },
@@ -985,7 +990,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
     await updateWorkspaceIfNeeded(rootPath);
     try {
-      await mutateCapturedWorkspace(rootPath, async () => {
+      await mutateCapturedWorkspace(rootPath, identity, async () => {
         await workspace.createFolder(relativePath);
         await sendWorkspace(rootPath);
         sendIssues(0, "Folder created.", "success", []);
@@ -1047,6 +1052,7 @@ const createWorkspaceFileHandlers = (ctx) => {
 
   const handleRenameItem = async (relativePath, newName) => {
     const rootPath = ensureWorkspace();
+    const identity = requestIdentity();
     if (!rootPath) {
       sendIssues(1, "No workspace is selected.", "error", [
         { severity: "error", message: "No workspace is selected.", line: null },
@@ -1055,7 +1061,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
     await updateWorkspaceIfNeeded(rootPath);
     try {
-      await mutateCapturedWorkspace(rootPath, async () => {
+      await mutateCapturedWorkspace(rootPath, identity, async () => {
         const resolved = resolveWorkspacePath(relativePath);
         const isDirectory = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory();
         const newPath = await workspace.renameItem(relativePath, newName);
@@ -1079,6 +1085,7 @@ const createWorkspaceFileHandlers = (ctx) => {
 
   const handleDeleteItem = async (relativePath) => {
     const rootPath = ensureWorkspace();
+    const identity = requestIdentity();
     if (!rootPath) {
       sendIssues(1, "No workspace is selected.", "error", [
         { severity: "error", message: "No workspace is selected.", line: null },
@@ -1087,7 +1094,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
     await updateWorkspaceIfNeeded(rootPath);
     try {
-      await mutateCapturedWorkspace(rootPath, async () => {
+      await mutateCapturedWorkspace(rootPath, identity, async () => {
         await workspace.deleteItem(relativePath);
         await sendWorkspace(rootPath);
         sendIssues(0, "Deleted.", "success", []);
@@ -1104,6 +1111,7 @@ const createWorkspaceFileHandlers = (ctx) => {
 
   const handleMoveItem = async (relativePath, destination) => {
     const rootPath = ensureWorkspace();
+    const identity = requestIdentity();
     if (!rootPath) {
       sendIssues(1, "No workspace is selected.", "error", [
         { severity: "error", message: "No workspace is selected.", line: null },
@@ -1112,7 +1120,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
     await updateWorkspaceIfNeeded(rootPath);
     try {
-      await mutateCapturedWorkspace(rootPath, async () => {
+      await mutateCapturedWorkspace(rootPath, identity, async () => {
         const resolved = resolveWorkspacePath(relativePath);
         const isDirectory = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory();
         const newPath = await workspace.moveItem(relativePath, destination);
@@ -1136,6 +1144,7 @@ const createWorkspaceFileHandlers = (ctx) => {
 
   const handleCopyItem = async (relativePath, destination) => {
     const rootPath = ensureWorkspace();
+    const identity = requestIdentity();
     if (!rootPath) {
       sendIssues(1, "No workspace is selected.", "error", [
         { severity: "error", message: "No workspace is selected.", line: null },
@@ -1144,7 +1153,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
     await updateWorkspaceIfNeeded(rootPath);
     try {
-      await mutateCapturedWorkspace(rootPath, async () => {
+      await mutateCapturedWorkspace(rootPath, identity, async () => {
         const newPath = await workspace.copyItem(relativePath, destination);
         await sendWorkspace(rootPath);
         sendIssues(0, "Copied.", "success", []);
@@ -1161,6 +1170,7 @@ const createWorkspaceFileHandlers = (ctx) => {
 
   const handleUndoFileOperation = async () => {
     const rootPath = ensureWorkspace();
+    const identity = requestIdentity();
     if (!rootPath) {
       sendIssues(1, "No workspace is selected.", "error", [
         { severity: "error", message: "No workspace is selected.", line: null },
@@ -1169,7 +1179,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
     await updateWorkspaceIfNeeded(rootPath);
     try {
-      await mutateCapturedWorkspace(rootPath, async () => {
+      await mutateCapturedWorkspace(rootPath, identity, async () => {
         const operation = await workspace.undoLastOperation();
         if (!operation) {
           sendIssues(0, "No operation to undo.", "info", []);

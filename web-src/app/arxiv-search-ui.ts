@@ -78,8 +78,8 @@ const authorsLabel = (authors: string[]) => {
   return authors.length > 3 ? uiText(`${shown} et al.`, `${shown}ほか`) : shown;
 };
 
-// Latin letters to search with: arXiv indexes English.
-const hasLatin = (text: string) => /[A-Za-z]/.test(text);
+// English search terms, or a DOI whose entire suffix may be numeric.
+const isSearchable = (text: string) => /[A-Za-z]/.test(text) || /^10\.\d{4,9}\/\S+$/.test(text);
 
 export type ArxivSection = {
   element: HTMLElement;
@@ -103,6 +103,9 @@ export const createArxivSection = (
   if (!arxivBridge() || !isArxivTexModel(editor)) return null;
   const model = editor.getModel?.();
   if (!model) return null;
+  const documentPath = getActiveFilePath();
+  const sameDocument = () => getActiveFilePath() === documentPath && editor.getModel?.() === model &&
+    !model.isDisposed?.() && !editor.getRawOptions?.()?.readOnly;
 
   const selection = editor.getSelection?.();
   const selectedText = selection && !selection.isEmpty?.() ? model.getValueInRange(selection) : "";
@@ -144,7 +147,6 @@ export const createArxivSection = (
   let pending: string | null = null;
   let timer: number | null = null;
   let wanted = contextQuery;
-  let searched: string | null = null;
   const cited = new Map<string, { result: CiteResult; inserted: string }>();
   let papers: Paper[] = [];
 
@@ -187,15 +189,18 @@ export const createArxivSection = (
       cite.disabled = true;
       const activeFilePath = getActiveFilePath();
       try {
+        if (!sameDocument()) throw new Error(documentChanged());
         const result = await call<CiteResult>("cite", {
           arxivId: paper.arxivId,
           activeFilePath,
           documentMainFile: citationDocumentFor(activeFilePath),
         });
-        if (editor.getModel?.() !== model || model.isDisposed?.() || editor.getRawOptions?.().readOnly) {
+        if (disposed || !element.closest("dialog")?.open) return;
+        if (!sameDocument()) throw new Error(documentChanged());
+        const how = insertCitation(editor, result.key);
+        if (how === "unavailable") {
           throw new Error(documentChanged());
         }
-        const how = insertCitation(editor, result.key);
         const inserted = how === "appended" ? `,${result.key}` : `\\cite{${result.key}}`;
         cited.set(paper.arxivId, { result, inserted });
         showCited(result, inserted);
@@ -218,7 +223,6 @@ export const createArxivSection = (
 
   const search = async (text: string) => {
     const trimmed = text.trim();
-    searched = trimmed;
     if (!trimmed) { searchSeq += 1; papers = []; usedQuery.textContent = ""; clearFailure(); render(); return; }
     if (inflight) { pending = trimmed; return; }
     inflight = true;
@@ -253,15 +257,21 @@ export const createArxivSection = (
   };
   const searchNow = () => {
     cancelTimer();
-    searched = null;
     void search(wanted);
   };
   const setQuery = (text: string) => {
     const typed = text.trim();
-    // Only Latin words go to arXiv; with nothing typed, the words around the cursor.
-    wanted = typed ? (hasLatin(typed) ? typed : "") : contextQuery;
+    // With nothing typed, search for the words around the cursor.
+    const next = typed ? (isSearchable(typed) ? typed : "") : contextQuery;
+    if (next === wanted) return;
+    wanted = next;
+    searchSeq++;
+    pending = null;
+    papers = [];
+    usedQuery.textContent = "";
+    clearFailure();
+    render();
     cancelTimer();
-    if (wanted === searched) return;
     timer = window.setTimeout(() => { timer = null; void search(wanted); }, DEBOUNCE_MS);
   };
   const dispose = () => {

@@ -261,6 +261,11 @@ export const createMathfieldMatrixOps = (params) => {
                 return false;
             }
         }
+        // A MathLive offset identifies an atom, not a character in serialized LaTeX.
+        // The fork knows the actual cell even when it contains a nested fraction.
+        if ("getEnvironmentContext" in mathfieldApi && mathfieldApi.executeCommand) {
+            return mathfieldApi.executeCommand(mode === "row" ? "addRowAfterFromReturn" : "addColumnAfterFromReturn");
+        }
         const latex = readMathFieldLatex(mathfieldApi, "latex");
         if (!latex) {
             return false;

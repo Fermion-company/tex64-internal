@@ -3,7 +3,8 @@ import type { MathWysiwygInsertOptions } from "./math-wysiwyg/types.js";
 import { attachMathfieldController } from "./field-controller.js";
 
 /** Mount the application's shared IME and structural editing in the AI paper. */
-const attach = (field: HTMLElement & Record<string, any>, container: HTMLElement) => {
+const attach = (field: HTMLElement & Record<string, any>, container: HTMLElement,
+  actions?: { onEscape?: () => void; onCommit?: () => void }) => {
   field.menuItems = [];
   field.setAttribute("lang", "en");
   const insertKey = (key: { latex?: string }, options?: MathWysiwygInsertOptions) => {
@@ -12,6 +13,6 @@ const attach = (field: HTMLElement & Record<string, any>, container: HTMLElement
     field.dispatchEvent(new Event("input", { bubbles: true }));
   };
   const api = initMathWysiwyg({ container, floating: true, autoSuggest: true, insertKey, mruStorageKey: "tex64.math-wysiwyg.mru" });
-  return attachMathfieldController(field, api, insertKey);
+  return attachMathfieldController(field, api, insertKey, actions?.onEscape, actions?.onCommit);
 };
 (window as any).tex64PaperMath = { attach };

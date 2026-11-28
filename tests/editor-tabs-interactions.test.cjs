@@ -75,6 +75,7 @@ async function setup(t) {
           getViewerMode() { return this.mode; },
           hideViewer() { this.mode = "hidden"; },
           showPdfViewer() { this.mode = "pdf"; },
+          getUnbuiltPdfPath: () => null,
         },
         editor: monaco.editor.create(editorHost, { value: "", minimap: { enabled: false } }),
       };
@@ -108,7 +109,7 @@ async function setup(t) {
       search: {}, settings: {}, editorTabs: { render: (group) => tabs.render(group) },
       fileTree: { setSelection: noop, setTreeFocus: noop, render: noop },
       outline: { render: noop }, setBlockPreviewActive: noop, setAutoDetectedUi: noop,
-      buildOps: { updateSynctexButtonState: noop },
+      buildOps: { updateSynctexButtonState: noop }, isLivePaper: () => false,
     };
     const runtime = { deps, editorGroups: groups, dirtyFiles, monacoModels };
     const tabState = createEditorSessionTabStateOps(runtime);
@@ -138,7 +139,7 @@ async function setup(t) {
     const tree = createFileTreeRenderer({
       fileTree: document.getElementById("tree"),
       deps: {
-        getWorkspaceFiles: () => ["drop.tex", "pane.tex"], getWorkspaceFolders: () => ["folder"],
+        getWorkspaceRootKey: () => null, getWorkspaceFiles: () => ["drop.tex", "pane.tex"], getWorkspaceFolders: () => ["folder"],
         getActiveFilePath: () => null, getDirtyPaths: () => dirtyFiles, isAnyGroupComposing: () => false,
       },
       actions: {

@@ -123,11 +123,9 @@ export class TextMode extends Mode {
   ): Atom | null {
     if (!info) return null;
     if (info.definitionType === 'symbol') {
-      return new TextAtom(
-        command,
-        String.fromCodePoint(info.codepoint),
-        style ?? {}
-      );
+      const symbol = String.fromCodePoint(info.codepoint);
+      const value = !command.startsWith('\\') && command.startsWith(symbol) ? command : symbol;
+      return new TextAtom(command, value, style ?? {});
     }
     return null;
   }

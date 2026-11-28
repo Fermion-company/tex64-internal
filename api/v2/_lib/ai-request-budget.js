@@ -240,9 +240,12 @@ export const buildQuotaBoundedChatRequest = ({
       availableForCompletion,
     ),
   );
+  const requiresReasoningNone = /^gpt-(?:5\.6|6\.1-terra)(?:-|$)/i.test(upstreamModel);
   const upstreamBody = {
     ...body,
     model: upstreamModel,
+    // Chat Completions needs this mode to accept the local agent's tools.
+    ...(requiresReasoningNone ? { reasoning_effort: "none" } : {}),
     // This proxy serves one product-agent continuation. Multiple choices and
     // paid hosted tools/service tiers have different cost dimensions that are
     // not part of the product's token-only quota contract.

@@ -73,9 +73,9 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
   host.append(heading, error, recovery, list, message, commit, network);
   collabSession.onChange((state) => applyCollabGuestLock(host, state.active && state.role === "guest"));
   async function call(action: string, payload: Record<string, unknown> = {}) {
-    const requestedWorkspace = renderedWorkspaceId;
+    const requestedProject = projectSequence;
     const value = await bridge!.call(action, payload);
-    if (requestedWorkspace && renderedWorkspaceId && requestedWorkspace !== renderedWorkspaceId) throw new Error(uiText("The project changed. Open this operation again.", "プロジェクトが変わりました。操作を開き直してください。"));
+    if (requestedProject !== projectSequence) throw new Error(uiText("The project changed. Open this operation again.", "プロジェクトが変わりました。操作を開き直してください。"));
     if (!value.ok) throw Object.assign(new Error(uiText(value.error || "The operation failed.", gitErrors[value.code] || value.error) || uiText("The operation failed.", "操作できませんでした。")), {code: value.code});
     return value;
   }
@@ -95,9 +95,10 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
   }
   async function run(action: () => Promise<unknown>) {
     if (busy) return false;
+    const requestedProject = projectSequence;
     busy = true; error.textContent = ""; render();
     try { await action(); return true; }
-    catch (reason) { error.textContent = reason instanceof Error ? reason.message : String(reason); return false; }
+    catch (reason) { if (requestedProject === projectSequence) error.textContent = reason instanceof Error ? reason.message : String(reason); return false; }
     finally { busy = false; render(); }
   }
   async function sync() {
@@ -361,7 +362,17 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
   function render() {
     branches.textContent = (state?.branch || (state?.detached ? uiText("Detached HEAD", "ブランチ未選択") : uiText("Branch", "ブランチ")));
     branches.disabled = busy || !state?.repository || phase !== "idle";
-    merge.disabled = tag.disabled = pushTag.disabled = clone.disabled = settings.disabled = busy || phase !== "idle";
+    const idle = !busy && phase === "idle";
+    const canEditRefs = idle && state?.repository && state.supported && Boolean(state.head);
+    const refs = state?.refs ?? [];
+    merge.disabled = !canEditRefs || !refs.some(ref => ref.name !== state?.branchRef);
+    tag.disabled = !canEditRefs;
+    pushTag.disabled = !canEditRefs || !state?.remotes?.length || !refs.some(ref => ref.name.startsWith("refs/tags/"));
+    clone.disabled = settings.disabled = !idle;
+    const entries = state?.status?.entries ?? [];
+    shelve.hidden = !state?.repository || !state.supported || entries.length === 0;
+    shelve.disabled = !idle || shelve.hidden;
+    unshelve.disabled = !idle || !state?.repository || !state.supported;
     message.hidden = !state?.repository; commit.hidden = !state?.repository || phase === "conflict" || state?.operation === "merge";
     commit.disabled = busy || !state?.status?.hasStaged || !message.value.trim();
     network.disabled = busy;
@@ -372,8 +383,7 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
     network.hidden = phase === "conflict" || state.operation === "merge";
     network.textContent = state.remotes?.length ? uiText("Push & pull…", "送受信…") : uiText("Connect GitHub…", "GitHubに接続…");
     if (!state.supported) { list.append(el("p", "git-secondary", state.unsupportedReason || uiText("This repository needs attention.", "このリポジトリの設定を確認してください。"))); return; }
-    const entries = state.status?.entries || [];
-    shelve.hidden = entries.length === 0; shelve.disabled = busy || phase !== "idle"; unshelve.disabled = busy || phase !== "idle";
+
     if (phase === "conflict" || state.operation === "merge") {
       const actions = el("div", "git-conflict-actions");
       const finish = button(uiText("Finish merge", "統合を完了"), () => void perform("merge-finish", {message: message.value || uiText("Merge changes", "変更を統合")}, true));
@@ -422,15 +432,19 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
   }
   message.oninput = () => { commit.disabled = busy || !state?.status?.hasStaged || !message.value.trim(); };
   let renderedWorkspaceId: string | null = null;
+  let projectSequence = 0;
   let staleRefreshError: string | null = null;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   const acceptWorkspace = (workspaceId: unknown) => {
     if (typeof workspaceId !== "string") return;
     if (renderedWorkspaceId !== null && renderedWorkspaceId !== workspaceId) {
       revision += 1;
+      projectSequence += 1;
       document.querySelectorAll<HTMLDialogElement>("dialog.git-dialog").forEach(modal => modal.close());
       if (diff.getDiffContext()?.type === "customApply") diff.closeDiffModal();
       state = null; message.value = ""; error.textContent = "";
+      unshelve.hidden = true;
+      render();
     }
     renderedWorkspaceId = workspaceId;
   };
@@ -441,9 +455,10 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
       if (busy) { scheduleRefresh(); return; }
       // Background status must not erase the result of the operation that
       // triggered this save notification.
+      const requestedProject = projectSequence;
       busy = true; render();
       void refresh().catch(reason => {
-        error.textContent = reason instanceof Error ? reason.message : String(reason);
+        if (requestedProject === projectSequence) error.textContent = reason instanceof Error ? reason.message : String(reason);
       }).finally(() => { busy = false; render(); });
     }, 150);
   };
@@ -465,10 +480,11 @@ export function initGitUi(editor: EditorSessionApi, diff: DiffModalApi) {
       scheduleRefresh();
     }).observe(panel, { attributes: true, attributeFilter: ["class"] });
   }
+  render();
   bridge.onChange(value => {
     const payload = value.payload || {};
     const hadIdentity = renderedWorkspaceId !== null;
-    if (["updateWorkspace", "git:state", "workspace:operation"].includes(value.type)) acceptWorkspace(payload.workspaceId);
+    if (["updateWorkspace", "history:state", "git:state", "workspace:operation"].includes(value.type)) acceptWorkspace(payload.workspaceId);
     if (!hadIdentity && renderedWorkspaceId !== null) requestRefresh();
     const operation = value.type === "workspace:operation" ? payload : value.type === "updateWorkspace" ? payload.workspaceOperation : null;
     if (operation) { guard.setLocked("workspace-main", operation.phase !== "idle"); guard.refresh(); }

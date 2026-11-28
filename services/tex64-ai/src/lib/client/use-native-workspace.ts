@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { getNativeHost, hostMessageBody, type HostMessage } from "./native-host";
+import { getNativeHost, hostMessageBody, requestFromHost, type HostMessage } from "./native-host";
 import {
   EMPTY_WORKSPACE_IDENTITY,
   normalizeWorkspaceRelativePath,
@@ -25,10 +25,21 @@ export type NativeWorkspaceState = {
   workspaceRoot: string | null;
   workspaceGeneration: number;
   hasWorkspace: boolean;
+  files: string[];
+  folders: string[];
+  texFiles: string[];
+  pendingRoot: string | null;
+  rootError: string | null;
+  chooseRoot: (path: string) => void;
   loading: boolean;
   openWorkspace: () => void;
   createWorkspace: () => void;
 };
+
+function workspacePaths(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((path): path is string =>
+    typeof path === "string" && !/^[a-z]:/i.test(path) && normalizeWorkspaceRelativePath(path) === path) : [];
+}
 
 const subscribeToNothing = () => () => {};
 let buildRequestCounter = 0;
@@ -88,6 +99,12 @@ export function useNativeWorkspace(): NativeWorkspaceState {
     EMPTY_WORKSPACE_IDENTITY,
   );
   const [current, setCurrent] = useState<NativeWorkspaceTarget | null>(null);
+  const [files, setFiles] = useState<string[]>([]);
+  const [folders, setFolders] = useState<string[]>([]);
+  const texFiles = useMemo(() => files.filter(file => /\.tex$/i.test(file)), [files]);
+  const [pendingRoot, setPendingRoot] = useState<string | null>(null);
+  const [rootError, setRootError] = useState<string | null>(null);
+  const pendingRootRef = useRef<string | null>(null);
   const [snapshotArrived, setSnapshotArrived] = useState(false);
   const identityRef = useRef<NativeWorkspaceIdentity>(EMPTY_WORKSPACE_IDENTITY);
 
@@ -101,9 +118,21 @@ export function useNativeWorkspace(): NativeWorkspaceState {
       const body = hostMessageBody(message);
       const previous = identityRef.current;
       const next = workspaceIdentityFromHost(body, previous);
+      if (next.workspaceGeneration < previous.workspaceGeneration) return;
       const workspaceChanged = !sameWorkspaceSession(previous, next);
       identityRef.current = next;
-      if (workspaceChanged) setIdentity(next);
+      if (workspaceChanged) {
+        setIdentity(next);
+        pendingRootRef.current = null;
+        setPendingRoot(null);
+        setRootError(null);
+      }
+      if (workspaceChanged || Array.isArray(body.files)) {
+        setFiles(workspacePaths(body.files));
+      }
+      if (workspaceChanged || Array.isArray(body.folders)) {
+        setFolders(workspacePaths(body.folders));
+      }
       if (
         workspaceChanged ||
         Object.prototype.hasOwnProperty.call(body, "rootFile") ||
@@ -116,6 +145,35 @@ export function useNativeWorkspace(): NativeWorkspaceState {
     host.send("workspace:state:get", {});
     return unsubscribe;
   }, [native]);
+
+  const chooseRoot = async (path: string) => {
+    const host = getNativeHost();
+    const session = identityRef.current;
+    if (!host || !sameWorkspaceSession(identity, session) || current || pendingRootRef.current || !texFiles.includes(path)) return;
+    pendingRootRef.current = path;
+    setPendingRoot(path);
+    setRootError(null);
+    try {
+      const reply = await requestFromHost(host, {
+        type: "workspace:chooseRoot",
+        resultType: "workspace:chooseRootResult",
+        payload: { ...workspaceRequestFields(session), path },
+      });
+      if (sameWorkspaceSession(session, identityRef.current) && reply.ok !== true) {
+        setRootError("原稿を設定できませんでした。ファイルを確認してもう一度選んでください。");
+      }
+    } catch {
+      if (sameWorkspaceSession(session, identityRef.current)) {
+        setRootError("原稿の設定を確認できませんでした。もう一度選んでください。");
+        host.send("workspace:state:get", {});
+      }
+    } finally {
+      if (sameWorkspaceSession(session, identityRef.current)) {
+        pendingRootRef.current = null;
+        setPendingRoot(null);
+      }
+    }
+  };
 
   const openWorkspace = useCallback(() => {
     getNativeHost()?.send("openWorkspace", { locale: "ja" });
@@ -130,6 +188,12 @@ export function useNativeWorkspace(): NativeWorkspaceState {
     workspaceRoot: identity.workspaceRoot,
     workspaceGeneration: identity.workspaceGeneration,
     hasWorkspace: identity.workspaceRoot !== null,
+    files,
+    folders,
+    texFiles,
+    pendingRoot,
+    rootError,
+    chooseRoot,
     loading: native && !snapshotArrived,
     openWorkspace,
     createWorkspace,

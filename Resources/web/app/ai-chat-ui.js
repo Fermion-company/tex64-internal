@@ -5,7 +5,7 @@ import { createMessageElement, createRatingBox, setMessageRating, updateMessageE
 import { createUnifiedProposalCard } from "./ai-chat-proposal.js";
 import { TEX64_LINKS } from "./platform-links.js";
 import { createAiChatStatusController } from "./ai-chat-status.js";
-import { createContextPayloadBuilder } from "./ai-chat-context-payload.js";
+import { createContextPayloadBuilder, MAX_DIRTY_FILE_CONTEXT_CHARS } from "./ai-chat-context-payload.js";
 import { createContextBarUpdater } from "./ai-chat-context-bar.js";
 import { initAiChatEventBindings } from "./ai-chat-ui-events.js";
 import { collabSession } from "./collab/session.js";
@@ -13,7 +13,7 @@ import { createHistoryController } from "./ai-chat-history.js";
 import { createAiChatAttachmentsController } from "./ai-chat-attachments.js";
 import { createAiChatIncomingHandlers } from "./ai-chat-incoming-handlers.js";
 import { createAiChatRunner } from "./ai-chat-runner.js";
-import { restorePendingAiDraft } from "./ai-chat-draft-restore.js";
+import { hasComposerDraft } from "./ai-chat-draft-restore.js";
 import { createMentionController } from "./ai-chat-mention.js";
 import { createVoiceController } from "./ai-chat-voice.js";
 const USAGE_REFRESH_DELAY_MS = 300;
@@ -308,19 +308,22 @@ export const initAiChatUi = (context, deps) => {
         const chat = getChat(chatId);
         if (!chat)
             return;
+        if (activeChatId !== chat.id)
+            voice.cancel();
         activeChatId = chat.id;
+        showComposerDraft(chatId);
         setChatTitle(chat);
-        clearPendingAttachments();
         renderChatContent();
         wrappedUpdateStatusDisplay();
         updateSendState();
         renderHistoryList();
     };
     const resetToNewChatState = () => {
+        voice.cancel();
         activeChatId = null;
         // "+" while the history list is open closes it: the new chat is the view.
         closeHistory();
-        clearPendingAttachments();
+        showComposerDraft(null, true);
         if (aiTopbarTitle instanceof HTMLElement) {
             aiTopbarTitle.textContent = aiText("new_chat");
         }
@@ -349,6 +352,7 @@ export const initAiChatUi = (context, deps) => {
         getActiveChatId: () => activeChatId,
         switchActiveChat,
         resetToNewChatState,
+        forgetDraft: (chatId) => drafts.delete(draftKey(chatId)),
         postToNative: deps.postToNative,
     });
     // A place on the page: page number, the text there, and the source line
@@ -427,18 +431,37 @@ export const initAiChatUi = (context, deps) => {
     if (aiAttachments instanceof HTMLElement) {
         new MutationObserver(() => updateSendState()).observe(aiAttachments, { childList: true });
     }
-    // ── @ picker: files, sections, labels, bib entries, issues ──
-    // The document index comes from the host on demand (a scan of the .tex and
-    // .bib files, milliseconds); it is asked for when the picker opens.
-    let documentIndex = { sections: [], labels: [], bibKeys: [], git: { isRepo: false, changed: 0 }, rules: { exists: false } };
+    const emptyDocumentIndex = () => ({
+        sections: [], labels: [], bibKeys: [], git: { isRepo: false, changed: 0 }, rules: { exists: false },
+    });
+    let documentIndex = emptyDocumentIndex();
+    let documentDraftKey = "";
+    let documentIndexFile;
+    let documentIndexRequestId = "";
+    let documentIndexSequence = 0;
     let documentIndexRequestedAt = 0;
-    const requestDocumentMap = (force = false) => {
-        var _a;
-        const now = Date.now();
-        if (!force && now - documentIndexRequestedAt < 2000)
+    const requestDocumentMap = (forPicker = false) => {
+        var _a, _b, _c;
+        if (!chatWorkspaceRoot)
             return;
+        const file = (_a = deps.getActiveFilePath()) !== null && _a !== void 0 ? _a : null;
+        const now = Date.now();
+        const recentlyRequested = file === documentIndexFile && now - documentIndexRequestedAt < 2000;
+        if (!forPicker && recentlyRequested)
+            return;
+        const drafts = (_c = (_b = deps.getOpenFileSnapshots) === null || _b === void 0 ? void 0 : _b.call(deps, {
+            maxFiles: 0, maxChars: MAX_DIRTY_FILE_CONTEXT_CHARS, onlyDirty: true,
+        }).snapshots) !== null && _c !== void 0 ? _c : [];
+        const draftKey = JSON.stringify(drafts.map(draft => { var _a; return [draft.path, (_a = draft.modelRevision) !== null && _a !== void 0 ? _a : draft.content]; }));
+        if (recentlyRequested && draftKey === documentDraftKey)
+            return;
+        documentDraftKey = draftKey;
+        if (file !== documentIndexFile)
+            documentIndex = emptyDocumentIndex();
+        documentIndexFile = file;
+        documentIndexRequestId = `map-${++documentIndexSequence}`;
         documentIndexRequestedAt = now;
-        deps.postToNative({ type: "agent:documentMap:get", requestId: `map-${now.toString(36)}`, activeFilePath: (_a = deps.getActiveFilePath()) !== null && _a !== void 0 ? _a : undefined }, true);
+        deps.postToNative({ type: "agent:documentMap:get", requestId: documentIndexRequestId, activeFilePath: file !== null && file !== void 0 ? file : undefined, openFileSnapshots: drafts }, true);
     };
     const mentionCandidates = () => {
         var _a, _b, _c, _d, _e;
@@ -463,24 +486,64 @@ export const initAiChatUi = (context, deps) => {
         ? createMentionController({
             aiInput,
             getCandidates: mentionCandidates,
-            onOpen: () => requestDocumentMap(),
+            onOpen: () => requestDocumentMap(true),
         })
         : null;
+    const draftKey = (chatId) => JSON.stringify([chatWorkspaceRoot, chatId]);
+    const drafts = new Map();
+    let composerKey = draftKey(null);
+    const getComposerDraft = () => {
+        var _a;
+        return ({
+            text: aiInput instanceof HTMLTextAreaElement ? aiInput.value : "",
+            attachments: getPendingAttachments().slice(),
+            mentions: (_a = mentionController === null || mentionController === void 0 ? void 0 : mentionController.saveDraft()) !== null && _a !== void 0 ? _a : [],
+            place: pdfPlace,
+        });
+    };
+    const writeComposerDraft = (draft) => {
+        var _a, _b, _c, _d;
+        if (!(aiInput instanceof HTMLTextAreaElement))
+            return;
+        aiInput.value = (_a = draft === null || draft === void 0 ? void 0 : draft.text) !== null && _a !== void 0 ? _a : "";
+        mentionController === null || mentionController === void 0 ? void 0 : mentionController.restoreDraft((_b = draft === null || draft === void 0 ? void 0 : draft.mentions) !== null && _b !== void 0 ? _b : []);
+        pdfPlace = (_c = draft === null || draft === void 0 ? void 0 : draft.place) !== null && _c !== void 0 ? _c : null;
+        pendingPdfAsk = null;
+        voiceSelection = null;
+        setPendingAttachments((_d = draft === null || draft === void 0 ? void 0 : draft.attachments) !== null && _d !== void 0 ? _d : []);
+        autoGrow();
+        updateContextBar();
+    };
+    const showComposerDraft = (chatId, cancelPendingReads = false) => {
+        if (!(aiInput instanceof HTMLTextAreaElement))
+            return;
+        const nextKey = draftKey(chatId);
+        if (nextKey === composerKey) {
+            // A new-chat click can cancel reads still pending on the empty composer.
+            if (cancelPendingReads)
+                setPendingAttachments(getPendingAttachments());
+            return;
+        }
+        const current = getComposerDraft();
+        if (hasComposerDraft(current))
+            drafts.set(composerKey, current);
+        composerKey = nextKey;
+        const draft = drafts.get(nextKey);
+        drafts.delete(nextKey);
+        writeComposerDraft(draft);
+    };
     const updateSendState = () => {
         const active = getChat(activeChatId);
         const isRunning = Boolean(active && runningConversations.has(active.id));
         const canResume = Boolean(active && !isRunning && resumableConversations.has(active.id));
         const canUndo = Boolean(active && active.hasUndo && !isRunning);
-        // AI running 中でも入力欄は常に有効 (ChatGPT/Claude と同じ UX)。
-        // ユーザーは返答を待ちながら次のメッセージを準備できる。
-        // 送信ボタンは非表示にし、代わりに停止ボタンを表示する。
-        const blockSend = activeChatId !== null && isRunning;
+        // A draft can steer the current run or queue the next one. Keep Stop independently available.
         const hasDraft = (aiInput instanceof HTMLTextAreaElement && aiInput.value.trim().length > 0) ||
             getPendingAttachments().length > 0;
         if (aiSend instanceof HTMLButtonElement) {
-            aiSend.disabled = blockSend;
+            aiSend.disabled = !hasDraft;
             aiSend.classList.remove("is-loading");
-            aiSend.style.display = blockSend || !hasDraft ? "none" : "flex";
+            aiSend.style.display = hasDraft ? "flex" : "none";
         }
         if (aiInput instanceof HTMLTextAreaElement)
             aiInput.disabled = false;
@@ -508,8 +571,10 @@ export const initAiChatUi = (context, deps) => {
         ...deps,
         getActiveSelectionSnapshot: getSelectionForContext,
     });
-    const buildContextPayload = (extras = {}) => {
+    const buildContextPayload = (extras = {}, includeDraft = true) => {
         var _a;
+        if (!includeDraft)
+            return _rawBuildContextPayload(extras);
         const refs = mentionController ? mentionController.getExplicitRefs() : [];
         const placeRefs = pdfPlace
             ? [{ kind: "pdf", page: pdfPlace.page, path: pdfPlace.path, line: pdfPlace.line, text: pdfPlace.text }]
@@ -798,7 +863,7 @@ export const initAiChatUi = (context, deps) => {
                 event.preventDefault();
                 const filePath = (_q = fileEl.dataset.openFile) !== null && _q !== void 0 ? _q : "";
                 if (filePath)
-                    deps.postToNative({ type: "openFile", path: filePath });
+                    deps.openProjectFile(filePath);
                 return;
             }
             const rulesEl = (_r = target === null || target === void 0 ? void 0 : target.closest) === null || _r === void 0 ? void 0 : _r.call(target, "[data-ai-rules]");
@@ -872,7 +937,7 @@ export const initAiChatUi = (context, deps) => {
         chat.messages.push(message);
         let element = null;
         if (chat.id === activeChatId && aiChatLog instanceof HTMLElement) {
-            element = createMessageElement(message);
+            element = createMessageElement(message, { assistantIndex: assistantOrdinal(chat, message) });
             appendToChatLog(element);
             scrollToBottom();
         }
@@ -935,6 +1000,7 @@ export const initAiChatUi = (context, deps) => {
             (_a = aiChatLog.querySelector(`.ai-message.is-queued[data-ai-queue-id="${queueId}"]`)) === null || _a === void 0 ? void 0 : _a.remove();
         }
     };
+    let hasPendingReads = () => false;
     let setPendingAttachments = (_attachments) => { };
     ({
         getPendingAttachments,
@@ -942,6 +1008,7 @@ export const initAiChatUi = (context, deps) => {
         clearPendingAttachments,
         addImageFiles,
         setPendingAttachments,
+        hasPendingReads,
     } = createAiChatAttachmentsController({
         aiAttachments,
         aiAttachInput,
@@ -1133,7 +1200,29 @@ export const initAiChatUi = (context, deps) => {
         }
         scrollToBottom(true);
     };
-    const restoreDraftFromPending = (chatId, request) => restorePendingAiDraft({ chatId, request, activeChatId, aiInput, autoGrow, appendMessage, setPendingAttachments });
+    const restoreDraftFromPending = (chatId, request) => {
+        const chat = getChat(chatId);
+        if (!chat || !request)
+            return;
+        chat.messages = chat.messages.filter(entry => entry !== request.optimisticRow);
+        if (chatId === activeChatId)
+            renderChatContent();
+        const key = draftKey(chatId);
+        const visible = key === composerKey;
+        const occupied = visible ? hasPendingReads() || hasComposerDraft(getComposerDraft()) : drafts.has(key);
+        if (request.draft && !occupied) {
+            if (visible)
+                writeComposerDraft(request.draft);
+            else
+                drafts.set(key, request.draft);
+            return;
+        }
+        // Keep the original request and its context available for an explicit retry.
+        const id = crypto.randomUUID();
+        const { message, parts, contextPayload, draft } = request;
+        chat.queue.unshift({ id, text: message, parts, contextPayload, draft, manualRetry: true });
+        appendMessage({ role: "user", text: request.message, queued: true, queueId: id, manualRetry: true }, chatId);
+    };
     const { requestAgentRun } = createAiChatRunner({
         isAiBlocked: gatedAiBlocked,
         needsLogin: gatedNeedsLogin,
@@ -1150,7 +1239,6 @@ export const initAiChatUi = (context, deps) => {
         buildContextPayload: () => { var _a; return buildContextPayload({ axiomMode: (_a = eventApi === null || eventApi === void 0 ? void 0 : eventApi.getMode()) !== null && _a !== void 0 ? _a : "agent" }); },
         getAgentSettings: () => agentSettings,
         clearThinkingMessage,
-        restoreDraftFromPending,
     });
     // ── Voice: the microphone in the composer ──
     const voice = createVoiceController({
@@ -1179,6 +1267,7 @@ export const initAiChatUi = (context, deps) => {
         },
     });
     eventApi = initAiChatEventBindings({
+        prepareEditorForAgent: deps.prepareEditorForAgent,
         aiChatLog,
         aiInput,
         aiSend,
@@ -1193,13 +1282,17 @@ export const initAiChatUi = (context, deps) => {
         getActiveChatId: () => activeChatId,
         setActiveChatId: (chatId) => {
             activeChatId = chatId;
+            composerKey = draftKey(chatId);
         },
         getPendingAttachments,
+        getComposerDraft,
         getChat,
         createChat,
         setChatTitle,
         renderHistoryList,
         appendMessage,
+        refreshTranscript: (chatId) => { if (chatId === activeChatId)
+            renderChatContent(); },
         removeQueuedMessage,
         settleLiveProposals: (chat) => {
             settleLiveProposals(chat);
@@ -1257,7 +1350,6 @@ export const initAiChatUi = (context, deps) => {
         ensureChat,
         getChat,
         setChatTitle,
-        clearPendingAttachments,
         renderHistoryList,
         renderChatContent,
         updateSendState,
@@ -1273,29 +1365,32 @@ export const initAiChatUi = (context, deps) => {
         restoreDraftFromPending,
         updateContextBar,
         switchActiveChat,
+        forgetRunningTurn: (chatId) => eventApi === null || eventApi === void 0 ? void 0 : eventApi.forgetRunningTurn(chatId),
         drainQueue: (chatId) => eventApi === null || eventApi === void 0 ? void 0 : eventApi.drainQueue(chatId),
         refreshActiveChat: () => renderChatContent(),
         settleLiveProposals,
         latestReplyWithChanges,
     });
     const handleDocumentMap = (payload) => {
-        var _a, _b, _c, _d, _e;
+        var _a, _b, _c, _d, _e, _f;
+        if ((payload === null || payload === void 0 ? void 0 : payload.requestId) !== documentIndexRequestId || documentIndexFile !== ((_a = deps.getActiveFilePath()) !== null && _a !== void 0 ? _a : null))
+            return;
         const previousGit = `${documentIndex.git.isRepo}:${documentIndex.git.changed}:${documentIndex.rules.exists}`;
         documentIndex = {
             sections: Array.isArray(payload === null || payload === void 0 ? void 0 : payload.sections) ? payload.sections : [],
             labels: Array.isArray(payload === null || payload === void 0 ? void 0 : payload.labels) ? payload.labels : [],
             bibKeys: Array.isArray(payload === null || payload === void 0 ? void 0 : payload.bibKeys) ? payload.bibKeys : [],
             git: {
-                isRepo: ((_a = payload === null || payload === void 0 ? void 0 : payload.git) === null || _a === void 0 ? void 0 : _a.isRepo) === true,
-                changed: typeof ((_b = payload === null || payload === void 0 ? void 0 : payload.git) === null || _b === void 0 ? void 0 : _b.changed) === "number" ? payload.git.changed : 0,
+                isRepo: ((_b = payload === null || payload === void 0 ? void 0 : payload.git) === null || _b === void 0 ? void 0 : _b.isRepo) === true,
+                changed: typeof ((_c = payload === null || payload === void 0 ? void 0 : payload.git) === null || _c === void 0 ? void 0 : _c.changed) === "number" ? payload.git.changed : 0,
             },
-            rules: { exists: ((_c = payload === null || payload === void 0 ? void 0 : payload.rules) === null || _c === void 0 ? void 0 : _c.exists) === true },
+            rules: { exists: ((_d = payload === null || payload === void 0 ? void 0 : payload.rules) === null || _d === void 0 ? void 0 : _d.exists) === true },
         };
         mentionController === null || mentionController === void 0 ? void 0 : mentionController.refresh();
         const nextGit = `${documentIndex.git.isRepo}:${documentIndex.git.changed}:${documentIndex.rules.exists}`;
-        if (nextGit !== previousGit && ((_d = getChatLog()) === null || _d === void 0 ? void 0 : _d.querySelector(".ai-empty-state"))) {
+        if (nextGit !== previousGit && ((_e = getChatLog()) === null || _e === void 0 ? void 0 : _e.querySelector(".ai-empty-state"))) {
             const chatLog = getChatLog();
-            (_e = chatLog === null || chatLog === void 0 ? void 0 : chatLog.querySelector(".ai-empty-state")) === null || _e === void 0 ? void 0 : _e.remove();
+            (_f = chatLog === null || chatLog === void 0 ? void 0 : chatLog.querySelector(".ai-empty-state")) === null || _f === void 0 ? void 0 : _f.remove();
             chatLog === null || chatLog === void 0 ? void 0 : chatLog.prepend(buildEmptyState());
         }
     };
@@ -1322,17 +1417,25 @@ export const initAiChatUi = (context, deps) => {
         streamingMessages.clear();
         thinkingMessages.clear();
         pendingAgentRequests.clear();
-        documentIndex = { sections: [], labels: [], bibKeys: [], git: { isRepo: false, changed: 0 }, rules: { exists: false } };
+        eventApi === null || eventApi === void 0 ? void 0 : eventApi.forgetWorkspaceTurns();
+        documentIndexFile = undefined;
+        documentDraftKey = "";
+        documentIndexRequestedAt = 0;
+        documentIndexRequestId = "";
+        documentIndex = emptyDocumentIndex();
         resetToNewChatState();
         renderHistoryList();
         return true;
     };
     return {
         handleSettings,
-        handleState: (state) => handleState({
-            ...state,
-            sessions: (Array.isArray(state.sessions) ? state.sessions : []).filter((session) => normalizeWorkspaceRoot(session.workspaceRootPath) === chatWorkspaceRoot),
-        }),
+        handleState: (state) => {
+            handleState({
+                ...state,
+                sessions: (Array.isArray(state.sessions) ? state.sessions : []).filter((session) => normalizeWorkspaceRoot(session.workspaceRootPath) === chatWorkspaceRoot),
+            });
+            showComposerDraft(activeChatId);
+        },
         handleStatus, handleMessage, handleMessageDelta, handleTool,
         handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleScratchpad, handleThought, handleError, handleRequestRejected,
         handleTitle,

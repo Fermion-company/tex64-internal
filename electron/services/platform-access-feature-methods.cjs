@@ -4,6 +4,7 @@ const {
   USAGE_CACHE_TTL_MS,
   clone,
   parseDate,
+  parseNumber,
   compareVersionValues,
   sanitizeHttpUrl,
   sanitizeDigestText,
@@ -484,7 +485,7 @@ const featureMethods = {
     const quota = { ...access.quota };
     const limit = Math.max(0, Math.round(Number(quota.limitTokens) || 0));
     const consumed = Math.max(0, Math.round(Number(consumedTokens) || 0));
-    const serverRemaining = Number(remainingTokens);
+    const serverRemaining = parseNumber(remainingTokens, Number.NaN);
     const remaining = Number.isFinite(serverRemaining)
       ? Math.max(0, Math.min(limit, Math.round(serverRemaining)))
       : Math.max(0, Math.round(Number(quota.remainingTokens) || 0) - consumed);

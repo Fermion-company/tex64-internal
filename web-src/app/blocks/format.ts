@@ -172,6 +172,5 @@ export const formatSnippetForInsert = (
   const formattedLines = options?.alignEnv
     ? formatBlockLinesForInsert(lines, prefix, indentUnit)
     : normalizeLinesForInsert(lines, prefix);
-  const result = formattedLines.join("\n");
-  return normalized.endsWith("\n") ? result + "\n" : result;
+  return formattedLines.join("\n");
 };

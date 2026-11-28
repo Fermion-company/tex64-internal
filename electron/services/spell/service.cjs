@@ -7,6 +7,8 @@
 
 const fsp = require("fs/promises");
 const path = require("path");
+const lockfile = require("proper-lockfile");
+const { atomicWrite } = require("../history-files.cjs");
 
 class SpellService {
   constructor({ userDataPath } = {}) {
@@ -67,39 +69,48 @@ class SpellService {
     }
   }
 
-  async loadUserWords() {
-    if (!this.userDictPath) {
-      return;
-    }
+  async readUserWords() {
+    if (!this.userDictPath) return [];
+    let raw;
     try {
-      const raw = await fsp.readFile(this.userDictPath, "utf8");
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        parsed.forEach((word) => {
-          if (typeof word === "string" && word) {
-            this.userWords.add(word);
-          }
-        });
-      }
+      raw = await fsp.readFile(this.userDictPath, "utf8");
+    } catch (error) {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    }
+    const words = JSON.parse(raw);
+    if (!Array.isArray(words) || words.some((word) => typeof word !== "string")) {
+      throw new Error("Invalid user dictionary.");
+    }
+    return words.filter(Boolean).map((word) => word.normalize("NFC"));
+  }
+
+  async loadUserWords() {
+    try {
+      this.userWords = new Set(await this.readUserWords());
     } catch {
-      // no user dictionary yet
+      // The built-in dictionaries remain usable. Adding a word retries the
+      // read and leaves the file intact if it still cannot be read.
     }
   }
 
-  async saveUserWords() {
-    if (!this.userDictPath) {
-      return;
-    }
+  async saveUserWord(word) {
+    if (!this.userDictPath) return [word];
+    await fsp.mkdir(path.dirname(this.userDictPath), { recursive: true });
+    const release = await lockfile.lock(this.userDictPath, {
+      realpath: false,
+      retries: { retries: 8, minTimeout: 20, maxTimeout: 250 },
+    });
     try {
       // Another TeX64 process may have added words since this one loaded them.
-      await this.loadUserWords();
-      this.spellers.forEach((spell) => this.userWords.forEach((word) => spell.add(word)));
-      await fsp.mkdir(path.dirname(this.userDictPath), { recursive: true });
-      const tmpPath = `${this.userDictPath}.tmp-${process.pid}`;
-      await fsp.writeFile(tmpPath, JSON.stringify(Array.from(this.userWords)), "utf8");
-      await fsp.rename(tmpPath, this.userDictPath);
-    } catch (error) {
-      console.warn("[spell] failed to save user dictionary", error);
+      const words = new Set(await this.readUserWords());
+      if (!words.has(word)) {
+        words.add(word);
+        await atomicWrite(this.userDictPath, JSON.stringify([...words]));
+      }
+      return words;
+    } finally {
+      await release();
     }
   }
 
@@ -111,7 +122,7 @@ class SpellService {
     const spell = await this.ensureLoaded(locale);
     const misspelled = [];
     for (const word of words) {
-      if (typeof word === "string" && word && !spell.correct(word)) {
+      if (typeof word === "string" && word && !spell.correct(word.normalize("NFC"))) {
         misspelled.push(word);
       }
     }
@@ -123,19 +134,20 @@ class SpellService {
       return [];
     }
     const spell = await this.ensureLoaded(locale);
-    return spell.suggest(word).slice(0, 8);
+    return spell.suggest(word.normalize("NFC")).slice(0, 8);
   }
 
   async addWord(word, locale = "en") {
     if (typeof word !== "string" || !word.trim()) {
       return false;
     }
-    const activeSpell = await this.ensureLoaded(locale);
-    const trimmed = word.trim();
-    activeSpell.add(trimmed);
-    this.spellers.forEach((spell) => spell.add(trimmed));
-    this.userWords.add(trimmed);
-    await this.saveUserWords();
+    await this.ensureLoaded(locale);
+    const words = await this.saveUserWord(word.trim().normalize("NFC"));
+    for (const saved of words) {
+      if (this.userWords.has(saved)) continue;
+      this.userWords.add(saved);
+      this.spellers.forEach((spell) => spell.add(saved));
+    }
     return true;
   }
 }

@@ -59,24 +59,35 @@ const createMiscHandlers = (deps) => {
     appVersion,
     defaultUpdateChannel,
     updateDownloadDir,
+    backgroundChecks: runtimeInfo?.packaged !== false,
     storeManagedUpdates,
   });
 
+  const latestChecks = new Map();
   const handleEnvCheck = async (command) => {
-    const result = await envService.checkCommand(command);
-    sendToRenderer("env:checkResult", { command, available: result });
+    const check = envService.checkCommand(command);
+    latestChecks.set(command, check);
+    try {
+      const available = await check;
+      if (latestChecks.get(command) === check) sendToRenderer("env:checkResult", { command, available });
+    } finally {
+      if (latestChecks.get(command) === check) latestChecks.delete(command);
+    }
   };
 
   // One structured probe of the whole machine, used by the setup screen to decide
   // between "you are already set" and which install to offer.
+  let detectionSequence = 0;
   const handleEnvDetect = async (options = {}) => {
+    const sequence = ++detectionSequence;
     try {
       const report = await envService.detectEnvironment({
         force: options?.force === true,
         remote: options?.remote === true,
       });
-      sendToRenderer("env:detectResult", { report });
+      if (sequence === detectionSequence) sendToRenderer("env:detectResult", { report });
     } catch (error) {
+      if (sequence !== detectionSequence || error.name === "AbortError") return;
       sendToRenderer("env:detectResult", {
         report: null,
         error: typeof error?.message === "string" ? error.message : "Detection failed.",
@@ -103,27 +114,19 @@ const createMiscHandlers = (deps) => {
         ? ["latexindent"]
         : [];
     for (const command of commands) {
-      const available = await envService.checkCommand(command);
-      sendToRenderer("env:checkResult", { command, available });
+      await handleEnvCheck(command);
     }
     await handleEnvDetect({ force: true });
   };
 
   const handleBlocksSave = async (entry) => {
     const rootPath = workspace.getRootPath();
-    if (!rootPath) {
-      return;
-    }
-    let blocks = [];
+    if (!rootPath || !entry || typeof entry !== "object" || Array.isArray(entry)) return;
     try {
-      blocks = await blocksStore.load(rootPath);
-    } catch {
-      blocks = [];
+      await blocksStore.append(rootPath, entry);
+    } catch (error) {
+      sendToRenderer("blocks:saveError", { rootPath, invalid: error.code === "BLOCK_HISTORY_INVALID" });
     }
-    if (entry && typeof entry === "object") {
-      blocks.push(entry);
-    }
-    await blocksStore.save(rootPath, blocks);
   };
 
   const handleApiUsageGet = async () => {

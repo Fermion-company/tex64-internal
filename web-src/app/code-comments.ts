@@ -269,12 +269,14 @@ const createHoverMessage = (comment: CodeComment) => {
   return { value: lines.join("\n") };
 };
 
-const createCodeCommentDialog = (options: {
+type CommentDialogOptions = {
   title: string;
   initialText: string;
   submitLabel: string;
   quote?: string;
-}): Promise<string | null> =>
+};
+
+const createCodeCommentDialog = (options: CommentDialogOptions, signal: AbortSignal): Promise<string | null> =>
   new Promise((resolve) => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const modal = document.createElement("div");
@@ -331,10 +333,13 @@ const createCodeCommentDialog = (options: {
       }
       settled = true;
       window.removeEventListener("keydown", onKeyDown, true);
+      signal.removeEventListener("abort", cancel);
       modal.remove();
       previousFocus?.focus?.();
       resolve(value);
     };
+    const cancel = () => close(null);
+    signal.addEventListener("abort", cancel, { once: true });
 
     const submit = () => {
       const text = normalizeCommentText(textarea.value);
@@ -348,6 +353,7 @@ const createCodeCommentDialog = (options: {
     };
 
     function onKeyDown(event: KeyboardEvent) {
+      if (event.isComposing) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
@@ -390,6 +396,8 @@ export const createCodeCommentManager = (
   let loadedRoot: string | null = null;
   let cachedComments: CodeComment[] = [];
   let loadGeneration = 0;
+  let workspaceLoad: Promise<boolean> | null = null;
+  let loadFailed = false;
   let saveTimer: number | null = null;
   // The save waiting for its timer, bound to the folder it belongs to, and
   // the chain of saves already sent (one at a time, in order).
@@ -398,7 +406,6 @@ export const createCodeCommentManager = (
   const groupStates = new Map<EditorGroupKey, GroupCommentState>();
   const contextSyncers = new Map<EditorGroupKey, () => void>();
 
-  const legacyStorageKey = () => `${STORAGE_PREFIX}${deps.getWorkspaceRoot() ?? "global"}`;
   const sessionMap = () => deps.collab?.sessionDoc()?.getMap("comments") ?? null;
   const inSession = () => Boolean(sessionMap());
   const authorName = () => collabSession.selfParticipant()?.name || deps.getAuthorName?.() || "";
@@ -411,35 +418,45 @@ export const createCodeCommentManager = (
   // list is what the editor reads synchronously.
   const loadFromWorkspace = async () => {
     const root = deps.getWorkspaceRoot();
+    const legacyKey = `${STORAGE_PREFIX}${root ?? "global"}`;
     const generation = ++loadGeneration;
     let comments: CodeComment[] = [];
     let missing = false;
     if (root && collabSession.available) {
       try {
-        const result = await collabSession.call("comments:load");
-        comments = (result.comments as unknown[]).map(sanitizeComment).filter((comment): comment is CodeComment => Boolean(comment));
+        if (pendingSave?.root === root) await flushPendingSave();
+        const result = await collabSession.call("comments:load", { root });
+        for (const entry of result.comments as unknown[]) {
+          const comment = sanitizeComment(entry);
+          if (!comment) throw new Error("Invalid stored comment.");
+          comments.push(comment);
+        }
         missing = result.missing === true;
       } catch {
-        comments = [];
+        if (generation === loadGeneration && deps.getWorkspaceRoot() === root) loadFailed = true;
+        return false;
       }
     }
-    if (generation !== loadGeneration || deps.getWorkspaceRoot() !== root) return;
+    if (generation !== loadGeneration || deps.getWorkspaceRoot() !== root || inSession()) return false;
     let migrated: CodeComment[] = [];
     try {
-      const legacy = JSON.parse(localStorage.getItem(legacyStorageKey()) ?? "[]");
+      const legacy = JSON.parse(localStorage.getItem(legacyKey) ?? "[]");
       if (Array.isArray(legacy)) migrated = legacy.map(sanitizeComment).filter((comment): comment is CodeComment => Boolean(comment));
     } catch {}
     cachedComments = comments;
     loadedRoot = root;
     if (migrated.length && (missing || comments.length === 0) && root) {
       cachedComments = migrated;
-      void persistWorkspace(cachedComments, root).then((ok) => {
+      const migration = saving.then(() => persistWorkspace(migrated, root));
+      saving = migration.then(() => {});
+      void migration.then((ok) => {
         if (ok) {
-          try { localStorage.removeItem(legacyStorageKey()); } catch {}
+          try { localStorage.removeItem(legacyKey); } catch {}
         }
       });
     }
     refreshAllGroups();
+    return true;
   };
 
   const persistWorkspace = async (comments: CodeComment[], root: string | null) => {
@@ -452,14 +469,15 @@ export const createCodeCommentManager = (
     }
   };
 
-  const loadComments = () => {
+  const loadComments = (retryFailure = false) => {
     const map = sessionMap();
     if (map) return readSessionComments(map);
     const root = deps.getWorkspaceRoot();
-    if (root !== loadedRoot) {
+    if (root !== loadedRoot || (retryFailure && loadFailed)) {
       loadedRoot = root;
       cachedComments = [];
-      void loadFromWorkspace();
+      loadFailed = false;
+      workspaceLoad = loadFromWorkspace();
     }
     return cachedComments;
   };
@@ -473,7 +491,7 @@ export const createCodeCommentManager = (
     const run = saving.then(async () => {
       if (!pending) return;
       if (!(await persistWorkspace(pending.comments, pending.root))) {
-        throw new Error(uiText("The comments could not be saved, so the session was not started.", "コメントを保存できなかったため、セッションを開始しませんでした。"));
+        throw new Error(uiText("Comments could not be saved.", "コメントを保存できませんでした。"));
       }
       if (pendingSave === pending) pendingSave = null;
     });
@@ -709,6 +727,7 @@ export const createCodeCommentManager = (
     const path = group.currentFilePath;
     state.path = path;
     state.model = model;
+    contextSyncers.get(group.key)?.();
     if (!editor || !model || !path) {
       return;
     }
@@ -744,7 +763,6 @@ export const createCodeCommentManager = (
       decorationId,
       commentId: comments[index].id,
     }));
-    contextSyncers.get(group.key)?.();
   };
 
   const scheduleRefreshGroup = (group: EditorGroupState) => {
@@ -763,34 +781,46 @@ export const createCodeCommentManager = (
     });
   };
 
+  const findCommentAtRange = (path: string, selection: StoredRange | null, position: PositionLike | null) =>
+    loadComments().find((comment) => comment.filePath === path && (
+      (selection && rangesIntersect(comment, selection)) ||
+      (position && rangeContainsPosition(comment, position))
+    )) ?? null;
+
   const findCommentAtCurrentContext = (group: EditorGroupState) => {
     const editor = group.editor as EditorLike | null;
-    const model = editor?.getModel?.() ?? null;
     const path = group.currentFilePath;
-    if (!editor || !path) {
-      return null;
-    }
-    const selectionRange = getSelectionRange(editor, model);
-    const position = editor.getPosition?.();
-    return (
-      loadComments().find((comment) => {
-        if (comment.filePath !== path) {
-          return false;
-        }
-        if (selectionRange && rangesIntersect(comment, selectionRange)) {
-          return true;
-        }
-        return Boolean(position && rangeContainsPosition(comment, position));
-      }) ?? null
-    );
+    if (!editor || !path) return null;
+    return findCommentAtRange(path, getSelectionRange(editor, editor.getModel?.() ?? null), editor.getPosition?.() ?? null);
   };
 
   // A view-only guest reads the comments but changes none of them.
   const viewOnly = () => collabSession.isViewer();
 
+  const promptForComment = async (group: EditorGroupState, options: CommentDialogOptions) => {
+    const editor = group.editor as EditorLike;
+    const model = editor.getModel?.();
+    const root = deps.getWorkspaceRoot();
+    const session = deps.collab?.sessionDoc();
+    const filePath = group.currentFilePath;
+    const current = () => deps.getWorkspaceRoot() === root && group.currentFilePath === filePath && editor.getModel?.() === model
+      && deps.collab?.sessionDoc() === session && !viewOnly();
+    const abort = new AbortController();
+    const cancelIfChanged = () => { if (!current()) abort.abort(); };
+    const modelListener = editor.onDidChangeModel?.(cancelIfChanged);
+    const offSession = collabSession.onChange(cancelIfChanged);
+    try {
+      const text = await createCodeCommentDialog(options, abort.signal);
+      return current() ? text : null;
+    } finally {
+      if (modelListener) modelListener.dispose?.();
+      offSession();
+    }
+  };
+
   const editComment = async (group: EditorGroupState, comment: CodeComment) => {
     if (viewOnly()) return;
-    const nextText = await createCodeCommentDialog({
+    const nextText = await promptForComment(group, {
       title: uiText("Edit comment", "コメントを編集"),
       initialText: comment.text,
       submitLabel: uiText("Save", "保存"),
@@ -818,7 +848,7 @@ export const createCodeCommentManager = (
 
   const replyToComment = async (group: EditorGroupState, comment: CodeComment) => {
     if (viewOnly()) return;
-    const text = await createCodeCommentDialog({
+    const text = await promptForComment(group, {
       title: uiText("Reply to comment", "コメントに返信"),
       initialText: "",
       submitLabel: uiText("Reply", "返信"),
@@ -866,17 +896,30 @@ export const createCodeCommentManager = (
       return;
     }
 
-    const existing = findCommentAtCurrentContext(group);
+    const range = getSelectionRange(editor, model);
+    if (!range) return;
+    const position = editor.getPosition?.() ?? null;
+    const root = deps.getWorkspaceRoot();
+    if (!inSession()) {
+      if (!root) return;
+      loadComments(true);
+      const pending = workspaceLoad;
+      const ready = await pending;
+      if (pending !== workspaceLoad || root !== deps.getWorkspaceRoot() || filePath !== group.currentFilePath ||
+          model !== editor.getModel?.() || inSession() || viewOnly()) return;
+      if (!ready) {
+        window.alert(uiText("Could not read .tex64/comments.json. Check the file and try adding the comment again.",
+          ".tex64/comments.json を読み込めませんでした。ファイルを確認してからもう一度コメントを追加してください。"));
+        return;
+      }
+    }
+    const existing = findCommentAtRange(filePath, range, position);
     if (existing) {
       await editComment(group, existing);
       return;
     }
 
-    const range = getSelectionRange(editor, model);
-    if (!range) {
-      return;
-    }
-    const text = await createCodeCommentDialog({
+    const text = await promptForComment(group, {
       title: uiText("Add comment", "コメントを追加"),
       initialText: "",
       submitLabel: uiText("Add", "追加"),
@@ -1063,5 +1106,9 @@ export const createCodeCommentManager = (
     scheduleRefreshGroup(group);
   };
 
-  return { attachToEditor, refreshGroup, listComments: () => loadComments().map(toStoredComment) };
+  return {
+    attachToEditor, refreshGroup, flushPendingSave,
+    hasPendingSave: () => pendingSave !== null,
+    listComments: () => loadComments().map(toStoredComment),
+  };
 };

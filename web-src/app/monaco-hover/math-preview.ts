@@ -104,6 +104,106 @@ const normalizeMathMlForSvg = (mathMl: string) => {
   return serialized || null;
 };
 
+declare const katex: {
+  render: (latex: string, element: HTMLElement, options: Record<string, unknown>) => void;
+} | undefined;
+
+// A pinned preview can open directly under the pointer in a narrow split.
+let pointerX = 0;
+let pointerY = 0;
+let passThroughRow: { top: number; bottom: number } | null = null;
+
+export function trackFormulaHoverPointer(event: PointerEvent) {
+  pointerX = event.clientX;
+  pointerY = event.clientY;
+  if (passThroughRow && (pointerY < passThroughRow.top || pointerY >= passThroughRow.bottom)) {
+    document.querySelector(".tex64-hover-over-source")?.classList.remove("tex64-hover-over-source");
+    passThroughRow = null;
+  }
+}
+
+export function scrollFormulaHover(event: WheelEvent) {
+  if (event.ctrlKey || !event.cancelable) return;
+  const delta = event.deltaX || (event.shiftKey ? event.deltaY : 0);
+  if (!delta) return;
+  const target = event.target instanceof Element ? event.target.closest(".tex64-hover-formula") : null;
+  const host = event.currentTarget;
+  const formula = target ?? (passThroughRow && host instanceof Element ? host.querySelector(".tex64-hover-over-source") : null);
+  if (!(formula instanceof HTMLElement) || !formula.isConnected || formula.scrollWidth <= formula.clientWidth) return;
+  const rect = formula.getBoundingClientRect();
+  if (event.clientX < rect.left || event.clientX >= rect.right ||
+      event.clientY < rect.top || event.clientY >= rect.bottom) return;
+  const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? parseFloat(getComputedStyle(formula).fontSize)
+    : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? formula.clientWidth : 1;
+  formula.scrollLeft += delta * unit;
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function coversSourceText(host: HTMLElement, card: DOMRect) {
+  const range = document.createRange();
+  for (const line of host.querySelectorAll(".view-lines .view-line")) {
+    const row = line.getBoundingClientRect();
+    if (row.bottom <= card.top || row.top >= card.bottom || !line.textContent?.trim()) continue;
+    range.selectNodeContents(line);
+    if (Array.from(range.getClientRects()).some(r => r.width && r.left < card.right && r.right > card.left)) return true;
+  }
+  return false;
+}
+
+function preserveSourceClick(preview: Element) {
+  if (!preview.isConnected) return;
+  const widget = preview.closest(".monaco-resizable-hover");
+  if (!widget) return;
+  const host = widget.closest<HTMLElement>(".editor-host");
+  const card = widget.getBoundingClientRect();
+  const surface = host?.closest(".editor-surface");
+  if (surface && host && card.width && card.height && coversSourceText(host, card)) {
+    const clearance = Math.ceil(card.bottom - surface.getBoundingClientRect().top + 4);
+    host.style.setProperty("--tex64-hover-clearance", clearance + "px");
+    preview.classList.add("tex64-hover-reserve");
+    return;
+  }
+  if (pointerX < card.left || pointerX >= card.right || pointerY < card.top || pointerY >= card.bottom) return;
+  if (passThroughRow) {
+    document.querySelector(".tex64-hover-over-source")?.classList.remove("tex64-hover-over-source");
+    passThroughRow = null;
+  }
+  preview.classList.add("tex64-hover-over-source");
+  const sourceLine = document.elementFromPoint(pointerX, pointerY)?.closest(".view-line");
+  if (!sourceLine || sourceLine.closest(".monaco-editor") !== widget.closest(".monaco-editor")) {
+    preview.classList.remove("tex64-hover-over-source");
+    return;
+  }
+  const line = sourceLine.getBoundingClientRect();
+  passThroughRow = { top: line.top, bottom: line.bottom };
+}
+
+// Monaco sanitizes arbitrary Markdown HTML. Once its preview image loads,
+// typeset the expression with the same bundled fonts as the rest of TeX64.
+// The image remains the fallback for commands unsupported by KaTeX.
+export const typesetMathHover = (event: Event) => {
+  const image = event.target;
+  if (!(image instanceof HTMLImageElement) || !image.src.endsWith("#tex64-math") ||
+      !image.closest(".monaco-hover")) return;
+  if (typeof katex === "undefined") {
+    requestAnimationFrame(() => preserveSourceClick(image));
+    return;
+  }
+  const formula = document.createElement("span");
+  formula.className = "tex64-hover-formula";
+  try {
+    katex.render(normalizeLatexForMathLive(image.alt), formula, {
+      displayMode: true, throwOnError: true, trust: false, strict: "ignore",
+    });
+  } catch {
+    requestAnimationFrame(() => preserveSourceClick(image));
+    return;
+  }
+  image.replaceWith(formula);
+  requestAnimationFrame(() => preserveSourceClick(formula));
+};
+
 export const buildMathPreviewHtml = (latex: string) => {
   const MathLiveGlobal = (window as any).MathLive;
   const convertToMathMl = MathLiveGlobal?.convertLatexToMathMl;
@@ -136,65 +236,31 @@ export const buildMathPreviewHtml = (latex: string) => {
       return null;
     }
 
-    const padX = 6;
-    const padY = 4;
-    const MAX_WIDTH = 420;
-    const MAX_HEIGHT = 180;
-    let width = 240;
-    let height = 92;
-    // When the rendered formula is larger than the hover budget, shrink the
-    // content to fit instead of clipping it (large align blocks used to lose
-    // their right/bottom edge behind overflow:hidden).
-    let contentScale = 1;
+    // Measure and draw with the same typography. Let the SVG viewBox scale
+    // both axes together when Monaco opens the preview in a narrow pane.
+    const typography = "font:20px math;line-height:normal;display:inline-block;white-space:nowrap;";
+    const probe = document.createElement("div");
+    probe.style.cssText = typography + "position:fixed;left:-10000px;visibility:hidden;";
+    probe.innerHTML = renderRoot;
+    document.body.appendChild(probe);
+    let rect: DOMRect;
     try {
-      const probeHost = document.createElement("div");
-      probeHost.style.position = "fixed";
-      probeHost.style.left = "-10000px";
-      probeHost.style.top = "-10000px";
-      probeHost.style.pointerEvents = "none";
-      probeHost.style.opacity = "0";
-      probeHost.style.whiteSpace = "nowrap";
-      probeHost.style.margin = "0";
-      probeHost.style.padding = "0";
-      const probeInner = document.createElement("div");
-      probeInner.style.display = "inline-block";
-      probeInner.style.margin = "0";
-      probeInner.style.padding = "0";
-      probeInner.style.lineHeight = "1.15";
-      probeInner.innerHTML = renderRoot;
-      probeHost.appendChild(probeInner);
-      document.body.appendChild(probeHost);
-      const rect = probeInner.getBoundingClientRect();
-      probeHost.remove();
-      if (rect.width > 1 && rect.height > 1) {
-        const naturalWidth = Math.ceil(rect.width) + padX * 2;
-        const naturalHeight = Math.ceil(rect.height) + padY * 2;
-        contentScale = Math.min(1, MAX_WIDTH / naturalWidth, MAX_HEIGHT / naturalHeight);
-        width = Math.max(34, Math.min(MAX_WIDTH, Math.ceil(naturalWidth * contentScale)));
-        height = Math.max(30, Math.min(MAX_HEIGHT, Math.ceil(naturalHeight * contentScale)));
-      }
-    } catch {
-      // Keep fallback size when DOM measurement fails.
+      rect = probe.getBoundingClientRect();
+    } finally {
+      probe.remove();
     }
-
-    const scaleStyle =
-      contentScale < 1
-        ? `transform:scale(${contentScale.toFixed(4)});transform-origin:center center;flex-shrink:0;`
-        : "";
+    if (!rect.width || !rect.height) return null;
+    const width = Math.ceil(rect.width) + 4;
+    const height = Math.ceil(rect.height) + 4;
     const svg = [
       `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
-      `<foreignObject x="0" y="0" width="${width}" height="${height}">`,
-      `<div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;align-items:center;justify-content:center;width:${width}px;height:${height}px;background:rgba(39,54,84,0.98);color:rgba(247,250,255,0.99);font-family:'STIX Two Math','Cambria Math','Latin Modern Math','Times New Roman',serif;padding:${padY}px ${padX}px;box-sizing:border-box;overflow:hidden;">`,
-      scaleStyle ? `<div style="${scaleStyle}">` : "",
-      renderRoot,
-      scaleStyle ? `</div>` : "",
-      `</div>`,
-      `</foreignObject>`,
-      `</svg>`,
+      `<foreignObject x="2" y="2" width="${width - 2}" height="${height - 2}">`,
+      `<div xmlns="http://www.w3.org/1999/xhtml" style="${typography}color:black;">${renderRoot}</div>`,
+      "</foreignObject></svg>",
     ].join("");
     const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}#tex64-math`;
-    const escaped = dataUrl.replace(/"/g, "&quot;");
-    return `<div class="tex64-hover-preview tex64-hover-preview-math" data-tex64-preview="math"><img src="${escaped}" alt="" /></div>`;
+    const alt = stripped.replace(/&/g, "&amp;").replace(/\r?\n/g, "&#10;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return `<img src="${dataUrl}" alt="${alt}" />`;
   } catch {
     return null;
   }

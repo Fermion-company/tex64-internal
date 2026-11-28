@@ -87,6 +87,7 @@ const normalizeEntry = (entry) => {
     url: id,
     arxivId: idFromEntryUrl(id),
     versionedId: versionedIdFromEntryUrl(id),
+    doi: collapse(entry["arxiv:doi"]),
     primaryClass,
   };
 };
@@ -176,6 +177,7 @@ const buildArxivBibtex = (entry) => {
     `  eprint={${arxivId}},`,
     `  archivePrefix={arXiv},`,
   ];
+  if (entry.doi) lines.push(`  doi={${entry.doi}},`);
   if (entry.primaryClass) lines.push(`  primaryClass={${entry.primaryClass}},`);
   lines.push(`  url={https://arxiv.org/abs/${arxivId}}`, `}`);
   return lines.join("\n");

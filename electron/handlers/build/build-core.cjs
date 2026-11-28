@@ -1,6 +1,6 @@
 const path = require("path");
 
-const PROFILE_ENGINES = new Set(["pdflatex", "lualatex", "xelatex", "uplatex"]);
+const { selectedBuildProfile } = require("../../services/agent-build-context.cjs");
 
 const createBuildCoreHandlers = (deps, resolvers) => {
   const {
@@ -150,25 +150,7 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     return true;
   };
 
-  const resolveBuildProfile = async () => {
-    const settings = await workspace.loadSettings().catch(() => null);
-    const activeId = typeof settings?.buildProfileId === "string" ? settings.buildProfileId.trim() : "";
-    if (!activeId) {
-      return null;
-    }
-    const profiles = Array.isArray(settings?.buildProfiles) ? settings.buildProfiles : [];
-    const selected = profiles.find((profile) => profile && typeof profile === "object" && profile.id === activeId);
-    if (!selected) {
-      return null;
-    }
-    const outDir =
-      typeof selected.outDir === "string" && selected.outDir.trim() ? selected.outDir.trim() : null;
-    const extraArgs =
-      typeof selected.extraArgs === "string" && selected.extraArgs.trim() ? selected.extraArgs.trim() : null;
-    const engine =
-      typeof selected.engine === "string" && PROFILE_ENGINES.has(selected.engine.trim()) ? selected.engine.trim() : null;
-    return { outDir, extraArgs, engine };
-  };
+  const resolveBuildProfile = async () => selectedBuildProfile(await workspace.loadSettings().catch(() => null));
 
   const normalizeBuildProfile = (value) => {
     if (!value || typeof value !== "object") {
@@ -292,6 +274,7 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
       // A profile that pins an engine wins over the app-wide engine setting.
       if (buildProfile?.engine) options = { ...options, engine: buildProfile.engine };
+      eventContext.engine = resolveBuildEngineCommand(options.engine);
       const outputProfile = buildService.resolveBuildOutputProfile(rootPath, targetFile, buildProfile);
       const expectedPdfPath = outputProfile.invalidDirectoryArgument ||
         (outputProfile.outDirRequested && !outputProfile.outDir)
@@ -440,7 +423,7 @@ const createBuildCoreHandlers = (deps, resolvers) => {
           sendBuildState("success", result.summary, {
             ...eventContext,
             pdfPath: rendererPath(resolveWorkspaceRelativePath(rootPath, result.pdfPath)),
-          });
+          }, result);
           pdfWindowManager.setBuildState?.("success", result.summary, result.pdfPath);
           // A build can succeed and still have plenty to say — undefined
           // references, missing images, overfull lines. Those used to be thrown
@@ -476,7 +459,7 @@ const createBuildCoreHandlers = (deps, resolvers) => {
         const displayIssues = [...errorIssues, ...warningIssues].slice(0, 20);
         const count = Math.max(displayIssues.length, 1);
         const summaryText = displayIssues[0]?.message ?? result.summary;
-        sendBuildState("failed", summaryText, { ...eventContext, issues: displayIssues });
+        sendBuildState("failed", summaryText, { ...eventContext, issues: displayIssues }, result);
         if (expectedPdfPath) {
           pdfWindowManager.setBuildState?.("failed", summaryText, expectedPdfPath);
         }

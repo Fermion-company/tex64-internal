@@ -18,42 +18,30 @@ const normalizePosixPath = (value) => {
     }
     return stack.join("/");
 };
-export const resolveGraphicsCandidates = (activeFilePath, rawPath, workspaceFiles) => {
+const containingDirectory = (file) => file.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
+const resolveCandidates = (activeFile, input, files, extensions, rootFile) => {
     var _a;
-    const normalized = rawPath.trim().split("\\").join("/");
-    if (!normalized) {
+    const raw = input.trim().replace(/\\/g, "/");
+    if (!raw)
         return [];
+    const base = raw.replace(/^\/+/, "");
+    // Ordinary LaTeX inclusions are read from the build directory. Keep
+    // source-relative matches as well for imports that change the search path.
+    const directories = raw.startsWith("/") ? [""] : ["", containingDirectory(rootFile || ""), containingDirectory(activeFile)];
+    const paths = new Set(files.map((file) => file.replace(/\\/g, "/")));
+    const matches = [];
+    for (const directory of new Set(directories)) {
+        const resolved = normalizePosixPath(directory ? `${directory}/${base}` : base);
+        const candidates = ((_a = resolved.split("/").pop()) === null || _a === void 0 ? void 0 : _a.includes(".")) ? [resolved] : [resolved, ...extensions.map(ext => `${resolved}.${ext}`)];
+        for (const candidate of candidates) {
+            if (paths.has(candidate) && !matches.includes(candidate))
+                matches.push(candidate);
+        }
     }
-    const activeDir = activeFilePath.split("\\").join("/").split("/").slice(0, -1).join("/");
-    const base = normalized.startsWith("/") ? normalized.replace(/^\/+/, "") : normalized;
-    const resolved = normalizePosixPath(activeDir ? `${activeDir}/${base}` : base);
-    const hasExt = ((_a = resolved.split("/").pop()) !== null && _a !== void 0 ? _a : "").includes(".");
-    const allowedExts = ["png", "jpg", "jpeg", "pdf", "svg", "eps", "tif", "tiff"];
-    const candidates = [];
-    if (hasExt) {
-        candidates.push(resolved);
-    }
-    else {
-        candidates.push(resolved);
-        allowedExts.forEach((ext) => candidates.push(`${resolved}.${ext}`));
-    }
-    const workspaceSet = new Set(workspaceFiles.map((p) => p.split("\\").join("/")));
-    return candidates.filter((candidate) => workspaceSet.has(candidate));
+    return matches;
 };
-export const resolveTexIncludeCandidates = (activeFilePath, rawPath, workspaceFiles) => {
-    var _a;
-    const normalized = rawPath.trim().split("\\").join("/");
-    if (!normalized) {
-        return [];
-    }
-    const activeDir = activeFilePath.split("\\").join("/").split("/").slice(0, -1).join("/");
-    const base = normalized.startsWith("/") ? normalized.replace(/^\/+/, "") : normalized;
-    const resolved = normalizePosixPath(activeDir ? `${activeDir}/${base}` : base);
-    const hasExt = ((_a = resolved.split("/").pop()) !== null && _a !== void 0 ? _a : "").includes(".");
-    const candidates = hasExt ? [resolved] : [resolved, `${resolved}.tex`];
-    const workspaceSet = new Set(workspaceFiles.map((p) => p.split("\\").join("/")));
-    return candidates.filter((candidate) => workspaceSet.has(candidate));
-};
+export const resolveGraphicsCandidates = (activeFile, input, files, rootFile = null) => resolveCandidates(activeFile, input, files, ["png", "jpg", "jpeg", "pdf", "svg", "eps", "tif", "tiff"], rootFile);
+export const resolveTexIncludeCandidates = (activeFile, input, files, rootFile = null) => resolveCandidates(activeFile, input, files, ["tex"], rootFile);
 export const isPreviewableImagePath = (pathValue) => {
     var _a, _b, _c;
     const ext = (_c = (_b = ((_a = pathValue.split("/").pop()) !== null && _a !== void 0 ? _a : "").split(".").pop()) === null || _b === void 0 ? void 0 : _b.toLowerCase()) !== null && _c !== void 0 ? _c : "";

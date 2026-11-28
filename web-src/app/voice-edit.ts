@@ -1,3 +1,4 @@
+import { isTexFilePath } from "./files.js";
 /**
  * Ask Axiom by voice: speak a short instruction in the editor and it goes
  * to Axiom at once, with the selection (or the paragraph around the cursor)
@@ -20,7 +21,7 @@
 
 import { aiText } from "./ai-i18n.js";
 import { getUiLocale, uiText } from "./i18n.js";
-import { createVoiceRecorder, formatVoiceClock, isVoiceRecordingSupported } from "./voice-recorder.js";
+import { createVoiceRecorder, formatVoiceClock, isVoiceRecordingSupported, voiceRecorderMessage } from "./voice-recorder.js";
 import type { VoiceInstructionSelection } from "./ai-chat-ui.js";
 
 type VoiceEditDeps = {
@@ -59,7 +60,6 @@ const FAILURE_MS = 3000;
 
 type Range = { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number; isEmpty?: () => boolean };
 
-const isTexPath = (path: string | null) => typeof path === "string" && path.endsWith(".tex");
 
 const HEADING_LINE = /^\s*\\(?:part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\s*[\[{]/;
 
@@ -201,7 +201,7 @@ export const createVoiceEditController = (deps: VoiceEditDeps): VoiceEditControl
       const op = recorderOp;
       recorderOp = null;
       if (!stillLive(op)) return;
-      failInPill(aiText(code === "denied" ? "mic_denied" : code === "short" ? "mic_empty" : "mic_failed"));
+      failInPill(aiText(voiceRecorderMessage[code]));
     },
   });
 
@@ -324,7 +324,7 @@ export const createVoiceEditController = (deps: VoiceEditDeps): VoiceEditControl
     };
 
     const start = () => {
-      if (!isTexPath(file.getFilePath())) return;
+      if (!isTexFilePath(file.getFilePath())) return;
       if (!isVoiceRecordingSupported()) return;
       const snapshot = snapshotSelection();
       if (!snapshot) return;

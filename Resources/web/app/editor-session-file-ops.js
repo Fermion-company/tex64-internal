@@ -1,8 +1,8 @@
-import { isImageFilePath, isPdfFilePath, } from "./files.js";
+import { isTexFilePath, isImageFilePath, isPdfFilePath, } from "./files.js";
 import { buildLineDiff } from "./diff.js";
 import { getUiLocale, uiText } from "./i18n.js";
 import { trackLiveEditModel } from "./editor-session/live-edit-history.js";
-import { rememberEditorModelPath } from "./editor-session/model-path.js";
+import { getEditorModelPath, rememberEditorModelPath } from "./editor-session/model-path.js";
 import { applyHunks, rebaseHunks } from "./editor-session/text-merge.js";
 import { notifySaveStatusChange } from "./save-status.js";
 export const createEditorSessionFileOps = (ctx) => {
@@ -10,7 +10,7 @@ export const createEditorSessionFileOps = (ctx) => {
     let lastSaveErrorMessage = null;
     const contentConflicts = new Map();
     let reopenNextContentConflict = () => { };
-    const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, setSplitViewEnabled, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
+    const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, setSplitViewEnabled, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
     const now = (_a = ctx.now) !== null && _a !== void 0 ? _a : (() => Date.now());
     let nextOpenRequestId = 0;
     let openScope = 0;
@@ -143,12 +143,16 @@ export const createEditorSessionFileOps = (ctx) => {
     // saved, read when the save leaves the queue. Reading it when the save was
     // queued went stale once an earlier save of the same file landed, and the
     // host then reported a change "by another app" that was only our own save.
-    const savePathContent = (path, value, timeoutMs = 8000, expectedContent) => new Promise((resolve, reject) => {
+    const savePathContent = (path, value, timeoutMs = 8000, expectedContent, stillCurrent) => new Promise((resolve, reject) => {
         var _a, _b;
         const identity = ((_b = (_a = window.tex64History) === null || _a === void 0 ? void 0 : _a.getIdentity) === null || _b === void 0 ? void 0 : _b.call(_a)) || {};
         const startedAt = Date.now();
         const enqueue = () => {
             var _a;
+            if (stillCurrent && !stillCurrent()) {
+                resolve(false);
+                return;
+            }
             if (state.pendingSave) {
                 if (Date.now() - startedAt >= timeoutMs) {
                     reject("Waiting for save timed out.");
@@ -329,7 +333,7 @@ export const createEditorSessionFileOps = (ctx) => {
         const unified = text.replace(/\r\n|\r|\n/g, eol);
         return unified.charCodeAt(0) === 0xfeff && bufferValue.charCodeAt(0) !== 0xfeff ? unified.slice(1) : unified;
     };
-    const applyViewerFile = (group, path, kind, data, mimeType, position) => {
+    const applyViewerFile = (group, path, kind, data, mimeType, position, preserveFocus = false) => {
         group.currentFilePath = path;
         group.currentFileSavedContent = null;
         group.isDirty = false;
@@ -344,8 +348,10 @@ export const createEditorSessionFileOps = (ctx) => {
             deps.outline.render();
             deps.fileTree.render();
         }
-        deps.setBlockPreviewActive(false);
-        deps.setAutoDetectedUi(false);
+        if (kind !== "unbuilt-pdf") {
+            deps.setBlockPreviewActive(false);
+            deps.setAutoDetectedUi(false);
+        }
         if (state.pendingReveal &&
             state.pendingReveal.path === path &&
             state.pendingReveal.group === group.key) {
@@ -354,8 +360,11 @@ export const createEditorSessionFileOps = (ctx) => {
         if (kind === "image") {
             group.viewer.showImageViewer(path, data, mimeType);
         }
+        else if (kind === "unbuilt-pdf") {
+            group.viewer.showUnbuiltPdf(path);
+        }
         else {
-            group.viewer.showPdfViewer(path, data, mimeType, !isActiveGroup(group));
+            group.viewer.showPdfViewer(path, data, mimeType, preserveFocus || !isActiveGroup(group));
         }
         if (isActiveGroup(group)) {
             deps.buildOps.updateSynctexButtonState();
@@ -394,7 +403,7 @@ export const createEditorSessionFileOps = (ctx) => {
         }
     };
     const ensureModelEntry = (path, content, savedContent, plainText) => {
-        var _a, _b;
+        var _a, _b, _c, _d, _e;
         const monacoApi = deps.getMonacoApi();
         if (!monacoApi) {
             return null;
@@ -420,7 +429,11 @@ export const createEditorSessionFileOps = (ctx) => {
         }
         // Create models with a file:// URI so the LSP layer (texlab) can identify
         // documents and resolve cross-file references (\input, .bib) by path.
-        const uri = ((_b = monacoApiAny.Uri) === null || _b === void 0 ? void 0 : _b.file) ? monacoApiAny.Uri.file(path) : undefined;
+        const root = (_b = deps.getWorkspaceRoot) === null || _b === void 0 ? void 0 : _b.call(deps);
+        const fullPath = root && !/^(?:[A-Za-z]:[\\/]|[\\/])/.test(path)
+            ? `${root.replace(/[\\/]+$/, "")}/${path}`
+            : path;
+        const uri = (_d = (_c = monacoApiAny.Uri) === null || _c === void 0 ? void 0 : _c.file) === null || _d === void 0 ? void 0 : _d.call(_c, fullPath);
         const existing = uri && monacoApiAny.editor.getModel ? monacoApiAny.editor.getModel(uri) : null;
         const model = (existing !== null && existing !== void 0 ? existing : monacoApiAny.editor.createModel(content, plainText ? "plaintext" : getLanguageIdForPath(path), uri));
         rememberEditorModelPath(model, path);
@@ -428,6 +441,23 @@ export const createEditorSessionFileOps = (ctx) => {
         watchTyping(model);
         const nextEntry = { model, savedContent: savedContent !== null && savedContent !== void 0 ? savedContent : content, plainText };
         monacoModels.set(path, nextEntry);
+        // Workspace edits can change a model with no visible editor (e.g. F2).
+        // Writers outside the keyboard (outside-edits.ts) set isApplyingFile and
+        // settle the dirty state themselves.
+        (_e = model.onDidChangeContent) === null || _e === void 0 ? void 0 : _e.call(model, (event) => {
+            var _a;
+            if (event.isFlush)
+                return;
+            if (Object.values(editorGroups).some((group) => group.isApplyingFile))
+                return;
+            const file = getEditorModelPath(model);
+            if (!file || ((_a = monacoModels.get(file)) === null || _a === void 0 ? void 0 : _a.model) !== model)
+                return;
+            if (Object.values(editorGroups).some((group) => group.currentFilePath === file))
+                return;
+            updateDirtyState(file, model.getValue());
+            scheduleAutoSave();
+        });
         updateDirtyState(path, content, nextEntry.savedContent);
         return nextEntry;
     };
@@ -471,6 +501,7 @@ export const createEditorSessionFileOps = (ctx) => {
                 focus: state.pendingReveal.focus,
                 className: state.pendingReveal.className,
                 column: state.pendingReveal.column,
+                issueMessage: state.pendingReveal.issueMessage,
             });
             state.pendingReveal = null;
         }
@@ -506,7 +537,7 @@ export const createEditorSessionFileOps = (ctx) => {
         }
         const editor = group.editor;
         const entry = monacoModels.get(path);
-        const currentValue = (_c = (_a = entry === null || entry === void 0 ? void 0 : entry.model.getValue()) !== null && _a !== void 0 ? _a : (_b = editor.getValue) === null || _b === void 0 ? void 0 : _b.call(editor)) !== null && _c !== void 0 ? _c : "";
+        const currentValue = (_c = (_a = entry === null || entry === void 0 ? void 0 : entry.model.getValue(undefined, true)) !== null && _a !== void 0 ? _a : (_b = editor.getValue) === null || _b === void 0 ? void 0 : _b.call(editor)) !== null && _c !== void 0 ? _c : "";
         const targetIsVisible = group.currentFilePath === path;
         const viewState = targetIsVisible ? (_d = editor.saveViewState) === null || _d === void 0 ? void 0 : _d.call(editor) : undefined;
         const fileDeleted = (options === null || options === void 0 ? void 0 : options.fileDeleted) === true;
@@ -525,12 +556,15 @@ export const createEditorSessionFileOps = (ctx) => {
             options.expectedFileMissing !== true &&
             (typeof options.expectedContent === "string" || options.externalChange === true) &&
             !contentConflicts.has(path)) {
-            const base = inModelForm(entry.model, currentValue, (_f = (_e = entry.savedContent) !== null && _e !== void 0 ? _e : options.expectedContent) !== null && _f !== void 0 ? _f : "");
-            const theirs = inModelForm(entry.model, currentValue, content);
-            const hunks = rebaseHunks(base, currentValue, theirs);
+            // The hunks are applied at model offsets, which never count an encoding
+            // BOM (currentValue keeps it for the comparisons with the disk below).
+            const buffer = entry.model.getValue();
+            const base = inModelForm(entry.model, buffer, (_f = (_e = entry.savedContent) !== null && _e !== void 0 ? _e : options.expectedContent) !== null && _f !== void 0 ? _f : "");
+            const theirs = inModelForm(entry.model, buffer, content);
+            const hunks = rebaseHunks(base, buffer, theirs);
             if (hunks) {
-                const value = applyHunks(currentValue, hunks);
-                rebased = { hunks, value, matchesDisk: value === theirs };
+                const value = applyHunks(buffer, hunks);
+                rebased = { hunks, from: buffer, value, matchesDisk: value === theirs };
             }
         }
         // Codex edits the workspace on disk. If the user typed in the same open
@@ -594,7 +628,7 @@ export const createEditorSessionFileOps = (ctx) => {
                     const conflict = contentConflicts.get(path);
                     if (!conflict)
                         return;
-                    const mine = (_c = (_a = entry === null || entry === void 0 ? void 0 : entry.model.getValue(undefined, entry.plainText)) !== null && _a !== void 0 ? _a : (_b = editor.getValue) === null || _b === void 0 ? void 0 : _b.call(editor)) !== null && _c !== void 0 ? _c : currentValue;
+                    const mine = (_c = (_a = entry === null || entry === void 0 ? void 0 : entry.model.getValue(undefined, true)) !== null && _a !== void 0 ? _a : (_b = editor.getValue) === null || _b === void 0 ? void 0 : _b.call(editor)) !== null && _c !== void 0 ? _c : currentValue;
                     keepMine.disabled = true;
                     useAxiom.disabled = true;
                     void savePathContent(path, mine, 8000, conflict.diskContent === null ? null : (_d = monacoModels.get(path)) === null || _d === void 0 ? void 0 : _d.savedContent)
@@ -701,7 +735,7 @@ export const createEditorSessionFileOps = (ctx) => {
             // not lines that merely shifted position due to an insertion above.
             let changedLineNumbers = [];
             if (options === null || options === void 0 ? void 0 : options.showAiDiff) {
-                const oldLines = currentValue.split("\n");
+                const oldLines = (rebased ? rebased.from : currentValue).split("\n");
                 const newLines = nextValue.split("\n");
                 const diffResult = buildLineDiff(oldLines, newLines);
                 let newLineNum = 0;
@@ -785,10 +819,6 @@ export const createEditorSessionFileOps = (ctx) => {
         updateDirtyState(path, hasConcurrentEdit ? currentValue : keptTyping ? nextValue : content, savedContent);
         if (keptTyping)
             scheduleAutoSave();
-        if (isActiveGroup(group)) {
-            updateBreadcrumbs();
-            deps.fileTree.render();
-        }
         return hasConcurrentEdit;
     };
     // Shows the resolution buttons of a conflict whose file has just come into
@@ -838,8 +868,12 @@ export const createEditorSessionFileOps = (ctx) => {
         apply();
     };
     const sendOpenRequest = (request) => {
+        var _a;
         state.pendingOpenRequests.push(request);
-        const ok = deps.postToNative({ type: "openFile", path: request.path, openRequestId: request.id });
+        const ok = deps.postToNative({
+            type: "openFile", path: request.path, openRequestId: request.id,
+            expectedWorkspaceRoot: (_a = deps.getWorkspaceRoot) === null || _a === void 0 ? void 0 : _a.call(deps),
+        });
         if (!ok) {
             const index = state.pendingOpenRequests.indexOf(request);
             if (index >= 0)
@@ -850,7 +884,28 @@ export const createEditorSessionFileOps = (ctx) => {
         }
         return ok;
     };
-    const requestOpenFile = (path, groupKey, force = false, position) => {
+    // The PDF shown automatically beside a manuscript (openFirstPreview). It
+    // takes an empty secondary pane, or replaces the previous automatic one;
+    // a file the person opens there ends it.
+    const cancelPendingFirstPreview = () => {
+        state.pendingOpenRequests = state.pendingOpenRequests.filter(request => !request.firstPreview);
+    };
+    const canShowFirstPreview = (group, path) => {
+        if (state.pendingOpenRequests.some(request => request.group === group.key))
+            return false;
+        if (group.currentFilePath === group.automaticPreviewPath && group.currentFilePath)
+            return true;
+        if (group.currentFilePath === path && group.viewer.getViewerMode() === "unsupported")
+            return true;
+        return !group.currentFilePath && !group.openTabs.length && !isActiveGroup(group);
+    };
+    const replaceFirstPreview = (group, path) => {
+        const previous = group.automaticPreviewPath;
+        if (previous && previous !== path)
+            group.openTabs = group.openTabs.filter(tab => tab !== previous);
+        group.automaticPreviewPath = path;
+    };
+    const openInPane = (path, groupKey, force, position, firstPreview) => {
         var _a;
         const preferredGroup = getEditorGroup(groupKey);
         const preferredGroupHasPath = preferredGroup.currentFilePath === path || preferredGroup.openTabs.includes(path);
@@ -858,10 +913,36 @@ export const createEditorSessionFileOps = (ctx) => {
         const resolvedGroupKey = force || preferredGroupHasPath
             ? groupKey
             : existingGroupKey !== null && existingGroupKey !== void 0 ? existingGroupKey : (isPdfFilePath(path) ? "secondary" : resolveAutoOpenGroupKey(groupKey));
-        if (resolvedGroupKey === "secondary") {
+        if (resolvedGroupKey === "secondary" && !firstPreview) {
             setSplitViewEnabled(true);
         }
         const group = getEditorGroup(resolvedGroupKey);
+        if (firstPreview) {
+            // Not a selection: it never makes the pane's latest selection stale.
+            return sendOpenRequest({ id: ++nextOpenRequestId, path, group: resolvedGroupKey, firstPreview: true });
+        }
+        if (group.key === "secondary") {
+            cancelPendingFirstPreview();
+            delete group.automaticPreviewPath;
+        }
+        // The same selection still being read: that read answers this one too.
+        const latest = latestOpen.get(resolvedGroupKey);
+        if (latest && latest.path === path && !latest.background && state.pendingOpenRequests.includes(latest)) {
+            if (position)
+                latest.position = position;
+            return true;
+        }
+        // Only the most recent foreground selection may put a file into this
+        // pane. A slower read a paper edit shares (showTab set) carries on in the
+        // background for its model.
+        state.pendingOpenRequests = state.pendingOpenRequests.filter(request => {
+            if (request.group !== resolvedGroupKey || request.background || request.firstPreview)
+                return true;
+            if (request.showTab === undefined)
+                return false;
+            request.background = true;
+            return true;
+        });
         const request = {
             id: ++nextOpenRequestId, path, group: resolvedGroupKey, position,
             wasOpen: group.openTabs.includes(path),
@@ -870,7 +951,9 @@ export const createEditorSessionFileOps = (ctx) => {
         if (((_a = state.pendingReveal) === null || _a === void 0 ? void 0 : _a.group) === resolvedGroupKey && state.pendingReveal.path !== path) {
             state.pendingReveal = null;
         }
-        if (group.currentFilePath === path && group.viewer.getViewerMode() !== "unsupported") {
+        // Turning Live off reads the saved PDF of the paper it showed again.
+        const restoreSavedPdf = force && group.viewer.getUnbuiltPdfPath() === path;
+        if (group.currentFilePath === path && group.viewer.getViewerMode() !== "unsupported" && !restoreSavedPdf) {
             if (!position)
                 return false;
             addOpenTab(group, path, position);
@@ -889,12 +972,53 @@ export const createEditorSessionFileOps = (ctx) => {
         }
         return sendOpenRequest(request);
     };
-    const requestOpenFileInBackground = (path, group) => {
+    const requestOpenFile = (path, groupKey, force = false, position) => openInPane(path, groupKey, force, position, false);
+    // `showTab` false: only the model is wanted (a paper edit in an unopened
+    // file); a tab appears only if a selection of that file shares the read.
+    const requestOpenFileInBackground = (path, group, showTab = true) => {
         if (monacoModels.has(path))
             return false;
-        if (state.pendingOpenRequests.some((entry) => entry.background && entry.path === path))
+        const pending = state.pendingOpenRequests.find((entry) => entry.path === path && !entry.firstPreview);
+        if (pending) {
+            pending.showTab = pending.showTab || showTab;
             return true;
-        return sendOpenRequest({ id: ++nextOpenRequestId, path, group, background: true });
+        }
+        return sendOpenRequest({ id: ++nextOpenRequestId, path, group, background: true, showTab });
+    };
+    const captureFormatTarget = () => {
+        var _a, _b;
+        const group = getActiveGroup();
+        const path = group.currentFilePath;
+        const entry = path ? monacoModels.get(path) : null;
+        if (!path || !entry || !isTexFilePath(path))
+            return null;
+        const content = entry.model.getValue();
+        const version = (_b = (_a = entry.model).getVersionId) === null || _b === void 0 ? void 0 : _b.call(_a);
+        const owner = () => {
+            var _a;
+            return (_a = Object.values(editorGroups).find((g) => g.currentFilePath === path)) !== null && _a !== void 0 ? _a : Object.values(editorGroups).find((g) => g.openTabs.includes(path));
+        };
+        const canEdit = () => monacoModels.get(path) === entry && Boolean(owner())
+            && !contentConflicts.has(path)
+            && !Object.values(editorGroups).some((g) => g.isComposing && g.currentFilePath === path);
+        const matchesSnapshot = (revision, text) => { var _a, _b; return canEdit() && (revision === undefined ? entry.model.getValue() === text : ((_b = (_a = entry.model).getVersionId) === null || _b === void 0 ? void 0 : _b.call(_a)) === revision); };
+        const isCurrent = () => matchesSnapshot(version, content);
+        return {
+            path, content, isCurrent,
+            apply: async (formatted) => {
+                var _a, _b, _c;
+                const target = owner();
+                if (!target || !isCurrent())
+                    return false;
+                applyFormattedContent(target, path, formatted, { updateSaved: false });
+                if (!dirtyFiles.has(path))
+                    return true;
+                if ((_a = deps.collab) === null || _a === void 0 ? void 0 : _a.isBound(path))
+                    return deps.collab.flush();
+                const formattedVersion = (_c = (_b = entry.model).getVersionId) === null || _c === void 0 ? void 0 : _c.call(_b);
+                return savePathContent(path, entry.model.getValue(undefined, true), 8000, undefined, () => matchesSnapshot(formattedVersion, formatted));
+            },
+        };
     };
     const saveCurrentFileInternal = () => {
         var _a, _b;
@@ -915,7 +1039,8 @@ export const createEditorSessionFileOps = (ctx) => {
         }
         const editor = activeGroup.editor;
         const entry = monacoModels.get(activePath);
-        const content = (entry === null || entry === void 0 ? void 0 : entry.plainText) ? entry.model.getValue(undefined, true) : editor.getValue();
+        const content = entry && (entry.plainText || entry.savedContent.charCodeAt(0) === 0xfeff)
+            ? entry.model.getValue(undefined, true) : editor.getValue();
         if (contentConflicts.has(activePath)) {
             refuseConflictedSave(activePath);
             return Promise.resolve(false);
@@ -988,7 +1113,7 @@ export const createEditorSessionFileOps = (ctx) => {
             var _a, _b, _c;
             const entry = monacoModels.get(path);
             if ((_a = entry === null || entry === void 0 ? void 0 : entry.model) === null || _a === void 0 ? void 0 : _a.getValue) {
-                return entry.model.getValue(undefined, entry.plainText);
+                return entry.model.getValue(undefined, true);
             }
             const owner = Object.values(editorGroups).find((group) => group.currentFilePath === path);
             if (!(owner === null || owner === void 0 ? void 0 : owner.editor)) {
@@ -1161,7 +1286,7 @@ export const createEditorSessionFileOps = (ctx) => {
         }, 400);
     };
     const handleOpenFileResult = (payload) => {
-        var _a, _b, _c, _d, _e;
+        var _a, _b, _c, _d, _e, _f, _g;
         // Handle non-file-open message types before consuming pending requests.
         const type = payload.type;
         if (type === "searchResult") {
@@ -1188,8 +1313,19 @@ export const createEditorSessionFileOps = (ctx) => {
             if (index < 0)
                 return false;
             [pendingEntry] = state.pendingOpenRequests.splice(index, 1);
-            if (!pendingEntry.background && !isCurrentOpen(pendingEntry))
-                return false;
+            if (!pendingEntry.background && !pendingEntry.firstPreview && !isCurrentOpen(pendingEntry)) {
+                // Superseded. A read a paper edit shares (showTab set) still makes
+                // its model, as a background read.
+                if (pendingEntry.showTab === undefined)
+                    return false;
+                pendingEntry.background = true;
+            }
+        }
+        else {
+            // An older internal sender (no request ID) answers a selection of the
+            // same file still waiting, as before request IDs: nothing is left
+            // pending for it (requestInitialOpen waits on pending selections).
+            state.pendingOpenRequests = state.pendingOpenRequests.filter((entry) => entry.path !== payload.path || entry.background || entry.firstPreview);
         }
         let targetGroupKey = (_a = pendingEntry === null || pendingEntry === void 0 ? void 0 : pendingEntry.group) !== null && _a !== void 0 ? _a : getActiveEditorGroupKey();
         // Main owns text classification. Older internal senders provide content
@@ -1228,6 +1364,20 @@ export const createEditorSessionFileOps = (ctx) => {
             }
         }
         const targetGroup = getEditorGroup(targetGroupKey);
+        if (pendingEntry === null || pendingEntry === void 0 ? void 0 : pendingEntry.firstPreview) {
+            if (!canShowFirstPreview(targetGroup, path))
+                return false;
+            replaceFirstPreview(targetGroup, path);
+            setSplitViewEnabled(true);
+            // A Build can truncate or remove the disk file between listing the
+            // workspace and reading it. Live needs only the document's PDF path.
+            if (payload.error || !payload.data) {
+                applyViewerFile(targetGroup, path, "unbuilt-pdf");
+                return true;
+            }
+            applyViewerFile(targetGroup, path, "pdf", payload.data, payload.mimeType, undefined, true);
+            return true;
+        }
         if (payload.error) {
             if (state.pendingReveal &&
                 state.pendingReveal.path === payload.path &&
@@ -1251,9 +1401,16 @@ export const createEditorSessionFileOps = (ctx) => {
                 deps.updateFallback("Editor is not ready.");
                 return true;
             }
-            addOpenTab(targetGroup, path);
-            deps.editorTabs.render(targetGroup);
+            if (pendingEntry.showTab !== false) {
+                addOpenTab(targetGroup, path);
+                deps.editorTabs.render(targetGroup);
+            }
             return true;
+        }
+        if ((pendingEntry === null || pendingEntry === void 0 ? void 0 : pendingEntry.showTab) !== undefined && kind === "text" && !monacoModels.has(path)) {
+            // A paper edit waits on this read for the model (loadWorkspaceTextModel):
+            // a composition deferring the swap below does not hold the model back.
+            ensureModelEntry(path, (_f = payload.content) !== null && _f !== void 0 ? _f : "", (_g = payload.content) !== null && _g !== void 0 ? _g : "", payload.languageId === "plaintext");
         }
         if (payload.buildPreview === "previous" && targetGroup.currentFilePath === path &&
             targetGroup.viewer.getViewerMode() === "pdf")
@@ -1265,7 +1422,10 @@ export const createEditorSessionFileOps = (ctx) => {
                 state.pendingReveal.path = path;
             }
             if (kind === "image" || kind === "pdf") {
-                applyViewerFile(targetGroup, path, kind, payload.data, payload.mimeType, position);
+                // A file opened by hand is no longer the automatic preview.
+                delete targetGroup.automaticPreviewPath;
+                const liveOnly = kind === "pdf" && !payload.data && deps.isLivePaper(path);
+                applyViewerFile(targetGroup, path, liveOnly ? "unbuilt-pdf" : kind, payload.data, payload.mimeType, position);
             }
             else if (kind === "unsupported") {
                 applyUnsupportedFile(targetGroup, path, position);
@@ -1282,8 +1442,8 @@ export const createEditorSessionFileOps = (ctx) => {
         return true;
     };
     const handleSaveResult = (payload) => {
-        var _a, _b;
-        let savedContent = null;
+        var _a, _b, _c, _d;
+        let submittedContent = null;
         const saveErrorMessage = (_a = payload.error) !== null && _a !== void 0 ? _a : "Saving failed.";
         if (state.pendingSave) {
             if (state.pendingSave.path === payload.path) {
@@ -1291,10 +1451,7 @@ export const createEditorSessionFileOps = (ctx) => {
                     state.pendingSave.resolve(false);
                 }
                 else if (payload.ok) {
-                    if (payload.content) {
-                        state.pendingSave.content = payload.content;
-                    }
-                    savedContent = state.pendingSave.content;
+                    submittedContent = state.pendingSave.content;
                     state.pendingSave.resolve(true);
                 }
                 else {
@@ -1340,20 +1497,12 @@ export const createEditorSessionFileOps = (ctx) => {
             lastSaveErrorMessage = null;
         }
         const entry = monacoModels.get(payload.path);
-        let resolvedSavedContent = savedContent;
-        if (resolvedSavedContent === null) {
-            if (payload.content) {
-                resolvedSavedContent = payload.content;
-            }
-            else if (entry) {
-                resolvedSavedContent = entry.model.getValue();
-            }
-        }
-        if (resolvedSavedContent !== null) {
-            if (entry) {
-                entry.savedContent = resolvedSavedContent;
-            }
-            dirtyFiles.delete(payload.path);
+        const resolvedSavedContent = (_d = (_c = payload.savedContent) !== null && _c !== void 0 ? _c : payload.content) !== null && _d !== void 0 ? _d : submittedContent;
+        const modelContent = entry === null || entry === void 0 ? void 0 : entry.model.getValue(undefined, true);
+        const applyReturnedFormat = typeof payload.content === "string" &&
+            (modelContent === undefined || modelContent === submittedContent || modelContent === payload.content);
+        if (resolvedSavedContent !== null && entry) {
+            updateDirtyState(payload.path, modelContent, resolvedSavedContent);
         }
         const groupsWithFile = Object.values(editorGroups).filter((group) => group.currentFilePath === payload.path);
         if (groupsWithFile.length > 0) {
@@ -1361,7 +1510,7 @@ export const createEditorSessionFileOps = (ctx) => {
                 if (resolvedSavedContent !== null) {
                     group.currentFileSavedContent = resolvedSavedContent;
                 }
-                if (payload.content) {
+                if (applyReturnedFormat) {
                     applyFormattedContent(group, payload.path, payload.content, { updateSaved: true });
                 }
                 else if (group.editor && group.currentFileSavedContent !== null) {
@@ -1382,25 +1531,30 @@ export const createEditorSessionFileOps = (ctx) => {
         }
         if (state.autoSavePending) {
             state.autoSavePending = false;
-            if (activeGroup.currentFilePath && activeGroup.isDirty) {
-                scheduleAutoSave();
-            }
+            scheduleAutoSave();
         }
         if (payload.formatError) {
             deps.buildOps.handleSaveFormatError(payload.formatError);
         }
-        updateBreadcrumbs();
-        deps.fileTree.render();
-        forEachEditorGroup((group) => {
-            if (group.openTabs.includes(payload.path)) {
-                deps.editorTabs.render(group);
-            }
-        });
     };
     return {
         applyFormattedContent,
+        cancelPendingFirstPreview,
+        openFirstPreview: (path, saved) => {
+            const group = editorGroups.secondary;
+            if (!canShowFirstPreview(group, path))
+                return;
+            if (saved)
+                openInPane(path, group.key, true, undefined, true);
+            else {
+                replaceFirstPreview(group, path);
+                setSplitViewEnabled(true);
+                applyViewerFile(group, path, "unbuilt-pdf");
+            }
+        },
         requestOpenFile,
         requestOpenFileInBackground,
+        captureFormatTarget,
         saveCurrentFile,
         saveDirtyFiles,
         scheduleAutoSave,

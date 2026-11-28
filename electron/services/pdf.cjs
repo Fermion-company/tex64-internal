@@ -42,7 +42,9 @@ const savePdfWindowState = (bounds) => {
 };
 
 class PDFWindowManager {
-  constructor() {
+  constructor(onLiveIssue = () => {}) {
+    this.onLiveIssue = onLiveIssue;
+    this.liveIssue = null;
     this.window = null;
     this.workspaceRoot = null;
     this.currentRoot = null;
@@ -50,9 +52,12 @@ class PDFWindowManager {
     this.currentPath = null;
     this.isReady = false;
     this.pendingOpen = null;
+    this.automaticPreview = false;
+    this.unbuiltPath = null;
     this.pendingSync = null;
     this.pendingBuildState = null;
     this.livePreview = null;
+    this.fallbackPreview = null;
     this.pendingLiveAnchors = new Map();
     this.nextLiveAnchorId = 0;
   }
@@ -66,7 +71,11 @@ class PDFWindowManager {
   setWorkspaceRoot(rootPath) {
     const nextRoot = rootPath ? path.resolve(rootPath) : null;
     if (nextRoot !== this.workspaceRoot) {
+      this.setLiveIssue(null);
+      this.closeUnbuiltWindow();
+      this.automaticPreview = false;
       this.livePreview = null;
+      this.setFallbackPreview(null);
       this.pendingLiveAnchors.clear();
     }
     this.workspaceRoot = nextRoot;
@@ -86,6 +95,7 @@ class PDFWindowManager {
     return value;
   }
   markBuilt(rootPath, pdfPath) {
+    if (this.fallbackPreview?.root === rootPath && this.fallbackPreview.pdfPath === pdfPath) this.setFallbackPreview(null);
     const value = this.getSourceState().built(rootPath, pdfPath);
     this.notifySourceState();
     return value;
@@ -100,18 +110,48 @@ class PDFWindowManager {
     this.currentPath = null;
     this.isReady = false;
     this.pendingOpen = null;
+    this.unbuiltPath = null;
     this.pendingSync = null;
     this.pendingBuildState = null;
     this.pendingLiveAnchors.clear();
   }
 
+  closeUnbuiltWindow() {
+    if (this.unbuiltPath && this.currentPath === this.unbuiltPath) this.close();
+    this.unbuiltPath = null;
+  }
+
+  openUnbuiltWindow(pdfPath) {
+    // Both candidates have already been validated by the preview IPC.
+    const target = this.livePreview?.target;
+    const fallback = this.fallbackPreview;
+    const matches = (target?.workspaceRoot === this.workspaceRoot && target.pdfPath === pdfPath) ||
+      (fallback?.root === this.workspaceRoot && fallback.pdfPath === pdfPath);
+    if (this.window && !this.window.isDestroyed() && !this.automaticPreview) return false;
+    let saved = false;
+    if (fs.existsSync(pdfPath)) {
+      if (!this.workspaceRoot || !/\.pdf$/i.test(pdfPath)) return false;
+      try {
+        const rel = path.relative(fs.realpathSync(this.workspaceRoot), fs.realpathSync(pdfPath));
+        const stat = fs.statSync(pdfPath);
+        if (!rel || rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel) || !stat.isFile()) return false;
+        saved = stat.size > 0;
+      } catch { return false; }
+    } else if (!matches) return false;
+    this.show(pdfPath, { unbuilt: !saved, inactive: true, automaticPreview: true });
+    return true;
+  }
+
   show(pdfPath, options = {}) {
+    this.automaticPreview = options.automaticPreview === true;
+    this.unbuiltPath = options.unbuilt ? pdfPath : null;
     this.ensureWindow();
     if (!this.window || this.window.isDestroyed()) {
       return;
     }
     const reload = options?.reload !== false;
     const needsOpen = reload || !this.isReady || this.currentPath !== pdfPath;
+    if (this.currentPath !== pdfPath) this.setLiveIssue(null);
     this.currentPath = pdfPath;
     this.currentRoot = this.workspaceRoot;
     if (needsOpen) {
@@ -124,8 +164,8 @@ class PDFWindowManager {
     if (this.window && !this.window.isDestroyed()) {
       this.window.setTitle(path.basename(pdfPath));
       if (!e2eHeadless) {
-        this.window.show();
-        this.window.focus();
+        if (options.inactive || options.unbuilt) this.window.showInactive();
+        else { this.window.show(); this.window.focus(); }
       }
     }
   }
@@ -165,6 +205,7 @@ class PDFWindowManager {
 
   markReady() {
     this.isReady = true;
+    this.pendingOpen ??= this.currentPath;
     this.flushOpen();
     this.notifySourceState();
     this.flushBuildState();
@@ -192,8 +233,12 @@ class PDFWindowManager {
     this.pendingOpen = null;
     const fileUrl = pathToFileURL(pdfPath).toString();
     const cacheBust = `?t=${Date.now()}`;
-    this.send("open", { path: pdfPath, url: `${fileUrl}${cacheBust}`,
+    const preview = this.fallbackPreview;
+    this.send("open", { path: pdfPath,
+      previewGeneration: preview?.root === this.currentRoot && preview?.pdfPath === pdfPath ? preview.generation : undefined,
+      url: this.unbuiltPath === pdfPath ? undefined : `${fileUrl}${cacheBust}`,
       needsRebuild: this.getSourceState().needsRebuild(this.currentRoot, pdfPath) });
+    if (this.fallbackPreview) this.setFallbackPreview(this.fallbackPreview);
     this.flushBuildState(true);
     this.flushLivePreview();
   }
@@ -201,6 +246,16 @@ class PDFWindowManager {
   ownsSender(sender) {
     if (!this.window || this.window.isDestroyed()) return false;
     return sender === this.window.webContents;
+  }
+
+  setFallbackPreview(preview) {
+    const previous = this.fallbackPreview;
+    this.fallbackPreview = preview;
+    if (!this.isReady || !this.currentPath) return;
+    const matches = (value) => value?.root === this.currentRoot && value.pdfPath === this.currentPath;
+    if (matches(preview) || matches(previous)) {
+      this.send("preview-open", matches(preview) ? { path: this.currentPath, data: preview.data, url: preview.url, generation: preview.generation } : null);
+    }
   }
 
   matchingLivePreview() {
@@ -213,7 +268,17 @@ class PDFWindowManager {
     return targetPath === path.resolve(this.currentPath) ? preview : null;
   }
 
+  setLiveIssue(message) {
+    if (this.liveIssue === message) return;
+    this.liveIssue = message;
+    this.onLiveIssue(message);
+  }
+
   setLivePreview(preview) {
+    if (!preview || preview.hold || preview.generation !== this.livePreview?.generation ||
+        preview.url !== this.livePreview?.url || preview.target?.pdfPath !== this.livePreview?.target?.pdfPath) {
+      this.setLiveIssue(null);
+    }
     this.livePreview = preview || null;
     this.pendingLiveAnchors.clear();
     this.flushLivePreview();
@@ -305,6 +370,8 @@ class PDFWindowManager {
       console.warn("[pdf] Failed to load PDF viewer:", error);
     });
     this.window.on("closed", () => {
+      this.setLiveIssue(null);
+      this.unbuiltPath = null;
       this.window = null;
       this.currentPath = null;
       this.isReady = false;

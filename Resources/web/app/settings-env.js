@@ -7,6 +7,8 @@ export const createEnvStatusManager = (params) => {
     const getStatusSummary = () => {
         const hasAnyResult = params.envCheckTargets.some((command) => envCheckState.has(command));
         const hasEngine = hasDetectedEngine();
+        const requiredChecksComplete = (hasEngine || Array.from(params.texEngineCommands).every((command) => envCheckState.has(command))) &&
+            envCheckState.has("latexmk") && envCheckState.has("synctex");
         const latexmkAvailable = envCheckState.get("latexmk") === true;
         const synctexAvailable = envCheckState.get("synctex") === true;
         const latexindentAvailable = envCheckState.get("latexindent") === true;
@@ -27,6 +29,7 @@ export const createEnvStatusManager = (params) => {
         const statusByCommand = Object.fromEntries(envCheckState.entries());
         return {
             hasAnyResult,
+            requiredChecksComplete,
             hasEngine,
             latexmkAvailable,
             synctexAvailable,

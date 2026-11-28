@@ -1,4 +1,6 @@
-const { withProjectFileWrites, writeProjectFile } = require("../services/project-file-writes.cjs");
+const { writeProjectFile } = require("../services/project-file-writes.cjs");
+const { snapshotFromContext } = require("../services/agent-file-snapshot.cjs");
+const { acceptChangeReview } = require("../services/agent-change-review.cjs");
 const { resolveAgentsApiConfig, getAgentsApiAccess } = require("../services/openprism/agents-api.cjs");
 const {
   DEFAULT_BASE_URL,
@@ -266,6 +268,13 @@ const createAgentHandlers = (deps) => {
         });
         return;
       }
+      if (error?.code === "AGENT_CONVERSATION_WORKSPACE_MISMATCH") {
+        // Reject this request without changing the stored status of its owning workspace.
+        const message = error.message;
+        sendToRenderer("agent:error", { conversationId: normalizedConversationId, message });
+        sendToRenderer("agent:status", { conversationId: normalizedConversationId, state: "error", message, ts: Date.now() });
+        return;
+      }
       if (error?.code === "AGENT_WORKSPACE_RUN_IN_PROGRESS") {
         const message = "Another Axiom turn is still finishing in this workspace.";
         sendToRenderer("agent:error", {
@@ -464,6 +473,11 @@ const createAgentHandlers = (deps) => {
       return;
     }
     const workspaceRoot = agentService.workspace.getRootPath?.() ?? "";
+    const reply = (result) => sendToRenderer("search:renameResult", { ...result, requestId: payload.requestId });
+    if (payload.workspaceRoot !== undefined && payload.workspaceRoot !== workspaceRoot) {
+      reply({ ok: false, error: "The workspace changed before the rename started." });
+      return;
+    }
     // Search rename is an operation thread, not a portable user chat. Give
     // every workspace its own identity so a persisted run in project A can
     // never bind or block the same command in project B.
@@ -482,7 +496,7 @@ const createAgentHandlers = (deps) => {
       run = agentService.startConversationRun(conversationId);
       agentService.sendStatus("running", "Renaming symbols…", conversationId);
     } catch (error) {
-      sendToRenderer("search:renameResult", {
+      reply({
         ok: false,
         error: error?.message || "The workspace is being updated. Try again.",
         conversationId,
@@ -513,7 +527,7 @@ const createAgentHandlers = (deps) => {
       }
     } catch (error) {
       const message = error?.message || "Rename failed.";
-      sendToRenderer("search:renameResult", {
+      reply({
         ok: false,
         error: message,
         conversationId,
@@ -538,7 +552,7 @@ const createAgentHandlers = (deps) => {
           ? "Rename could not be applied because the files changed. Try again."
           : `${failedCount} file(s) changed before rename could be applied.`
         : undefined);
-    sendToRenderer("search:renameResult", {
+    reply({
       ok: !resultError,
       from: payload.from,
       to: payload.to,
@@ -573,7 +587,13 @@ const createAgentHandlers = (deps) => {
     await agentService.applyProposals(proposalIds);
   };
 
-  const handleAgentUndoLastRunApply = async (conversationId, requestId) => {
+  const handleAgentReviewAccept = async (conversationId, requestId, expectedRunId) => {
+    if (!normalizeRequestId(requestId)) return;
+    const result = await acceptChangeReview(agentService, conversationId, expectedRunId);
+    sendToRenderer("agent:reviewAccepted", { conversationId, requestId, ...result });
+  };
+
+  const handleAgentUndoLastRunApply = async (conversationId, requestId, expectedRunId) => {
     const normalizedRequestId = normalizeRequestId(requestId);
     if (!normalizedRequestId) {
       return agentService.undoLastRunApply(conversationId);
@@ -585,6 +605,7 @@ const createAgentHandlers = (deps) => {
     try {
       const result = await agentService.undoLastRunApply(conversationId, {
         emitRenderer: false,
+        expectedRunId,
       });
       const resultConversationId =
         typeof result?.conversationId === "string" && result.conversationId.trim()
@@ -601,6 +622,7 @@ const createAgentHandlers = (deps) => {
         requestId: normalizedRequestId,
         conversationId: resultConversationId,
         ok,
+        ...(result?.build ? { buildStatus: result.build.status === "success" ? "success" : "failure" } : {}),
         ...(!ok ? { error } : {}),
       });
       return result;
@@ -858,7 +880,11 @@ const createAgentHandlers = (deps) => {
       const mainFile = await resolveMainTexFile(agentService, {
         activeFilePath: typeof message?.activeFilePath === "string" ? message.activeFilePath : undefined,
       });
-      const map = mainFile ? await scanDocument(agentService, mainFile) : null;
+      const map = mainFile ? await scanDocument(agentService, mainFile, {
+        includeWorkspaceBibs: true,
+        includeProfile: false,
+        getSnapshot: path => snapshotFromContext(message, path),
+      }) : null;
       const isRepo = fs.existsSync(path.join(rootPath, ".git"));
       const status = isRepo ? await runGit(rootPath, ["status", "--porcelain"]) : null;
       const changed = typeof status === "string" ? status.split(/\r?\n/).filter(Boolean).length : 0;
@@ -876,22 +902,50 @@ const createAgentHandlers = (deps) => {
 
   // ---- The project's writing rules: create with a template, open in the editor ----
   const handleAgentRulesOpen = async () => {
-    const rootPath = agentService.workspace.getRootPath?.();
+    const workspace = agentService.workspace;
+    const rootPath = workspace.getRootPath();
     if (!rootPath) return;
-    const absolute = path.join(rootPath, RULES_RELATIVE_PATH);
-    let created = false;
-    const content = await withProjectFileWrites([absolute], async () => {
+    const generation = deps.getWorkspaceGeneration();
+    const isCurrent = () =>
+      workspace.getRootPath() === rootPath && deps.getWorkspaceGeneration() === generation;
+    const reply = (result) => {
+      if (isCurrent()) sendToRenderer("openFileResult", { path: RULES_RELATIVE_PATH, ...result });
+    };
+
+    try {
+      const absolute = workspace.resolvePath(RULES_RELATIVE_PATH);
+      const readRules = () => fsp.readFile(absolute, "utf8");
       try {
-        return await fsp.readFile(absolute, "utf8");
+        const content = await workspace.withFileMutation(RULES_RELATIVE_PATH, readRules);
+        reply({ content });
+        return;
       } catch (error) {
         if (error.code !== "ENOENT") throw error;
-        await writeProjectFile(absolute, RULES_TEMPLATE, { exclusive: true });
-        created = true;
-        return RULES_TEMPLATE;
       }
-    });
-    if (created) await agentService.updateWorkspaceIfNeeded?.(rootPath, true);
-    sendToRenderer("openFileResult", { path: RULES_RELATIVE_PATH, content });
+      if (!isCurrent()) return;
+
+      let created = false;
+      const content = await deps.withWorkspaceMutation(async () => {
+        if (!isCurrent()) return;
+        return workspace.withFileMutation(RULES_RELATIVE_PATH, async () => {
+          try {
+            // Exclusive create through the shared project-file writer: never
+            // replaces a rules file another writer created meanwhile.
+            await writeProjectFile(absolute, RULES_TEMPLATE, { exclusive: true });
+            created = true;
+            return RULES_TEMPLATE;
+          } catch (error) {
+            if (error.code !== "EEXIST") throw error;
+            return readRules();
+          }
+        });
+      });
+      if (!isCurrent()) return;
+      if (created) await agentService.updateWorkspaceIfNeeded?.(rootPath, true);
+      reply({ content });
+    } catch (error) {
+      reply({ error: error.message });
+    }
   };
 
   return {
@@ -905,6 +959,7 @@ const createAgentHandlers = (deps) => {
     handleAgentContentConflictResolved,
     handleAgentApply,
     handleAgentApplyBatch,
+    handleAgentReviewAccept,
     handleAgentUndoLastRunApply,
     handleAgentUndoLastApply,
     handleAgentClear,

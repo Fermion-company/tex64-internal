@@ -38,13 +38,13 @@ const rules = [
     {
         id: "undefined-control-sequence",
         pattern: /Undefined control sequence/i,
-        kind: () => uiText("Unknown command", "知らないコマンドです"),
+        kind: () => uiText("Unknown command", "未定義のコマンド"),
         summary: (m) => {
             var _a;
-            const name = (_a = m.input) === null || _a === void 0 ? void 0 : _a.match(/\\([A-Za-z@]{2,})\s*$/);
+            const name = (_a = m.input) === null || _a === void 0 ? void 0 : _a.match(/\\([A-Za-z@]+|[^\sA-Za-z@])\s*$/);
             return name
-                ? uiText(`LaTeX does not know the command \\${name[1]}.`, `\\${name[1]}というコマンドをLaTeXが知りません。`)
-                : uiText("LaTeX ran into a command it does not know.", "LaTeXが知らないコマンドが使われています。");
+                ? uiText(`LaTeX does not know the command \\${name[1]}.`, `\\${name[1]} は定義されていません。`)
+                : uiText("LaTeX ran into a command it does not know.", "定義されていないコマンドが使われています。");
         },
         fix: () => uiText("Check the spelling, and add the \\usepackage that provides the command to your preamble.", "つづりを確認し、そのコマンドを提供する\\usepackageをプリアンブルに追加してください。"),
     },

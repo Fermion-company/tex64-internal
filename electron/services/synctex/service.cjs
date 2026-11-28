@@ -4,6 +4,12 @@ class SynctexService {
     this.sourceLineCache = new Map();
     this.debugHints = process.env.TEX64_SYNCTEX_DEBUG_HINTS === "1";
   }
+
+  clearWorkspaceCaches() {
+    this.sourceLineCache.clear();
+    this.forwardIndexCache?.clear();
+    this.forwardHints.length = 0;
+  }
 }
 
 require("./hints.cjs")(SynctexService);

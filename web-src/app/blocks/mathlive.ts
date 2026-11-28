@@ -1,5 +1,5 @@
 import type { AppContext } from "../context.js";
-import { getUiLocale, onUiLocaleChange, setLocalizedAttribute } from "../i18n.js";
+import { getUiLocale, onUiLocaleChange, setLocalizedAttribute, uiText } from "../i18n.js";
 import { closeMathfieldInternalMenu } from "../../math/mathfield-private-adapter.js";
 
 type MathLiveDeps = {
@@ -18,6 +18,7 @@ type MenuItemLike = {
   submenu?: MenuItemLike[];
   data?: unknown;
   command?: unknown;
+  onMenuSelect?: () => void;
 };
 
 export type MathLiveApi = {
@@ -30,9 +31,6 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
   let setupRetryScheduled = false;
   let containerPointerDownHandler: ((event: PointerEvent) => void) | null = null;
 
-  // Always use "en" for MathLive locale to prevent IME auto-switching.
-  // MathLive handles math input in Latin script regardless of UI locale.
-  const resolveMathLiveLocale = () => "en";
   const applyMathfieldLocale = (
     mathfield:
       | (HTMLElement & {
@@ -45,8 +43,9 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
     if (!(mathfield instanceof HTMLElement)) {
       return;
     }
-    const locale = resolveMathLiveLocale();
-    mathfield.setAttribute("lang", locale);
+    const locale = getUiLocale();
+    // Keep Latin input for mathematical commands when menu labels are localized.
+    mathfield.setAttribute("lang", "en");
     try {
       const constructor = (mathfield.constructor ?? {}) as Record<string, unknown>;
       if ("locale" in constructor) {
@@ -278,6 +277,22 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
       const scrollHost = document.createElement("div");
       scrollHost.className = "block-math-scroll";
       scrollHost.appendChild(mathfield);
+      let caretFrame = 0;
+      const keepCaretVisible = () => {
+        cancelAnimationFrame(caretFrame);
+        caretFrame = requestAnimationFrame(() => {
+          if (!mathfield.matches(":focus-within") || scrollHost.scrollWidth <= scrollHost.clientWidth) return;
+          const caret = mathfield.shadowRoot?.querySelector(".ML__caret, .ML__text-caret, .ML__latex-caret");
+          if (!caret) return;
+          const bounds = caret.getBoundingClientRect();
+          const left = scrollHost.getBoundingClientRect().left + scrollHost.clientLeft;
+          const right = left + scrollHost.clientWidth;
+          if (bounds.right > right - 12) scrollHost.scrollLeft += bounds.right - right + 12;
+          else if (bounds.left < left + 12) scrollHost.scrollLeft += bounds.left - left - 12;
+        });
+      };
+      mathfield.addEventListener("input", keepCaretVisible);
+      mathfield.addEventListener("selection-change", keepCaretVisible);
 
       const menuToggle = document.createElement("button");
       menuToggle.type = "button";
@@ -395,7 +410,7 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
         assign(mf, "mathVirtualKeyboardPolicy", "manual");
         assign(constructor, "fontsDirectory", "mathlive/fonts");
         assign(constructor, "soundsDirectory", null);
-        assign(constructor, "locale", resolveMathLiveLocale());
+        assign(constructor, "locale", getUiLocale());
         const keyboard = (window as unknown as { mathVirtualKeyboard?: Record<string, unknown> })
           .mathVirtualKeyboard;
         if (keyboard) {
@@ -415,7 +430,7 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
           soundsDirectory: null,
           keypressSound: null,
           plonkSound: null,
-          locale: resolveMathLiveLocale(),
+          locale: getUiLocale(),
         });
       }
 
@@ -544,9 +559,18 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
         };
 
         const currentMenuItems = (mathfield as { menuItems?: MenuItemLike[] }).menuItems ?? [];
-        (mathfield as { menuItems?: MenuItemLike[] }).menuItems = filterMenuItems(
-          currentMenuItems
-        );
+        (mathfield as { menuItems?: MenuItemLike[] }).menuItems = [
+          ...filterMenuItems(currentMenuItems),
+          { type: "divider" },
+          {
+            id: "tex64-symbol-keyboard",
+            label: () => uiText("Symbol keyboard", "記号キーボード"),
+            onMenuSelect: () => {
+              mathfield.focus();
+              mathfield.executeCommand("toggleVirtualKeyboard");
+            },
+          },
+        ];
       }
     } catch {
       // ignore menu configuration failures

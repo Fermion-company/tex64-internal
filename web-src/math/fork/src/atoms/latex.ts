@@ -77,6 +77,9 @@ export class LatexGroupAtom extends Atom {
   }
 
   _serialize(_options: ToLatexOptions): string {
-    return this.body?.map((x) => x.value).join('') ?? '';
+    return (this.body ?? [])
+      .filter((atom) => atom instanceof LatexAtom && !atom.isSuggestion)
+      .map((atom) => atom.value)
+      .join('');
   }
 }

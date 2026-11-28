@@ -81,40 +81,15 @@ export function splitGraphemes(string: string): string | string[] {
   const codePoints = stringToCodepoints(string);
   let index = 0;
   while (index < codePoints.length) {
+    const start = index;
     const code = codePoints[index++];
-
-    const next = codePoints[index];
-    // Combine sequences
-    if (next === ZWJ) {
-      // Zero-width joiner sequences are:
-      // ZWJ_SEQUENCE := (CHAR + ZWJ)+
-      const baseIndex = index - 1;
-      index += 2;
-      while (codePoints[index] === ZWJ) index += 2;
-
-      result.push(
-        String.fromCodePoint(
-          ...codePoints.slice(baseIndex, index - baseIndex + 1)
-        )
-      );
-    } else if (isEmojiCombinator(next)) {
-      // Combine emoji sequences
-      // See http://unicode.org/reports/tr51/#def_emoji_tag_sequence
-      const baseIndex = index - 1; // The previous character is the 'base'
-      while (isEmojiCombinator(codePoints[index]))
-        index += codePoints[index] === ZWJ ? 2 : 1;
-
-      result.push(
-        String.fromCodePoint(
-          ...codePoints.slice(baseIndex, 2 * index - baseIndex - 1)
-        )
-      );
-    } else if (isRegionalIndicator(code)) {
-      // Some (but not all) flags are represented by a sequence of two
-      // "regional indicators" codepoints.
-      index += 1;
-      result.push(String.fromCodePoint(...codePoints.slice(index - 2, 2)));
-    } else result.push(String.fromCodePoint(code));
+    if (isRegionalIndicator(code) && isRegionalIndicator(codePoints[index]))
+      index++;
+    while (index < codePoints.length && isEmojiCombinator(codePoints[index])) {
+      const modifier = codePoints[index++];
+      if (modifier === ZWJ && index < codePoints.length) index++;
+    }
+    result.push(String.fromCodePoint(...codePoints.slice(start, index)));
   }
 
   return result;

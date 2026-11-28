@@ -1,8 +1,7 @@
 import { aiText } from "./ai-i18n.js";
 export const createAiChatRunner = (options) => {
-    const { isAiBlocked, needsLogin, requestAiAccessCheck, requestPlatformUsage, updateStatusDisplay, ensureChat, runningConversations, pendingAgentRequests, buildContextPayload, getAgentSettings, upsertThinkingMessage, renderHistoryList, updateSendState, postToNative, clearThinkingMessage, restoreDraftFromPending, } = options;
-    const requestAgentRun = (chatId, message, parts, contextPayload) => {
-        var _a;
+    const { isAiBlocked, needsLogin, requestAiAccessCheck, requestPlatformUsage, updateStatusDisplay, ensureChat, runningConversations, pendingAgentRequests, buildContextPayload, getAgentSettings, upsertThinkingMessage, renderHistoryList, updateSendState, postToNative, clearThinkingMessage, } = options;
+    const requestAgentRun = (chatId, message, parts, contextPayload, draft) => {
         if (isAiBlocked() || needsLogin()) {
             requestAiAccessCheck(true);
             requestPlatformUsage(true);
@@ -21,6 +20,8 @@ export const createAiChatRunner = (options) => {
         const contextToSend = contextPayload !== null && contextPayload !== void 0 ? contextPayload : buildContextPayload(getAgentSettings());
         pendingAgentRequests.set(chat.id, {
             message,
+            draft,
+            optimisticRow: chat.messages[chat.messages.length - 1],
             parts: Array.isArray(parts) ? parts : undefined,
             contextPayload: contextToSend,
         });
@@ -41,9 +42,7 @@ export const createAiChatRunner = (options) => {
             runningConversations.delete(chat.id);
             chat.statusMessage = "";
             clearThinkingMessage(chat.id);
-            const pending = (_a = pendingAgentRequests.get(chat.id)) !== null && _a !== void 0 ? _a : null;
             pendingAgentRequests.delete(chat.id);
-            restoreDraftFromPending(chat.id, pending);
             renderHistoryList();
             updateSendState();
             updateStatusDisplay();

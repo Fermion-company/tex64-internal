@@ -5,8 +5,7 @@ const buildRequestId = (() => {
 })();
 export const createFilePreviewBroker = (postToNative) => {
     const pending = new Map();
-    const cache = new Map();
-    const cacheTtlMs = 60000;
+    const inFlight = new Map();
     let workspaceScopeKey = "none:0";
     const setWorkspaceScope = (scope) => {
         const workspace = scope.workspaceId || scope.rootPath || "none";
@@ -17,7 +16,7 @@ export const createFilePreviewBroker = (postToNative) => {
         if (nextScopeKey === workspaceScopeKey)
             return;
         workspaceScopeKey = nextScopeKey;
-        cache.clear();
+        inFlight.clear();
         for (const entry of pending.values()) {
             window.clearTimeout(entry.timeoutId);
             entry.resolve({ ok: false, error: "Workspace changed." });
@@ -29,26 +28,27 @@ export const createFilePreviewBroker = (postToNative) => {
         if (!trimmed) {
             return Promise.resolve({ ok: false, error: uiText("path is empty.", "pathが空です。") });
         }
-        const cacheKey = `${workspaceScopeKey}\0${trimmed}`;
-        const cached = cache.get(cacheKey);
-        if (cached && Date.now() - cached.updatedAt < cacheTtlMs) {
-            return Promise.resolve({ ok: true, dataUrl: cached.dataUrl });
-        }
+        const existing = inFlight.get(trimmed);
+        if (existing)
+            return existing;
         const requestId = buildRequestId();
-        return new Promise((resolve) => {
+        const request = new Promise((resolve) => {
             // PDFs (up to 5MB) take longer to read and ship over IPC than small
             // images, so the deadline is sized for the slowest allowed payload.
             const timeoutId = window.setTimeout(() => {
                 pending.delete(requestId);
+                inFlight.delete(trimmed);
                 resolve({ ok: false, error: uiText("Preview timed out.", "プレビューがタイムアウトしました。") });
             }, 4000);
-            pending.set(requestId, { resolve, timeoutId, cacheKey });
+            pending.set(requestId, { resolve, timeoutId, path: trimmed });
             postToNative({
                 type: "file:preview",
                 requestId,
                 path: trimmed,
             }, true);
         });
+        inFlight.set(trimmed, request);
+        return request;
     };
     const handlePreviewResult = (payload) => {
         var _a;
@@ -60,6 +60,7 @@ export const createFilePreviewBroker = (postToNative) => {
             return;
         }
         pending.delete(payload.requestId);
+        inFlight.delete(entry.path);
         window.clearTimeout(entry.timeoutId);
         if (!payload.ok) {
             entry.resolve({ ok: false, error: (_a = payload.error) !== null && _a !== void 0 ? _a : uiText("Preview failed.", "プレビューできませんでした。") });
@@ -72,7 +73,6 @@ export const createFilePreviewBroker = (postToNative) => {
             return;
         }
         const dataUrl = `data:${mimeType};base64,${data}`;
-        cache.set(entry.cacheKey, { dataUrl, updatedAt: Date.now() });
         entry.resolve({ ok: true, dataUrl });
     };
     return { requestPreview, handlePreviewResult, setWorkspaceScope };

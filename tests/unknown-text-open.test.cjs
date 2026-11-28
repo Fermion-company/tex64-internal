@@ -67,7 +67,7 @@ const renderer = (fixture) => {
       isDirty: false, isComposing: false, viewStates: new Map(),
       editor: { setModel: (value) => { model = value; }, getModel: () => model,
         getValue: () => model.getValue(), focus: noop, saveViewState: () => ({ cursor: 1 }) },
-      viewer: { getViewerMode: () => mode, hideViewer: () => { mode = "hidden"; },
+      viewer: { getViewerMode: () => mode, getUnbuiltPdfPath: () => null, hideViewer: () => { mode = "hidden"; },
         showUnsupportedViewer: () => { mode = "unsupported"; },
         showPdfViewer: () => { mode = "pdf"; }, showImageViewer: () => { mode = "image"; } },
     };
@@ -101,7 +101,7 @@ const renderer = (fixture) => {
       buildOps: { updateSynctexButtonState: noop },
       postToNative: (message) => {
         pending.push(message.type === "openFile"
-          ? fixture.handlers.handleOpenFile(message.path)
+          ? fixture.handlers.handleOpenFile(message.path, { previewRequestId: message.previewRequestId, openRequestId: message.openRequestId })
           : fixture.handlers.handleSaveFile(message.path, message.content, message));
         return true;
       },
@@ -121,9 +121,111 @@ const renderer = (fixture) => {
     if (type === "saveResult") ops.handleSaveResult(payload);
   });
   return { runtime, core, buffer, tabs, ops, issues,
+    finishRequests: () => Promise.all(pending.splice(0)),
     open: async (name) => { ops.requestOpenFile(name, "primary"); await Promise.all(pending.splice(0)); },
   };
 };
+
+test("a late automatic PDF read cannot claim the tab of a newer manuscript", async (t) => {
+  const f = await fixture(t);
+  const r = renderer(f);
+  await f.write("main.pdf", "%PDF-main");
+  await f.write("letter.pdf", "%PDF-letter");
+  const read = f.workspace.readBinaryFile.bind(f.workspace);
+  let release;
+  const delayed = new Promise(resolve => { release = resolve; });
+  f.workspace.readBinaryFile = async name => {
+    if (name === "main.pdf") await delayed;
+    return read(name);
+  };
+  r.ops.openFirstPreview("main.pdf", true);
+  const first = r.finishRequests();
+  r.ops.cancelPendingFirstPreview();
+  r.ops.openFirstPreview("letter.pdf", true);
+  await r.finishRequests();
+  release();
+  await first;
+  assert.deepEqual(r.runtime.editorGroups.secondary.openTabs, ["letter.pdf"]);
+  assert.equal(r.runtime.editorGroups.secondary.currentFilePath, "letter.pdf");
+  assert.deepEqual(r.issues, []);
+});
+
+// Pause after capturing the bytes, as a delayed IPC reply would.
+const delayFirstRead = (workspace, method, file) => {
+  const read = workspace[method].bind(workspace);
+  const started = Promise.withResolvers();
+  const gate = Promise.withResolvers();
+  let count = 0;
+  workspace[method] = async (name, ...args) => {
+    const result = await read(name, ...args);
+    if (name === file && ++count === 1) {
+      started.resolve();
+      await gate.promise;
+    }
+    return result;
+  };
+  return { started: started.promise, release: gate.resolve, count: () => count };
+};
+
+test("reopening a manuscript uses its newest bytes even if an older read returns last", async (t) => {
+  const f = await fixture(t);
+  const r = renderer(f);
+  await f.write("main.tex", "old");
+  await f.write("other.tex", "other");
+  const delay = delayFirstRead(f.workspace, "readFile", "main.tex");
+  const first = r.open("main.tex");
+  await delay.started;
+  await r.open("other.tex");
+  await f.write("main.tex", "new");
+  await r.open("main.tex");
+  delay.release();
+  await first;
+  assert.equal(r.core.getActiveFileSnapshot().path, "main.tex");
+  assert.equal(r.runtime.monacoModels.get("main.tex").model.getValue(), "new");
+  assert.deepEqual(r.issues, []);
+});
+
+test("reselecting the current source preserves a paper edit's shared background read", async (t) => {
+  const f = await fixture(t);
+  const r = renderer(f);
+  await f.write("main.tex", "root");
+  await f.write("chapter.tex", "chapter");
+  await r.open("main.tex");
+  const delay = delayFirstRead(f.workspace, "readFile", "chapter.tex");
+  const first = r.open("chapter.tex");
+  await delay.started;
+  r.ops.requestOpenFile("chapter.tex", "primary");
+  r.ops.requestOpenFileInBackground("chapter.tex", "primary", false);
+  r.ops.requestOpenFile("main.tex", "primary");
+  delay.release();
+  await first;
+  await r.finishRequests();
+  assert.equal(delay.count(), 1);
+  assert.equal(r.core.getActiveFileSnapshot().path, "main.tex");
+  assert.deepEqual(r.runtime.editorGroups.primary.openTabs, ["main.tex"]);
+  assert.equal(r.runtime.monacoModels.get("chapter.tex").model.getValue(), "chapter");
+});
+
+test("turning off Live restores the saved PDF only while that PDF remains selected", async (t) => {
+  const f = await fixture(t);
+  const r = renderer(f);
+  await f.write("main.pdf", "%PDF-main");
+  await f.write("other.pdf", "%PDF-other");
+  const group = r.runtime.editorGroups.secondary;
+  group.currentFilePath = "main.pdf";
+  group.viewer.getUnbuiltPdfPath = () => "main.pdf";
+  const delay = delayFirstRead(f.workspace, "readBinaryFile", "main.pdf");
+  assert.equal(r.ops.requestOpenFile("main.pdf", "secondary", true), true);
+  const restore = r.finishRequests();
+  await delay.started;
+  r.ops.requestOpenFile("other.pdf", "secondary");
+  await r.finishRequests();
+  delay.release();
+  await restore;
+  assert.equal(group.currentFilePath, "other.pdf");
+  assert.equal(group.viewer.getViewerMode(), "pdf");
+  assert.deepEqual(r.issues, []);
+});
 
 test("unknown extension, extensionless and dotfiles open through main and renderer; binary stays unsupported", async (t) => {
   const f = await fixture(t);
@@ -144,7 +246,9 @@ test("unknown extension, extensionless and dotfiles open through main and render
   assert.equal(r.runtime.editorGroups.primary.viewer.getViewerMode(), "unsupported");
   assert.equal(r.runtime.monacoModels.has("blob.unknown"), false);
   assert.equal(r.core.getActiveFileSnapshot(), null);
-  assert.deepEqual(f.messages.at(-1).payload, { path: "blob.unknown", kind: "unsupported" });
+  const { openRequestId, ...unsupported } = f.messages.at(-1).payload;
+  assert.ok(Number.isSafeInteger(openRequestId));
+  assert.deepEqual(unsupported, { path: "blob.unknown", kind: "unsupported" });
   assert.deepEqual(r.issues, []);
   assert.equal(await f.workspace.detectRootFile(), null);
 });
@@ -181,15 +285,17 @@ test("unknown text is editable, autosaved, reopened and temporary; UTF-8 BOM and
   assert.deepEqual(r.issues, []);
 });
 
-test("legacy text decoding and special viewers stay unchanged; unknown invalid or oversized files stay unsupported", async (t) => {
+test("known source files reject invalid UTF-8 without losing bytes; special viewers and unknown files keep their own handling", async (t) => {
   const f = await fixture(t);
   const invalid = Buffer.from([0xff, 0x41]);
   for (const name of ["known.tex", "known.lua", "known.md"]) {
     await f.write(name, invalid);
     const result = await f.open(name);
-    assert.equal(result.kind, "text");
-    assert.equal(result.content, invalid.toString("utf8"));
-    assert.equal(result.languageId, undefined);
+    assert.deepEqual(result, { path: name, error: WorkspaceError.invalidEncoding });
+    assert.deepEqual(await fsp.readFile(path.join(f.root, name)), invalid);
+    const valid = "A literal replacement character: \uFFFD";
+    await f.write(name, valid);
+    assert.deepEqual(await f.open(name), { path: name, kind: "text", content: valid, fileIdentity: name });
   }
   for (const [name, kind] of [["figure.svg", "image"], ["figure.pdf", "pdf"]]) {
     await f.write(name, "valid UTF-8 text");

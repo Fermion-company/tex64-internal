@@ -10,17 +10,15 @@ export const createEditorSessionNavigationOps = (runtime, coreOps, issueOps, dep
     };
     const jumpToFileLine = (path, line, groupKey, options = {}) => {
         const forceOpen = options.force === true;
-        const focus = options.focus;
-        const className = options.className;
-        const column = options.column;
+        const { focus, className, column, issueMessage } = options;
         const targetGroupKey = forceOpen ? groupKey : coreOps.resolveOpenTargetGroupKey(path, groupKey);
         const targetGroup = coreOps.getEditorGroup(targetGroupKey);
         if (targetGroup.currentFilePath === path) {
-            issueOps.revealLine(targetGroup, line, { focus, className, column });
+            issueOps.revealLine(targetGroup, line, { focus, className, column, issueMessage });
             return;
         }
         // An open tab can install its model before requestOpenFile returns.
-        const reveal = { path, line, column, group: targetGroupKey, focus, className };
+        const reveal = { path, line, column, issueMessage, group: targetGroupKey, focus, className };
         runtime.fileOpsState.pendingReveal = reveal;
         if (!deps.requestOpenFile(path, targetGroupKey, forceOpen) && runtime.fileOpsState.pendingReveal === reveal) {
             runtime.fileOpsState.pendingReveal = null;

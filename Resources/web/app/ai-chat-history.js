@@ -3,25 +3,39 @@ import { formatRelativeTime } from "./ai-chat-message.js";
 export const createHistoryController = (params) => {
     const { aiHistory, aiHistoryList, aiHistoryToggle, chats, chatIndex, proposalIndex, runningConversations, getActiveChatId, switchActiveChat, resetToNewChatState, postToNative, } = params;
     let historyOpen = false;
+    const setHistoryOpen = (open) => {
+        historyOpen = open;
+        if (aiHistory instanceof HTMLElement) {
+            aiHistory.inert = !open;
+            aiHistory.classList.toggle("is-open", open);
+        }
+        aiHistoryToggle === null || aiHistoryToggle === void 0 ? void 0 : aiHistoryToggle.setAttribute("aria-expanded", String(open));
+    };
+    setHistoryOpen(false);
     // ── Delete Modal ─────────────────────────────────────
     const chatDeleteModal = document.getElementById("ai-chat-delete-modal");
     const chatDeleteTarget = document.getElementById("ai-chat-delete-target");
     const chatDeleteCancel = document.getElementById("ai-chat-delete-cancel");
     const chatDeleteConfirm = document.getElementById("ai-chat-delete-confirm");
     let pendingDeleteChatId = null;
+    let deleteOpener = null;
     const openChatDeleteModal = (chatId, title) => {
         if (runningConversations.has(chatId))
             return;
         pendingDeleteChatId = chatId;
+        deleteOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         if (chatDeleteTarget)
             chatDeleteTarget.textContent = title;
         if (chatDeleteModal)
             chatDeleteModal.classList.add("is-visible");
+        chatDeleteCancel === null || chatDeleteCancel === void 0 ? void 0 : chatDeleteCancel.focus();
     };
     const closeChatDeleteModal = () => {
         pendingDeleteChatId = null;
         if (chatDeleteModal)
             chatDeleteModal.classList.remove("is-visible");
+        deleteOpener === null || deleteOpener === void 0 ? void 0 : deleteOpener.focus();
+        deleteOpener = null;
     };
     const confirmDeleteChat = () => {
         const chatId = pendingDeleteChatId;
@@ -47,6 +61,7 @@ export const createHistoryController = (params) => {
         if (getActiveChatId() === chatId) {
             resetToNewChatState();
         }
+        params.forgetDraft(chatId);
         renderHistoryList();
     };
     if (chatDeleteCancel)
@@ -54,6 +69,16 @@ export const createHistoryController = (params) => {
     if (chatDeleteConfirm)
         chatDeleteConfirm.addEventListener("click", confirmDeleteChat);
     if (chatDeleteModal) {
+        chatDeleteModal.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+                event.stopPropagation();
+                closeChatDeleteModal();
+            }
+            if (event.key === "Tab" && chatDeleteConfirm && chatDeleteCancel) {
+                event.preventDefault();
+                (document.activeElement === chatDeleteCancel ? chatDeleteConfirm : chatDeleteCancel).focus();
+            }
+        });
         chatDeleteModal.addEventListener("click", (e) => {
             if (e.target === chatDeleteModal)
                 closeChatDeleteModal();
@@ -114,18 +139,22 @@ export const createHistoryController = (params) => {
         }
     };
     const toggleHistory = () => {
-        historyOpen = !historyOpen;
-        if (aiHistory instanceof HTMLElement)
-            aiHistory.classList.toggle("is-open", historyOpen);
+        setHistoryOpen(!historyOpen);
         if (historyOpen)
             renderHistoryList();
     };
     const closeHistory = () => {
-        historyOpen = false;
-        if (aiHistory instanceof HTMLElement)
-            aiHistory.classList.remove("is-open");
+        if ((aiHistory === null || aiHistory === void 0 ? void 0 : aiHistory.contains(document.activeElement)) && aiHistoryToggle instanceof HTMLElement)
+            aiHistoryToggle.focus();
+        setHistoryOpen(false);
     };
+    aiHistory === null || aiHistory === void 0 ? void 0 : aiHistory.addEventListener("keydown", (event) => {
+        if (event instanceof KeyboardEvent && event.key === "Escape")
+            closeHistory();
+    });
     if (aiHistoryToggle instanceof HTMLButtonElement) {
+        if (aiHistory === null || aiHistory === void 0 ? void 0 : aiHistory.id)
+            aiHistoryToggle.setAttribute("aria-controls", aiHistory.id);
         aiHistoryToggle.addEventListener("click", toggleHistory);
     }
     return {

@@ -30,7 +30,8 @@ import * as awarenessProtocol from "y-protocols/awareness";
 import * as syncProtocol from "y-protocols/sync";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
-export { Y, MonacoBinding, awarenessProtocol, syncProtocol, encoding, decoding };
+import textDelta from "tex64-collab-text-delta";
+export { Y, MonacoBinding, awarenessProtocol, syncProtocol, encoding, decoding, textDelta };
 `);
 
 if (!fs.existsSync(esbuild)) {
@@ -49,6 +50,7 @@ require(esbuild).buildSync({
   target: "es2019",
   legalComments: "none",
   alias: {
+    "tex64-collab-text-delta": path.join(projectRoot, "electron/services/collab/text-delta.cjs"),
     "monaco-editor/esm/vs/editor/editor.api.js": shimPath,
     "monaco-editor": shimPath,
   },

@@ -93,10 +93,13 @@ export const createEditorSessionWorkspaceOps = (runtime, coreOps, splitViewOps, 
                 ...Array.from(runtime.monacoModels.keys()).filter((path) => !listed.has(path) && keepMissingPath(path)),
             ];
         if (rootChanged) {
+            runtime.fileOpsState.pendingOpenRequests = [];
+            runtime.state.pendingAutoOpenPath = null;
             runtime.fileOpsState.pendingReveal = null;
             runtime.lastCursorPositions.clear();
             runtime.deps.fileTree.clearSelection();
             coreOps.forEachEditorGroup((group) => {
+                delete group.automaticPreviewPath;
                 group.currentFilePath = null;
                 group.currentFileSavedContent = null;
                 group.isDirty = false;
@@ -114,6 +117,21 @@ export const createEditorSessionWorkspaceOps = (runtime, coreOps, splitViewOps, 
             runtime.dirtyFiles.clear();
         }
         const workspaceFileSet = new Set(workspaceFiles);
+        // The first live paper is a real open pane before the first Build
+        // creates its PDF. Directory notifications must not close it.
+        coreOps.forEachEditorGroup(group => {
+            const preview = group.currentFilePath;
+            if (!preview || workspaceFileSet.has(preview) || group.viewer.getViewerMode() !== "pdf")
+                return;
+            if (group.viewer.getUnbuiltPdfPath() !== preview && !runtime.deps.isLivePaper(preview))
+                return;
+            if (workspaceFiles.some(path => /\.tex$/i.test(path) && path.replace(/\.tex$/i, ".pdf") === preview)) {
+                // The user can remove Build outputs while typing. Keep the mounted
+                // page and its scroll position until the next live revision arrives.
+                group.viewer.markSavedPdfRemoved();
+                workspaceFileSet.add(preview);
+            }
+        });
         const missingDirtyPaths = new Set();
         if (runtime.monacoModels.size > 0) {
             Array.from(runtime.monacoModels.keys()).forEach((path) => {

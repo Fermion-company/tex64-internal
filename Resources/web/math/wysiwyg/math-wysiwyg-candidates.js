@@ -174,9 +174,11 @@ export const TIER_EXACT = 1; // exact name, casing differs (e.g. "pi" -> \Pi)
 export const TIER_PREFIX = 2;
 export const TIER_CONTAINS = 3;
 const CASE_MATCH_BONUS = 60;
-const commandMatchesTokenCase = (candidate, originalToken) => {
-    const command = extractCommand(candidate.key.latex);
-    return !!command && command === originalToken;
+export const commandMatchesTokenCase = (candidate, originalToken) => {
+    var _a, _b;
+    const latex = candidate.key.latex.trim();
+    const name = (_b = (_a = /^\\begin\{([A-Za-z]+\*?)\}/.exec(latex)) === null || _a === void 0 ? void 0 : _a[1]) !== null && _b !== void 0 ? _b : extractCommand(latex);
+    return name === originalToken;
 };
 export const buildRankedWordCandidates = (token, options = {}) => {
     var _a, _b, _c;
@@ -199,7 +201,7 @@ export const buildRankedWordCandidates = (token, options = {}) => {
         group.candidates.forEach((candidate) => {
             const caseMatch = commandMatchesTokenCase(candidate, token);
             const tier = isExact ? (caseMatch ? TIER_EXACT_CASE : TIER_EXACT) : TIER_PREFIX;
-            const exactHintBoost = candidate.hint === normalized ? 120 : 0;
+            const exactHintBoost = candidate.hint.toLowerCase() === normalized ? 120 : 0;
             const score = baseScore +
                 candidate.priority +
                 group.priority +

@@ -1,3 +1,5 @@
+const { transformOutsideTextBlocks } = require("./strip-text.cjs");
+
 const postProcessLatex = (value) => {
   if (!value) return "";
   const textReg = /(\\(?:operatorname|mathrm|text|mathbf)\s?\*? {.*?})/g;
@@ -28,52 +30,6 @@ const postProcessLatex = (value) => {
   return result;
 };
 
-const TEXT_PLACEHOLDER_PREFIX = "\x00TXTBLK";
-
-const protectTextBlocks = (value) => {
-  const blocks = [];
-  const textCmdPattern = /\\(?:text|mbox|textnormal|textrm|textsf|texttt|textbf|textit)\s*\{/g;
-  let result = "";
-  let lastIndex = 0;
-  let match;
-
-  while ((match = textCmdPattern.exec(value)) !== null) {
-    result += value.slice(lastIndex, match.index);
-    const braceStart = match.index + match[0].length - 1;
-    let depth = 0;
-    let braceEnd = -1;
-    for (let i = braceStart; i < value.length; i += 1) {
-      if (value[i] === "{") depth += 1;
-      if (value[i] === "}") {
-        depth -= 1;
-        if (depth === 0) {
-          braceEnd = i;
-          break;
-        }
-      }
-    }
-    if (braceEnd >= 0) {
-      const fullBlock = value.slice(match.index, braceEnd + 1);
-      blocks.push(fullBlock);
-      result += `${TEXT_PLACEHOLDER_PREFIX}${blocks.length - 1}\x00`;
-      lastIndex = braceEnd + 1;
-      textCmdPattern.lastIndex = lastIndex;
-    } else {
-      result += value[match.index];
-      lastIndex = match.index + 1;
-      textCmdPattern.lastIndex = lastIndex;
-    }
-  }
-  result += value.slice(lastIndex);
-  return { result, blocks };
-};
-
-const restoreTextBlocks = (value, blocks) =>
-  value.replace(
-    new RegExp(`${TEXT_PLACEHOLDER_PREFIX.replace(/\x00/g, "\\x00")}(\\d+)\\x00`, "g"),
-    (_match, idx) => blocks[parseInt(idx, 10)] ?? ""
-  );
-
 const BARE_LATEX_STRUCTURE_COMMAND_PATTERN =
   /(^|[^\\A-Za-z])(frac|dfrac|tfrac|sqrt|binom|dbinom|tbinom|operatorname)(?=\*?\s*(?:\[[^\]]*\]\s*)?\{)/g;
 const BARE_LATEX_OPERATOR_COMMAND_PATTERN =
@@ -81,11 +37,9 @@ const BARE_LATEX_OPERATOR_COMMAND_PATTERN =
 
 const normalizeBareLatexCommands = (value) => {
   if (!value) return value;
-  const { result: protectedValue, blocks } = protectTextBlocks(value);
-  const normalized = protectedValue
+  return value
     .replace(BARE_LATEX_STRUCTURE_COMMAND_PATTERN, "$1\\$2")
     .replace(BARE_LATEX_OPERATOR_COMMAND_PATTERN, "$1\\$2");
-  return restoreTextBlocks(normalized, blocks);
 };
 
 const fixMatrixSeparators = (value) => {
@@ -183,75 +137,6 @@ const splitMatrixRows = (text) => {
   return rows;
 };
 
-const stripOuterBraces = (text) => {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
-    return trimmed;
-  }
-  let depth = 0;
-  for (let i = 0; i < trimmed.length; i += 1) {
-    const ch = trimmed[i];
-    if (ch === "{") depth += 1;
-    if (ch === "}") depth -= 1;
-    if (depth === 0 && i < trimmed.length - 1) {
-      return trimmed;
-    }
-  }
-  return trimmed.slice(1, -1).trim();
-};
-
-const matrixBodyToBinom = (body) => {
-  const rows = splitMatrixRows(body).map((row) => row.trim()).filter(Boolean);
-  if (rows.length === 2 && rows.every((row) => !row.includes("&"))) {
-    return `\\binom{${stripOuterBraces(rows[0])}}{${stripOuterBraces(rows[1])}}`;
-  }
-  if (rows.length === 1 && !rows[0].includes("&")) {
-    const cells = [];
-    let i = 0;
-    let valid = true;
-    while (i < rows[0].length) {
-      const ch = rows[0][i];
-      if (ch === "{") {
-        let depth = 0;
-        const start = i + 1;
-        for (; i < rows[0].length; i += 1) {
-          const inner = rows[0][i];
-          if (inner === "{") depth += 1;
-          if (inner === "}") {
-            depth -= 1;
-            if (depth === 0) {
-              cells.push(rows[0].slice(start, i).trim());
-              i += 1;
-              break;
-            }
-          }
-        }
-        if (depth !== 0) {
-          valid = false;
-          break;
-        }
-        continue;
-      }
-      if (!/\s/.test(ch)) {
-        const start = i;
-        while (i < rows[0].length && !/\s/.test(rows[0][i])) {
-          i += 1;
-        }
-        cells.push(rows[0].slice(start, i).trim());
-        continue;
-      }
-      i += 1;
-    }
-    if (!valid) {
-      return null;
-    }
-    if (cells.length === 2) {
-      return `\\binom{${stripOuterBraces(cells[0])}}{${stripOuterBraces(cells[1])}}`;
-    }
-  }
-  return null;
-};
-
 const cleanMatrixBody = (body) => {
   if (!body) return "";
   let cleaned = body;
@@ -261,75 +146,10 @@ const cleanMatrixBody = (body) => {
   return cleaned;
 };
 
-const parseMatrixShape = (body) => {
-  const normalizedBody = cleanMatrixBody(body);
-  if (!normalizedBody) {
-    return null;
-  }
-  if (/\\begin\{/.test(normalizedBody) || /\\end\{/.test(normalizedBody)) {
-    return null;
-  }
-  const rows = splitMatrixRows(normalizedBody).map((row) => row.trim()).filter(Boolean);
-  if (rows.length < 2) {
-    return null;
-  }
-  const colCounts = rows.map((row) => row.split("&").length);
-  const expectedCols = colCounts[0];
-  if (!Number.isFinite(expectedCols) || expectedCols < 2) {
-    return null;
-  }
-  if (!colCounts.every((count) => count === expectedCols)) {
-    return null;
-  }
-  return { rows: rows.length, cols: expectedCols, body: rows.join("\\\\") };
-};
-
-const matrixBodyToFraction = (body) => {
-  const rows = splitMatrixRows(body).map((row) => row.trim()).filter(Boolean);
-  if (rows.length !== 2) {
-    return null;
-  }
-  if (rows.some((row) => row.includes("&"))) {
-    return null;
-  }
-  const left = stripOuterBraces(rows[0]);
-  const right = stripOuterBraces(rows[1]);
-  const atomReg = /^\\?[A-Za-z]+(?:_[{]?[A-Za-z0-9]+[}]?)?$/;
-  if (atomReg.test(left) && atomReg.test(right)) {
-    return null;
-  }
-  return `\\frac{${left}}{${right}}`;
-};
-
-const normalizeFractionMatrices = (value) => {
-  if (!value) return value;
-  const replaceWithFraction = (match, body) => {
-    const result = matrixBodyToFraction(body);
-    return result ? result : match;
-  };
-  let output = value.replace(
-    /\\left\[\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\\right\]/g,
-    replaceWithFraction
-  );
-  output = output.replace(
-    /\[\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\]/g,
-    (match, body) => replaceWithFraction(match, body)
-  );
-  output = output.replace(
-    /\\left\(\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\\right\)/g,
-    (match, body) => replaceWithFraction(match, body)
-  );
-  output = output.replace(
-    /\(\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\)/g,
-    (match, body) => replaceWithFraction(match, body)
-  );
-  return output;
-};
-
 const normalizeMatrixDelimiters = (value) => {
   if (!value) return value;
   const toMatrix = (env) => (_match, body) => {
-    const cleaned = cleanMatrixBody(body);
+    const cleaned = body.trim();
     return `\\begin{${env}}${cleaned}\\end{${env}}`;
   };
   let output = value;
@@ -350,35 +170,6 @@ const normalizeMatrixDelimiters = (value) => {
     toMatrix("bmatrix")
   );
   return output;
-};
-
-const repairMatrixNoise = (value) => {
-  if (!value) return value;
-  const matches = Array.from(
-    value.matchAll(/\\begin\{(matrix|pmatrix|bmatrix)\}([\s\S]*?)\\end\{\1\}/g)
-  );
-  if (matches.length < 2) {
-    return value;
-  }
-  let best = null;
-  for (const match of matches) {
-    const shape = parseMatrixShape(match[2]);
-    if (!shape) continue;
-    const area = shape.rows * shape.cols;
-    if (!best || area > best.area) {
-      best = {
-        area,
-        body: shape.body,
-      };
-    }
-  }
-  if (!best) {
-    return value;
-  }
-  if (/^\s*\\begin\{(?:matrix|pmatrix|bmatrix)\}[\s\S]*\\end\{(?:matrix|pmatrix|bmatrix)\}\s*$/.test(value)) {
-    return `\\begin{pmatrix}${best.body}\\end{pmatrix}`;
-  }
-  return value;
 };
 
 const simplifyNestedMatrixWrapper = (value) => {
@@ -403,23 +194,6 @@ const simplifyNestedMatrixWrapper = (value) => {
   }
   const targetEnv = innerEnv === "pmatrix" ? "pmatrix" : "pmatrix";
   return `\\begin{${targetEnv}}${innerRows.join("\\\\")}\\end{${targetEnv}}`;
-};
-
-const normalizeBinom = (value) => {
-  if (!value) return value;
-  const replaceWithBinom = (match, body) => {
-    const result = matrixBodyToBinom(body);
-    return result ? result : match;
-  };
-  let output = value.replace(
-    /\\left\(\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\\right\)/g,
-    replaceWithBinom
-  );
-  output = output.replace(
-    /\(\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\)/g,
-    (match, body) => replaceWithBinom(match, body)
-  );
-  return output;
 };
 
 const repairBrokenFractionParentheses = (value) => {
@@ -449,21 +223,9 @@ const normalizeOperatorNames = (value) => {
   let output = value;
   output = output.replace(
     /\\operatorname\*?\{(sin|cos|tan|cot|sec|csc|log|ln|exp|max|min|det|dim|lim)\}/g,
-    (_match, name) => `\\${name}`
+    (match, name, offset, input) => `\\${name}${/[A-Za-z]/.test(input[offset + match.length] ?? "") ? " " : ""}`
   );
-  output = output.replace(/\\operatorname\*?\{det\}/g, "\\det");
-  output = output.replace(/\\operatorname\*?\{lim\}/g, "\\lim");
-  output = output.replace(/\\geq/g, "\\ge");
-  output = output.replace(/\\leq/g, "\\le");
-  output = output.replace(/\\neq/g, "\\ne");
-  return output;
-};
-
-const normalizeLimitCommands = (value) => {
-  if (!value) return value;
-  let output = value;
-  output = output.replace(/\\varlimsup(_\{[^}]*\\to[^}]*\})/g, "\\lim$1");
-  output = output.replace(/\\varliminf(_\{[^}]*\\to[^}]*\})/g, "\\lim$1");
+  output = output.replace(/\\(ge|le|ne)q(?![a-zA-Z])/g, "\\$1");
   return output;
 };
 
@@ -502,38 +264,6 @@ const normalizeBinomWrappedInMatrix = (value) => {
   return `\\binom{${binom[1]}}{${binom[2]}}`;
 };
 
-const unwrapBoxedExpression = (value) => {
-  if (!value) return value;
-  let output = value.trim();
-  for (let i = 0; i < 4; i += 1) {
-    const next = output
-      .replace(/^\\boxed\{([\s\S]+)\}$/, "$1")
-      .replace(/^\\fbox\{([\s\S]+)\}$/, "$1")
-      .trim();
-    if (next === output) break;
-    output = next;
-  }
-  return output;
-};
-
-const stripEdgeBarDelimiters = (value) => {
-  if (!value) return value;
-  let output = value.trim();
-  output = output.replace(
-    /^\\left\[\s*\\\|([\s\S]+?)\\right\]$/,
-    "$1"
-  );
-  output = output.replace(
-    /^\\left\[\s*\|([\s\S]+?)\\right\]$/,
-    "$1"
-  );
-  output = output.replace(
-    /^\\left\|\s*([\s\S]+?)\\right\|$/,
-    "$1"
-  );
-  return output.trim();
-};
-
 const collapseEmptyFractions = (value) => {
   if (!value) return value;
   let output = value;
@@ -542,112 +272,47 @@ const collapseEmptyFractions = (value) => {
   return output;
 };
 
-const stripRedundantOuterRoundDelimiters = (value) => {
-  if (!value) return value;
-  let output = value.trim();
-  const patterns = [
-    [/^\\left\(\s*([\s\S]+?)\s*\\right\)$/, "$1"],
-    [/^\\biggl\(\s*([\s\S]+?)\s*\\biggr\)$/, "$1"],
-    [/^\\Biggl\(\s*([\s\S]+?)\s*\\Biggr\)$/, "$1"],
-    [/^\\bigg\(\s*([\s\S]+?)\s*\\bigg\)$/, "$1"],
-    [/^\\Bigg\(\s*([\s\S]+?)\s*\\Bigg\)$/, "$1"],
-    [/^\\bigl\(\s*([\s\S]+?)\s*\\bigr\)$/, "$1"],
-    [/^\\Bigl\(\s*([\s\S]+?)\s*\\Bigr\)$/, "$1"],
-    // Bare outer parens: only strip if preceded by \left or \big-style command
-    // (standalone "(a+b)" is intentional — don't strip it)
-  ];
-  for (let i = 0; i < 2; i += 1) {
-    let changed = false;
-    for (const [pattern, replacement] of patterns) {
-      const next = output.replace(pattern, replacement).trim();
-      if (next === output) {
-        continue;
-      }
-      if (/\\begin\{(?:matrix|pmatrix|bmatrix|vmatrix|Vmatrix)\}/.test(next)) {
-        continue;
-      }
-      output = next;
-      changed = true;
-    }
-    if (!changed) break;
-  }
-  return output;
-};
-
-const removeSpacingCommands = (value) => {
+const trimTrailingBreaksAndWhitespace = (value) => {
   if (!value) return value;
   let output = value;
-  output = output.replace(/\\(?:,|!|;|:|\s)/g, "");
   output = output.replace(/\\+$/g, "");
   output = output.replace(/\s+/g, " ");
   return output.trim();
 };
 
-const stripRedundantOuterSquareDelimiters = (value) => {
-  if (!value) return value;
-  let output = value.trim();
-  const patterns = [
-    [/^\\left\[\s*([\s\S]+?)\s*\\right\]$/, "$1"],
-    [/^\\biggl\[\s*([\s\S]+?)\s*\\biggr\]$/, "$1"],
-    [/^\\Biggl\[\s*([\s\S]+?)\s*\\Biggr\]$/, "$1"],
-    [/^\\bigg\[\s*([\s\S]+?)\s*\\bigg\]$/, "$1"],
-    [/^\\Bigg\[\s*([\s\S]+?)\s*\\Bigg\]$/, "$1"],
-    [/^\\bigl\[\s*([\s\S]+?)\s*\\bigr\]$/, "$1"],
-    [/^\\Bigl\[\s*([\s\S]+?)\s*\\Bigr\]$/, "$1"],
-    [/^\[\s*([\s\S]+?)\s*\]$/, "$1"],
-  ];
-  for (let i = 0; i < 3; i += 1) {
-    let changed = false;
-    for (const [pattern, replacement] of patterns) {
-      const next = output.replace(pattern, replacement).trim();
-      if (next !== output) {
-        output = next;
-        changed = true;
-      }
-    }
-    if (!changed) break;
-  }
-  return output;
-};
-
 const normalizeDecodedLatex = (value) => {
   if (!value) return "";
+  return transformOutsideTextBlocks(value, normalizeMathTokens);
+};
+
+const normalizeMathTokens = (value) => {
   let output = postProcessLatex(value);
   output = normalizeBareLatexCommands(output);
   output = stripArrayFormattingCommands(output);
-  output = unwrapBoxedExpression(output);
   output = repairBrokenFractionParentheses(output);
   output = fixMatrixSeparators(output);
-  output = normalizeFractionMatrices(output);
-  output = normalizeBinom(output);
   output = normalizeCompactBinom(output);
   output = normalizeBinomWrappedInMatrix(output);
   output = normalizeMatrixDelimiters(output);
-  output = repairMatrixNoise(output);
   output = simplifyNestedMatrixWrapper(output);
   output = normalizeOperatorNames(output);
-  output = normalizeLimitCommands(output);
-  output = stripEdgeBarDelimiters(output);
   output = collapseEmptyFractions(output);
-  output = stripRedundantOuterSquareDelimiters(output);
-  output = stripRedundantOuterRoundDelimiters(output);
-  output = removeSpacingCommands(output);
+  output = trimTrailingBreaksAndWhitespace(output);
   return output.trim();
 };
 
 const normalizeFallbackText = (value) => {
   if (!value) return "";
   let cleaned = value.replace(/\s+/g, "");
-  cleaned = cleaned.replace(/[^A-Za-z0-9=+\-*/()^_{}]/g, "");
+  cleaned = cleaned.replace(/[^A-Za-z0-9.=+\-*/()^_{}]/g, "");
   if (!cleaned) return "";
   if (!cleaned.includes("^")) {
     cleaned = cleaned.replace(/([A-Za-z\\)])([0-9]+)$/, (_match, prefix, digits) =>
       digits.length === 1 ? `${prefix}^${digits}` : `${prefix}^{${digits}}`
     );
   }
-  return cleaned;
+  return normalizeBareLatexCommands(cleaned);
 };
-
 
 module.exports = {
   normalizeDecodedLatex,

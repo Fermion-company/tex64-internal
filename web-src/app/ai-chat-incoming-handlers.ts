@@ -35,7 +35,6 @@ type CreateAiChatIncomingHandlersOptions = {
   ensureChat: (chatId?: string | null) => ChatState | null;
   getChat: (chatId?: string | null) => ChatState | null;
   setChatTitle: (chat: ChatState) => void;
-  clearPendingAttachments: () => void;
   renderHistoryList: () => void;
   renderChatContent: () => void;
   updateSendState: () => void;
@@ -52,6 +51,7 @@ type CreateAiChatIncomingHandlersOptions = {
   updateContextBar: () => void;
   switchActiveChat?: (chatId: string) => void;
   /** Sends the next request waiting behind a finished turn. */
+  forgetRunningTurn?: (chatId: string) => void;
   drainQueue?: (chatId: string) => void;
   /** Re-renders the open chat when a reply gained steps or a question. */
   refreshActiveChat?: () => void;
@@ -77,7 +77,6 @@ export const createAiChatIncomingHandlers = (
     ensureChat,
     getChat,
     setChatTitle,
-    clearPendingAttachments,
     renderHistoryList,
     renderChatContent,
     updateSendState,
@@ -93,6 +92,7 @@ export const createAiChatIncomingHandlers = (
     restoreDraftFromPending,
     updateContextBar,
     switchActiveChat,
+    forgetRunningTurn,
     drainQueue,
     refreshActiveChat,
     settleLiveProposals,
@@ -144,6 +144,7 @@ export const createAiChatIncomingHandlers = (
     const previousActiveId = getActiveChatId();
     const previousChats = new Map(chats.map((chat) => [chat.id, chat] as const));
     const previouslyRunning = new Set(runningConversations);
+    const previousStreams = new Map(streamingMessages);
 
     chats.splice(0, chats.length);
     chatIndex.clear();
@@ -154,7 +155,6 @@ export const createAiChatIncomingHandlers = (
     thinkingMessages.clear();
 
     setActiveChatId(null);
-    clearPendingAttachments();
 
     sessions.forEach((session) => {
       if (!session || typeof session !== "object") {
@@ -201,6 +201,10 @@ export const createAiChatIncomingHandlers = (
           previous.messages.length >= restoredMessages.length);
       chat.messages = keepLocalTranscript ? previous.messages : restoredMessages;
       if (keepLocalTranscript && previous) {
+        // The next delta and the final reply still belong to the same row
+        // after a file-tree refresh rebuilds the visible transcript.
+        const stream = previousStreams.get(conversationId);
+        if (stream) streamingMessages.set(conversationId, { message: stream.message, element: null });
         // Ratings live on the host; the local transcript learns them here.
         let ordinal = 0;
         const restoredReplies = restoredMessages.filter((msg) => msg.role === "assistant");
@@ -291,6 +295,7 @@ export const createAiChatIncomingHandlers = (
       upsertThinkingMessage(chat.id, chat.statusMessage);
     } else {
       runningConversations.delete(chat.id);
+      forgetRunningTurn?.(chat.id);
       // A turn that ended in an error leaves its reason in the transcript as
       // one quiet line; the working line that carried it goes away.
       const failure = state === "error" ? chat.statusMessage.trim() : "";
@@ -674,14 +679,6 @@ export const createAiChatIncomingHandlers = (
     const pending = pendingAgentRequests.get(payload.conversationId) ?? null;
     if (!chat || !pending) return;
     pendingAgentRequests.delete(payload.conversationId);
-    // submitMessage adds this optimistic user row immediately before posting.
-    // The host rejected that post, so remove exactly the newest user row and
-    // restore its draft without unlocking the operation already in progress.
-    for (let index = chat.messages.length - 1; index >= 0; index -= 1) {
-      if (chat.messages[index]?.role !== "user") continue;
-      chat.messages.splice(index, 1);
-      break;
-    }
     restoreDraftFromPending(chat.id, pending);
     if (chat.id === getActiveChatId()) renderChatContent();
     renderHistoryList();

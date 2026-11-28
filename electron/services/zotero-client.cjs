@@ -27,18 +27,13 @@ const NON_CITABLE_TYPES = new Set(["attachment", "note", "annotation"]);
 
 const failure = (code, status) => ({ ok: false, code, ...(status ? { status } : {}) });
 
-const timedFetch = async (fetchImpl, url, init, timeoutMs) => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetchImpl(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-};
+// The deadline covers the response body as well as the headers.
+const timedFetch = (fetchImpl, url, init, timeoutMs) =>
+  fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
 
 const classify = (error) => {
-  if (error?.name === "AbortError") return "timeout";
+  if (error?.name === "AbortError" || error?.name === "TimeoutError") return "timeout";
+  if (error instanceof SyntaxError) return "bad-response";
   const code = error?.cause?.code || error?.code || "";
   if (["ECONNREFUSED", "ENOTFOUND", "ECONNRESET", "EHOSTUNREACH", "ENETUNREACH"].includes(code)) return "unreachable";
   return "unreachable";
@@ -117,7 +112,7 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
         LOCAL_TIMEOUT_MS
       );
       if (!response.ok) return failure(`http-${response.status}`, response.status);
-      const payload = await response.json().catch(() => null);
+      const payload = await response.json();
       if (!payload || typeof payload !== "object") return failure("bad-response");
       if (payload.error) return { ok: false, code: "rpc-error", message: payload.error.message || String(payload.error) };
       return { ok: true, result: payload.result };
@@ -215,14 +210,22 @@ const createZoteroClient = ({ getApiKey, fetchImpl = globalThis.fetch, localBase
   const apiJson = async (base, pathname, options) => {
     const result = await apiRequest(base, pathname, options);
     if (!result.ok) return result;
-    const json = await result.response.json().catch(() => null);
-    return json === null ? failure("bad-response") : { ok: true, json };
+    try {
+      const json = await result.response.json();
+      return json === null ? failure("bad-response") : { ok: true, json };
+    } catch (error) {
+      return failure(classify(error));
+    }
   };
 
   const apiText = async (base, pathname, options) => {
     const result = await apiRequest(base, pathname, { ...options, accept: "text/plain, */*" });
     if (!result.ok) return result;
-    return { ok: true, text: await result.response.text() };
+    try {
+      return { ok: true, text: await result.response.text() };
+    } catch (error) {
+      return failure(classify(error));
+    }
   };
 
   const apiItem = (raw, transport, fallbackLibrary, libraryName) => {

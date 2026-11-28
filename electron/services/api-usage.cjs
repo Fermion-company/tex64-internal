@@ -1,5 +1,7 @@
 const path = require("path");
 const fsp = require("fs/promises");
+const lockfile = require("proper-lockfile");
+const { atomicWrite } = require("./history-files.cjs");
 
 const DEFAULT_STATE = {
   currency: "USD",
@@ -38,31 +40,50 @@ const formatUsd = (value) => {
 class ApiUsageService {
   constructor({ userDataPath, getPricing }) {
     this.filePath = path.join(userDataPath, "tex64-api-usage.json");
-    this.state = null;
+    this.pending = Promise.resolve();
     this.getPricing = typeof getPricing === "function" ? getPricing : async () => null;
   }
 
   async load() {
     // Always from disk: another TeX64 process adds to the same totals.
-    const stored = await fsp
-      .readFile(this.filePath, "utf8")
-      .then((content) => JSON.parse(content))
-      .catch(() => null);
-    this.state = {
-      ...clone(DEFAULT_STATE),
-      ...(stored && typeof stored === "object" ? stored : {}),
-    };
-    return clone(this.state);
+    let stored;
+    try {
+      stored = JSON.parse(await fsp.readFile(this.filePath, "utf8"));
+    } catch (error) {
+      if (error.code === "ENOENT") return clone(DEFAULT_STATE);
+      throw error;
+    }
+    if (!stored || typeof stored !== "object" || Array.isArray(stored) ||
+        (stored.byModel !== undefined && (!stored.byModel || typeof stored.byModel !== "object" || Array.isArray(stored.byModel)))) {
+      throw new Error("Invalid local API usage history.");
+    }
+    return { ...clone(DEFAULT_STATE), ...stored };
   }
 
-  async save() {
-    if (!this.state) {
-      return;
-    }
-    const payload = JSON.stringify(this.state, null, 2);
-    const tmpPath = `${this.filePath}.tmp-${process.pid}`;
-    await fsp.writeFile(tmpPath, payload, "utf8");
-    await fsp.rename(tmpPath, this.filePath);
+  update(transform) {
+    const operation = this.pending.then(async () => {
+      const pricing = await this.resolvePricing();
+      await fsp.mkdir(path.dirname(this.filePath), { recursive: true });
+      const release = await lockfile.lock(this.filePath, {
+        realpath: false,
+        stale: 5000,
+        retries: { retries: 30, minTimeout: 20, maxTimeout: 250, randomize: true },
+      });
+      try {
+        const state = await transform(pricing);
+        await atomicWrite(this.filePath, JSON.stringify(state, null, 2));
+        return this.snapshot(state, pricing);
+      } finally {
+        await release();
+      }
+    });
+    // Do not keep the last model ledger alive through a settled Promise.
+    this.pending = operation.then(() => {}, () => {});
+    return operation;
+  }
+
+  whenIdle() {
+    return this.pending;
   }
 
   async resolvePricing() {
@@ -85,62 +106,63 @@ class ApiUsageService {
   }
 
   async recordUsage({ model, promptTokens, outputTokens, totalTokens, source }) {
-    const state = await this.load();
-    const pricing = await this.resolvePricing();
-    const inputTokens = Number.isFinite(promptTokens) ? promptTokens : 0;
-    const outTokens = Number.isFinite(outputTokens) ? outputTokens : 0;
-    const total =
-      Number.isFinite(totalTokens) ? totalTokens : inputTokens + outTokens;
-    const inputCost =
-      (inputTokens / 1_000_000) * (pricing.inputPerMillion || 0);
-    const outputCost =
-      (outTokens / 1_000_000) * (pricing.outputPerMillion || 0);
-    const cost = inputCost + outputCost;
+    return this.update(async (pricing) => {
+      const state = await this.load();
+      const inputTokens = Number.isFinite(promptTokens) ? promptTokens : 0;
+      const outTokens = Number.isFinite(outputTokens) ? outputTokens : 0;
+      const total =
+        Number.isFinite(totalTokens) ? totalTokens : inputTokens + outTokens;
+      const inputCost =
+        (inputTokens / 1_000_000) * (pricing.inputPerMillion || 0);
+      const outputCost =
+        (outTokens / 1_000_000) * (pricing.outputPerMillion || 0);
+      const cost = inputCost + outputCost;
 
-    state.totalInputTokens += inputTokens;
-    state.totalOutputTokens += outTokens;
-    state.totalTokens += total;
-    state.totalRequests += 1;
-    state.totalCostUsd += cost;
-    state.currency = pricing.currency || "USD";
-    state.lastUpdatedAt = Date.now();
+      state.totalInputTokens += inputTokens;
+      state.totalOutputTokens += outTokens;
+      state.totalTokens += total;
+      state.totalRequests += 1;
+      state.totalCostUsd += cost;
+      state.currency = pricing.currency || "USD";
+      state.lastUpdatedAt = Date.now();
 
-    const modelKey = model || "unknown";
-    const modelEntry = state.byModel[modelKey] || {
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-      totalCostUsd: 0,
-      totalRequests: 0,
-      lastSource: null,
-    };
-    modelEntry.inputTokens += inputTokens;
-    modelEntry.outputTokens += outTokens;
-    modelEntry.totalTokens += total;
-    modelEntry.totalCostUsd += cost;
-    modelEntry.totalRequests += 1;
-    modelEntry.lastSource = source || modelEntry.lastSource;
-    state.byModel[modelKey] = modelEntry;
+      const modelKey = model || "unknown";
+      const modelEntry = state.byModel[modelKey] || {
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        totalCostUsd: 0,
+        totalRequests: 0,
+        lastSource: null,
+      };
+      modelEntry.inputTokens += inputTokens;
+      modelEntry.outputTokens += outTokens;
+      modelEntry.totalTokens += total;
+      modelEntry.totalCostUsd += cost;
+      modelEntry.totalRequests += 1;
+      modelEntry.lastSource = source || modelEntry.lastSource;
+      state.byModel[modelKey] = modelEntry;
 
-    this.state = state;
-    await this.save();
-    return this.getSnapshot();
+      return state;
+    });
   }
 
   async getSnapshot() {
-    const state = await this.load();
-    const pricing = await this.resolvePricing();
+    await this.pending;
+    const [state, pricing] = await Promise.all([this.load(), this.resolvePricing()]);
+    return this.snapshot(state, pricing);
+  }
+
+  snapshot(state, pricing) {
     return {
-      ...clone(state),
+      ...state,
       pricing,
       formattedTotalCostUsd: formatUsd(state.totalCostUsd),
     };
   }
 
   async reset() {
-    this.state = clone(DEFAULT_STATE);
-    await this.save();
-    return this.getSnapshot();
+    return this.update(() => clone(DEFAULT_STATE));
   }
 }
 

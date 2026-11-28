@@ -40,6 +40,7 @@ const loadProviders = () =>
     "../completion-context.js": loadContext(),
     "../editor-ergonomics.js": loadErgonomics(),
     "../editor-settings/editor-settings-store.js": settingsStub,
+    "../i18n.js": i18nStub,
   });
 
 class FakeRange {
@@ -291,6 +292,7 @@ test("with several cursors Enter and typing are left to monaco", () => {
 test("user snippets are not offered in environment, label, citation and file arguments", async () => {
   const providers = {};
   global.window = {
+    addEventListener() {},
     tex64Snippets: {
       call: async () => ({ ok: true, revision: 1, items: [{ id: "1", name: "List", prefix: "it", body: "\\begin{itemize}\n\t\\item $0\n\\end{itemize}" }] }),
     },
@@ -313,10 +315,11 @@ test("user snippets are not offered in environment, label, citation and file arg
       }
     );
     await new Promise((resolve) => setImmediate(resolve));
-    const offered = (line) =>
-      providers.latex.provideCompletionItems({ getLineContent: () => line }, { lineNumber: 1, column: line.length + 1 }).suggestions.length;
-    assert.equal(offered("it"), 1);
-    assert.equal(offered("\\ref{a} it"), 1);
+    // The provider reads the shared library on demand, so it may answer later.
+    const offered = async (line) =>
+      (await providers.latex.provideCompletionItems({ getLineContent: () => line }, { lineNumber: 1, column: line.length + 1 })).suggestions.length;
+    assert.equal(await offered("it"), 1);
+    assert.equal(await offered("\\ref{a} it"), 1);
     for (const line of [
       "\\begin{it",
       "\\end{it",
@@ -333,7 +336,7 @@ test("user snippets are not offered in environment, label, citation and file arg
       "\\addbibresource{it",
       "\\import{dir/}{it",
     ]) {
-      assert.equal(offered(line), 0, line);
+      assert.equal(await offered(line), 0, line);
     }
   } finally {
     delete global.window;

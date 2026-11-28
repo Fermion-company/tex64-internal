@@ -35,11 +35,10 @@ export const createFilePreviewBroker = (
     {
       resolve: (value: { ok: boolean; dataUrl?: string | null; error?: string }) => void;
       timeoutId: number;
-      cacheKey: string;
+      path: string;
     }
   >();
-  const cache = new Map<string, { dataUrl: string; updatedAt: number }>();
-  const cacheTtlMs = 60_000;
+  const inFlight = new Map<string, Promise<{ ok: boolean; dataUrl?: string | null; error?: string }>>();
   let workspaceScopeKey = "none:0";
 
   const setWorkspaceScope = (scope: WorkspaceFileCacheScope) => {
@@ -50,7 +49,7 @@ export const createFilePreviewBroker = (
     const nextScopeKey = `${workspace}:${generation}`;
     if (nextScopeKey === workspaceScopeKey) return;
     workspaceScopeKey = nextScopeKey;
-    cache.clear();
+    inFlight.clear();
     for (const entry of pending.values()) {
       window.clearTimeout(entry.timeoutId);
       entry.resolve({ ok: false, error: "Workspace changed." });
@@ -65,20 +64,18 @@ export const createFilePreviewBroker = (
     if (!trimmed) {
       return Promise.resolve({ ok: false, error: uiText("path is empty.", "pathが空です。") });
     }
-    const cacheKey = `${workspaceScopeKey}\0${trimmed}`;
-    const cached = cache.get(cacheKey);
-    if (cached && Date.now() - cached.updatedAt < cacheTtlMs) {
-      return Promise.resolve({ ok: true, dataUrl: cached.dataUrl });
-    }
+    const existing = inFlight.get(trimmed);
+    if (existing) return existing;
     const requestId = buildRequestId();
-    return new Promise((resolve) => {
+    const request = new Promise<{ ok: boolean; dataUrl?: string | null; error?: string }>((resolve) => {
       // PDFs (up to 5MB) take longer to read and ship over IPC than small
       // images, so the deadline is sized for the slowest allowed payload.
       const timeoutId = window.setTimeout(() => {
         pending.delete(requestId);
+        inFlight.delete(trimmed);
         resolve({ ok: false, error: uiText("Preview timed out.", "プレビューがタイムアウトしました。") });
       }, 4000);
-      pending.set(requestId, { resolve, timeoutId, cacheKey });
+      pending.set(requestId, { resolve, timeoutId, path: trimmed });
       postToNative(
         {
           type: "file:preview",
@@ -88,6 +85,8 @@ export const createFilePreviewBroker = (
         true
       );
     });
+    inFlight.set(trimmed, request);
+    return request;
   };
 
   const handlePreviewResult = (payload: FilePreviewResultPayload) => {
@@ -99,6 +98,7 @@ export const createFilePreviewBroker = (
       return;
     }
     pending.delete(payload.requestId);
+    inFlight.delete(entry.path);
     window.clearTimeout(entry.timeoutId);
     if (!payload.ok) {
       entry.resolve({ ok: false, error: payload.error ?? uiText("Preview failed.", "プレビューできませんでした。") });
@@ -111,7 +111,6 @@ export const createFilePreviewBroker = (
       return;
     }
     const dataUrl = `data:${mimeType};base64,${data}`;
-    cache.set(entry.cacheKey, { dataUrl, updatedAt: Date.now() });
     entry.resolve({ ok: true, dataUrl });
   };
 

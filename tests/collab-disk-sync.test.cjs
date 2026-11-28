@@ -229,9 +229,11 @@ const overlapFixture = (t, { rootPath } = {}) => {
   const file = path.join(root, "main.tex");
   const baseline = "Original.\nValue: 10.\n";
   const current = "Original. ABCDEFG\nValue: 10.\n";
-  // (an invalid UTF-8 byte too: the copy holds the file's bytes, not its text)
-  const diskBytes = Buffer.concat([Buffer.from("Original. XYZ\nValue: 20.\n"), Buffer.from([0xff, 0x0a])]);
-  const merged = `Original. ABCDEFG\nValue: 20.\n${diskBytes.subarray(-2).toString("utf8")}`;
+  // (multi-byte text and a CRLF too: the copy holds the file's bytes. A
+  // version that is not UTF-8 is never folded in; see the test below.)
+  const tail = Buffer.from("数式\r\n");
+  const diskBytes = Buffer.concat([Buffer.from("Original. XYZ\nValue: 20.\n"), tail]);
+  const merged = `Original. ABCDEFG\nValue: 20.\n${tail.toString("utf8")}`;
   const notices = [];
   const saved = [];
   const kept = () => fs.readdirSync(root).filter((name) => /^main\.local-[\d-]+T[\d-]+\.tex$/.test(name));
@@ -298,6 +300,18 @@ test("a copy that cannot be written fails the flush without touching either vers
   assert.equal(fs.readFileSync(file, "utf8"), merged);
   assert.equal(kept().length, 1);
   assert.deepEqual(fs.readFileSync(path.join(root, kept()[0])), diskBytes);
+});
+
+test("an outside version that is not UTF-8 is neither folded in nor written over", async (t) => {
+  const { file, kept, sync, text, saved } = overlapFixture(t);
+  const binary = Buffer.concat([Buffer.from("Original. XYZ\nValue: 20.\n"), Buffer.from([0xff, 0x0a])]);
+  fs.writeFileSync(file, binary);
+  assert.equal(await sync.flush(), false);
+  assert.deepEqual(fs.readFileSync(file), binary);
+  assert.equal(text.toString(), "Original. ABCDEFG\nValue: 10.\n");
+  assert.equal(sync.isDirty("main.tex"), true);
+  assert.equal(kept().length, 0);
+  assert.deepEqual(saved, []);
 });
 
 test("copies made in the same second do not collide", async (t) => {

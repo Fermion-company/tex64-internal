@@ -16,10 +16,13 @@ export const createEditorSessionTabStateOps = (runtime) => {
         }
     };
     const clearTemporaryTabs = (group, keepPath) => {
+        const unbuilt = group.viewer.getUnbuiltPdfPath();
         const nextTabs = group.openTabs.filter((entry) => {
             if (entry === keepPath) {
                 return true;
             }
+            if (entry === unbuilt && !runtime.deps.getWorkspaceFiles().includes(entry))
+                return false;
             if (runtime.dirtyFiles.has(entry)) {
                 return true;
             }

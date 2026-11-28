@@ -25,8 +25,9 @@ export const createEditorSessionInitialOpenOps = (runtime, coreOps, deps) => {
         // file: the tree sync kept its tab on purpose.
         const hasValidCurrent = activeGroup.currentFilePath !== null &&
             (workspaceFiles.includes(activeGroup.currentFilePath) ||
-                runtime.monacoModels.has(activeGroup.currentFilePath));
-        if (hasValidCurrent) {
+                runtime.monacoModels.has(activeGroup.currentFilePath) ||
+                activeGroup.viewer.getUnbuiltPdfPath() === activeGroup.currentFilePath);
+        if (hasValidCurrent || runtime.fileOpsState.pendingOpenRequests.some(request => request.group === activeGroup.key && !request.background)) {
             return;
         }
         const path = pickInitialFilePath();
@@ -45,7 +46,7 @@ export const createEditorSessionInitialOpenOps = (runtime, coreOps, deps) => {
         if (!runtime.state.pendingAutoOpenPath || !activeGroup.editor) {
             return;
         }
-        if (activeGroup.currentFilePath) {
+        if (activeGroup.currentFilePath || runtime.fileOpsState.pendingOpenRequests.some(request => request.group === activeGroup.key && !request.background)) {
             runtime.state.pendingAutoOpenPath = null;
             return;
         }

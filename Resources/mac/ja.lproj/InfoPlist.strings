@@ -1,3 +1,4 @@
+"NSMicrophoneUsageDescription" = "音声入力またはAxiomへの音声での依頼を開始したときにマイクを使用します。";
 "NSDesktopFolderUsageDescription" = "デスクトップにある LaTeX プロジェクトを開いて編集・ビルド・保存するために使用します。";
 "NSDocumentsFolderUsageDescription" = "書類フォルダにある LaTeX プロジェクトを開いて編集・ビルド・保存するために使用します。";
 "NSDownloadsFolderUsageDescription" = "ダウンロードした LaTeX プロジェクトや図を開くために使用します。";

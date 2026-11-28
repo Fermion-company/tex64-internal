@@ -31,6 +31,8 @@
 
 "use strict";
 
+const { getEditorContext } = require("../agent-editor-context.cjs");
+
 const { existsSync, readFileSync } = require("fs");
 const fsp = require("fs/promises");
 const nodePath = require("path");
@@ -60,7 +62,9 @@ const {
 } = require("../agent-teaching-checks.cjs");
 
 /** Tools that change the workspace; their results carry the file's new outline. */
+const { readBuildContext, changeBuildSettings } = require("../agent-build-context.cjs");
 const WRITE_TOOL_NAMES = new Set([
+  "configure_build",
   "write_file",
   "create_file",
   "apply_patch",
@@ -75,6 +79,7 @@ const WRITE_TOOL_NAMES = new Set([
  * picture of a file (agent-model-view.cjs) as it was, even when they name it. */
 const NO_POSITION_TOOL_NAMES = new Set([
   "list_files",
+  "get_editor_context",
   "update_task",
   "read_conversation",
   "arxiv_search",
@@ -334,10 +339,19 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
       return result;
     }
   };
+  const getDraftSnapshot = path => service.getContextSnapshot?.(conversationId, path);
+  const readDraftText = (host, path) => readWorkspaceText(host, path, getDraftSnapshot);
   const loadDocumentMap = async () => {
     const mainFile = await resolveMainTexFile(service, runContext.context ?? {});
     if (!mainFile) return null;
-    return scanDocument(service, mainFile);
+    const map = await scanDocument(service, mainFile, { includeProfile: false, getSnapshot: getDraftSnapshot });
+    if (map?.unreadFiles?.length) {
+      throw new Error("Document check incomplete. Could not scan: " + map.unreadFiles.join(", "));
+    }
+    if (map?.partialDrafts?.length) {
+      throw new Error("Save these files to run a complete document check: " + map.partialDrafts.join(", "));
+    }
+    return map;
   };
 
   const assertWorkspaceBound = () => {
@@ -421,11 +435,18 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
       const targetPath = normalizePath(args.path);
       const result = await handleReadFile(service, { path: targetPath }, policy, conversationId);
       if (result?.error) return result;
+      if (result?.binary) return { error: "This file cannot be read as UTF-8 text." };
       const content = typeof result?.content === "string" ? result.content : "";
       const lines = content.split(/\r?\n/);
+      const partialBuffer = result.partial === true;
+      const totalLines = partialBuffer ? null : lines.length;
       const start = Number.parseInt(args?.startLine, 10);
       const end = Number.parseInt(args?.endLine, 10);
       if (Number.isInteger(start) && start > 0) {
+        if (start > lines.length) {
+          return { error: partialBuffer ? "This line is beyond the available unsaved buffer. Save the file and retry." : "startLine exceeds the file length.", totalLines, availableLines: lines.length };
+        }
+        if (Number.isInteger(end) && end < start) return { error: "endLine must be at least startLine." };
         // A range: line numbers in this text, not the text itself.
         deliverPositions(service, conversationId, targetPath, content, { truncatedRead: true });
         const last = Number.isInteger(end) && end >= start ? Math.min(end, lines.length) : Math.min(start + 199, lines.length);
@@ -433,7 +454,7 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
           .slice(start - 1, last)
           .map((line, index) => `${String(start + index).padStart(4, " ")}| ${line}`)
           .join("\n");
-        return { path: args.path, startLine: start, endLine: last, totalLines: lines.length, content: excerpt };
+        return { path: args.path, startLine: start, endLine: last, totalLines, ...(partialBuffer ? { truncated: true, availableLines: lines.length } : {}), content: excerpt };
       }
       const key = readKey(targetPath);
       const previous = fullReadsThisRun.get(key);
@@ -442,11 +463,11 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
           error:
             `${args.path} was already read in full during this turn and has not changed since. ` +
             "Use read_section with an id, or read_file with startLine/endLine, for the part you need.",
-          totalLines: lines.length,
+          totalLines,
           outline: formatOutlineForResult(content).sections,
         };
       }
-      const truncated = content.length > MAX_DELIVERY_CHARS;
+      const truncated = partialBuffer || content.length > MAX_DELIVERY_CHARS;
       const displayed = content.slice(0, MAX_DELIVERY_CHARS);
       // Only an uncut file is text Axiom has in full.
       if (truncated) {
@@ -458,8 +479,8 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
       return {
         path: args.path,
         content: displayed,
-        totalLines: lines.length,
-        bytes: Buffer.byteLength(content, "utf8"),
+        totalLines,
+        ...(partialBuffer ? { availableLines: lines.length, availableBytes: Buffer.byteLength(content, "utf8") } : { bytes: Buffer.byteLength(content, "utf8") }),
         truncated,
       };
     },
@@ -814,13 +835,61 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     },
   );
 
+  const currentBuildContext = async () => {
+    const context = service.contextByConversation.get(conversationId) ?? runContext.context ?? {};
+    const target = await resolveMainTexFile(service, context);
+    return readBuildContext(service, context, target);
+  };
+  const editorContextTool = make("get_editor_context",
+    "List the editor tabs at the time the request was sent, including the focused file, visible panes and unsaved drafts. Use nextOffset to request more tabs.",
+    { type: "object", properties: { offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 100 } } },
+    async (args) => getEditorContext(runContext.context, args.offset, args.limit),
+  );
+  const buildContextTool = make("get_build_context",
+    "Read the selected document, configured root, available project profiles, effective TeX engine, output settings and latest build for this document. No build is started.",
+    { type: "object", properties: {} }, currentBuildContext);
+  const configureBuildTool = make("configure_build",
+    "Persist the user's requested project build settings. Choose an existing profileId (empty restores the app default) or set a supported engine for the selected project profile. Other settings and files are preserved. Then compile_document to verify.",
+    { type: "object", properties: { profileId: { type: "string" }, engine: { type: "string", enum: ["lualatex","pdflatex","xelatex","uplatex"] } }, additionalProperties: false },
+    async args => {
+      const settingsFile = ".tex64/settings.json";
+      const before = await fsp.readFile(service.workspace.resolvePath(settingsFile)).catch(error => {
+        if (error.code === "ENOENT") return null;
+        throw error;
+      });
+      const original = before ? JSON.parse(before.toString("utf8")) : {};
+      if (!original || typeof original !== "object" || Array.isArray(original)) throw new Error("Invalid project settings.");
+      const next = { ...original };
+      const changed = changeBuildSettings(next, args);
+      if (changed) {
+        await service.workspace.updateSettings(current => {
+          assertWorkspaceBound();
+          turnSignal?.throwIfAborted();
+          if (JSON.stringify(current) !== JSON.stringify(original)) throw new Error("Build settings changed. Read the current settings and retry.");
+          return next;
+        });
+        const after = Object.keys(next).length ? Buffer.from(JSON.stringify(next, null, 2)) : null;
+        service.pushUndoEntry({
+          type: after ? "write" : "delete", path: settingsFile, conversationId,
+          workspaceRootPath: rootPath, runId: service.runningControllers.get(conversationId)?.token ?? null,
+          existed: Boolean(before), previousBuffer: before, appliedHash: service.hashBuffer(after ?? before),
+        });
+        await service.updateWorkspaceIfNeeded?.(rootPath, true);
+      }
+      return { writeApplied: changed, settings: await currentBuildContext() };
+    });
+
   // ---- get_compile_log ----
   const getCompileLogTool = make(
     "get_compile_log",
-    "Return the latest compile log from the client (read-only). Input: { }.",
+    "Read the latest build status, issues and compiler output for this exact document in this workspace session.",
     { type: "object", properties: {} },
     async () => {
       const context = service.contextByConversation.get(conversationId) ?? {};
+      if (service.getLastBuild) {
+        const target = await resolveMainTexFile(service, context);
+        return service.getLastBuild(target) || { targetFile: target, state: "not observed in this session" };
+      }
       const issues = Array.isArray(context.recentIssues) ? context.recentIssues : [];
       const summary = typeof context.recentIssueSummary === "string" ? context.recentIssueSummary : "";
       const status = typeof context.recentIssueStatus === "string" ? context.recentIssueStatus : "";
@@ -848,9 +917,8 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     "compile_document",
     "Compile a LaTeX document through TeX64's real build service and return " +
       "structured errors plus the relevant compiler log. With no mainFile it " +
-      "compiles the active .tex document " +
-      "for this turn; a nested document is built exactly and is not replaced by " +
-      "the workspace-wide root. Input: { mainFile?, engine? }.",
+      "uses the paper in AI mode or resolves the active file as the Build button does in Code mode. " +
+      "An explicit mainFile is compiled exactly. Use the configured engine unless a one-off override is requested.",
     {
       type: "object",
       properties: {
@@ -933,6 +1001,8 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
           : undefined;
       return {
         status: raw.status,
+        ...(raw.engine ? { engine: raw.engine } : {}),
+        ...(Array.isArray(raw.candidates) ? { candidates: raw.candidates } : {}),
         ...(typeof raw.targetFile === "string" ? { targetFile: raw.targetFile } : {}),
         summary: raw.summary,
         ...(compactIssues.length > 0 ? { issues: compactIssues } : {}),
@@ -1036,7 +1106,7 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     async () => {
       const map = await loadDocumentMap();
       if (!map) return { error: "No .tex document is available to check." };
-      return checkExercisesInSources(await readMapSources(service, map, readWorkspaceText));
+      return checkExercisesInSources(await readMapSources(service, map, readDraftText));
     },
   );
   const checkJapaneseTextTool = make(
@@ -1049,7 +1119,7 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     async () => {
       const map = await loadDocumentMap();
       if (!map) return { error: "No .tex document is available to check." };
-      const sources = await readMapSources(service, map, readWorkspaceText);
+      const sources = await readMapSources(service, map, readDraftText);
       // The project's own .sty/.cls files the preamble loads (a house style may load luatexja).
       const wanted = new Set(sources.length ? loadedStyleNames(sources[0].content) : []);
       const localStyles = [];
@@ -1060,7 +1130,7 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
           if (typeof entry !== "string") continue;
           const base = nodePath.posix.basename(entry);
           if (!wanted.has(base) || localStyles.some((style) => style.name === base)) continue;
-          const content = await readWorkspaceText(service, entry);
+          const content = await readDraftText(service, entry);
           if (typeof content === "string") localStyles.push({ name: base, content });
           if (localStyles.length >= 8) break;
         }
@@ -1368,6 +1438,9 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     checkBibliographyTool,
     checkExercisesTool,
     checkJapaneseTextTool,
+    buildContextTool,
+    ...(Array.isArray(runContext.context?.openFiles) && runContext.context.contextControls?.includeOpenFiles !== false ? [editorContextTool] : []),
+    configureBuildTool,
     getCompileLogTool,
     arxivSearchTool,
     arxivBibtexTool,

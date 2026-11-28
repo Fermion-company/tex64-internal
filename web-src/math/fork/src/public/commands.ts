@@ -177,6 +177,10 @@ export interface Commands {
    * @category Array
    */
   addRowAfter: (model: Model) => boolean;
+  /** Add a row from the active array cell. @category Array */
+  addRowAfterFromReturn: (mathfield: Mathfield) => boolean;
+  /** Add a column from the active array cell. @category Array */
+  addColumnAfterFromReturn: (mathfield: Mathfield) => boolean;
   /**
    * @category Array
    */

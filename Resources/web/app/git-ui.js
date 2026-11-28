@@ -78,9 +78,9 @@ export function initGitUi(editor, diff) {
     host.append(heading, error, recovery, list, message, commit, network);
     collabSession.onChange((state) => applyCollabGuestLock(host, state.active && state.role === "guest"));
     async function call(action, payload = {}) {
-        const requestedWorkspace = renderedWorkspaceId;
+        const requestedProject = projectSequence;
         const value = await bridge.call(action, payload);
-        if (requestedWorkspace && renderedWorkspaceId && requestedWorkspace !== renderedWorkspaceId)
+        if (requestedProject !== projectSequence)
             throw new Error(uiText("The project changed. Open this operation again.", "プロジェクトが変わりました。操作を開き直してください。"));
         if (!value.ok)
             throw Object.assign(new Error(uiText(value.error || "The operation failed.", gitErrors[value.code] || value.error) || uiText("The operation failed.", "操作できませんでした。")), { code: value.code });
@@ -118,6 +118,7 @@ export function initGitUi(editor, diff) {
     async function run(action) {
         if (busy)
             return false;
+        const requestedProject = projectSequence;
         busy = true;
         error.textContent = "";
         render();
@@ -126,7 +127,8 @@ export function initGitUi(editor, diff) {
             return true;
         }
         catch (reason) {
-            error.textContent = reason instanceof Error ? reason.message : String(reason);
+            if (requestedProject === projectSequence)
+                error.textContent = reason instanceof Error ? reason.message : String(reason);
             return false;
         }
         finally {
@@ -501,13 +503,23 @@ export function initGitUi(editor, diff) {
         });
     }
     function render() {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e, _f, _g;
         branches.textContent = ((state === null || state === void 0 ? void 0 : state.branch) || ((state === null || state === void 0 ? void 0 : state.detached) ? uiText("Detached HEAD", "ブランチ未選択") : uiText("Branch", "ブランチ")));
         branches.disabled = busy || !(state === null || state === void 0 ? void 0 : state.repository) || phase !== "idle";
-        merge.disabled = tag.disabled = pushTag.disabled = clone.disabled = settings.disabled = busy || phase !== "idle";
+        const idle = !busy && phase === "idle";
+        const canEditRefs = idle && (state === null || state === void 0 ? void 0 : state.repository) && state.supported && Boolean(state.head);
+        const refs = (_a = state === null || state === void 0 ? void 0 : state.refs) !== null && _a !== void 0 ? _a : [];
+        merge.disabled = !canEditRefs || !refs.some(ref => ref.name !== (state === null || state === void 0 ? void 0 : state.branchRef));
+        tag.disabled = !canEditRefs;
+        pushTag.disabled = !canEditRefs || !((_b = state === null || state === void 0 ? void 0 : state.remotes) === null || _b === void 0 ? void 0 : _b.length) || !refs.some(ref => ref.name.startsWith("refs/tags/"));
+        clone.disabled = settings.disabled = !idle;
+        const entries = (_d = (_c = state === null || state === void 0 ? void 0 : state.status) === null || _c === void 0 ? void 0 : _c.entries) !== null && _d !== void 0 ? _d : [];
+        shelve.hidden = !(state === null || state === void 0 ? void 0 : state.repository) || !state.supported || entries.length === 0;
+        shelve.disabled = !idle || shelve.hidden;
+        unshelve.disabled = !idle || !(state === null || state === void 0 ? void 0 : state.repository) || !state.supported;
         message.hidden = !(state === null || state === void 0 ? void 0 : state.repository);
         commit.hidden = !(state === null || state === void 0 ? void 0 : state.repository) || phase === "conflict" || (state === null || state === void 0 ? void 0 : state.operation) === "merge";
-        commit.disabled = busy || !((_a = state === null || state === void 0 ? void 0 : state.status) === null || _a === void 0 ? void 0 : _a.hasStaged) || !message.value.trim();
+        commit.disabled = busy || !((_e = state === null || state === void 0 ? void 0 : state.status) === null || _e === void 0 ? void 0 : _e.hasStaged) || !message.value.trim();
         network.disabled = busy;
         recovery.hidden = !["syncing", "recovery-required"].includes(phase);
         recovery.textContent = phase === "recovery-required" ? uiText("Review interrupted operation…", "中断した操作を確認…") : uiText("Resume synchronization", "画面の同期を再試行");
@@ -518,19 +530,15 @@ export function initGitUi(editor, diff) {
             return;
         }
         network.hidden = phase === "conflict" || state.operation === "merge";
-        network.textContent = ((_b = state.remotes) === null || _b === void 0 ? void 0 : _b.length) ? uiText("Push & pull…", "送受信…") : uiText("Connect GitHub…", "GitHubに接続…");
+        network.textContent = ((_f = state.remotes) === null || _f === void 0 ? void 0 : _f.length) ? uiText("Push & pull…", "送受信…") : uiText("Connect GitHub…", "GitHubに接続…");
         if (!state.supported) {
             list.append(el("p", "git-secondary", state.unsupportedReason || uiText("This repository needs attention.", "このリポジトリの設定を確認してください。")));
             return;
         }
-        const entries = ((_c = state.status) === null || _c === void 0 ? void 0 : _c.entries) || [];
-        shelve.hidden = entries.length === 0;
-        shelve.disabled = busy || phase !== "idle";
-        unshelve.disabled = busy || phase !== "idle";
         if (phase === "conflict" || state.operation === "merge") {
             const actions = el("div", "git-conflict-actions");
             const finish = button(uiText("Finish merge", "統合を完了"), () => void perform("merge-finish", { message: message.value || uiText("Merge changes", "変更を統合") }, true));
-            finish.disabled = busy || Boolean((_d = state.status) === null || _d === void 0 ? void 0 : _d.hasUnmerged);
+            finish.disabled = busy || Boolean((_g = state.status) === null || _g === void 0 ? void 0 : _g.hasUnmerged);
             actions.append(finish, button(uiText("Abort merge…", "統合をキャンセル…"), () => void perform("merge-abort", {}, true)));
             list.append(actions);
         }
@@ -599,6 +607,7 @@ export function initGitUi(editor, diff) {
     }
     message.oninput = () => { var _a; commit.disabled = busy || !((_a = state === null || state === void 0 ? void 0 : state.status) === null || _a === void 0 ? void 0 : _a.hasStaged) || !message.value.trim(); };
     let renderedWorkspaceId = null;
+    let projectSequence = 0;
     let staleRefreshError = null;
     let refreshTimer = null;
     const acceptWorkspace = (workspaceId) => {
@@ -607,12 +616,15 @@ export function initGitUi(editor, diff) {
             return;
         if (renderedWorkspaceId !== null && renderedWorkspaceId !== workspaceId) {
             revision += 1;
+            projectSequence += 1;
             document.querySelectorAll("dialog.git-dialog").forEach(modal => modal.close());
             if (((_a = diff.getDiffContext()) === null || _a === void 0 ? void 0 : _a.type) === "customApply")
                 diff.closeDiffModal();
             state = null;
             message.value = "";
             error.textContent = "";
+            unshelve.hidden = true;
+            render();
         }
         renderedWorkspaceId = workspaceId;
     };
@@ -627,10 +639,12 @@ export function initGitUi(editor, diff) {
             }
             // Background status must not erase the result of the operation that
             // triggered this save notification.
+            const requestedProject = projectSequence;
             busy = true;
             render();
             void refresh().catch(reason => {
-                error.textContent = reason instanceof Error ? reason.message : String(reason);
+                if (requestedProject === projectSequence)
+                    error.textContent = reason instanceof Error ? reason.message : String(reason);
             }).finally(() => { busy = false; render(); });
         }, 150);
     };
@@ -655,10 +669,11 @@ export function initGitUi(editor, diff) {
             scheduleRefresh();
         }).observe(panel, { attributes: true, attributeFilter: ["class"] });
     }
+    render();
     bridge.onChange(value => {
         const payload = value.payload || {};
         const hadIdentity = renderedWorkspaceId !== null;
-        if (["updateWorkspace", "git:state", "workspace:operation"].includes(value.type))
+        if (["updateWorkspace", "history:state", "git:state", "workspace:operation"].includes(value.type))
             acceptWorkspace(payload.workspaceId);
         if (!hadIdentity && renderedWorkspaceId !== null)
             requestRefresh();

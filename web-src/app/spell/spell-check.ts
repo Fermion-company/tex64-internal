@@ -18,6 +18,7 @@ const DEBOUNCE_MS = 500;
 export class SpellChecker {
   private monaco: Monaco;
   private bridge: SpellBridge;
+  private checkGeneration = 0;
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private disposables: Array<{ dispose: () => void }> = [];
   // Per-model cleanup, removed when the model is disposed so subscriptions don't
@@ -96,6 +97,7 @@ export class SpellChecker {
   }
 
   private schedule(model: any): void {
+    if (!editorSettings.isEnabled("spell.check")) return;
     const uri = model.uri.toString();
     const prev = this.timers.get(uri);
     if (prev) {
@@ -103,7 +105,10 @@ export class SpellChecker {
     }
     this.timers.set(
       uri,
-      setTimeout(() => this.run(model), DEBOUNCE_MS)
+      setTimeout(() => {
+        this.timers.delete(uri);
+        void this.run(model);
+      }, DEBOUNCE_MS)
     );
   }
 
@@ -111,7 +116,14 @@ export class SpellChecker {
     this.monaco.editor.setModelMarkers(model, OWNER, []);
   }
 
+  private cancelChecks(): void {
+    this.checkGeneration++;
+    this.timers.forEach((timer) => clearTimeout(timer));
+    this.timers.clear();
+  }
+
   private clearAll(): void {
+    this.cancelChecks();
     (this.monaco.editor.getModels?.() ?? []).forEach((model: any) => {
       if (this.isTarget(model)) {
         this.clearMarkers(model);
@@ -120,6 +132,7 @@ export class SpellChecker {
   }
 
   recheckAll(): void {
+    this.cancelChecks();
     (this.monaco.editor.getModels?.() ?? []).forEach((model: any) => {
       if (this.isTarget(model)) {
         this.run(model);
@@ -135,6 +148,7 @@ export class SpellChecker {
       this.clearMarkers(model);
       return;
     }
+    const generation = this.checkGeneration;
     const versionBefore = model.getVersionId?.();
     const tokens = tokenizeLatexProse(model.getValue());
     if (tokens.length === 0) {
@@ -148,7 +162,7 @@ export class SpellChecker {
     } catch {
       return;
     }
-    if (model.isDisposed?.()) {
+    if (model.isDisposed?.() || generation !== this.checkGeneration) {
       return;
     }
     // Drop stale results if the document changed during the async check; that
@@ -167,9 +181,9 @@ export class SpellChecker {
       .map((t) => ({
         severity,
         message: uiText(
-          `“${t.word}”: possible spelling mistake`,
-          `「${t.word}」：スペルミスの可能性があります`
-        ),
+          "“{word}”: possible spelling mistake",
+          "「{word}」のスペルを確認してください"
+        ).replace("{word}", () => t.word),
         source: OWNER,
         startLineNumber: t.lineNumber,
         startColumn: t.startColumn,
@@ -189,15 +203,25 @@ export class SpellChecker {
     if (!model || !position) {
       return;
     }
-    const word = model.getWordAtPosition?.(position)?.word;
+    const marker = this.monaco.editor.getModelMarkers({ owner: OWNER, resource: model.uri })
+      .find((item: any) => item.startLineNumber === position.lineNumber &&
+        item.startColumn <= position.column && position.column <= item.endColumn);
+    const word = marker ? model.getValueInRange(marker) : model.getWordAtPosition?.(position)?.word;
     if (!word) {
       return;
     }
     try {
-      await this.bridge.add(word, this.getDictionaryLocale());
-      this.recheckAll();
+      if (await this.bridge.add(word, this.getDictionaryLocale())) {
+        this.recheckAll();
+        return;
+      }
     } catch {
-      // ignore
+      // Show the same inline feedback for a disconnected host or failed save.
+    }
+    if (editor.getModel() === model) {
+      editor.getContribution("editor.contrib.messageController")?.showMessage(
+        uiText("Could not save the dictionary.", "辞書を保存できませんでした。"), position
+      );
     }
   }
 
@@ -207,7 +231,9 @@ export class SpellChecker {
     // dictionary is a separate editor action; see addWordAtCursor.)
     this.disposables.push(
       monaco.languages.registerCodeActionProvider("latex", {
-        provideCodeActions: async (model: any, _range: any, context: any) => {
+        provideCodeActions: async (model: any, _range: any, context: any, cancellation: any) => {
+          const versionId = model.getVersionId?.();
+          const generation = this.checkGeneration;
           const markers = (context?.markers ?? []).filter((m: any) => m.source === OWNER);
           if (markers.length === 0) {
             return { actions: [], dispose: () => {} };
@@ -227,13 +253,17 @@ export class SpellChecker {
             } catch {
               suggestions = [];
             }
+            if (cancellation?.isCancellationRequested || generation !== this.checkGeneration ||
+                model.isDisposed?.() || model.getVersionId?.() !== versionId) {
+              return { actions: [], dispose: () => {} };
+            }
             suggestions.slice(0, 5).forEach((suggestion) => {
               const textEdit = { range: wordRange, text: suggestion };
               actions.push({
-                title: `Replace with “${suggestion}”`,
+                title: uiText('Replace with “{word}”', '「{word}」に置き換える').replace("{word}", () => suggestion),
                 kind: "quickfix",
                 diagnostics: [marker],
-                edit: { edits: [{ resource: model.uri, textEdit, edit: textEdit }] },
+                edit: { edits: [{ resource: model.uri, versionId, textEdit, edit: textEdit }] },
               });
             });
           }
@@ -248,7 +278,6 @@ export class SpellChecker {
     this.disposables = [];
     Array.from(this.modelSubs.values()).forEach((cleanup) => cleanup());
     this.modelSubs.clear();
-    this.timers.forEach((t) => clearTimeout(t));
-    this.timers.clear();
+    this.clearAll();
   }
 }

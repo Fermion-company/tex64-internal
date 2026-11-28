@@ -1,19 +1,19 @@
 import { getIssueResolution } from "./issue-resolution.js";
 import { getUiLocale } from "./i18n.js";
 const MAX_ACTIVE_FILE_CONTEXT_CHARS = 10000;
-const MAX_OPEN_FILE_CONTEXT_CHARS = 8000;
 const MAX_SELECTION_CONTEXT_CHARS = 4000;
-const MAX_OPEN_FILE_SNAPSHOTS = 4;
-const MAX_OPEN_FILES_METADATA = 12;
+// Dirty buffers travel to the local host so tools can read the working copy.
+// Clean files remain available directly from disk.
+export const MAX_DIRTY_FILE_CONTEXT_CHARS = 400000;
 const MAX_RECENT_ISSUES = 5;
 export const createContextPayloadBuilder = (deps) => {
     const buildActiveFileContext = () => {
         var _a, _b;
-        const maxChars = MAX_ACTIVE_FILE_CONTEXT_CHARS;
         const snapshot = (_b = (_a = deps.getActiveFileSnapshot) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : null;
         const fallbackPath = deps.getActiveFilePath();
         if (!snapshot)
             return fallbackPath ? { activeFilePath: fallbackPath } : {};
+        const maxChars = snapshot.isDirty ? MAX_DIRTY_FILE_CONTEXT_CHARS : MAX_ACTIVE_FILE_CONTEXT_CHARS;
         let content = snapshot.content;
         let truncated = false;
         if (Number.isFinite(maxChars) && content.length > maxChars) {
@@ -24,6 +24,7 @@ export const createContextPayloadBuilder = (deps) => {
             activeFilePath: snapshot.path,
             activeFileContent: content,
             activeFileIsDirty: snapshot.isDirty,
+            activeFileRevision: snapshot.modelRevision,
             activeFileContentTruncated: truncated,
             activeFileContentLength: snapshot.content.length,
         };
@@ -58,15 +59,13 @@ export const createContextPayloadBuilder = (deps) => {
     };
     const buildOpenFilesContext = () => {
         var _a;
-        const maxChars = MAX_OPEN_FILE_CONTEXT_CHARS;
-        const s = (_a = deps.getOpenFileSnapshots) === null || _a === void 0 ? void 0 : _a.call(deps, { maxFiles: MAX_OPEN_FILE_SNAPSHOTS, maxChars });
-        if (!s) {
-            return {};
-        }
-        const files = s.files.length > MAX_OPEN_FILES_METADATA
-            ? s.files.slice(0, MAX_OPEN_FILES_METADATA)
-            : s.files;
-        return { openFiles: files, openFileSnapshots: s.snapshots };
+        const open = (_a = deps.getOpenFileSnapshots) === null || _a === void 0 ? void 0 : _a.call(deps, {
+            maxFiles: 0,
+            maxChars: MAX_DIRTY_FILE_CONTEXT_CHARS,
+            onlyDirty: true,
+            excludePath: deps.getActiveFilePath(),
+        });
+        return open ? { openFiles: open.files, openFileSnapshots: open.snapshots } : {};
     };
     const buildIssuesContext = () => {
         var _a;

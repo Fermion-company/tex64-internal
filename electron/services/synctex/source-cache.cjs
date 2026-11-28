@@ -1,6 +1,9 @@
 const fs = require("fs");
 const path = require("path");
 
+const MAX_CACHED_SOURCE_BYTES = 8 * 1024 * 1024;
+const MAX_CACHED_SOURCES = 64;
+
 module.exports = (SynctexService) => {
   SynctexService.prototype.getSourceLines = function (sourcePath) {
     if (!sourcePath || typeof sourcePath !== "string") {
@@ -26,6 +29,8 @@ module.exports = (SynctexService) => {
       cached.mtimeMs === metadata.mtimeMs &&
       cached.ctimeMs === metadata.ctimeMs
     ) {
+      this.sourceLineCache.delete(normalizedPath);
+      this.sourceLineCache.set(normalizedPath, cached);
       return cached.lines;
     }
     let lines = null;
@@ -35,7 +40,19 @@ module.exports = (SynctexService) => {
     } catch {
       lines = null;
     }
-    this.sourceLineCache.set(normalizedPath, { ...metadata, lines });
+    this.sourceLineCache.delete(normalizedPath);
+    if (!lines) return null;
+    const cost = metadata.size + lines.length * 8;
+    this.sourceLineCache.set(normalizedPath, { ...metadata, lines, cost });
+    let total = 0;
+    for (const entry of this.sourceLineCache.values()) total += entry.cost;
+    // Keep a single oversize active chapter so repeated lookups of adjacent
+    // lines do not reread and split the whole document.
+    for (const [key, entry] of this.sourceLineCache) {
+      if (key === normalizedPath || (total <= MAX_CACHED_SOURCE_BYTES && this.sourceLineCache.size <= MAX_CACHED_SOURCES)) break;
+      this.sourceLineCache.delete(key);
+      total -= entry.cost;
+    }
     return lines;
   };
 

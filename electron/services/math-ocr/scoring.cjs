@@ -1,7 +1,7 @@
 const { MAX_FALLBACK_IMAGE_CANDIDATES } = require("./constants.cjs");
 const { clamp } = require("./sampling.cjs");
 
-const isSimpleFormula = (value) => /^[A-Za-z0-9=+\-*/()^_{}]+$/.test(value) && value.length <= 24;
+const isSimpleFormula = (value) => /^[A-Za-z0-9.=+\-*/()^_{}]+$/.test(value) && value.length <= 24;
 
 const looksLikeGarbage = (value) => {
   if (!value) return true;

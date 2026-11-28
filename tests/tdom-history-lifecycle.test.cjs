@@ -106,3 +106,60 @@ test("late readiness cannot resurrect stopped preview; restarting can open and p
   assert.equal((await service.push({ source: "\\documentclass{article}", path: "/tmp/main.tex" })).ok, true);
   assert.equal(opens, 1);
 });
+
+test("disconnecting the preview owner invokes the engine shutdown handler", {
+  skip: process.platform === "win32",
+}, async t => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const os = require("node:os");
+  const { once } = require("node:events");
+  const engineDir = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-tdom-owner-test-"));
+  t.after(() => fs.rmSync(engineDir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(engineDir, "server.js"), `
+    const http = require("node:http");
+    process.once("SIGTERM", () => process.exit(0));
+    http.createServer((_req, res) => res.end("{}")).listen(Number(process.env.PORT), "127.0.0.1");
+  `);
+  const service = new TdomEngineService({ ...options(async () => true), engineDir, port: 0 });
+  t.after(() => service.stop());
+  await service.start();
+  const child = service.proc;
+  const exited = once(child, "exit", { signal: AbortSignal.timeout(3000) });
+  child.disconnect();
+  assert.deepEqual(await exited, [0, null]);
+  assert.ok(require("../package.json").build.asarUnpack.includes("electron/services/tdom-host-lifetime.cjs"));
+});
+
+test("snapshot returns the PDF for its status generation and handles a project switch during transfer", async t => {
+  const service = new TdomEngineService(options(async () => true));
+  service.isRunning = () => true;
+  service.state = "ready";
+  service.lastProjectRoot = "/project";
+  service.lastPath = "/project/main.tex";
+  const requested = [];
+  let switchProject = false;
+  const server = http.createServer((req, res) => {
+    requested.push(req.url);
+    if (req.url === "/status") {
+      res.end(JSON.stringify({ documentEpoch: 9, canonical: { id: 2 } }));
+      return;
+    }
+    if (switchProject) service.lastPath = "/project/another.tex";
+    res.end(Buffer.from("%PDF-1.7 generation 2"));
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  service.port = server.address().port;
+
+  const pdf = await service.snapshot({ afterDocumentEpoch: 8, afterGeneration: 2 });
+  assert.deepEqual(requested, ["/status", "/canonical.pdf?c=2&documentEpoch=9"]);
+  assert.equal(pdf.generation, 2);
+  assert.equal(pdf.path, "main.pdf");
+  assert.equal(Buffer.from(pdf.data, "base64").toString(), "%PDF-1.7 generation 2");
+  requested.length = 0;
+  assert.equal((await service.snapshot({ afterDocumentEpoch: 9, afterGeneration: 2 })).unchanged, true);
+  assert.deepEqual(requested, ["/status"]);
+  switchProject = true;
+  assert.equal((await service.snapshot()).ok, false);
+});

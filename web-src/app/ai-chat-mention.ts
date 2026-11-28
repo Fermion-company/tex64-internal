@@ -31,7 +31,11 @@ type MentionControllerDeps = {
   onOpen?: () => void;
 };
 
+export type DraftMention = { ref: MentionRef; start: number; end: number };
+
 type MentionController = {
+  saveDraft: () => DraftMention[];
+  restoreDraft: (saved: DraftMention[]) => void;
   /** File paths explicitly mentioned via the @-picker in the current draft. */
   getExplicitPaths: () => string[];
   /** Everything mentioned (sections, labels, bib entries, issues, files). */
@@ -117,7 +121,35 @@ const toRef = (candidate: MentionCandidate): MentionRef => {
 
 export const createMentionController = (deps: MentionControllerDeps): MentionController => {
   const { aiInput, getCandidates, onOpen } = deps;
-  const refs: MentionRef[] = [];
+  let mentions: DraftMention[] = [];
+  let previousValue = aiInput.value;
+
+  // A mention belongs to its selected text. Editing elsewhere moves its
+  // range; replacing or deleting the selection removes the structured context.
+  const reconcileMentions = () => {
+    const value = aiInput.value;
+    if (value === previousValue) return;
+    let prefix = 0;
+    while (prefix < previousValue.length && prefix < value.length && previousValue[prefix] === value[prefix]) prefix++;
+    let oldEnd = previousValue.length;
+    let newEnd = value.length;
+    while (oldEnd > prefix && newEnd > prefix && previousValue[oldEnd - 1] === value[newEnd - 1]) {
+      oldEnd--; newEnd--;
+    }
+    const shift = newEnd - oldEnd;
+    mentions = mentions.flatMap(mention => {
+      if (mention.end <= prefix) return [mention];
+      if (mention.start >= oldEnd) return [{ ...mention, start: mention.start + shift, end: mention.end + shift }];
+      return [];
+    });
+    previousValue = value;
+  };
+
+  const activeRefs = () => {
+    reconcileMentions();
+    const refs = new Map(mentions.map(({ ref }) => [JSON.stringify(ref), ref]));
+    return [...refs.values()];
+  };
 
   // ── Popover DOM ──
   const popover = document.createElement("div");
@@ -230,8 +262,7 @@ export const createMentionController = (deps: MentionControllerDeps): MentionCon
     const newPos = before.length + handle.length + 1;
     aiInput.setSelectionRange(newPos, newPos);
     aiInput.dispatchEvent(new Event("input", { bubbles: true }));
-    const ref = toRef(candidate);
-    if (!refs.some((existing) => JSON.stringify(existing) === JSON.stringify(ref))) refs.push(ref);
+    mentions.push({ ref: toRef(candidate), start: before.length - 1, end: before.length + handle.length });
     hide();
     aiInput.focus();
   };
@@ -281,20 +312,24 @@ export const createMentionController = (deps: MentionControllerDeps): MentionCon
   };
 
   const onInput = () => {
-    // IME fallback: detect @ insertion via input event when keydown didn't trigger
-    if (mentionStart < 0) {
-      const cursorPos = aiInput.selectionStart;
-      if (cursorPos > 0 && aiInput.value[cursorPos - 1] === "@") open(cursorPos);
-      return;
-    }
+    reconcileMentions();
     const cursorPos = aiInput.selectionStart;
+    if (mentionStart < 0) {
+      const before = aiInput.value.slice(0, cursorPos);
+      if (before.endsWith("@")) open(cursorPos);
+      else {
+        const pasted = /(?:^|\s)@([^\s@]+)$/u.exec(before);
+        if (pasted) open(cursorPos - pasted[1].length);
+      }
+      if (mentionStart < 0) return;
+    }
     if (cursorPos < mentionStart) {
       hide();
       return;
     }
     query = aiInput.value.slice(mentionStart, cursorPos);
-    // A space or a newline after @ cancels the mention
-    if (query.includes(" ") || query.includes("\n")) {
+    // A section title or filename may itself contain spaces.
+    if (/^\s|[\r\n]/u.test(query) || aiInput.value[mentionStart - 1] !== "@") {
       hide();
       return;
     }
@@ -304,6 +339,7 @@ export const createMentionController = (deps: MentionControllerDeps): MentionCon
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
+    if (e.isComposing || e.keyCode === 229) return;
     if (mentionStart < 0) {
       // Check for @ trigger
       if (e.key === "@" || (e.key === "2" && e.shiftKey)) {
@@ -360,11 +396,20 @@ export const createMentionController = (deps: MentionControllerDeps): MentionCon
   aiInput.addEventListener("blur", onBlur);
 
   return {
+    saveDraft: () => {
+      reconcileMentions();
+      return mentions.slice();
+    },
+    restoreDraft: (saved) => {
+      hide();
+      mentions = saved.slice();
+      previousValue = aiInput.value;
+    },
     getExplicitPaths: () =>
-      refs.flatMap((ref) => (ref.kind === "file" ? [ref.path] : ref.kind === "section" ? [ref.path] : [])),
-    getExplicitRefs: () => refs.map((ref) => ({ ...ref })),
+      activeRefs().flatMap((ref) => (ref.kind === "file" ? [ref.path] : ref.kind === "section" ? [ref.path] : [])),
+    getExplicitRefs: () => activeRefs().map((ref) => ({ ...ref })),
     clearExplicitPaths: () => {
-      refs.length = 0;
+      mentions = [];
     },
     refresh: () => {
       if (mentionStart < 0) return;
